@@ -1018,21 +1018,254 @@ def server_profile_choices_text(config):
     return ", ".join(names)
 
 
-def runtime_config_for_link_target(guild, server_profile_id=""):
-    base_id = str(guild.id)
-    base_config = guild_configs.setdefault(base_id, new_guild_config(guild))
+SERVER_PROFILE_CONTEXT_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "around",
+    "bot",
+    "community",
+    "dayz",
+    "main",
+    "map",
+    "profile",
+    "server",
+    "servers",
+    "survivor",
+    "survivors",
+    "the",
+    "wandering",
+}
+
+
+def guild_config_for_command_context(guild):
+    if not guild or not getattr(guild, "id", None):
+        return "", None
+
+    guild_id = str(guild.id)
+    config = guild_configs.get(guild_id)
+    if isinstance(config, dict):
+        return guild_id, config
+
+    try:
+        config = new_guild_config(guild)
+    except Exception:
+        config = {
+            "guild_name": getattr(guild, "name", guild_id),
+            "admin_roles": DEFAULT_ADMIN_ROLES.copy(),
+            "channels": {},
+        }
+    guild_configs[guild_id] = config
+    return guild_id, config
+
+
+def server_profile_context_tokens(profile_id, profile_config=None):
+    profile_config = profile_config or {}
+    tokens = set()
+
+    values = [
+        profile_id,
+        profile_config.get("profile_name"),
+        profile_config.get("name"),
+        profile_config.get("display_name"),
+        profile_config.get("server_map"),
+        profile_config.get("map"),
+    ]
+
+    for value in values:
+        raw = str(value or "").strip()
+        if not raw:
+            continue
+        full = normalize_discord_name(raw)
+        if full and full not in SERVER_PROFILE_CONTEXT_STOP_WORDS and len(full) >= 3:
+            tokens.add(full)
+        for part in re.split(r"[^A-Za-z0-9]+", raw):
+            token = normalize_discord_name(part)
+            if token and token not in SERVER_PROFILE_CONTEXT_STOP_WORDS and len(token) >= 3:
+                tokens.add(token)
+
+    map_key = normalize_discord_name(profile_config.get("server_map") or profile_config.get("map") or "")
+    if "livonia" in map_key or map_key == "enoch":
+        tokens.update({"livo", "livonia", "enoch"})
+    if "chernarus" in map_key or "cherno" in map_key:
+        tokens.update({"cherno", "chernarus", "chernarusplus"})
+    if "sakhal" in map_key:
+        tokens.update({"sakhal", "sakhalplus"})
+
+    return {token for token in tokens if token}
+
+
+def server_profile_context_token_matches(value, tokens):
+    text = normalize_discord_name(value or "")
+    if not text:
+        return False
+    return any(token == text or token in text for token in tokens if len(token) >= 3)
+
+
+def server_profile_context_id_values(value):
+    ids = set()
+    if value is None:
+        return ids
+    if isinstance(value, dict):
+        for nested in value.values():
+            ids.update(server_profile_context_id_values(nested))
+        return ids
+    if isinstance(value, (list, tuple, set)):
+        for nested in value:
+            ids.update(server_profile_context_id_values(nested))
+        return ids
+
+    text = str(value).strip()
+    if text:
+        ids.add(text)
+    return ids
+
+
+def server_profile_route_channel_ids(profile_config):
+    ids = set()
+    channels = profile_config.get("channels") if isinstance(profile_config, dict) else {}
+    if isinstance(channels, dict):
+        ids.update(server_profile_context_id_values(channels.values()))
+
+    custom_feeds = profile_config.get("custom_feeds") if isinstance(profile_config, dict) else []
+    if isinstance(custom_feeds, list):
+        for feed in custom_feeds:
+            if isinstance(feed, dict):
+                ids.update(server_profile_context_id_values(feed.get("channel_id")))
+
+    return {str(item).strip() for item in ids if str(item).strip()}
+
+
+def server_profile_category_ids(profile_config):
+    ids = set()
+    for key in ("category_id", "category_ids", "discord_category_id", "discord_category_ids", "server_category_id", "server_category_ids"):
+        ids.update(server_profile_context_id_values(profile_config.get(key)))
+    return {str(item).strip() for item in ids if str(item).strip()}
+
+
+def server_profile_role_ids(profile_config):
+    ids = set()
+    for source in (profile_config, profile_config.get("member_onboarding") if isinstance(profile_config, dict) else {}):
+        if not isinstance(source, dict):
+            continue
+        for key in (
+            "role_id",
+            "role_ids",
+            "discord_role_id",
+            "discord_role_ids",
+            "player_role_id",
+            "player_role_ids",
+            "server_role_id",
+            "server_role_ids",
+            "linked_role_id",
+            "rules_role_id",
+            "pending_role_id",
+        ):
+            ids.update(server_profile_context_id_values(source.get(key)))
+    return {str(item).strip() for item in ids if str(item).strip()}
+
+
+def server_profile_context_match_score(profile_id, profile_config, *, channel=None, member=None):
+    tokens = server_profile_context_tokens(profile_id, profile_config)
+    if not tokens:
+        return 0, ""
+
+    score = 0
+    reason = ""
+    channel_id = str(getattr(channel, "id", "") or "").strip()
+    category = getattr(channel, "category", None) if channel else None
+    category_id = str(getattr(category, "id", "") or "").strip()
+
+    if channel and server_profile_context_token_matches(getattr(channel, "name", ""), tokens):
+        score, reason = 110, "channel name"
+    if category and server_profile_context_token_matches(getattr(category, "name", ""), tokens) and score < 105:
+        score, reason = 105, "category name"
+    if channel_id and channel_id in server_profile_route_channel_ids(profile_config) and score < 100:
+        score, reason = 100, "saved feed channel"
+    if category_id and category_id in server_profile_category_ids(profile_config) and score < 95:
+        score, reason = 95, "saved category"
+
+    member_role_ids = set()
+    for role in getattr(member, "roles", []) or []:
+        role_id = str(getattr(role, "id", "") or "").strip()
+        if role_id:
+            member_role_ids.add(role_id)
+        if server_profile_context_token_matches(getattr(role, "name", ""), tokens) and score < 55:
+            score, reason = 55, "role name"
+
+    if member_role_ids.intersection(server_profile_role_ids(profile_config)) and score < 70:
+        score, reason = 70, "saved role"
+
+    return score, reason
+
+
+def infer_server_profile_id_from_context(base_config, *, channel=None, member=None):
+    matches = []
+    for stored_id, profile_config in server_profile_store(base_config).items():
+        if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
+            continue
+        profile_id = normalize_server_profile_id(stored_id, default="")
+        score, reason = server_profile_context_match_score(profile_id, profile_config, channel=channel, member=member)
+        if score > 0:
+            matches.append((score, profile_id, reason))
+
+    if not matches:
+        return "", ""
+
+    matches.sort(reverse=True)
+    top_score, top_profile_id, top_reason = matches[0]
+    if len(matches) > 1 and matches[1][0] == top_score:
+        return "", "ambiguous"
+    return top_profile_id, top_reason
+
+
+def server_profile_required_error(config, reason=""):
+    choices = server_profile_choices_text(config)
+    choices_text = f" Available: {choices}." if choices else ""
+    if reason == "ambiguous":
+        return (
+            "I can see more than one possible DayZ server from this command context. "
+            "Run it inside the correct Cherno/Livo channel or use the optional `server:` field."
+            f"{choices_text}"
+        )
+    return (
+        "Pick which DayZ server this command is for. Run it inside a matching Cherno/Livo channel, "
+        "or use the optional `server:` field."
+        f"{choices_text}"
+    )
+
+
+def runtime_config_for_command_context(guild, *, channel=None, member=None, server_profile_id="", require_profile=False):
+    base_id, base_config = guild_config_for_command_context(guild)
+    if not base_id or base_config is None:
+        return None, None, "This command needs to run inside a Discord server."
+
     requested_profile_id = normalize_server_profile_id(server_profile_id, default="")
     if not has_server_profiles(base_config):
         return base_id, base_config, None
-    if not requested_profile_id:
-        choices = server_profile_choices_text(base_config)
-        return None, None, f"Pick which server to link against using `server:`. Available: {choices or 'none'}."
-    profile_config = server_profile_config_for_id(base_config, requested_profile_id)
-    if not profile_config or not profile_config.get("enabled", True):
-        choices = server_profile_choices_text(base_config)
-        return None, None, f"Unknown server profile `{requested_profile_id}`. Available: {choices or 'none'}."
-    runtime_id = server_profile_runtime_id(base_id, requested_profile_id)
-    return runtime_id, build_server_profile_runtime_config(base_id, base_config, requested_profile_id, profile_config), None
+
+    if requested_profile_id:
+        profile_config = server_profile_config_for_id(base_config, requested_profile_id)
+        if not profile_config or not profile_config.get("enabled", True):
+            choices = server_profile_choices_text(base_config)
+            return None, None, f"Unknown server profile `{requested_profile_id}`. Available: {choices or 'none'}."
+        runtime_id = server_profile_runtime_id(base_id, requested_profile_id)
+        return runtime_id, build_server_profile_runtime_config(base_id, base_config, requested_profile_id, profile_config), None
+
+    inferred_profile_id, reason = infer_server_profile_id_from_context(base_config, channel=channel, member=member)
+    if inferred_profile_id:
+        profile_config = server_profile_config_for_id(base_config, inferred_profile_id)
+        runtime_id = server_profile_runtime_id(base_id, inferred_profile_id)
+        return runtime_id, build_server_profile_runtime_config(base_id, base_config, inferred_profile_id, profile_config), None
+
+    if require_profile:
+        return None, None, server_profile_required_error(base_config, reason)
+
+    return base_id, base_config, None
+
+
+def runtime_config_for_link_target(guild, server_profile_id=""):
+    return runtime_config_for_command_context(guild, server_profile_id=server_profile_id, require_profile=True)
 
 
 def server_map_key(guild_id):
@@ -2805,13 +3038,14 @@ def build_simple_leaderboard_table(rows, stat_key, heading, limit=5, formatter=N
 
 
 def build_topkills_grid_embed(guild):
-    guild_id = str(guild.id)
+    guild_id = str(getattr(guild, "id", guild))
+    _base_id, profile_id = split_server_runtime_id(guild_id)
     guild_players = [
         (player, stats)
         for player, stats in player_stats.items()
         if str(stats.get("guild_id", "")) == guild_id
     ]
-    rows = guild_players or list(player_stats.items())
+    rows = guild_players or ([] if profile_id else list(player_stats.items()))
 
     sorted_players = sorted(
         rows,
@@ -2835,7 +3069,7 @@ def build_topkills_grid_embed(guild):
     embed.add_field(name="👥 Survivors Ranked", value=str(len(rows)), inline=True)
     embed.add_field(
         name="📍 Scope",
-        value="This server" if guild_players else "Global fallback until this server has ADM stats",
+        value="This server" if guild_players else "No profile stats yet" if profile_id else "Global fallback until this server has ADM stats",
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -2916,13 +3150,14 @@ def build_longshots_grid_embed():
 
 
 def build_showcase_topkills_embed(guild):
-    guild_id = str(guild.id)
+    guild_id = str(getattr(guild, "id", guild))
+    _base_id, profile_id = split_server_runtime_id(guild_id)
     guild_players = [
         (player, stats)
         for player, stats in player_stats.items()
         if str(stats.get("guild_id", "")) == guild_id
     ]
-    rows = guild_players or list(player_stats.items())
+    rows = guild_players or ([] if profile_id else list(player_stats.items()))
     sorted_players = sorted(rows, key=lambda row: row[1].get("kills", 0), reverse=True)
     total_kills = sum(stat_int(stats, "kills") for _, stats in rows)
     total_deaths = sum(stat_int(stats, "deaths") for _, stats in rows)
@@ -2949,7 +3184,7 @@ def build_showcase_topkills_embed(guild):
 
     embed.add_field(
         name="📍 Scope",
-        value="This server" if guild_players else "Global fallback until this server has ADM stats",
+        value="This server" if guild_players else "No profile stats yet" if profile_id else "Global fallback until this server has ADM stats",
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -4134,8 +4369,14 @@ def build_linkgamer_confirmation_embed(member, gamertag, account_label="Primary 
     return embed
 
 
-async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=False, server_profile_id=""):
-    guild_id, config, target_error = runtime_config_for_link_target(guild, server_profile_id)
+async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=False, server_profile_id="", channel=None):
+    guild_id, config, target_error = runtime_config_for_command_context(
+        guild,
+        channel=channel,
+        member=member,
+        server_profile_id=server_profile_id,
+        require_profile=True,
+    )
     if target_error:
         return False, target_error
     verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
@@ -18947,6 +19188,29 @@ def log_adm_protocol_results(results, label="ADM PROTOCOL"):
         print(f"[{label}] {guild_display_name(result_guild_id)} ({result_guild_id}) -> {status}: {message}")
 
 
+def summarize_adm_refresh_results(results, preferred_guild_id=""):
+    preferred_guild_id = str(preferred_guild_id or "")
+    if preferred_guild_id and preferred_guild_id in results:
+        return results.get(preferred_guild_id)
+    if not results:
+        return False, "No active configured guilds to scan."
+
+    successful = [
+        (guild_id, message)
+        for guild_id, (success, message) in results.items()
+        if success
+    ]
+    lines = []
+    for guild_id, (success, message) in results.items():
+        status = "OK" if success else "WAITING"
+        lines.append(f"{guild_display_name(guild_id)}: {status} - {message}")
+
+    summary = f"Refreshed `{len(successful)}/{len(results)}` DayZ server profile(s)."
+    if lines:
+        summary += "\n" + "\n".join(lines)[:1500]
+    return bool(successful), summary
+
+
 async def refresh_adm_feeds(guild_id=None, *, force=False):
     results = {}
 
@@ -21142,7 +21406,15 @@ async def helpme(ctx):
 @bot.command()
 async def online(ctx):
 
-    guild_id = str(ctx.guild.id)
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
 
     ensure_guild_runtime(guild_id)
 
@@ -21214,7 +21486,15 @@ async def swearjar(ctx):
 @bot.command()
 async def heatmap(ctx):
 
-    guild_id = str(ctx.guild.id)
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
 
     ensure_guild_runtime(guild_id)
 
@@ -21312,13 +21592,22 @@ async def topkills(ctx):
 
         return
 
-    guild_id = str(ctx.guild.id)
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
     guild_players = [
         (player, stats)
         for player, stats in player_stats.items()
         if str(stats.get("guild_id", "")) == guild_id
     ]
-    rows = guild_players or list(player_stats.items())
+    _base_id, profile_id = split_server_runtime_id(guild_id)
+    rows = guild_players or ([] if profile_id else list(player_stats.items()))
 
     sorted_players = sorted(
         rows,
@@ -21346,7 +21635,7 @@ async def topkills(ctx):
     )
     embed.add_field(
         name="Scope",
-        value="This server" if guild_players else "Global fallback until this server has ADM stats",
+        value="This server" if guild_players else "No profile stats yet" if profile_id else "Global fallback until this server has ADM stats",
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -24145,12 +24434,17 @@ async def reloadguilds(ctx):
 
 
 @bot.command()
-async def restartadm(ctx, force: str = "no"):
+async def restartadm(ctx, force: str = "no", server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
 
-    force_refresh = force.lower() in ["force", "yes", "true", "1"]
+    force_text = str(force or "no").strip().lower()
+    force_refresh = force_text in ["force", "yes", "true", "1"]
+    server_profile_id = str(server or "").strip()
+    if not server_profile_id and force_text and force_text not in ["force", "yes", "true", "1", "no", "false", "0", "off"]:
+        server_profile_id = force_text
+        force_refresh = False
 
     load_guild_configs()
     load_processed_adm_lines()
@@ -24162,9 +24456,20 @@ async def restartadm(ctx, force: str = "no"):
     else:
         adm_loop.start()
 
-    results = await refresh_adm_feeds(str(ctx.guild.id), force=force_refresh)
+    target_guild_id, _config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server_profile_id,
+        require_profile=False,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+
+    results = await refresh_adm_feeds(target_guild_id or str(ctx.guild.id), force=force_refresh)
     log_adm_protocol_results(results, "ADM RESTART")
-    success, message = results.get(str(ctx.guild.id), (False, "No result"))
+    success, message = summarize_adm_refresh_results(results, target_guild_id)
 
     embed = discord.Embed(
         title="📡 ADM FEED RESTARTED",
@@ -24192,9 +24497,10 @@ async def restartadm(ctx, force: str = "no"):
 @app_commands.describe(
     limit="Maximum historical kills to post, 1 to 500",
     hours="How far back to scan ADM files, defaults to 14 days",
-    force="Repost kills already backfilled by this command"
+    force="Repost kills already backfilled by this command",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
-async def backfillkills(interaction: discord.Interaction, limit: int = 100, hours: int = 336, force: bool = False):
+async def backfillkills(interaction: discord.Interaction, limit: int = 100, hours: int = 336, force: bool = False, server: str = ""):
 
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -24202,10 +24508,15 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
 
     await interaction.response.defer(ephemeral=True)
 
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id)
-    if not config:
-        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.followup.send(target_error, ephemeral=True)
         return
 
     required_keys = ["nitrado_token", "service_id", "nitrado_user"]
@@ -24319,9 +24630,10 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     hours="How far back to scan ADM files, defaults to 14 days",
-    force="Count lines even if this bot already processed them"
+    force="Count lines even if this bot already processed them",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
-async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, force: bool = False):
+async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, force: bool = False, server: str = ""):
 
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
@@ -24329,10 +24641,15 @@ async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, f
 
     await interaction.response.defer(ephemeral=True)
 
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id)
-    if not config:
-        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.followup.send(target_error, ephemeral=True)
         return
 
     required_keys = ["nitrado_token", "service_id", "nitrado_user"]
@@ -27960,7 +28277,7 @@ async def serverstatus(ctx):
 @bot.command()
 async def linkgamer(ctx, *, gamertag: str):
 
-    success, result = await link_verified_gamertag_for_member(ctx.guild, ctx.author, gamertag)
+    success, result = await link_verified_gamertag_for_member(ctx.guild, ctx.author, gamertag, channel=ctx.channel)
     if not success:
         await ctx.send(result)
         return
@@ -27993,7 +28310,7 @@ async def linkgamer(ctx, *, gamertag: str):
 
 @bot.command()
 async def linkaltgamer(ctx, *, gamertag: str):
-    success, result = await link_verified_gamertag_for_member(ctx.guild, ctx.author, gamertag, is_alt=True)
+    success, result = await link_verified_gamertag_for_member(ctx.guild, ctx.author, gamertag, is_alt=True, channel=ctx.channel)
     if not success:
         await ctx.send(result)
         return
@@ -28072,6 +28389,7 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, accou
         gamertag,
         is_alt=is_alt,
         server_profile_id=server,
+        channel=interaction.channel,
     )
     if not success:
         await interaction.followup.send(result, ephemeral=True)
@@ -28100,9 +28418,16 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, accou
     await interaction.followup.send(embed=style_embed(embed), ephemeral=True)
 
 
-async def force_link_gamertag_for_member(guild, admin_member, target_member, gamertag):
-    guild_id = str(guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+async def force_link_gamertag_for_member(guild, admin_member, target_member, gamertag, *, server_profile_id="", channel=None):
+    guild_id, config, target_error = runtime_config_for_command_context(
+        guild,
+        channel=channel,
+        member=admin_member,
+        server_profile_id=server_profile_id,
+        require_profile=True,
+    )
+    if target_error:
+        return False, target_error
     verified_name = str(gamertag).strip()
     if not verified_name:
         return False, "Gamertag cannot be empty."
@@ -28207,6 +28532,7 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
     save_linked_players()
     save_linked_player_claims()
     if index_changed:
+        persist_server_profile_runtime_config(config)
         save_guild_configs()
 
     stats = ensure_player_stats_record(guild_id, verified_name)
@@ -28227,8 +28553,12 @@ async def force_link_gamertag_for_member(guild, admin_member, target_member, gam
 
 @bot.tree.command(name="forcelinkgamer", description="Admin: force link a Discord member to an Xbox gamertag")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(member="Discord member to link", gamertag="Xbox gamertag to link")
-async def forcelinkgamer(interaction: discord.Interaction, member: discord.Member, gamertag: str):
+@app_commands.describe(
+    member="Discord member to link",
+    gamertag="Xbox gamertag to link",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def forcelinkgamer(interaction: discord.Interaction, member: discord.Member, gamertag: str, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
@@ -28237,7 +28567,9 @@ async def forcelinkgamer(interaction: discord.Interaction, member: discord.Membe
         interaction.guild,
         interaction.user,
         member,
-        gamertag
+        gamertag,
+        server_profile_id=server,
+        channel=interaction.channel,
     )
     if not success:
         await interaction.response.send_message(result, ephemeral=True)
@@ -28252,17 +28584,26 @@ async def forcelinkgamer(interaction: discord.Interaction, member: discord.Membe
 
 @bot.tree.command(name="refreshadmplayers", description="Admin: rescan recent ADM logs for linkable player names")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(hours="How far back to scan, max 336", max_logs="Maximum ADM files to scan, max 80")
-async def refreshadmplayers(interaction: discord.Interaction, hours: int = 168, max_logs: int = 40):
+@app_commands.describe(
+    hours="How far back to scan, max 336",
+    max_logs="Maximum ADM files to scan, max 80",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def refreshadmplayers(interaction: discord.Interaction, hours: int = 168, max_logs: int = 40, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id)
-    if not config:
-        await interaction.followup.send("This server is not setup yet.", ephemeral=True)
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.followup.send(target_error, ephemeral=True)
         return
 
     hours = max(1, min(336, int(hours or 168)))
@@ -28282,13 +28623,26 @@ async def refreshadmplayers(interaction: discord.Interaction, hours: int = 168, 
 
 @bot.tree.command(name="admplayers", description="Admin: show ADM player names the bot has learned")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(search="Optional text to filter gamertags")
-async def admplayers(interaction: discord.Interaction, search: str = ""):
+@app_commands.describe(
+    search="Optional text to filter gamertags",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def admplayers(interaction: discord.Interaction, search: str = "", server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    guild_id = str(interaction.guild.id)
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+
     wanted = normalize_discord_name(search)
     rows = [
         (player, stats)
@@ -46295,11 +46649,22 @@ async def slash_toplongshots(interaction: discord.Interaction):
         return
     await interaction.response.send_message(embed=build_showcase_longshots_embed(), ephemeral=True)
 @bot.tree.command(name="topkills", description="Show top kill leaderboard")
-async def slash_topkills(interaction: discord.Interaction):
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_topkills(interaction: discord.Interaction, server: str = ""):
     if not player_stats:
         await interaction.response.send_message("No stats available.", ephemeral=True)
         return
-    await interaction.response.send_message(embed=build_showcase_topkills_embed(interaction.guild), ephemeral=True)
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+    await interaction.response.send_message(embed=build_showcase_topkills_embed(guild_id), ephemeral=True)
 @extra_tools_group.command(name="staffroles", description="List staff roles")
 @app_commands.default_permissions(administrator=True)
 async def slash_staffroles(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "staffroles")
@@ -48021,7 +48386,8 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     ch_id = channels.get("mega_leaderboard")
     if not ch_id:
         return False, "no channel configured"
-    channel = bot.get_channel(ch_id)
+    channel_id = _safe_channel_id(ch_id)
+    channel = bot.get_channel(channel_id) if channel_id else None
     if not channel:
         return False, "channel not found"
 
@@ -48041,7 +48407,7 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     except Exception:
         pass
 
-    guild_name = guild_configs.get(str(guild_id), {}).get("guild_name", "Server")
+    guild_name = guild_display_name(guild_id)
 
     summary_embed = build_mega_leaderboard_summary_embed()
     server_embed = build_scope_leaderboard_embed(
@@ -48077,7 +48443,7 @@ async def post_or_update_mega_leaderboard(guild_id, config):
 
 @tasks.loop(hours=1)
 async def mega_leaderboard_loop():
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
         try:
             await post_or_update_mega_leaderboard(guild_id, config)
         except Exception as error:
@@ -48092,23 +48458,33 @@ leaderboard_group = app_commands.Group(
 
 @leaderboard_group.command(name="setup", description="Set the channel for the live leaderboard message")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(channel="Channel where the auto-updating leaderboard message lives (defaults to current channel)")
+@app_commands.describe(
+    channel="Channel where the auto-updating leaderboard message lives (defaults to current channel)",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
 async def slash_leaderboard_setup(
     interaction: discord.Interaction,
     channel: discord.TextChannel = None,
+    server: str = "",
 ):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
     target = channel or interaction.channel
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.setdefault(
-        guild_id, {"guild_name": interaction.guild.name, "channels": {}}
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=target,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
     )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
     config.setdefault("channels", {})["mega_leaderboard"] = target.id
     # Reset cached message id so we post a brand-new pinned message
     last_mega_leaderboard_message_ids.pop(guild_id, None)
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     await interaction.response.defer(ephemeral=True, thinking=True)
     ok, info = await post_or_update_mega_leaderboard(guild_id, config)
     if ok:
@@ -48128,12 +48504,21 @@ async def slash_leaderboard_setup(
 
 @leaderboard_group.command(name="refresh", description="Force-refresh the live leaderboard now")
 @app_commands.default_permissions(administrator=True)
-async def slash_leaderboard_refresh(interaction: discord.Interaction):
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_leaderboard_refresh(interaction: discord.Interaction, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id, {})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
     if not config.get("channels", {}).get("mega_leaderboard"):
         await interaction.response.send_message(
             "No live-leaderboard channel set. Run `/leaderboard setup` first.",
@@ -48150,16 +48535,25 @@ async def slash_leaderboard_refresh(interaction: discord.Interaction):
 
 @leaderboard_group.command(name="unset", description="Disable the live leaderboard for this guild")
 @app_commands.default_permissions(administrator=True)
-async def slash_leaderboard_unset(interaction: discord.Interaction):
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_leaderboard_unset(interaction: discord.Interaction, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.get(guild_id, {})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
     channels = config.get("channels", {})
     if "mega_leaderboard" in channels:
         channels.pop("mega_leaderboard", None)
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         last_mega_leaderboard_message_ids.pop(guild_id, None)
         await interaction.response.send_message(
             "✅ Live leaderboard disabled. The pinned message will stop updating "
@@ -48174,8 +48568,18 @@ async def slash_leaderboard_unset(interaction: discord.Interaction):
 
 
 @leaderboard_group.command(name="hall", description="🏅 All-time Hall of Fame for this server")
-async def slash_leaderboard_hall(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id) if interaction.guild else ""
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_leaderboard_hall(interaction: discord.Interaction, server: str = ""):
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
     gid = str(guild_id)
 
     embed = discord.Embed(
@@ -48291,8 +48695,18 @@ async def slash_leaderboard_hall(interaction: discord.Interaction):
 
 
 @leaderboard_group.command(name="challenges", description="🎯 See today's daily challenge + progress")
-async def slash_leaderboard_challenges(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id) if interaction.guild else ""
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_leaderboard_challenges(interaction: discord.Interaction, server: str = ""):
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
     state = get_or_roll_daily_challenge(guild_id)
     ch = state.get("challenge") or {}
     completed_by = state.get("completed_by") or []
@@ -48671,9 +49085,12 @@ def nitrado_send_chat(config, message):
 async def slash_reloadguilds(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "reloadguilds")
 @bot.tree.command(name="restartadm", description="Admin: restart and run the ADM feed")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(force="Reprocess recent ADM lines")
-async def slash_restartadm(interaction: discord.Interaction, force: bool = False):
-    await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no")
+@app_commands.describe(
+    force="Reprocess recent ADM lines",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_restartadm(interaction: discord.Interaction, force: bool = False, server: str = ""):
+    await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no", server=server)
 @bot.tree.command(name="restartserver", description="Restart server")
 @app_commands.default_permissions(administrator=True)
 async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")

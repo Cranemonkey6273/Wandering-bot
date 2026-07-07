@@ -10,20 +10,36 @@ from _bot_loader import import_bot_module  # noqa: E402
 bot = import_bot_module()
 
 
+class FakeRole:
+    def __init__(self, name, role_id):
+        self.name = name
+        self.id = role_id
+
+
+class FakeMember:
+    def __init__(self, roles=None):
+        self.roles = roles or []
+
+
 class FakeChannel:
-    def __init__(self, name, channel_id):
+    def __init__(self, name, channel_id, category=None):
         self.name = name
         self.id = channel_id
+        self.category = category
 
 
 class FakeCategory:
-    def __init__(self, name):
+    def __init__(self, name, category_id=0):
         self.name = name
+        self.id = category_id
 
 
 class FakeGuild:
-    def __init__(self, channels):
+    def __init__(self, channels, guild_id="guild-a", name="Guild A"):
         self.text_channels = channels
+        self.id = guild_id
+        self.name = name
+        self.owner = "owner"
 
     def get_channel(self, channel_id):
         for channel in self.text_channels:
@@ -167,6 +183,98 @@ class ChannelMatchingTests(unittest.TestCase):
             self.assertEqual("20", config_b["channels"]["building"])
             self.assertEqual("livonia", bot.server_map_key(runtime_a))
             self.assertEqual("chernarus", bot.server_map_key(runtime_b))
+        finally:
+            bot.guild_configs = previous_configs
+
+    def test_server_profile_context_uses_saved_feed_channel_id(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {"profile_name": "Cherno", "server_map": "chernarus", "channels": {"killfeed": "100"}},
+                        "livo": {"profile_name": "Wandering Around Livo", "server_map": "livonia", "channels": {"killfeed": "200"}},
+                    },
+                }
+            }
+            channel = FakeChannel("killfeed", 200)
+            guild = FakeGuild([channel])
+
+            runtime_id, config, error = bot.runtime_config_for_command_context(guild, channel=channel, require_profile=True)
+
+            self.assertIsNone(error)
+            self.assertEqual("guild-a:livo", runtime_id)
+            self.assertEqual("livonia", config["server_map"])
+        finally:
+            bot.guild_configs = previous_configs
+
+    def test_server_profile_context_uses_category_name(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {"profile_name": "Cherno", "server_map": "chernarus", "channels": {}},
+                        "livo": {"profile_name": "Livo", "server_map": "livonia", "channels": {}},
+                    },
+                }
+            }
+            category = FakeCategory("Wandering Around Cherno")
+            channel = FakeChannel("leaderboards", 300, category=category)
+            guild = FakeGuild([channel])
+
+            runtime_id, _config, error = bot.runtime_config_for_command_context(guild, channel=channel, require_profile=True)
+
+            self.assertIsNone(error)
+            self.assertEqual("guild-a:cherno", runtime_id)
+        finally:
+            bot.guild_configs = previous_configs
+
+    def test_server_profile_context_channel_name_beats_ambiguous_roles(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {"profile_name": "Cherno", "server_map": "chernarus", "channels": {}},
+                        "livo": {"profile_name": "Livo", "server_map": "livonia", "channels": {}},
+                    },
+                }
+            }
+            member = FakeMember([FakeRole("Cherno Survivor", 10), FakeRole("Livo Survivor", 20)])
+            channel = FakeChannel("livo-leaderboard", 400)
+            guild = FakeGuild([channel])
+
+            runtime_id, _config, error = bot.runtime_config_for_command_context(guild, channel=channel, member=member, require_profile=True)
+
+            self.assertIsNone(error)
+            self.assertEqual("guild-a:livo", runtime_id)
+        finally:
+            bot.guild_configs = previous_configs
+
+    def test_server_profile_context_ambiguous_roles_require_choice(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {"profile_name": "Cherno", "server_map": "chernarus", "channels": {}},
+                        "livo": {"profile_name": "Livo", "server_map": "livonia", "channels": {}},
+                    },
+                }
+            }
+            member = FakeMember([FakeRole("Cherno Survivor", 10), FakeRole("Livo Survivor", 20)])
+            guild = FakeGuild([])
+
+            runtime_id, config, error = bot.runtime_config_for_command_context(guild, member=member, require_profile=True)
+
+            self.assertIsNone(runtime_id)
+            self.assertIsNone(config)
+            self.assertIn("more than one possible", error)
         finally:
             bot.guild_configs = previous_configs
 
