@@ -162,6 +162,10 @@ adm_scan_locks = {}
 # Per-guild backoff after Nitrado/Cloudflare 429s. Without this the ADM loop
 # retries every 30s across many paths and can keep the service rate-limited.
 adm_rate_limit_backoff_until = {}
+# Short-lived per-Nitrado-service ADM cache. During a Discord merge the same
+# DayZ service can be watched by an old guild and a new server profile; sharing
+# the downloaded ADM bytes keeps both routes live without double-hitting Nitrado.
+adm_source_fetch_cache = {}
 # Runtime-only source metadata for the ADM file currently being parsed.
 # This lets the parser tell the difference between the latest live log and
 # an intentional cold-start history sweep.
@@ -178,6 +182,7 @@ _adm_history_swept = {}
 PROCESSED_ADM_CACHE_LIMIT = 5000
 PROCESSED_ADM_EVENT_CACHE_LIMIT = 10000
 PROCESSED_KILL_EVENT_CACHE_LIMIT = 10000
+ADM_SOURCE_FETCH_CACHE_SECONDS = 45
 online_players = {}
 player_last_coords = {}
 player_online_times = {}
@@ -1301,7 +1306,10 @@ def server_profile_context_id_values(value):
         for nested in value.values():
             ids.update(server_profile_context_id_values(nested))
         return ids
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (list, tuple, set)) or (
+        hasattr(value, "__iter__")
+        and not isinstance(value, (str, bytes, bytearray))
+    ):
         for nested in value:
             ids.update(server_profile_context_id_values(nested))
         return ids
@@ -17743,6 +17751,86 @@ def build_dayz_messages_xml(messages, interval_minutes):
 # DOWNLOAD ADM
 # =========================================================
 
+def adm_source_cache_key(config):
+    token_text = str(config.get("nitrado_token") or "")
+    token_hash = hashlib.sha1(token_text.encode("utf-8", errors="ignore")).hexdigest()[:16] if token_text else ""
+    parts = [
+        str(config.get("service_id") or "").strip(),
+        token_hash,
+        str(config.get("nitrado_user") or "").strip().lower(),
+        str(config.get("nitrado_ftp_host") or "").strip().lower(),
+    ]
+    if not parts[0]:
+        return ""
+    return "|".join(parts)
+
+
+def runtime_adm_path(guild_id):
+    return os.path.join(
+        GUILD_DATA_FOLDER,
+        f"{server_runtime_file_key(guild_id)}.ADM"
+    )
+
+
+def read_runtime_adm_bytes(guild_id):
+    try:
+        with open(runtime_adm_path(guild_id), "rb") as handle:
+            return handle.read()
+    except OSError:
+        return b""
+
+
+def write_runtime_adm_bytes(guild_id, content):
+    if not content:
+        return False
+    ensure_folder(GUILD_DATA_FOLDER)
+    try:
+        with open(runtime_adm_path(guild_id), "wb") as handle:
+            handle.write(content)
+        return True
+    except OSError as error:
+        print(f"[ADM CACHE] failed to write cached ADM for {guild_id}: {error}")
+        return False
+
+
+def cached_adm_source(config):
+    cache_key = adm_source_cache_key(config)
+    if not cache_key:
+        return None
+    cached = adm_source_fetch_cache.get(cache_key)
+    if not isinstance(cached, dict):
+        return None
+    if time.time() - float(cached.get("stored_at", 0) or 0) > ADM_SOURCE_FETCH_CACHE_SECONDS:
+        adm_source_fetch_cache.pop(cache_key, None)
+        return None
+    if not cached.get("content") or not isinstance(cached.get("latest_log"), dict):
+        return None
+    return cached
+
+
+def remember_adm_source_cache(config, latest_log, content):
+    cache_key = adm_source_cache_key(config)
+    if not cache_key or not latest_log or not content:
+        return
+    adm_source_fetch_cache[cache_key] = {
+        "stored_at": time.time(),
+        "latest_log": copy.deepcopy(latest_log),
+        "content": bytes(content),
+    }
+
+
+def hydrate_adm_from_source_cache(guild_id, config, latest_log=None):
+    cached = cached_adm_source(config)
+    if not cached:
+        return None
+    cached_log = cached.get("latest_log") or {}
+    if latest_log and str(cached_log.get("path") or "") != str((latest_log or {}).get("path") or ""):
+        return None
+    if not write_runtime_adm_bytes(guild_id, cached.get("content") or b""):
+        return None
+    return copy.deepcopy(cached_log)
+
+
 def download_latest_adm(
     guild_id,
     config,
@@ -17829,12 +17917,8 @@ def download_latest_adm(
                 })
             return False
 
-        adm_path = os.path.join(
-            GUILD_DATA_FOLDER,
-            f"{server_runtime_file_key(guild_id)}.ADM"
-        )
-
-        with open(adm_path, "wb") as f:
+        ensure_folder(GUILD_DATA_FOLDER)
+        with open(runtime_adm_path(guild_id), "wb") as f:
             f.write(file_response.content)
 
         return True
@@ -19475,33 +19559,45 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
                 print(f"[ADM COLD-START] sweep error on {older.get('path')}: {err}")
         _adm_history_swept[str(guild_id)] = True
 
-    adm_scan_diagnostics = []
-    latest_log = await asyncio.to_thread(
-        ping_latest_adm_log,
-        config,
-        adm_scan_diagnostics,
-    )
+    cached_latest_log = hydrate_adm_from_source_cache(guild_id, config)
+    if cached_latest_log:
+        latest_log = cached_latest_log
+        success = True
+        print(f"[ADM CACHE] Reused latest ADM for {guild_display_name(guild_id)} ({guild_id}) from matching Nitrado service.")
+    else:
+        adm_scan_diagnostics = []
+        latest_log = await asyncio.to_thread(
+            ping_latest_adm_log,
+            config,
+            adm_scan_diagnostics,
+        )
 
-    if not latest_log:
-        if adm_scan_diagnostics_rate_limited(adm_scan_diagnostics):
-            backoff_seconds = set_adm_rate_limit_backoff(guild_id)
-            return False, adm_rate_limited_message("search", adm_scan_diagnostics, backoff_seconds)
-        return False, f"No ADM log found: {adm_scan_failure_summary(adm_scan_diagnostics)}"
+        if not latest_log:
+            if adm_scan_diagnostics_rate_limited(adm_scan_diagnostics):
+                backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+                return False, adm_rate_limited_message("search", adm_scan_diagnostics, backoff_seconds)
+            return False, f"No ADM log found: {adm_scan_failure_summary(adm_scan_diagnostics)}"
 
-    adm_download_diagnostics = []
-    success = await asyncio.to_thread(
-        download_latest_adm,
-        guild_id,
-        config,
-        latest_log,
-        adm_download_diagnostics,
-    )
+        if hydrate_adm_from_source_cache(guild_id, config, latest_log):
+            success = True
+            print(f"[ADM CACHE] Reused ADM log `{latest_log.get('path')}` for {guild_display_name(guild_id)} ({guild_id}).")
+        else:
+            adm_download_diagnostics = []
+            success = await asyncio.to_thread(
+                download_latest_adm,
+                guild_id,
+                config,
+                latest_log,
+                adm_download_diagnostics,
+            )
 
-    if not success:
-        if adm_scan_diagnostics_rate_limited(adm_download_diagnostics):
-            backoff_seconds = set_adm_rate_limit_backoff(guild_id)
-            return False, adm_rate_limited_message("download", adm_download_diagnostics, backoff_seconds)
-        return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
+            if not success:
+                if adm_scan_diagnostics_rate_limited(adm_download_diagnostics):
+                    backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+                    return False, adm_rate_limited_message("download", adm_download_diagnostics, backoff_seconds)
+                return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
+
+            remember_adm_source_cache(config, latest_log, read_runtime_adm_bytes(guild_id))
 
     if remember_adm_log_source(config, latest_log):
         persist_server_profile_runtime_config(config)
@@ -24829,6 +24925,8 @@ async def restartadm(ctx, force: str = "no", server: str = ""):
 
     load_guild_configs()
     load_processed_adm_lines()
+    load_processed_adm_events()
+    load_processed_kill_events()
     load_online_players()
     bootstrap_runtime_from_connected_guilds()
 
@@ -51977,6 +52075,8 @@ async def on_ready():
 
     load_guild_configs()
     load_processed_adm_lines()
+    load_processed_adm_events()
+    load_processed_kill_events()
     load_online_players()
     bootstrap_runtime_from_connected_guilds()
     await repair_display_names_for_active_guilds()
