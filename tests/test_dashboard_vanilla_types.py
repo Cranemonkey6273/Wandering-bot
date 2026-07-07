@@ -100,6 +100,8 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn("dashboard_live_feed_filter_groups", source)
         self.assertIn("dashboard_live_feed_keys", source)
         self.assertIn("server_profile_id", source)
+        self.assertIn('id="dayz-profile-picker"', source)
+        self.assertIn("selected_dayz_profile", source)
         self.assertIn('"dashboard_live_feeds": "dashboard_live_feeds.json"', source)
 
     def test_dashboard_has_plain_task_entry_points_for_setup_and_economy(self):

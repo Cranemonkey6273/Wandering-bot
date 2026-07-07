@@ -3745,6 +3745,7 @@ PAGE_TEMPLATE = """
 <body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
+  {% set profile_qs = '&server_profile_id=' ~ selected_dayz_profile.id if selected_dayz_profile else '' %}
   {% set auth_qs = '&token=' ~ request.args.get('token')|urlencode if request.args.get('token') else '' %}
   {% set dashboard_qs = server_qs ~ auth_qs %}
   {% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
@@ -3861,7 +3862,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
-      <a class="{{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}">Live Feeds</a>
+      <a class="{{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
@@ -3966,7 +3967,7 @@ PAGE_TEMPLATE = """
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
-      <a class="tab-link {{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}">Live Feeds</a>
+      <a class="tab-link {{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
       {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
@@ -3988,7 +3989,7 @@ PAGE_TEMPLATE = """
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
-          <option value="/admin?section=live-feeds{{ server_qs }}" {{ 'selected' if active_section == 'live-feeds' else '' }}>Live Feeds</option>
+          <option value="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'live-feeds' else '' }}>Live Feeds</option>
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
           {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
@@ -4036,7 +4037,7 @@ PAGE_TEMPLATE = """
           <p class="tool-note">One place for server setup, Discord messages, rules, moderation guard and live server controls.</p>
           <nav class="command-subnav" aria-label="Admin center tools">
             <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks">Setup</a>
-            <a class="{{ 'active' if setup_tool == 'feeds' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds{{ server_qs }}#feed-routes">Feeds</a>
+            <a class="{{ 'active' if setup_tool == 'feeds' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds{{ server_qs }}{{ profile_qs }}#feed-routes">Feeds</a>
             {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Messages</a>{% endif %}
             {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
             {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
@@ -4256,13 +4257,35 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         {% if server %}
         {% if server.dayz_profiles %}
-        {% for profile in server.dayz_profiles %}
+        <article class="admin-panel full" id="dayz-profile-picker">
+          <h3>Pick DayZ Server</h3>
+          {% if server.dayz_profiles|length < 2 %}
+          <p class="tool-note">Only one DayZ profile exists. Add a `cherno` profile in Admin Center > Setup if you want Cherno and Livo to appear here.</p>
+          {% endif %}
+          <div class="command-server-grid">
+            {% for option in server.dayz_profiles %}
+            {% set recent = option.dashboard_live_feed_rows[0] if option.dashboard_live_feed_rows else none %}
+            <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/admin?section=live-feeds&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#dayz-profile-picker">
+              <strong>{{ option.name }}</strong>
+              <small>{{ option.platform_label }} / {{ option.map_key }} / {{ option.server_mode }}</small>
+              <div class="pills">
+                <span class="pill {{ 'ok' if option.enabled else 'bad' }}">{{ 'enabled' if option.enabled else 'off' }}</span>
+                <span class="pill">{{ option.dashboard_live_feed_total }} stored</span>
+                <span class="pill">{{ option.configured_channel_count }} routed</span>
+              </div>
+              {% if recent %}<small>{{ recent.feed_label }}: {{ recent.summary }}</small>{% else %}<small>No selected feed events stored yet.</small>{% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </article>
+        {% if selected_dayz_profile %}
+        {% set profile = selected_dayz_profile %}
         <article class="admin-panel full" id="live-feed-settings-{{ profile.id }}">
           <h3>{{ profile.name }} Feed Selection</h3>
           <form class="admin-form" method="post" action="/api/admin/live-feed-settings" data-route="/api/admin/live-feed-settings">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
             <input class="hidden-field" name="server_profile_id" value="{{ profile.id }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=live-feeds&guild_id={{ server.guild_id }}#live-feed-settings-{{ profile.id }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=live-feeds&guild_id={{ server.guild_id }}&server_profile_id={{ profile.id }}#live-feed-settings-{{ profile.id }}">
             {% for group in profile.dashboard_live_feed_filter_groups %}
             <div class="full">
               <h4>{{ group.label }}</h4>
@@ -4297,7 +4320,7 @@ PAGE_TEMPLATE = """
             </tbody>
           </table>
         </article>
-        {% endfor %}
+        {% endif %}
         {% else %}
         <article class="admin-panel full" id="live-feed-settings">
           <h3>Dashboard Feed Selection</h3>
@@ -8818,7 +8841,7 @@ PAGE_TEMPLATE = """
                 <td>{{ profile.map_key }}<br><small class="muted">{{ profile.platform_label }} / {{ profile.server_mode }}</small></td>
                 <td>Service: {{ 'saved' if profile.service_id else 'missing' }}<br><small class="muted">FTP: {{ profile.ftp_status }}</small></td>
                 <td>{{ profile.token_status }}</td>
-                <td>{{ profile.channels|length }} routed channel(s)</td>
+                <td>{{ profile.configured_channel_count }} routed feed(s)<br><small class="muted">{{ profile.available_channel_count }} available Discord channel(s)</small></td>
                 <td>
                   <form class="admin-form inline-action" method="post" action="/api/admin/dayz-server-profile" data-route="/api/admin/dayz-server-profile" data-confirm="Delete this DayZ server profile?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
@@ -8947,7 +8970,28 @@ PAGE_TEMPLATE = """
       <div class="panel-grid">
         {% if server %}
         {% if server.dayz_profiles %}
-        {% for profile in server.dayz_profiles %}
+        <article class="admin-panel full" id="dayz-profile-picker">
+          <h3>Pick DayZ Server</h3>
+          {% if server.dayz_profiles|length < 2 %}
+          <p class="tool-note">Only one DayZ profile exists. Add a `cherno` profile in Admin Center > Setup if you want feed routing for both Cherno and Livo.</p>
+          {% endif %}
+          <div class="command-server-grid">
+            {% for option in server.dayz_profiles %}
+            <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#dayz-profile-picker">
+              <strong>{{ option.name }}</strong>
+              <small>{{ option.platform_label }} / {{ option.map_key }} / {{ option.server_mode }}</small>
+              <div class="pills">
+                <span class="pill {{ 'ok' if option.enabled else 'bad' }}">{{ 'enabled' if option.enabled else 'off' }}</span>
+                <span class="pill">{{ option.configured_channel_count }} routed</span>
+                <span class="pill">{{ option.available_channel_count }} available</span>
+              </div>
+              <small>Runtime: {{ option.runtime_id }}</small>
+            </a>
+            {% endfor %}
+          </div>
+        </article>
+        {% if selected_dayz_profile %}
+        {% set profile = selected_dayz_profile %}
         {% for group in profile.feed_route_groups %}
         <article class="admin-panel full">
           <h3>{{ profile.name }} - {{ group.label }}</h3>
@@ -8965,7 +9009,7 @@ PAGE_TEMPLATE = """
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
                     <input class="hidden-field" name="server_profile_id" value="{{ profile.id }}">
                     <input class="hidden-field" name="feed_key" value="{{ feed.key }}">
-                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}&server_profile_id={{ profile.id }}#feed-routes">
                     <select name="channel_id">
                       <option value="">Keep current</option>
                       {% if feed.channel_id and not feed.exists %}<option value="{{ feed.channel_id }}" selected>Stored ID {{ feed.channel_id }}</option>{% endif %}
@@ -8986,7 +9030,7 @@ PAGE_TEMPLATE = """
                     <input class="hidden-field" name="server_profile_id" value="{{ profile.id }}">
                     <input class="hidden-field" name="feed_key" value="{{ feed.key }}">
                     <input class="hidden-field" name="action" value="reset">
-                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}&server_profile_id={{ profile.id }}#feed-routes">
                     <button type="submit">Reset</button>
                     <span class="result muted"></span>
                   </form>
@@ -8997,7 +9041,7 @@ PAGE_TEMPLATE = """
           </table>
         </article>
         {% endfor %}
-        {% endfor %}
+        {% endif %}
         {% else %}
         {% for group in server.feed_route_groups %}
         <article class="admin-panel full">
@@ -22932,6 +22976,11 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
             continue
         profile_id = normalize_server_profile_id(raw_profile_id)
         runtime_id = dashboard_server_profile_runtime_id(guild_id, profile_id)
+        configured_channel_count = len([
+            value
+            for value in (profile.get("channels") or {}).values()
+            if str(value or "").strip()
+        ]) if isinstance(profile.get("channels"), dict) else 0
         profile_channels = public_channels(profile.get("channels", {}), guild_id)
         server_map = str(profile.get("server_map") or profile.get("map") or config.get("server_map") or config.get("map") or "chernarus")
         server_platform = normalize_dashboard_server_platform(profile.get("server_platform") or profile.get("platform") or config.get("server_platform") or config.get("platform"))
@@ -22951,6 +23000,8 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
                 "token_status": "override" if profile.get("nitrado_token") else ("shared" if config.get("nitrado_token") else "missing"),
                 "ftp_status": "saved" if profile.get("ftp_user") and profile.get("ftp_password") else "missing",
                 "channels": profile_channels,
+                "available_channel_count": len(profile_channels),
+                "configured_channel_count": configured_channel_count,
                 "feed_route_groups": redact(dashboard_feed_route_groups(profile, profile_channels)),
                 "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(profile)),
                 "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(profile, live_feed_store, runtime_id) if needs_live_feeds else []),
@@ -25241,6 +25292,33 @@ def page(mode: str, auth: dict[str, Any]):
         if focused:
             state["servers"] = focused + others
     selected_server = state["servers"][0] if state.get("servers") else {}
+    selected_dayz_profile_id = normalize_server_profile_id(request.args.get("server_profile_id"), "")
+    selected_dayz_profile: dict[str, Any] = {}
+    if isinstance(selected_server, dict):
+        dayz_profiles = selected_server.get("dayz_profiles")
+        if isinstance(dayz_profiles, list) and dayz_profiles:
+            matched_profile = next(
+                (
+                    profile
+                    for profile in dayz_profiles
+                    if isinstance(profile, dict)
+                    and str(profile.get("id") or "") == selected_dayz_profile_id
+                ),
+                None,
+            )
+            if not isinstance(matched_profile, dict):
+                matched_profile = next((profile for profile in dayz_profiles if isinstance(profile, dict)), {})
+            if isinstance(matched_profile, dict):
+                selected_dayz_profile = matched_profile
+                selected_dayz_profile_id = str(matched_profile.get("id") or "")
+                selected_server = dict(selected_server)
+                selected_server["selected_dayz_profile_id"] = selected_dayz_profile_id
+                selected_server["selected_dayz_profile"] = selected_dayz_profile
+                state = dict(state)
+                server_rows = list(state.get("servers") or [])
+                if server_rows:
+                    server_rows[0] = selected_server
+                    state["servers"] = server_rows
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
     dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
     ai_agent_state: dict[str, Any] = {}
@@ -25438,6 +25516,8 @@ def page(mode: str, auth: dict[str, Any]):
         public_url=DASHBOARD_PUBLIC_URL,
         summary=state["summary"],
         servers=state["servers"],
+        selected_dayz_profile=selected_dayz_profile,
+        selected_dayz_profile_id=selected_dayz_profile_id,
         shop_items=state.get("shop_items", []),
         shop_categories=state.get("shop_categories", {}),
         shop_category_options=state.get("shop_category_options", list(SHOP_CATEGORY_PRESETS)),

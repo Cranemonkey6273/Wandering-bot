@@ -154,6 +154,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(["cherno build"], [row["summary"] for row in rows[0]["dashboard_live_feed_rows"]])
         self.assertEqual(["livo placed"], [row["summary"] for row in rows[1]["dashboard_live_feed_rows"]])
         self.assertEqual("shared", rows[0]["token_status"])
+        self.assertEqual(1, rows[0]["configured_channel_count"])
+        self.assertEqual(1, rows[0]["available_channel_count"])
 
     def test_gameserver_action_posts_to_restart_and_stop_endpoints(self):
         calls = []
