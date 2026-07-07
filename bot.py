@@ -8497,19 +8497,23 @@ TRANSLATION_LANGUAGE_LABELS = {
 TRANSLATION_LANGUAGE_MARKERS = {
     "en": {
         "a", "about", "all", "and", "are", "back", "be", "but", "can", "do",
-        "for", "from", "get", "go", "good", "have", "i", "im", "in", "is",
-        "it", "its", "just", "kind", "know", "like", "lol", "looks", "me",
-        "mind", "my", "of", "on", "out", "outa", "really", "scared", "see",
-        "shit", "sick", "strange", "that", "the", "this", "to", "up", "what",
-        "why", "with", "you", "your", "youre",
+        "done", "for", "from", "get", "go", "going", "good", "got", "gonna",
+        "have", "here", "i", "ill", "im", "in", "is", "it", "its", "just",
+        "kind", "know", "later", "like", "lol", "looks", "made", "maybe",
+        "me", "mind", "my", "need", "no", "not", "now", "of", "ok", "okay",
+        "on", "out", "outa", "please", "really", "scared", "see", "shit",
+        "should", "sick", "soon", "strange", "thanks", "that", "the", "then",
+        "this", "tho", "though", "to", "today", "tomorrow", "tonight", "up",
+        "was", "what", "when", "where", "why", "will", "with", "would", "yes",
+        "you", "your", "youre",
     },
     "de": {
         "aber", "auf", "aus", "bin", "bist", "das", "dein", "den", "der", "die",
         "du", "echt", "ein", "eine", "einfach", "er", "es", "geht", "hab", "habe",
-        "haftig", "heftig", "ich", "im", "in", "ist", "ja", "kein", "keine", "kopf",
-        "mein", "mhh", "mit", "nicht", "noch", "nur", "oder", "scheisse", "schon",
-        "sehr", "sie", "sieht", "sind", "und", "verlierst", "verstand", "voll",
-        "was", "wie", "wir", "zu", "zur",
+        "erledigt", "haftig", "heftig", "heute", "ich", "im", "in", "ist", "ja", "kein",
+        "keine", "kopf", "mein", "mhh", "mit", "nacht", "nicht", "noch", "nur",
+        "oder", "scheisse", "schon", "sehr", "sie", "sieht", "sind", "und",
+        "verlierst", "verstand", "voll", "was", "wie", "wird", "wir", "zu", "zur",
     },
 }
 
