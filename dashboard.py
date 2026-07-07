@@ -8265,6 +8265,9 @@ PAGE_TEMPLATE = """
       {% set restart_timezone = 'Europe/Dublin' %}
       {% endif %}
       {% set restart_warnings = (server.config.restart_warning_minutes|join(', ') if server and server.config.restart_warning_minutes else '30, 15, 10, 5, 1') %}
+      {% set schedule_reminders_on = server and server.config.schedule_reminders_enabled == true %}
+      {% set schedule_reminder_minutes = (server.config.schedule_reminder_minutes|join(', ') if server and server.config.schedule_reminder_minutes else '30') %}
+      {% set schedule_reminder_channel_value = (server.config.schedule_reminder_channel_id or server.config.schedule_reminder_channel_key or restart_status.warning_channel_id or restart_status.warning_channel_key or '') if server else '' %}
       {% set base_state = (server.config.base_damage_state if server else 'on') or 'on' %}
       {% set container_state = (server.config.container_damage_state if server else 'on') or 'on' %}
       {% set dmg = server.config.damage_schedule if server and server.config.damage_schedule else {} %}
@@ -8334,7 +8337,7 @@ PAGE_TEMPLATE = """
             <div class="schedule-status-main"><span>Target restart: {{ schedule_status.damage_on.target_label }}</span><span>Bot writes cfggameplay: {{ schedule_status.damage_on.write_label }}</span><small>{{ schedule_status.damage_on.interval_label }}</small></div>
             <div class="schedule-status-meta">
               <span>Audit: dashboard status only</span>
-              <span>Notify: no public countdown</span>
+              <span>Notify: {{ 'reminders on' if schedule_reminders_on else 'reminders off' }}</span>
               <div class="schedule-actions">
                 <a class="schedule-mini-button" href="#damage-settings-form">Edit</a>
                 {% if dmg_enabled %}
@@ -8354,7 +8357,7 @@ PAGE_TEMPLATE = """
             <div class="schedule-status-main"><span>Target restart: {{ schedule_status.damage_off.target_label }}</span><span>Bot writes cfggameplay: {{ schedule_status.damage_off.write_label }}</span><small>{{ schedule_status.damage_off.interval_label }}</small></div>
             <div class="schedule-status-meta">
               <span>Audit: dashboard status only</span>
-              <span>Notify: no public countdown</span>
+              <span>Notify: {{ 'reminders on' if schedule_reminders_on else 'reminders off' }}</span>
               <div class="schedule-actions">
                 <a class="schedule-mini-button" href="#damage-settings-form">Edit</a>
                 {% if dmg_restore_enabled %}
@@ -8413,6 +8416,15 @@ PAGE_TEMPLATE = """
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == restart_status.log_channel_key or channel.id == restart_status.log_channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
               <small class="field-help">Where the bot posts restart audit logs: scheduled, command, dashboard, vehicle reset and RPT-detected restarts.</small>
+            </label>
+            <div class="full embed-preview"><strong>Raid & Reset Reminders</strong><span>Optional public reminders before raid start, raid end and vehicle reset schedules. Example: 30 means a 9pm raid start posts at 8:30pm.</span></div>
+            <label>Schedule reminders <select name="schedule_reminders_enabled"><option value="false" {% if not schedule_reminders_on %}selected{% endif %}>Off</option><option value="true" {% if schedule_reminders_on %}selected{% endif %}>On</option></select></label>
+            <label>Reminder minutes <input name="schedule_reminder_minutes" value="{{ schedule_reminder_minutes|replace(' ', '') }}"><small class="field-help">Comma separated. Example: 60,30,10</small></label>
+            <label>Reminder channel
+              <select name="schedule_reminder_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == schedule_reminder_channel_value or channel.id == schedule_reminder_channel_value or channel.key == schedule_reminder_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+              <small class="field-help">Where raid weekend and vehicle reset reminders post. Leave it matching the restart notify channel for shared community announcements.</small>
             </label>
             <div class="full embed-preview"><strong>Live restart status</strong><span>{% if restart_status.enabled %}Next restart: {{ restart_status.next_restart_uk }}. Warning minutes: {{ restart_status.warnings|join(', ') }}.{% else %}Restart schedule is disabled.{% endif %} External Nitrado/manual restarts show here after the next RPT pull detects the fresh mission.</span></div>
             <div class="full"><button type="submit">Save Restart Schedule</button> <span class="result muted"></span></div>
@@ -19742,6 +19754,13 @@ def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool
         if minute > 0 and minute not in warnings:
             warnings.append(minute)
     changed |= set_dashboard_config_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
+    reminder_minutes: list[int] = []
+    for item in config.get("schedule_reminder_minutes") or [30]:
+        minute = safe_int(item, 0)
+        if minute > 0 and minute not in reminder_minutes:
+            reminder_minutes.append(minute)
+    changed |= set_dashboard_config_if_changed(config, "schedule_reminder_minutes", reminder_minutes or [30])
+    changed |= set_dashboard_config_if_changed(config, "schedule_reminders_enabled", dashboard_bool(config.get("schedule_reminders_enabled"), False))
     timezone_name = dashboard_server_timezone_name(config)
     restart_timezone = dashboard_restart_timezone_name(config)
     changed |= set_dashboard_config_if_changed(config, "server_timezone", timezone_name)
@@ -29531,6 +29550,19 @@ def api_server_control():
         restart_log_key, restart_log_id = resolve_channel_selection(config, payload.get("restart_log_channel_key"))
         config["restart_log_channel_key"] = restart_log_key
         config["restart_log_channel_id"] = restart_log_id
+    if "schedule_reminders_enabled" in payload:
+        config["schedule_reminders_enabled"] = safe_bool(payload.get("schedule_reminders_enabled"), False)
+    if "schedule_reminder_minutes" in payload:
+        reminders = []
+        for item in csv_list(payload.get("schedule_reminder_minutes", [])):
+            minute = safe_int(item, 0)
+            if minute > 0 and minute not in reminders:
+                reminders.append(minute)
+        config["schedule_reminder_minutes"] = reminders or [30]
+    if "schedule_reminder_channel_key" in payload:
+        reminder_key, reminder_id = resolve_channel_selection(config, payload.get("schedule_reminder_channel_key"))
+        config["schedule_reminder_channel_key"] = reminder_key
+        config["schedule_reminder_channel_id"] = reminder_id
 
     if "base_damage_state" in payload:
         config["base_damage_state"] = "off" if str(payload.get("base_damage_state")).lower() == "off" else "on"
@@ -29699,6 +29731,9 @@ def api_server_control():
         "restart_warning_minutes",
         "restart_channel_key",
         "restart_log_channel_key",
+        "schedule_reminders_enabled",
+        "schedule_reminder_minutes",
+        "schedule_reminder_channel_key",
     }.intersection(payload.keys()):
         saved_parts.append("restart schedule")
     if {"base_damage_state", "container_damage_state"}.intersection(payload.keys()) or damage_schedule_keys.intersection(payload.keys()) or damage_restore_schedule_keys.intersection(payload.keys()):

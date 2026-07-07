@@ -890,6 +890,10 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "restart_start_hour",
     "restart_timezone",
     "restart_warning_minutes",
+    "schedule_reminder_channel_id",
+    "schedule_reminder_channel_key",
+    "schedule_reminder_minutes",
+    "schedule_reminders_enabled",
     "safe_zone_offenses",
     "scenario_events",
     "scenario_events_cleanup_completed_at",
@@ -25519,6 +25523,13 @@ def normalize_server_control_schedules(config):
         if minute > 0 and minute not in warnings:
             warnings.append(minute)
     changed |= set_config_value_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
+    reminder_minutes = []
+    for item in config.get("schedule_reminder_minutes") or [30]:
+        minute = safe_int(item, 0)
+        if minute > 0 and minute not in reminder_minutes:
+            reminder_minutes.append(minute)
+    changed |= set_config_value_if_changed(config, "schedule_reminder_minutes", reminder_minutes or [30])
+    changed |= set_config_value_if_changed(config, "schedule_reminders_enabled", schedule_bool(config.get("schedule_reminders_enabled"), False))
     timezone_name = server_timezone_name(config)
     restart_timezone = restart_timezone_name(config)
     changed |= set_config_value_if_changed(config, "server_timezone", timezone_name)
@@ -25704,6 +25715,142 @@ def _restart_schedule_matches(local_now, restart_offset, restart_interval):
     )
 
 
+def schedule_reminder_minutes(config):
+    minutes = []
+    for item in config.get("schedule_reminder_minutes") or [30]:
+        minute = safe_int(item, 0)
+        if minute > 0 and minute not in minutes:
+            minutes.append(minute)
+    return sorted(minutes) or [30]
+
+
+def schedule_reminder_channel_for_config(config):
+    channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    channel_id = (
+        config.get("schedule_reminder_channel_id")
+        or channels.get(config.get("schedule_reminder_channel_key") or "")
+        or config.get("restart_channel_id")
+        or channels.get(config.get("restart_channel_key") or "")
+        or channels.get("restart_countdown")
+        or channels.get("restart_alerts")
+        or channels.get("general_chat")
+    )
+    try:
+        return bot.get_channel(int(channel_id))
+    except Exception:
+        return None
+
+
+def schedule_reminder_time_label(schedule, next_run):
+    local_time = next_run.astimezone(_vehicle_reset_schedule_timezone(schedule))
+    return local_time.strftime("%A %d %b %H:%M %Z").strip()
+
+
+def schedule_reminder_marker(schedule_key, next_run, minutes):
+    return f"{schedule_key}:{next_run.astimezone(UTC).isoformat()}:{int(minutes)}"
+
+
+def schedule_reminder_already_sent(schedule, marker):
+    markers = schedule.get("reminder_markers")
+    if not isinstance(markers, list):
+        markers = []
+        schedule["reminder_markers"] = markers
+    return marker in {str(item) for item in markers}
+
+
+def remember_schedule_reminder(schedule, marker, now_utc):
+    markers = schedule.get("reminder_markers")
+    if not isinstance(markers, list):
+        markers = []
+        schedule["reminder_markers"] = markers
+    if marker not in markers:
+        markers.append(marker)
+    del markers[:-20]
+    schedule["last_reminder_at"] = now_utc.isoformat()
+
+
+async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc):
+    if not schedule_bool(config.get("schedule_reminders_enabled"), False):
+        return False
+
+    channel = schedule_reminder_channel_for_config(config)
+    if not channel:
+        return False
+
+    reminder_minutes = schedule_reminder_minutes(config)
+    reminder_specs = []
+    if schedule_bool(config.get("damage_schedule_enabled"), False):
+        schedule = config.setdefault("damage_schedule", {})
+        if isinstance(schedule, dict):
+            reminder_specs.append((
+                "damage_schedule",
+                schedule,
+                "RAID WEEKEND STARTING SOON",
+                "Base and container damage will be enabled for raid time. Secure anything you do not want found.",
+                0xE67E22,
+            ))
+    if schedule_bool(config.get("damage_restore_schedule_enabled"), False):
+        schedule = config.setdefault("damage_restore_schedule", {})
+        if isinstance(schedule, dict):
+            reminder_specs.append((
+                "damage_restore_schedule",
+                schedule,
+                "RAID WEEKEND ENDING SOON",
+                "Base and container protection is due to return. Finish raids cleanly and get out.",
+                0x3498DB,
+            ))
+    if schedule_bool(config.get("vehicle_reset_schedule_enabled"), False):
+        schedule = config.setdefault("vehicle_reset_schedule", {})
+        if isinstance(schedule, dict):
+            reminder_specs.append((
+                "vehicle_reset_schedule",
+                schedule,
+                "VEHICLE RESET SOON",
+                "Move or secure vehicles now. Unprotected vehicles may be cleared by the scheduled reset.",
+                0xF1C40F,
+            ))
+
+    sent_any = False
+    for schedule_key, schedule, title, body, color in reminder_specs:
+        if not schedule_bool(schedule.get("enabled"), True):
+            continue
+        next_run = _ensure_vehicle_reset_next_run(schedule, now_utc)
+        if not next_run:
+            continue
+        seconds_until = (next_run - now_utc).total_seconds()
+        if seconds_until <= 0:
+            continue
+        for minute in reminder_minutes:
+            if seconds_until > minute * 60:
+                continue
+            marker = schedule_reminder_marker(schedule_key, next_run, minute)
+            if schedule_reminder_already_sent(schedule, marker):
+                continue
+            embed = discord.Embed(
+                title=f"{title} - {minute} MINUTES",
+                description=(
+                    f"**Server:** {dayz_server_display_name(guild_id, config)}\n"
+                    f"**When:** {schedule_reminder_time_label(schedule, next_run)}\n\n"
+                    f"{body}"
+                ),
+                color=color,
+            )
+            embed.set_thumbnail(url=BOT_IMAGE)
+            embed.set_footer(text="Wandering Bot Alpha - Schedule Reminder")
+            embed.timestamp = now_utc
+            try:
+                await channel.send(embed=style_embed(embed))
+                remember_schedule_reminder(schedule, marker, now_utc)
+                sent_any = True
+                break
+            except Exception as error:
+                print(f"[SCHEDULE REMINDER] failed for {guild_id} {schedule_key}: {error}")
+
+    if sent_any:
+        save_guild_configs_for_runtime(config)
+    return sent_any
+
+
 @tasks.loop(minutes=1)
 async def scheduled_restart_loop():
 
@@ -25717,6 +25864,12 @@ async def scheduled_restart_loop():
     # The warning is deleted when the restart triggers so chat does not
     # fill up with old restart notices.
     # ────────────────────────────────────────────────────────────────
+    for guild_id, config in active_adm_config_items():
+        try:
+            await maybe_send_server_control_schedule_reminders(guild_id, config, now)
+        except Exception as reminder_error:
+            print(f"SCHEDULE REMINDER ERROR {guild_id}: {reminder_error}")
+
     for guild_id, config in active_adm_config_items():
         try:
             if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
@@ -25786,9 +25939,10 @@ async def scheduled_restart_loop():
             for stale_key in [k for k in fired if not (k.startswith(today_marker) or k.startswith(yesterday_marker))]:
                 fired.pop(stale_key, None)
 
+            server_name = dayz_server_display_name(guild_id, config)
             embed = discord.Embed(
                 title=warning["title"],
-                description=warning["body"],
+                description=f"**Server:** {server_name}\n\n{warning['body']}",
                 color=warning["color"]
             )
             embed.set_thumbnail(url=BOT_IMAGE)
@@ -25858,6 +26012,7 @@ async def scheduled_restart_loop():
                 embed = discord.Embed(
                     title="⚠️ SCHEDULED RESTART",
                     description=(
+                        f"**Server:** {dayz_server_display_name(guild_id, config)}\n\n"
                         f"Automatic restart triggered.\n\n"
                         f"⏰ Interval: Every {restart_interval} hours\n"
                         f"🕒 Current Restart: {current_hour}:00 {restart_timezone_name(config)}"
@@ -25895,7 +26050,10 @@ async def scheduled_restart_loop():
                 if chat_channel:
                     final_embed = discord.Embed(
                         title="💥 SERVER IS RESTARTING NOW",
-                        description=random.choice(RESTART_DOWN_FUNNIES),
+                        description=(
+                            f"**Server:** {dayz_server_display_name(guild_id, config)}\n\n"
+                            f"{random.choice(RESTART_DOWN_FUNNIES)}"
+                        ),
                         color=0x95A5A6
                     )
                     final_embed.set_thumbnail(url=BOT_IMAGE)
@@ -26152,6 +26310,7 @@ async def send_custom_feed_message(guild_id, config, feed):
         color = 0x9B59B6
 
     embed = discord.Embed(title=title, description=description[:1800], color=color)
+    embed.add_field(name="Server", value=dayz_server_display_name(guild_id, config)[:1024], inline=True)
     embed.add_field(name="Feed Type", value=feed_type, inline=True)
     embed.add_field(name="Interval", value=f"{feed.get('interval_minutes')} minutes", inline=True)
     embed.set_thumbnail(url=BOT_IMAGE)
