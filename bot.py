@@ -2866,12 +2866,65 @@ def faction_display_lines(faction):
     ]
 
 
+def player_stats_storage_key(guild_id, player_name):
+    name = str(player_name or "").strip()
+    if not name:
+        return ""
+
+    wanted = normalize_discord_name(name)
+    for storage_key, stats in player_stats.items():
+        if str(stats.get("guild_id", "")) != str(guild_id):
+            continue
+        if normalize_discord_name(player_stats_display_name(storage_key, stats)) == wanted:
+            return storage_key
+
+    existing = player_stats.get(name)
+    if not isinstance(existing, dict):
+        return name
+
+    existing_guild_id = str(existing.get("guild_id", "") or "").strip()
+    if not existing_guild_id or existing_guild_id == str(guild_id):
+        return name
+
+    suffix = server_runtime_file_key(guild_id)
+    return f"{name} [{suffix}]"
+
+
+def player_stats_display_name(storage_key, stats=None):
+    if isinstance(stats, dict) and str(stats.get("player_name") or "").strip():
+        return str(stats.get("player_name")).strip()
+    text = str(storage_key or "").strip()
+    match = re.match(r"^(.*?)\s+\[[^\]]+\]$", text)
+    return match.group(1).strip() if match else text
+
+
+def player_stats_for_guild_player(guild_id, player_name):
+    wanted = normalize_discord_name(player_name)
+    if not wanted:
+        return None, None
+
+    for storage_key, stats in player_stats.items():
+        if str(stats.get("guild_id", "")) != str(guild_id):
+            continue
+        if normalize_discord_name(player_stats_display_name(storage_key, stats)) == wanted:
+            return storage_key, stats
+
+    stats = player_stats.get(player_name)
+    if isinstance(stats, dict) and str(stats.get("guild_id", "")) == str(guild_id):
+        return player_name, stats
+    return None, None
+
+
 def ensure_player_stats_record(guild_id, player_name):
     if not player_name or player_name == "Unknown":
         return None
 
     now_text = str(datetime.now(UTC))
-    stats = player_stats.setdefault(player_name, {})
+    storage_key = player_stats_storage_key(guild_id, player_name)
+    if not storage_key:
+        return None
+    stats = player_stats.setdefault(storage_key, {})
+    stats.setdefault("player_name", str(player_name).strip())
     stats.setdefault("guild_id", str(guild_id))
     stats.setdefault("first_adm_seen", now_text)
     stats.setdefault("kills", 0)
@@ -3011,6 +3064,7 @@ def build_kill_leaderboard_rows(rows, limit=10):
     lines = ["#  Survivor              Kills  Deaths  K/D   Online"]
 
     for index, (player, stats) in enumerate(rows[:limit], start=1):
+        player = player_stats_display_name(player, stats)
         kills = stat_int(stats, "kills")
         deaths = stat_int(stats, "deaths")
         kd = kills if deaths == 0 else round(kills / max(1, deaths), 2)
@@ -3026,6 +3080,7 @@ def build_simple_leaderboard_table(rows, stat_key, heading, limit=5, formatter=N
     lines = [f"#  Survivor              {heading}"]
 
     for index, (player, stats) in enumerate(rows[:limit], start=1):
+        player = player_stats_display_name(player, stats)
         value = stats.get(stat_key, 0)
         if formatter:
             value = formatter(value)
@@ -3172,6 +3227,7 @@ def build_showcase_topkills_embed(guild):
     embed.add_field(name="👥 Survivors Ranked", value=str(len(rows)), inline=True)
 
     for index, (player, stats) in enumerate(sorted_players[:3], start=1):
+        player = player_stats_display_name(player, stats)
         icon = leaderboard_rank_icon(index)
         kills = stat_int(stats, "kills")
         deaths = stat_int(stats, "deaths")
@@ -3285,7 +3341,8 @@ def closest_adm_player_name(guild_id, typed_name):
         if str(stats.get("guild_id", "")) != str(guild_id):
             continue
 
-        candidate = normalize_discord_name(player_name)
+        display_name = player_stats_display_name(player_name, stats)
+        candidate = normalize_discord_name(display_name)
         if not candidate:
             continue
 
@@ -3295,7 +3352,7 @@ def closest_adm_player_name(guild_id, typed_name):
             continue
 
         if best_distance is None or distance < best_distance:
-            best_name = player_name
+            best_name = display_name
             best_distance = distance
 
     return best_name
@@ -3393,8 +3450,9 @@ def find_adm_verified_player(guild_id, typed_name, minimum_age_seconds=300):
         if str(stats.get("guild_id", "")) != str(guild_id):
             continue
 
-        if normalize_discord_name(player_name) == wanted:
-            matches.append((player_name, stats))
+        display_name = player_stats_display_name(player_name, stats)
+        if normalize_discord_name(display_name) == wanted:
+            matches.append((display_name, stats))
 
     if not matches:
         live_name = find_live_or_enforcement_player_name(guild_id, typed_name)
@@ -21622,6 +21680,7 @@ async def topkills(ctx):
         sorted_players[:10],
         start=1
     ):
+        player = player_stats_display_name(player, stats)
         rank = medals[index - 1] if index <= len(medals) else f"{index}."
 
         lines.append(
@@ -28664,6 +28723,7 @@ async def admplayers(interaction: discord.Interaction, search: str = "", server:
 
     lines = ["#  Gamertag              Last ADM Seen"]
     for index, (player, stats) in enumerate(rows[:25], start=1):
+        player = player_stats_display_name(player, stats)
         seen = parse_saved_datetime(stats.get("last_adm_seen") or stats.get("last_seen"))
         seen_text = seen.strftime("%Y-%m-%d %H:%M") if seen else "unknown"
         lines.append(f"{index:<2} {trim_table_text(player, 21)} {seen_text}")
@@ -47930,9 +47990,10 @@ async def slash_whoami(interaction: discord.Interaction):
 # =========================================================
 
 def build_player_card_embed(guild_id, player_name):
-    stats = player_stats.get(player_name, {})
+    storage_key, stats = player_stats_for_guild_player(guild_id, player_name)
     if not stats:
         return None
+    player_name = player_stats_display_name(storage_key, stats)
     gid = str(guild_id)
     kills = stat_int(stats, "kills") if stats else 0
     deaths = stat_int(stats, "deaths") if stats else 0
@@ -48047,13 +48108,26 @@ def build_player_card_embed(guild_id, player_name):
 
 
 @bot.tree.command(name="playercard", description="Show your career stat card (or someone else's)")
-@app_commands.describe(player_name="In-game name (omit to use your linked gamertag)")
-async def slash_playercard(interaction: discord.Interaction, player_name: str = None):
-    guild_id = str(interaction.guild.id) if interaction.guild else ""
+@app_commands.describe(
+    player_name="In-game name (omit to use your linked gamertag)",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_playercard(interaction: discord.Interaction, player_name: str = None, server: str = ""):
+    guild_id, _config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
     if not player_name:
         # Try to resolve via linked_players
         discord_id = str(interaction.user.id)
-        player_name = linked_player_primary_gamertag(linked_players.get(discord_id, {}))
+        link_data = linked_player_data_for_guild(linked_players.get(discord_id, {}), guild_id)
+        player_name = linked_player_primary_gamertag(link_data)
         if not player_name:
             await interaction.response.send_message(
                 "❌ You haven't linked a gamertag yet. Run `/linkgamer <your in-game name>` first, "
@@ -48225,7 +48299,7 @@ def gather_category_rows(category, scope, guild_id=None, limit=10):
             if scope == "server":
                 if str(stats.get("guild_id", "")) != str(guild_id):
                     continue
-            rows.append((player, v))
+            rows.append((player_stats_display_name(player, stats), v))
         rows.sort(key=lambda r: r[1], reverse=True)
         return [(p, category["value"](v)) for p, v in rows[:limit]]
 
@@ -48258,8 +48332,9 @@ def gather_category_rows(category, scope, guild_id=None, limit=10):
             if scope == "server" and str(stats.get("guild_id", "")) != str(guild_id):
                 continue
             v = float(stats.get("longest_shot_distance", 0) or 0)
-            if v > best.get(player, 0):
-                best[player] = v
+            display_name = player_stats_display_name(player, stats)
+            if v > best.get(display_name, 0):
+                best[display_name] = v
         # (2) longshot_records (older 300m+ history)
         if scope == "server":
             entries_iter = [(str(guild_id), longshot_records.get(str(guild_id)) or [])]
@@ -48609,6 +48684,7 @@ async def slash_leaderboard_hall(interaction: discord.Interaction, server: str =
     )
     if rampage_rows and int(rampage_rows[0][1].get("multikill_best", 0) or 0) > 0:
         p, s = rampage_rows[0]
+        p = player_stats_display_name(p, s)
         embed.add_field(
             name="🔥 Biggest Rampage",
             value=f"**{p}** — **{int(s.get('multikill_best', 0))}** kills in 60s",
@@ -48637,6 +48713,7 @@ async def slash_leaderboard_hall(interaction: discord.Interaction, server: str =
     )
     if bh_rows:
         p, s = bh_rows[0]
+        p = player_stats_display_name(p, s)
         embed.add_field(
             name="💰 Top Bounty Hunter",
             value=f"**{p}** — **{int(s.get('bounty_earnings', 0)):,} {BOUNTY_CURRENCY}**",
@@ -48665,6 +48742,7 @@ async def slash_leaderboard_hall(interaction: discord.Interaction, server: str =
     )
     if kill_rows and int(kill_rows[0][1].get("kills", 0) or 0) > 0:
         p, s = kill_rows[0]
+        p = player_stats_display_name(p, s)
         embed.add_field(
             name="☠️ Most PvP Kills",
             value=f"**{p}** — **{int(s.get('kills', 0))}** kills",
@@ -48679,6 +48757,7 @@ async def slash_leaderboard_hall(interaction: discord.Interaction, server: str =
     )
     if hs_rows and int(hs_rows[0][1].get("headshots", 0) or 0) > 0:
         p, s = hs_rows[0]
+        p = player_stats_display_name(p, s)
         embed.add_field(
             name="💥 Most Headshots",
             value=f"**{p}** — **{int(s.get('headshots', 0))}** HS",

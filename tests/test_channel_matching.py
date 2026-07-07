@@ -278,6 +278,30 @@ class ChannelMatchingTests(unittest.TestCase):
         finally:
             bot.guild_configs = previous_configs
 
+    def test_player_stats_same_name_can_split_by_server_profile(self):
+        previous_stats = bot.player_stats
+        try:
+            bot.player_stats = {
+                "Crane": {
+                    "guild_id": "guild-a:cherno",
+                    "player_name": "Crane",
+                    "kills": 5,
+                }
+            }
+
+            stats = bot.ensure_player_stats_record("guild-a:livo", "Crane")
+            stats["kills"] = 2
+            again = bot.ensure_player_stats_record("guild-a:livo", "Crane")
+            storage_key, found = bot.player_stats_for_guild_player("guild-a:livo", "Crane")
+
+            self.assertIs(again, stats)
+            self.assertEqual("Crane [guild-a_livo]", storage_key)
+            self.assertEqual("Crane", bot.player_stats_display_name(storage_key, found))
+            self.assertEqual("guild-a:livo", found["guild_id"])
+            self.assertEqual(5, bot.player_stats["Crane"]["kills"])
+        finally:
+            bot.player_stats = previous_stats
+
     def test_setup_server_settings_preserve_existing_values_when_blank(self):
         config = {
             "server_platform": "playstation",
