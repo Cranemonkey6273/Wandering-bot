@@ -7427,12 +7427,12 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
     return None
 
 
-async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False, context=""):
+async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False, context="", **send_kwargs):
     if not channel:
         return None
     try:
         payload = style_embed(embed) if style else embed
-        return await channel.send(embed=payload)
+        return await channel.send(embed=payload, **send_kwargs)
     except discord.Forbidden as err:
         if _feed_route_should_log(guild_id, channel_key, "missing_access", seconds=60):
             channel_id = getattr(channel, "id", "unknown")
@@ -29789,13 +29789,12 @@ async def find_existing_online_dashboard_message(channel):
 
 
 async def upsert_online_dashboard_message(guild_id, config, reason="", force=False):
-    channels = config.get("channels", {})
-    online_channel_id = _safe_channel_id(channels.get("online"))
-    online_channel = bot.get_channel(online_channel_id) if online_channel_id else None
+    online_channel = resolve_feed_channel(guild_id, config, "online", required=True)
     if not online_channel:
-        return
+        return False
 
     ensure_guild_runtime(guild_id)
+    online_channel_id = getattr(online_channel, "id", None)
     configured_message_id = str(config.get("online_dashboard_message_id") or "").strip()
     snapshot = (
         str(online_channel_id),
@@ -29803,7 +29802,7 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
         tuple(sorted(online_players[guild_id])),
     )
     if not force and last_online_dashboard_snapshots.get(guild_id) == snapshot:
-        return
+        return False
 
     embed = build_online_dashboard_embed(guild_id, reason)
     view = build_online_dashboard_view(guild_id, config)
@@ -29813,6 +29812,15 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
     if message_id:
         try:
             message = await online_channel.fetch_message(int(message_id))
+        except discord.Forbidden as err:
+            await send_feed_embed(guild_id, "online", online_channel, embed, view=view, context="online board fetch permission check")
+            return False
+        except discord.NotFound:
+            message = None
+        except discord.HTTPException as err:
+            if _feed_route_should_log(guild_id, "online", "fetch_failed", seconds=60):
+                print(f"[FEED ROUTE] {guild_id} online board fetch failed; skipped online board update: {err}")
+            return False
         except Exception:
             message = None
 
@@ -29826,16 +29834,27 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
             config["online_dashboard_message_id"] = message.id
             last_online_dashboard_snapshots[guild_id] = snapshot
             save_guild_configs_for_runtime(config)
-            return
+            return True
+        except discord.Forbidden:
+            await send_feed_embed(guild_id, "online", online_channel, embed, view=view, context="online board edit permission check")
+            return False
+        except discord.NotFound:
+            pass
+        except discord.HTTPException as err:
+            if _feed_route_should_log(guild_id, "online", "edit_failed", seconds=60):
+                print(f"[FEED ROUTE] {guild_id} online board edit failed; trying fresh post: {err}")
         except Exception:
             pass
 
     await purge_self_dashboard_messages(online_channel, limit=10)
-    sent_message = await online_channel.send(embed=embed, view=view)
+    sent_message = await send_feed_embed(guild_id, "online", online_channel, embed, view=view, context="online board")
+    if not sent_message:
+        return False
     last_online_message_ids[guild_id] = sent_message.id
     config["online_dashboard_message_id"] = sent_message.id
     last_online_dashboard_snapshots[guild_id] = snapshot
     save_guild_configs_for_runtime(config)
+    return True
 
 
 @tasks.loop(minutes=ONLINE_UPDATE_MINUTES)
