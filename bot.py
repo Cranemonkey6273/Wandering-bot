@@ -873,10 +873,12 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "damage_timezone",
     "linked_gamertag_index",
     "discord_link_enforcement_state",
+    "heatmap_message_id",
     "nitrado_temp_bans",
     "nitrado_perm_bans",
     "online_dashboard_message_id",
     "pending_server_file_changes",
+    "pve_heatmap_message_id",
     "restart_channel_id",
     "restart_channel_key",
     "restart_history",
@@ -999,6 +1001,55 @@ def server_profile_name(profile_id, profile_config=None):
     return str(profile_config.get("profile_name") or profile_config.get("name") or profile_id or "Server").strip()
 
 
+def base_server_profile_name(config):
+    config = config if isinstance(config, dict) else {}
+    explicit = str(config.get("server_profile_name") or config.get("server_name") or "").strip()
+    if explicit:
+        return explicit
+    map_key = normalize_discord_name(config.get("server_map") or config.get("map") or "")
+    if "livonia" in map_key or map_key == "enoch":
+        return "Livonia"
+    if "sakhal" in map_key:
+        return "Sakhal"
+    return "Chernarus"
+
+
+def base_server_profile_context_config(config):
+    config = config if isinstance(config, dict) else {}
+    context = copy.deepcopy(config)
+    context.setdefault("profile_name", base_server_profile_name(config))
+    context.setdefault("name", base_server_profile_name(config))
+    context.setdefault("display_name", base_server_profile_name(config))
+    return context
+
+
+def base_server_profile_aliases(config):
+    aliases = {"main", "base", "primary", "default"}
+    context = base_server_profile_context_config(config)
+    aliases.update(server_profile_context_tokens("", context))
+    map_key = normalize_discord_name(context.get("server_map") or context.get("map") or "")
+    if "livonia" in map_key or map_key == "enoch":
+        aliases.update({"livo", "livonia", "enoch"})
+    elif "sakhal" in map_key:
+        aliases.update({"sakhal", "sakhalplus"})
+    else:
+        aliases.update({"cherno", "chernarus", "chernarusplus"})
+    return {normalize_server_profile_id(alias, default="") for alias in aliases if alias}
+
+
+def base_server_profile_primary_alias(config):
+    aliases = base_server_profile_aliases(config)
+    for alias in ("cherno", "livo", "livonia", "sakhal", "main", "base"):
+        if alias in aliases:
+            return alias
+    return next(iter(sorted(aliases)), "main")
+
+
+def is_base_server_profile_request(config, value):
+    requested = normalize_server_profile_id(value, default="")
+    return bool(requested and requested in base_server_profile_aliases(config))
+
+
 def build_server_profile_runtime_config(base_guild_id, base_config, profile_id, profile_config):
     runtime = {}
     for key in SERVER_PROFILE_INHERITED_KEYS:
@@ -1054,6 +1105,8 @@ def save_guild_configs_for_runtime(config=None):
 def active_adm_config_items():
     for guild_id, config in active_guild_config_items():
         if has_server_profiles(config):
+            if config.get("base_server_profile_enabled", True):
+                yield str(guild_id), config
             for profile_id, profile_config in server_profile_store(config).items():
                 if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
                     continue
@@ -1066,7 +1119,7 @@ def active_adm_config_items():
 def server_profile_choices_text(config):
     if not has_server_profiles(config):
         return ""
-    names = []
+    names = [f"`{base_server_profile_primary_alias(config)}` ({base_server_profile_name(config)})"]
     for profile_id, profile in server_profile_store(config).items():
         if isinstance(profile, dict) and profile.get("enabled", True):
             names.append(f"`{normalize_server_profile_id(profile_id)}` ({server_profile_name(profile_id, profile)})")
@@ -1256,6 +1309,15 @@ def server_profile_context_match_score(profile_id, profile_config, *, channel=No
 
 def infer_server_profile_id_from_context(base_config, *, channel=None, member=None):
     matches = []
+    base_score, base_reason = server_profile_context_match_score(
+        "",
+        base_server_profile_context_config(base_config),
+        channel=channel,
+        member=member,
+    )
+    if base_score > 0:
+        matches.append((base_score, "", base_reason))
+
     for stored_id, profile_config in server_profile_store(base_config).items():
         if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
             continue
@@ -1271,6 +1333,8 @@ def infer_server_profile_id_from_context(base_config, *, channel=None, member=No
     top_score, top_profile_id, top_reason = matches[0]
     if len(matches) > 1 and matches[1][0] == top_score:
         return "", "ambiguous"
+    if not top_profile_id:
+        return "", "base"
     return top_profile_id, top_reason
 
 
@@ -1301,17 +1365,22 @@ def runtime_config_for_command_context(guild, *, channel=None, member=None, serv
 
     if requested_profile_id:
         profile_config = server_profile_config_for_id(base_config, requested_profile_id)
+        if profile_config and profile_config.get("enabled", True):
+            runtime_id = server_profile_runtime_id(base_id, requested_profile_id)
+            return runtime_id, build_server_profile_runtime_config(base_id, base_config, requested_profile_id, profile_config), None
+        if is_base_server_profile_request(base_config, requested_profile_id):
+            return base_id, base_config, None
         if not profile_config or not profile_config.get("enabled", True):
             choices = server_profile_choices_text(base_config)
             return None, None, f"Unknown server profile `{requested_profile_id}`. Available: {choices or 'none'}."
-        runtime_id = server_profile_runtime_id(base_id, requested_profile_id)
-        return runtime_id, build_server_profile_runtime_config(base_id, base_config, requested_profile_id, profile_config), None
 
     inferred_profile_id, reason = infer_server_profile_id_from_context(base_config, channel=channel, member=member)
     if inferred_profile_id:
         profile_config = server_profile_config_for_id(base_config, inferred_profile_id)
         runtime_id = server_profile_runtime_id(base_id, inferred_profile_id)
         return runtime_id, build_server_profile_runtime_config(base_id, base_config, inferred_profile_id, profile_config), None
+    if reason == "base":
+        return base_id, base_config, None
 
     if require_profile:
         return None, None, server_profile_required_error(base_config, reason)
@@ -29356,12 +29425,162 @@ async def online_dashboard_loop():
 # LIVE PVP HEATMAP DASHBOARD
 # =========================================================
 
+
+def heatmap_dashboard_attachment_name(guild_id, mode, pve=False):
+    runtime_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", server_runtime_file_key(guild_id))[:60] or "server"
+    mode_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(mode or "all"))[:24] or "all"
+    stamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    prefix = "pve_heatmap" if pve else "heatmap"
+    return f"{prefix}_{runtime_key}_{mode_key}_{stamp}.png"
+
+
+def heatmap_dashboard_server_name(guild_id, config):
+    _base_id, profile_id = split_server_runtime_id(guild_id)
+    if profile_id:
+        return server_profile_name(profile_id, config)
+    return base_server_profile_name(config)
+
+
+def build_heatmap_dashboard_embed(guild_id, config, *, pve=False):
+    ensure_guild_runtime(guild_id)
+    mode = "pve" if pve else guild_heatmap_mode(guild_id)
+    counts = heat_counts_for_mode(guild_id, mode)
+    hottest_zones = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    server_name = heatmap_dashboard_server_name(guild_id, config)
+    event_label = "PVE" if pve else mode.upper()
+    lines = [
+        f"{zone}: {count} {event_label.lower()} events"
+        for zone, count in hottest_zones
+    ]
+
+    embed = discord.Embed(
+        title=f"LIVE {event_label} HEATMAP",
+        description="\n".join(lines) if lines else f"No {event_label.lower()} activity detected yet.",
+        color=0x2ECC71 if pve else 0x9B59B6,
+    )
+    embed.add_field(name="Server", value=server_name[:1024], inline=True)
+    embed.add_field(name="Mode", value=event_label, inline=True)
+    embed.add_field(
+        name="Status",
+        value=f"Tracking `{mode}` activity across this server profile.",
+        inline=False,
+    )
+    embed.add_field(
+        name="Map Image",
+        value=heatmap_render_status(guild_id, mode)[:1000],
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    footer = "Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour" if pve else "Wandering Bot Alpha - Heatmap Refresh Every 1 Hour"
+    embed.set_footer(text=footer)
+    embed.timestamp = datetime.now(UTC)
+    return embed, mode
+
+
+async def find_existing_heatmap_dashboard_message(channel, *, pve=False):
+    try:
+        async for old_msg in channel.history(limit=25):
+            if old_msg.author != bot.user or not old_msg.embeds:
+                continue
+            title = str(getattr(old_msg.embeds[0], "title", "") or "").upper()
+            if "HEATMAP" not in title:
+                continue
+            is_pve = "PVE" in title or "HUNTING" in title
+            if pve == is_pve:
+                return old_msg
+    except Exception:
+        pass
+    return None
+
+
+async def purge_heatmap_dashboard_messages(channel, *, pve=False, limit=25):
+    try:
+        async for old_msg in channel.history(limit=limit):
+            if old_msg.author != bot.user or not old_msg.embeds:
+                continue
+            title = str(getattr(old_msg.embeds[0], "title", "") or "").upper()
+            if "HEATMAP" not in title:
+                continue
+            is_pve = "PVE" in title or "HUNTING" in title
+            if pve != is_pve:
+                continue
+            try:
+                await old_msg.delete()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+async def upsert_heatmap_dashboard_message(guild_id, config, *, pve=False):
+    channels = config.get("channels", {})
+    channel_key = "pve_heatmap" if pve else "heatmap"
+    message_key = "pve_heatmap_message_id" if pve else "heatmap_message_id"
+    last_message_ids = last_pve_heatmap_message_ids if pve else last_heatmap_message_ids
+
+    channel_id = _safe_channel_id(channels.get(channel_key))
+    channel = bot.get_channel(channel_id) if channel_id else None
+    if not channel:
+        return False
+
+    heatmap_path = None
+    try:
+        embed, mode = build_heatmap_dashboard_embed(guild_id, config, pve=pve)
+        heatmap_path = generate_guild_heatmap_image(guild_id, mode)
+        if not heatmap_path:
+            return False
+
+        attachment_name = heatmap_dashboard_attachment_name(guild_id, mode, pve=pve)
+        file = discord.File(heatmap_path, filename=attachment_name)
+        embed.set_image(url=f"attachment://{attachment_name}")
+        embed.set_field_at(
+            3,
+            name="Map Image",
+            value=heatmap_render_status(guild_id, mode)[:1000],
+            inline=False,
+        )
+
+        message_id = last_message_ids.get(guild_id) or config.get(message_key)
+        message = None
+        if message_id:
+            try:
+                message = await channel.fetch_message(int(message_id))
+            except Exception:
+                message = None
+
+        if message is None:
+            message = await find_existing_heatmap_dashboard_message(channel, pve=pve)
+
+        if message is not None:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+
+        await purge_heatmap_dashboard_messages(channel, pve=pve, limit=25)
+        sent_message = await channel.send(embed=embed, file=file)
+        last_message_ids[guild_id] = sent_message.id
+        config[message_key] = sent_message.id
+        save_guild_configs_for_runtime(config)
+        return True
+
+    finally:
+        if heatmap_path:
+            try:
+                os.remove(heatmap_path)
+            except Exception:
+                pass
+
+
 @tasks.loop(minutes=HEATMAP_UPDATE_MINUTES)
 async def heatmap_loop():
 
     for guild_id, config in active_adm_config_items():
 
         try:
+            await upsert_heatmap_dashboard_message(guild_id, config, pve=False)
+            await upsert_heatmap_dashboard_message(guild_id, config, pve=True)
+            continue
 
             channels = config.get("channels", {})
 

@@ -4269,7 +4269,7 @@ PAGE_TEMPLATE = """
           <h2>Live Feeds</h2>
           <p class="tool-note">Choose which ADM feeds are visible here. Discord channel routes stay separate, so noisy feeds can live on the dashboard without posting into your merged Discord.</p>
         </div>
-        {% if server and server.dayz_profiles %}<span class="pill">{{ server.dayz_profiles|length }} DayZ profiles</span>{% elif server %}<span class="pill">{{ server.dashboard_live_feed_rows|length }} shown / {{ server.dashboard_live_feed_total }} stored</span>{% endif %}
+        {% if server and server.dayz_profiles %}<span class="pill">{{ server.dayz_profiles|length }} DayZ servers</span>{% elif server %}<span class="pill">{{ server.dashboard_live_feed_rows|length }} shown / {{ server.dashboard_live_feed_total }} stored</span>{% endif %}
       </div>
       <div class="panel-grid">
         {% if server %}
@@ -4277,7 +4277,7 @@ PAGE_TEMPLATE = """
         <article class="admin-panel full" id="dayz-profile-picker">
           <h3>Pick DayZ Server</h3>
           {% if server.dayz_profiles|length < 2 %}
-          <p class="tool-note">Only one DayZ profile exists. Add a `cherno` profile in Admin Center > Setup if you want Cherno and Livo to appear here.</p>
+          <p class="tool-note">Only one DayZ server is available here. Add another server profile in Admin Center > Setup if you want a second server picker card.</p>
           {% endif %}
           <div class="command-server-grid">
             {% for option in server.dayz_profiles %}
@@ -9013,7 +9013,7 @@ PAGE_TEMPLATE = """
         <article class="admin-panel full" id="dayz-profile-picker">
           <h3>Pick DayZ Server</h3>
           {% if server.dayz_profiles|length < 2 %}
-          <p class="tool-note">Only one DayZ profile exists. Add a `cherno` profile in Admin Center > Setup if you want feed routing for both Cherno and Livo.</p>
+          <p class="tool-note">Only one DayZ server is available here. Add another server profile in Admin Center > Setup if you want feed routing for a second server.</p>
           {% endif %}
           <div class="command-server-grid">
             {% for option in server.dayz_profiles %}
@@ -23007,6 +23007,57 @@ def dashboard_server_profile_name(profile_id: str, profile: Any) -> str:
     return name[:80] or "Server"
 
 
+def dashboard_base_server_profile_name(config: Any) -> str:
+    config = config if isinstance(config, dict) else {}
+    explicit = str(config.get("server_profile_name") or config.get("server_name") or "").strip()
+    if explicit:
+        return explicit[:80]
+    map_key = map_key_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    if map_key == "livonia":
+        return "Livonia"
+    if map_key == "sakhal":
+        return "Sakhal"
+    return "Chernarus"
+
+
+def dashboard_base_server_profile_row(config: Any, guild_id: str, live_feed_store: Any = None, needs_live_feeds: bool = False) -> dict[str, Any]:
+    config = config if isinstance(config, dict) else {}
+    channels = public_channels(config.get("channels", {}), guild_id)
+    server_map = str(config.get("server_map") or config.get("map") or "chernarus")
+    server_platform = normalize_dashboard_server_platform(config.get("server_platform") or config.get("platform"))
+    configured_channel_count = len([
+        value
+        for value in (config.get("channels") or {}).values()
+        if str(value or "").strip()
+    ]) if isinstance(config.get("channels"), dict) else 0
+    return {
+        "id": "",
+        "runtime_id": normalize_guild_id(guild_id),
+        "name": dashboard_base_server_profile_name(config),
+        "enabled": dashboard_bool(config.get("base_server_profile_enabled"), True),
+        "map": server_map,
+        "map_key": map_key_for(server_map),
+        "platform": server_platform,
+        "platform_label": dashboard_server_platform_label(server_platform),
+        "server_mode": normalize_dashboard_server_mode(config.get("server_mode")),
+        "service_id": str(config.get("service_id") or ""),
+        "nitrado_user": str(config.get("nitrado_user") or ""),
+        "token_status": "shared" if config.get("nitrado_token") else "missing",
+        "ftp_status": "saved" if config.get("ftp_user") and config.get("ftp_password") else "missing",
+        "channels": channels,
+        "available_channel_count": len(channels),
+        "configured_channel_count": configured_channel_count,
+        "feed_route_groups": redact(dashboard_feed_route_groups(config, channels)),
+        "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
+        "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(config, live_feed_store, guild_id) if needs_live_feeds else []),
+        "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, guild_id)) if needs_live_feeds else 0,
+        "config": redact(config),
+        "server_control_config": redact(config),
+        "server_control_channels": channels,
+        "is_base": True,
+    }
+
+
 def dashboard_server_profile_runtime_config(base_config: Any, guild_id: str, profile_id: Any, profile: Any) -> dict[str, Any]:
     base_config = base_config if isinstance(base_config, dict) else {}
     profile = profile if isinstance(profile, dict) else {}
@@ -23027,7 +23078,10 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
     rows: list[dict[str, Any]] = []
     if not isinstance(config, dict):
         return rows
-    for raw_profile_id, profile in sorted(dashboard_server_profile_store(config).items(), key=lambda item: str(item[0]).lower()):
+    profile_store = dashboard_server_profile_store(config)
+    if profile_store:
+        rows.append(dashboard_base_server_profile_row(config, guild_id, live_feed_store, needs_live_feeds))
+    for raw_profile_id, profile in sorted(profile_store.items(), key=lambda item: str(item[0]).lower()):
         if not isinstance(profile, dict):
             continue
         profile_id = normalize_server_profile_id(raw_profile_id)
