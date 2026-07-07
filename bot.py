@@ -25807,7 +25807,7 @@ async def send_custom_feed_message(guild_id, config, feed):
 async def custom_feed_loop():
     now_ts = datetime.now(UTC).timestamp()
 
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
         for feed in custom_feeds_for_config(config):
             try:
                 if not feed.get("enabled", True):
@@ -25821,11 +25821,11 @@ async def custom_feed_loop():
                 feed["last_post_ts"] = now_ts
                 feed["last_result"] = message
                 feed["last_success"] = success
-                save_guild_configs()
+                save_guild_configs_for_runtime(config)
             except Exception as error:
                 feed["last_result"] = str(error)
                 feed["last_success"] = False
-                save_guild_configs()
+                save_guild_configs_for_runtime(config)
                 print(f"CUSTOM FEED ERROR {guild_id}: {error}")
 
 
@@ -29134,7 +29134,8 @@ async def find_existing_online_dashboard_message(channel):
 
 async def upsert_online_dashboard_message(guild_id, config, reason="", force=False):
     channels = config.get("channels", {})
-    online_channel = bot.get_channel(channels.get("online"))
+    online_channel_id = _safe_channel_id(channels.get("online"))
+    online_channel = bot.get_channel(online_channel_id) if online_channel_id else None
     if not online_channel:
         return
 
@@ -29163,7 +29164,7 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
             last_online_message_ids[guild_id] = message.id
             config["online_dashboard_message_id"] = message.id
             last_online_dashboard_snapshots[guild_id] = snapshot
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             return
         except Exception:
             pass
@@ -29173,13 +29174,13 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
     last_online_message_ids[guild_id] = sent_message.id
     config["online_dashboard_message_id"] = sent_message.id
     last_online_dashboard_snapshots[guild_id] = snapshot
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
 
 @tasks.loop(minutes=ONLINE_UPDATE_MINUTES)
 async def online_dashboard_loop():
 
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
 
         try:
             await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=False)
@@ -29241,15 +29242,14 @@ async def online_dashboard_loop():
 @tasks.loop(minutes=HEATMAP_UPDATE_MINUTES)
 async def heatmap_loop():
 
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
 
         try:
 
             channels = config.get("channels", {})
 
-            heatmap_channel = bot.get_channel(
-                channels.get("heatmap")
-            )
+            heatmap_channel_id = _safe_channel_id(channels.get("heatmap"))
+            heatmap_channel = bot.get_channel(heatmap_channel_id) if heatmap_channel_id else None
 
             if not heatmap_channel:
                 continue
@@ -29311,9 +29311,8 @@ async def heatmap_loop():
             sent_message = await heatmap_channel.send(embed=embed, file=file)
             last_heatmap_message_ids[guild_id] = sent_message.id
 
-            pve_heatmap_channel = bot.get_channel(
-                channels.get("pve_heatmap")
-            )
+            pve_heatmap_channel_id = _safe_channel_id(channels.get("pve_heatmap"))
+            pve_heatmap_channel = bot.get_channel(pve_heatmap_channel_id) if pve_heatmap_channel_id else None
 
             if pve_heatmap_channel:
                 pve_counts = heat_counts_for_mode(guild_id, "pve")
