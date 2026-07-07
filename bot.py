@@ -4396,6 +4396,19 @@ async def add_onboarding_role(member, role_id, reason):
     role = resolve_onboarding_role(member.guild, role_id)
     if not role or member_has_role_id(member, role_id):
         return False
+    if getattr(role, "managed", False):
+        print(f"[ONBOARDING] cannot add managed role {getattr(role, 'name', role_id)} ({role_id}) to {member}")
+        return False
+    bot_member = getattr(member.guild, "me", None)
+    try:
+        if bot_member and getattr(role, "position", 0) >= getattr(getattr(bot_member, "top_role", None), "position", 0):
+            print(f"[ONBOARDING] cannot add role {getattr(role, 'name', role_id)} ({role_id}); bot role is not above it")
+            return False
+        if bot_member and getattr(getattr(member, "top_role", None), "position", 0) >= getattr(getattr(bot_member, "top_role", None), "position", 0):
+            print(f"[ONBOARDING] cannot edit {member}; member top role is not below the bot role")
+            return False
+    except Exception:
+        pass
     try:
         await member.add_roles(role, reason=reason)
         return True

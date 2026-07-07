@@ -5360,19 +5360,19 @@ PAGE_TEMPLATE = """
             <label>Give role after rules
               <select name="rules_role_id">
                 <option value="" {% if not onboarding.rules_role_id %}selected{% endif %}>No rules role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.rules_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.rules_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
             <label>Give role after /linkgamer
               <select name="linked_role_id">
                 <option value="" {% if not onboarding.linked_role_id %}selected{% endif %}>No linked role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.linked_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.linked_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
             <label>Optional pending role
               <select name="pending_role_id">
                 <option value="" {% if not onboarding.pending_role_id %}selected{% endif %}>No pending role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.pending_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.pending_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
             <label>Next channel after rules
@@ -5390,6 +5390,7 @@ PAGE_TEMPLATE = """
               <strong>Server choice roles</strong>
               <span>{{ onboarding.choice_channel_label }}{% if onboarding.choice_message_id %} -> message {{ onboarding.choice_message_id }}{% endif %}</span>
               <small>{{ onboarding.choice_cherno_emoji }} {{ onboarding.choice_cherno_role_label }} | {{ onboarding.choice_livo_emoji }} {{ onboarding.choice_livo_role_label }} | {{ onboarding.choice_bot_emoji }} {{ onboarding.choice_bot_role_label }}</small>
+              <small>Use normal member roles here. Discord bot/integration roles cannot be assigned to members and are hidden from these dropdowns.</small>
             </div>
             <label>Choice channel
               <select name="choice_channel_key">
@@ -5417,7 +5418,7 @@ PAGE_TEMPLATE = """
             <label>Cherno role
               <select name="choice_cherno_role_id">
                 <option value="" {% if not onboarding.choice_cherno_role_id %}selected{% endif %}>No Cherno role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_cherno_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_cherno_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
             <label>Livo reaction
@@ -5426,7 +5427,7 @@ PAGE_TEMPLATE = """
             <label>Livo role
               <select name="choice_livo_role_id">
                 <option value="" {% if not onboarding.choice_livo_role_id %}selected{% endif %}>No Livo role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_livo_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_livo_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
             <label>Bot reaction
@@ -5435,7 +5436,7 @@ PAGE_TEMPLATE = """
             <label>Bot role
               <select name="choice_bot_role_id">
                 <option value="" {% if not onboarding.choice_bot_role_id %}selected{% endif %}>No bot role selected</option>
-                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_bot_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+                {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_bot_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
             <label class="full">Join message <textarea name="welcome_message">{{ onboarding.welcome_message }}</textarea></label>
@@ -22570,6 +22571,8 @@ def discord_guild_roles(guild_id: str) -> list[dict[str, str]]:
                 "name": name,
                 "value": role_id,
                 "label": f"@{name}",
+                "managed": bool(item.get("managed")),
+                "assignable": not bool(item.get("managed")),
                 "position": safe_int(item.get("position"), 0),
             }
         )
@@ -26871,6 +26874,21 @@ def api_member_onboarding():
             result[key_name] = selected
         return result
 
+    role_options = discord_guild_roles(guild_id)
+    assignable_role_ids = {
+        str(role.get("id") or "")
+        for role in role_options
+        if role.get("assignable", True)
+    }
+
+    def assignable_role_id(value: Any) -> str:
+        role_id = str(value or "").strip()
+        if not role_id:
+            return ""
+        if assignable_role_ids and role_id not in assignable_role_ids:
+            return ""
+        return role_id
+
     reaction = str(raw_payload.get("reaction_emoji") or "✅").strip() or "✅"
     if reaction not in ONBOARDING_REACTION_OPTIONS:
         reaction = "✅"
@@ -26882,14 +26900,14 @@ def api_member_onboarding():
         "choice_require_rules": dashboard_bool(raw_payload.get("choice_require_rules"), True),
         "choice_single": dashboard_bool(raw_payload.get("choice_single"), False),
         "choice_cherno_emoji": (str(raw_payload.get("choice_cherno_emoji") or "🔵").strip()[:40] or "🔵"),
-        "choice_cherno_role_id": str(raw_payload.get("choice_cherno_role_id") or "").strip(),
+        "choice_cherno_role_id": assignable_role_id(raw_payload.get("choice_cherno_role_id")),
         "choice_livo_emoji": (str(raw_payload.get("choice_livo_emoji") or "🟢").strip()[:40] or "🟢"),
-        "choice_livo_role_id": str(raw_payload.get("choice_livo_role_id") or "").strip(),
+        "choice_livo_role_id": assignable_role_id(raw_payload.get("choice_livo_role_id")),
         "choice_bot_emoji": (str(raw_payload.get("choice_bot_emoji") or "🤖").strip()[:40] or "🤖"),
-        "choice_bot_role_id": str(raw_payload.get("choice_bot_role_id") or "").strip(),
-        "rules_role_id": str(raw_payload.get("rules_role_id") or "").strip(),
-        "linked_role_id": str(raw_payload.get("linked_role_id") or "").strip(),
-        "pending_role_id": str(raw_payload.get("pending_role_id") or "").strip(),
+        "choice_bot_role_id": assignable_role_id(raw_payload.get("choice_bot_role_id")),
+        "rules_role_id": assignable_role_id(raw_payload.get("rules_role_id")),
+        "linked_role_id": assignable_role_id(raw_payload.get("linked_role_id")),
+        "pending_role_id": assignable_role_id(raw_payload.get("pending_role_id")),
         "require_rules_before_linked_role": dashboard_bool(raw_payload.get("require_rules_before_linked_role"), True),
         "welcome_message": str(raw_payload.get("welcome_message") or "").strip() or "Read the rules, react to accept them, then link your gamertag with /linkgamer.",
         "accepted_message": str(raw_payload.get("accepted_message") or "").strip() or "Rules accepted. Next step: link your gamertag with /linkgamer.",
@@ -26904,8 +26922,7 @@ def api_member_onboarding():
     sync_runtime_store("guild_configs", guild_configs)
 
     channels = public_channels(config.get("channels", {}), guild_id)
-    roles = discord_guild_roles(guild_id)
-    display_settings = dashboard_member_onboarding_settings(config, channels, roles)
+    display_settings = dashboard_member_onboarding_settings(config, channels, role_options)
     return dashboard_api_response(
         raw_payload,
         {"ok": True, "settings": display_settings, "note": "Saved onboarding gate."},
