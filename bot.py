@@ -29636,12 +29636,7 @@ def build_heatmap_dashboard_embed(guild_id, config, *, pve=False):
     embed.add_field(name="Mode", value=event_label, inline=True)
     embed.add_field(
         name="Status",
-        value=f"Tracking `{mode}` activity across this server profile.",
-        inline=False,
-    )
-    embed.add_field(
-        name="Map Image",
-        value=heatmap_render_status(guild_id, mode)[:1000],
+        value=f"Tracking {event_label.lower()} activity across this server.",
         inline=False,
     )
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -29707,12 +29702,6 @@ async def upsert_heatmap_dashboard_message(guild_id, config, *, pve=False):
         attachment_name = heatmap_dashboard_attachment_name(guild_id, mode, pve=pve)
         file = discord.File(heatmap_path, filename=attachment_name)
         embed.set_image(url=f"attachment://{attachment_name}")
-        embed.set_field_at(
-            3,
-            name="Map Image",
-            value=heatmap_render_status(guild_id, mode)[:1000],
-            inline=False,
-        )
 
         message_id = last_message_ids.get(guild_id) or config.get(message_key)
         message = None
@@ -29800,11 +29789,6 @@ async def heatmap_loop():
             heatmap_path = generate_guild_heatmap_image(guild_id, heatmap_mode)
             file = discord.File(heatmap_path, filename="heatmap.png")
             embed.set_image(url="attachment://heatmap.png")
-            embed.add_field(
-                name="Map Image",
-                value=heatmap_render_status(guild_id, heatmap_mode)[:1000],
-                inline=False
-            )
 
             embed.set_thumbnail(url=BOT_IMAGE)
 
@@ -29843,11 +29827,6 @@ async def heatmap_loop():
                 pve_heatmap_path = generate_guild_heatmap_image(guild_id, "pve")
                 pve_file = discord.File(pve_heatmap_path, filename="pve_heatmap.png")
                 pve_embed.set_image(url="attachment://pve_heatmap.png")
-                pve_embed.add_field(
-                    name="Map Image",
-                    value=heatmap_render_status(guild_id, "pve")[:1000],
-                    inline=False
-                )
                 pve_embed.set_thumbnail(url=BOT_IMAGE)
                 pve_embed.set_footer(text="Wandering Bot Alpha - PVE Heatmap Refresh Every 1 Hour")
 
