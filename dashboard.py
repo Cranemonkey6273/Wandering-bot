@@ -900,6 +900,7 @@ DASHBOARD_LIVE_FEED_DEFAULT_KEYS = (
     "unconscious_feed",
 )
 DASHBOARD_LIVE_FEED_ROW_LIMIT = 150
+SERVER_PROFILE_SEPARATOR = ":"
 DEFAULT_BILLING_PLANS = [
     {
         "id": "free_bot",
@@ -4250,10 +4251,54 @@ PAGE_TEMPLATE = """
           <h2>Live Feeds</h2>
           <p class="tool-note">Choose which ADM feeds are visible here. Discord channel routes stay separate, so noisy feeds can live on the dashboard without posting into your merged Discord.</p>
         </div>
-        {% if server %}<span class="pill">{{ server.dashboard_live_feed_rows|length }} shown / {{ server.dashboard_live_feed_total }} stored</span>{% endif %}
+        {% if server and server.dayz_profiles %}<span class="pill">{{ server.dayz_profiles|length }} DayZ profiles</span>{% elif server %}<span class="pill">{{ server.dashboard_live_feed_rows|length }} shown / {{ server.dashboard_live_feed_total }} stored</span>{% endif %}
       </div>
       <div class="panel-grid">
         {% if server %}
+        {% if server.dayz_profiles %}
+        {% for profile in server.dayz_profiles %}
+        <article class="admin-panel full" id="live-feed-settings-{{ profile.id }}">
+          <h3>{{ profile.name }} Feed Selection</h3>
+          <form class="admin-form" method="post" action="/api/admin/live-feed-settings" data-route="/api/admin/live-feed-settings">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ profile.id }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=live-feeds&guild_id={{ server.guild_id }}#live-feed-settings-{{ profile.id }}">
+            {% for group in profile.dashboard_live_feed_filter_groups %}
+            <div class="full">
+              <h4>{{ group.label }}</h4>
+              <div class="check-grid">
+                {% for feed in group.rows %}
+                <label class="check"><input type="checkbox" name="feed_keys" value="{{ feed.key }}" {% if feed.checked %}checked{% endif %}> {{ feed.label }}{% if feed.private %} <small class="muted">private</small>{% endif %}</label>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+            <div class="full modal-actions"><button type="submit">Save {{ profile.name }} Feeds</button><span class="result muted"></span></div>
+          </form>
+        </article>
+        <article class="admin-panel full" id="live-feed-inbox-{{ profile.id }}">
+          <h3>{{ profile.name }} Recent Feed Events</h3>
+          <p class="tool-note">{{ profile.dashboard_live_feed_rows|length }} shown / {{ profile.dashboard_live_feed_total }} stored for <code>{{ profile.runtime_id }}</code>.</p>
+          <table class="table">
+            <thead><tr><th>Time</th><th>Feed</th><th>Player</th><th>Summary</th><th>Coords</th><th>Raw</th></tr></thead>
+            <tbody>
+              {% for row in profile.dashboard_live_feed_rows %}
+              <tr>
+                <td>{{ row.time_label or 'unknown' }}</td>
+                <td><strong>{{ row.feed_label }}</strong><br><small class="muted"><code>{{ row.event_type }}</code></small></td>
+                <td>{{ row.player }}</td>
+                <td>{{ row.summary }}</td>
+                <td>{% if row.coords %}<code>{{ row.coords }}</code>{% if row.map_url %}<br><a href="{{ row.map_url }}" target="_blank" rel="noopener">Open map</a>{% endif %}{% else %}<span class="muted">none</span>{% endif %}</td>
+                <td><details><summary>Line</summary><code>{{ row.raw_line }}</code></details></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No selected {{ profile.name }} feed events stored yet. New ADM events will appear here after this profile processes them.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% endfor %}
+        {% else %}
         <article class="admin-panel full" id="live-feed-settings">
           <h3>Dashboard Feed Selection</h3>
           <form class="admin-form" method="post" action="/api/admin/live-feed-settings" data-route="/api/admin/live-feed-settings">
@@ -4292,6 +4337,7 @@ PAGE_TEMPLATE = """
             </tbody>
           </table>
         </article>
+        {% endif %}
         {% else %}
         <article class="admin-panel"><h3>No server selected</h3><p class="tool-note">Select a server before viewing dashboard feed events.</p></article>
         {% endif %}
@@ -8720,6 +8766,76 @@ PAGE_TEMPLATE = """
             <div class="full"><button type="submit">Save Nitrado Connection</button> <span class="result muted"></span></div>
           </form>
         </article>
+        <article class="admin-panel full" id="server-profiles">
+          <h3>DayZ Server Profiles</h3>
+          <p class="tool-note">Use this when one Discord runs more than one DayZ server. The shared Nitrado API token above can be reused; each profile keeps its own service ID, map, FTP details and feed routes.</p>
+          <form class="admin-form grid-form" method="post" action="/api/admin/dayz-server-profile" data-route="/api/admin/dayz-server-profile">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=servers&guild_id={{ server.guild_id if server else '' }}#server-profiles">
+            <label>Profile ID <input name="profile_id" placeholder="cherno or livo" autocomplete="off"></label>
+            <label>Display name <input name="profile_name" placeholder="Cherno or Livo"></label>
+            <label>Enabled
+              <select name="enabled">
+                <option value="true">On</option>
+                <option value="false">Off</option>
+              </select>
+            </label>
+            <label>Server style
+              <select name="server_mode">
+                <option value="hybrid">Hybrid PVP + PVE</option>
+                <option value="pvp">PVP only</option>
+                <option value="pve">PVE only</option>
+              </select>
+            </label>
+            <label>Platform
+              <select name="server_platform">
+                <option value="xbox">Xbox</option>
+                <option value="playstation">PlayStation</option>
+                <option value="pc">PC</option>
+              </select>
+            </label>
+            <label>Map
+              <select name="server_map">
+                <option value="chernarus">Chernarus</option>
+                <option value="livonia">Livonia</option>
+                <option value="sakhal">Sakhal</option>
+              </select>
+            </label>
+            <label>Nitrado service ID <input name="service_id" inputmode="numeric" placeholder="server-specific service ID"></label>
+            <label>Nitrado FTP username <input name="nitrado_user" autocomplete="off" placeholder="example ni12345678_1"></label>
+            <label>FTP login username <input name="ftp_user" autocomplete="off" placeholder="server-specific FTP login"></label>
+            <label>FTP password <input name="ftp_password" type="password" autocomplete="new-password" placeholder="leave blank to keep current"></label>
+            <label>API token override <input name="nitrado_token" type="password" autocomplete="new-password" placeholder="blank uses shared token above"></label>
+            <label>FTP host override <input name="nitrado_ftp_host" placeholder="optional hostname only"></label>
+            <div class="full"><button type="submit">Save DayZ Profile</button> <span class="result muted"></span></div>
+          </form>
+          <table class="table">
+            <thead><tr><th>Profile</th><th>Map</th><th>Nitrado</th><th>Token</th><th>Feeds</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for profile in (server.dayz_profiles if server else []) %}
+              <tr>
+                <td><strong>{{ profile.name }}</strong><br><small class="muted"><code>{{ profile.id }}</code> / <code>{{ profile.runtime_id }}</code></small></td>
+                <td>{{ profile.map_key }}<br><small class="muted">{{ profile.platform_label }} / {{ profile.server_mode }}</small></td>
+                <td>Service: {{ 'saved' if profile.service_id else 'missing' }}<br><small class="muted">FTP: {{ profile.ftp_status }}</small></td>
+                <td>{{ profile.token_status }}</td>
+                <td>{{ profile.channels|length }} routed channel(s)</td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/dayz-server-profile" data-route="/api/admin/dayz-server-profile" data-confirm="Delete this DayZ server profile?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="profile_id" value="{{ profile.id }}">
+                    <input class="hidden-field" name="action" value="delete">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=servers&guild_id={{ server.guild_id }}#server-profiles">
+                    <button type="submit">Delete</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6">No DayZ server profiles yet. Add `cherno` and `livo` here before merging both servers into one Discord.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
         <article class="admin-panel">
           <h3>Link Another Server</h3>
           <form class="admin-form" method="post" action="/api/admin/link-server" data-route="/api/admin/link-server">
@@ -8830,6 +8946,59 @@ PAGE_TEMPLATE = """
       </div>
       <div class="panel-grid">
         {% if server %}
+        {% if server.dayz_profiles %}
+        {% for profile in server.dayz_profiles %}
+        {% for group in profile.feed_route_groups %}
+        <article class="admin-panel full">
+          <h3>{{ profile.name }} - {{ group.label }}</h3>
+          <table class="table">
+            <thead><tr><th>Feed</th><th>Status</th><th>Posts To</th><th>Route</th><th>Set Channel</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for feed in group.rows %}
+              <tr>
+                <td><strong>{{ feed.label }}</strong><br><small class="muted"><code>{{ feed.key }}</code>{% if feed.private %} - private{% endif %}</small></td>
+                <td><span class="pill {{ 'ok' if feed.enabled else 'bad' }}">{{ 'On' if feed.enabled else 'Off' }}</span>{% if feed.channel_id and not feed.exists %}<br><small class="muted">saved channel missing</small>{% endif %}</td>
+                <td>{{ feed.channel_label }}</td>
+                <td><span class="pill">{{ feed.route }}</span></td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/feed-route" data-route="/api/admin/feed-route">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="server_profile_id" value="{{ profile.id }}">
+                    <input class="hidden-field" name="feed_key" value="{{ feed.key }}">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
+                    <select name="channel_id">
+                      <option value="">Keep current</option>
+                      {% if feed.channel_id and not feed.exists %}<option value="{{ feed.channel_id }}" selected>Stored ID {{ feed.channel_id }}</option>{% endif %}
+                      {% for channel in profile.channels %}<option value="{{ channel.id }}" {% if feed.channel_id and channel.id == feed.channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                    </select>
+                    <input name="manual_channel_id" inputmode="numeric" placeholder="or paste channel ID">
+                    <select name="enabled">
+                      <option value="true" {% if feed.enabled %}selected{% endif %}>On</option>
+                      <option value="false" {% if not feed.enabled %}selected{% endif %}>Off</option>
+                    </select>
+                    <button type="submit">Save</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/feed-route" data-route="/api/admin/feed-route" data-confirm="Reset {{ profile.name }} {{ feed.label }} back to its default route?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                    <input class="hidden-field" name="server_profile_id" value="{{ profile.id }}">
+                    <input class="hidden-field" name="feed_key" value="{{ feed.key }}">
+                    <input class="hidden-field" name="action" value="reset">
+                    <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}#feed-routes">
+                    <button type="submit">Reset</button>
+                    <span class="result muted"></span>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% endfor %}
+        {% endfor %}
+        {% else %}
         {% for group in server.feed_route_groups %}
         <article class="admin-panel full">
           <h3>{{ group.label }}</h3>
@@ -8838,7 +9007,7 @@ PAGE_TEMPLATE = """
             <tbody>
               {% for feed in group.rows %}
               <tr>
-                <td><strong>{{ feed.label }}</strong><br><small class="muted"><code>{{ feed.key }}</code>{% if feed.private %} · private{% endif %}</small></td>
+                <td><strong>{{ feed.label }}</strong><br><small class="muted"><code>{{ feed.key }}</code>{% if feed.private %} - private{% endif %}</small></td>
                 <td><span class="pill {{ 'ok' if feed.enabled else 'bad' }}">{{ 'On' if feed.enabled else 'Off' }}</span>{% if feed.channel_id and not feed.exists %}<br><small class="muted">saved channel missing</small>{% endif %}</td>
                 <td>{{ feed.channel_label }}</td>
                 <td><span class="pill">{{ feed.route }}</span></td>
@@ -8877,6 +9046,7 @@ PAGE_TEMPLATE = """
           </table>
         </article>
         {% endfor %}
+        {% endif %}
         <article class="admin-panel full" id="custom-feeds">
           <h3>Scheduled Custom Feeds</h3>
           <form class="admin-form grid-form" method="post" action="/api/admin/custom-feed" data-route="/api/admin/custom-feed">
@@ -22725,6 +22895,88 @@ def dashboard_live_feed_rows(config: Any, live_feed_store: Any, guild_id: str, l
     return rows
 
 
+def normalize_server_profile_id(value: Any, default: str = "main") -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9_-]+", "-", text).strip("-_")
+    return text[:40] or default
+
+
+def dashboard_server_profile_runtime_id(guild_id: str, profile_id: Any = "") -> str:
+    profile_id = normalize_server_profile_id(profile_id, "")
+    return f"{normalize_guild_id(guild_id)}{SERVER_PROFILE_SEPARATOR}{profile_id}" if profile_id else normalize_guild_id(guild_id)
+
+
+def dashboard_server_profile_store(config: Any, create: bool = False) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    profiles = config.get("server_profiles")
+    if not isinstance(profiles, dict):
+        profiles = {}
+        if create:
+            config["server_profiles"] = profiles
+    return profiles
+
+
+def dashboard_server_profile_name(profile_id: str, profile: Any) -> str:
+    profile = profile if isinstance(profile, dict) else {}
+    name = str(profile.get("profile_name") or profile.get("server_name") or profile.get("name") or profile_id or "Server").strip()
+    return name[:80] or "Server"
+
+
+def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: Any = None, needs_live_feeds: bool = False) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not isinstance(config, dict):
+        return rows
+    for raw_profile_id, profile in sorted(dashboard_server_profile_store(config).items(), key=lambda item: str(item[0]).lower()):
+        if not isinstance(profile, dict):
+            continue
+        profile_id = normalize_server_profile_id(raw_profile_id)
+        runtime_id = dashboard_server_profile_runtime_id(guild_id, profile_id)
+        profile_channels = public_channels(profile.get("channels", {}), guild_id)
+        server_map = str(profile.get("server_map") or profile.get("map") or config.get("server_map") or config.get("map") or "chernarus")
+        server_platform = normalize_dashboard_server_platform(profile.get("server_platform") or profile.get("platform") or config.get("server_platform") or config.get("platform"))
+        rows.append(
+            {
+                "id": profile_id,
+                "runtime_id": runtime_id,
+                "name": dashboard_server_profile_name(profile_id, profile),
+                "enabled": dashboard_bool(profile.get("enabled"), True),
+                "map": server_map,
+                "map_key": map_key_for(server_map),
+                "platform": server_platform,
+                "platform_label": dashboard_server_platform_label(server_platform),
+                "server_mode": normalize_dashboard_server_mode(profile.get("server_mode") or config.get("server_mode")),
+                "service_id": str(profile.get("service_id") or ""),
+                "nitrado_user": str(profile.get("nitrado_user") or ""),
+                "token_status": "override" if profile.get("nitrado_token") else ("shared" if config.get("nitrado_token") else "missing"),
+                "ftp_status": "saved" if profile.get("ftp_user") and profile.get("ftp_password") else "missing",
+                "channels": profile_channels,
+                "feed_route_groups": redact(dashboard_feed_route_groups(profile, profile_channels)),
+                "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(profile)),
+                "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(profile, live_feed_store, runtime_id) if needs_live_feeds else []),
+                "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, runtime_id)) if needs_live_feeds else 0,
+                "config": redact(profile),
+            }
+        )
+    return rows
+
+
+def dashboard_target_config_for_profile(guild_configs: dict[str, Any], guild_id: str, profile_id: Any = "") -> tuple[dict[str, Any] | None, str, str]:
+    guild_id = normalize_guild_id(guild_id)
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+    profile_id = normalize_server_profile_id(profile_id, "")
+    if not profile_id:
+        return config, guild_id, ""
+    profiles = dashboard_server_profile_store(config, create=True)
+    profile = profiles.get(profile_id)
+    if not isinstance(profile, dict):
+        return None, dashboard_server_profile_runtime_id(guild_id, profile_id), f"DayZ server profile `{profile_id}` was not found."
+    return profile, dashboard_server_profile_runtime_id(guild_id, profile_id), ""
+
+
 def dashboard_next_custom_feed_id(feeds: Any) -> int:
     if not isinstance(feeds, list):
         return 1
@@ -24780,6 +25032,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
             discord_member_count = discord_guild_member_count(guild_id)
         if discord_member_count is None:
             discord_member_count = len(discord_members) if discord_members else len(server_members)
+        dayz_profiles = dashboard_server_profile_rows(config, guild_id, dashboard_live_feeds, needs_live_feeds)
         server_heatmap = heatmap_summary(heatmap, guild_id) if needs_heatmap else {"total": 0, "modes": {}}
         scenario_events = visible_scenario_events(config) if needs_pve else []
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels) if needs_pve else {"active": [], "campaigns": 0, "schedules": 0, "reward_types": [], "quest_channels": 0}
@@ -24817,6 +25070,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "discord_member_count": discord_member_count,
                 "discord_roles": redact(discord_roles),
                 "channels": channels,
+                "dayz_profiles": dayz_profiles,
                 "feed_route_groups": redact(dashboard_feed_route_groups(config, channels)),
                 "custom_feed_rows": redact(dashboard_custom_feed_rows(config, channels)),
                 "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
@@ -26012,6 +26266,7 @@ def api_feed_route():
         return error
     raw_payload = payload or {}
     guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
     feed_key = str(raw_payload.get("feed_key") or raw_payload.get("key") or "").strip()
     action = str(raw_payload.get("action") or "save").strip().lower()
     if feed_key not in FEED_ROUTE_KEYS:
@@ -26020,10 +26275,9 @@ def api_feed_route():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
-    if not isinstance(config, dict):
-        config = {"channels": {}}
-        guild_configs[guild_id] = config
+    config, runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error:
+        return jsonify({"ok": False, "error": target_error}), 404
     channels = config.setdefault("channels", {})
     if not isinstance(channels, dict):
         channels = {}
@@ -26069,7 +26323,7 @@ def api_feed_route():
     sync_runtime_store("guild_configs", guild_configs)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "feed_key": feed_key, "note": note},
+        {"ok": True, "feed_key": feed_key, "runtime_id": runtime_id, "note": note},
         "access",
         "#feed-routes",
     )
@@ -26170,13 +26424,13 @@ def api_live_feed_settings():
         return error
     raw_payload = payload or {}
     guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
-    if not isinstance(config, dict):
-        config = {"channels": {}}
-        guild_configs[guild_id] = config
+    config, runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error:
+        return jsonify({"ok": False, "error": target_error}), 404
 
     selected_keys = dashboard_live_feed_selected_keys(raw_payload.get("feed_keys"), [])
     config["dashboard_live_feed_keys"] = selected_keys
@@ -26185,11 +26439,12 @@ def api_live_feed_settings():
     sync_runtime_store("guild_configs", guild_configs)
     g.dashboard_audit_payload = {
         "guild_id": guild_id,
+        "runtime_id": runtime_id,
         "dashboard_live_feed_keys": selected_keys,
     }
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "feed_keys": selected_keys, "note": "Saved dashboard live feed selection."},
+        {"ok": True, "runtime_id": runtime_id, "feed_keys": selected_keys, "note": "Saved dashboard live feed selection."},
         "live-feeds",
         "#live-feeds",
     )
@@ -28000,6 +28255,118 @@ def api_server_profile():
         {"ok": True, "server_mode": server_mode, "server_platform": server_platform, "server_map": server_map, "note": "Saved server profile."},
         "access",
         "#server-profile",
+    )
+
+
+@APP.post("/api/admin/dayz-server-profile")
+def api_dayz_server_profile():
+    payload, error = require_admin()
+    if error:
+        return error
+    auth = current_auth()
+    if auth and auth.get("temporary_login_id"):
+        return jsonify({"ok": False, "error": "temporary dashboard logins cannot change DayZ server profiles"}), 403
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    action = str(raw_payload.get("action") or "save").strip().lower()
+    profile_id = normalize_server_profile_id(raw_payload.get("profile_id") or raw_payload.get("id"), "")
+    if not profile_id:
+        return jsonify({"ok": False, "error": "profile_id is required, for example cherno or livo"}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(config, dict):
+        config = {"channels": {}}
+        guild_configs[guild_id] = config
+    profiles = dashboard_server_profile_store(config, create=True)
+
+    if action == "delete":
+        if profile_id not in profiles:
+            return jsonify({"ok": False, "error": "DayZ server profile was not found"}), 404
+        profiles.pop(profile_id, None)
+        config["server_profiles_updated_at"] = datetime.now(UTC).isoformat()
+        save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "deleted": profile_id, "note": "Deleted DayZ server profile."},
+            "access",
+            "#server-profiles",
+        )
+
+    profile = profiles.setdefault(profile_id, {"channels": {}})
+    if not isinstance(profile, dict):
+        profile = {"channels": {}}
+        profiles[profile_id] = profile
+
+    profile_name = str(raw_payload.get("profile_name") or raw_payload.get("server_name") or "").strip()
+    if profile_name:
+        profile["profile_name"] = profile_name[:80]
+    else:
+        profile.setdefault("profile_name", profile_id.title())
+    profile["enabled"] = dashboard_bool(raw_payload.get("enabled"), True)
+    profile["server_mode"] = normalize_dashboard_server_mode(raw_payload.get("server_mode") or profile.get("server_mode") or config.get("server_mode"))
+    profile["server_platform"] = normalize_dashboard_server_platform(raw_payload.get("server_platform") or profile.get("server_platform") or config.get("server_platform") or config.get("platform"))
+    profile["server_map"] = map_key_for(raw_payload.get("server_map") or profile.get("server_map") or config.get("server_map") or config.get("map") or "chernarus")
+    profile.setdefault("channels", {})
+    if not isinstance(profile["channels"], dict):
+        profile["channels"] = {}
+
+    token = str(raw_payload.get("nitrado_token") or "").strip()
+    if token:
+        ok, clean_token, token_error = validate_dashboard_nitrado_api_token(token)
+        if not ok:
+            return jsonify({"ok": False, "error": token_error}), 400
+        profile["nitrado_token"] = clean_token
+
+    service_id = str(raw_payload.get("service_id") or "").strip()
+    if service_id:
+        if not re.fullmatch(r"[0-9]{3,20}", service_id):
+            return jsonify({"ok": False, "error": "Nitrado service ID should be numbers only."}), 400
+        profile["service_id"] = service_id
+
+    nitrado_user = str(raw_payload.get("nitrado_user") or "").strip()
+    if nitrado_user:
+        ok, clean_nitrado_user, credential_error = validate_dashboard_ascii_credential(nitrado_user, "Nitrado FTP username")
+        if not ok:
+            return jsonify({"ok": False, "error": credential_error}), 400
+        profile["nitrado_user"] = clean_nitrado_user[:80]
+
+    ftp_user = str(raw_payload.get("ftp_user") or "").strip()
+    if ftp_user:
+        ok, clean_ftp_user, credential_error = validate_dashboard_ascii_credential(ftp_user, "FTP login username")
+        if not ok:
+            return jsonify({"ok": False, "error": credential_error}), 400
+        profile["ftp_user"] = clean_ftp_user[:120]
+
+    ftp_password = str(raw_payload.get("ftp_password") or "")
+    if ftp_password:
+        ok, clean_ftp_password, credential_error = validate_dashboard_ascii_credential(
+            ftp_password,
+            "FTP password",
+            allow_spaces=True,
+        )
+        if not ok:
+            return jsonify({"ok": False, "error": credential_error}), 400
+        profile["ftp_password"] = clean_ftp_password
+
+    ftp_host = str(raw_payload.get("nitrado_ftp_host") or "").strip()
+    if ftp_host:
+        if len(ftp_host) > 160 or "/" in ftp_host or "\\" in ftp_host or any(char.isspace() for char in ftp_host):
+            return jsonify({"ok": False, "error": "FTP host should be a hostname only, with no slashes or spaces."}), 400
+        profile["nitrado_ftp_host"] = ftp_host
+
+    profile["updated_at"] = datetime.now(UTC).isoformat()
+    config["server_profiles_updated_at"] = profile["updated_at"]
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "profile_id": profile_id, "runtime_id": dashboard_server_profile_runtime_id(guild_id, profile_id), "note": "Saved DayZ server profile."},
+        "access",
+        "#server-profiles",
     )
 
 

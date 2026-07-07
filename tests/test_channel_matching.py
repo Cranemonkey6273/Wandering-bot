@@ -131,6 +131,45 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual("placed_feed", recorded["guild-1"][0]["feed_key"])
         self.assertIn("Crane", recorded["guild-1"][0]["summary"])
 
+    def test_server_profile_runtime_ids_keep_guilds_isolated(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "A",
+                    "nitrado_token": "shared-token",
+                    "service_id": "base-service",
+                    "server_profiles": {
+                        "livo": {"profile_name": "Livo", "service_id": "111", "server_map": "livonia", "channels": {"building": "10"}},
+                    },
+                },
+                "guild-b": {
+                    "guild_name": "B",
+                    "server_profiles": {
+                        "livo": {"profile_name": "Other Livo", "service_id": "222", "server_map": "chernarus", "channels": {"building": "20"}},
+                    },
+                },
+            }
+
+            runtime_a = bot.server_profile_runtime_id("guild-a", "livo")
+            runtime_b = bot.server_profile_runtime_id("guild-b", "livo")
+            config_a = bot.config_for_server_runtime(runtime_a)
+            config_b = bot.config_for_server_runtime(runtime_b)
+
+            self.assertEqual("guild-a:livo", runtime_a)
+            self.assertEqual("guild-b:livo", runtime_b)
+            self.assertNotEqual(bot.adm_file_path(runtime_a), bot.adm_file_path(runtime_b))
+            self.assertEqual("shared-token", config_a["nitrado_token"])
+            self.assertEqual("111", config_a["service_id"])
+            self.assertEqual("222", config_b["service_id"])
+            self.assertNotIn("nitrado_token", config_b)
+            self.assertEqual("10", config_a["channels"]["building"])
+            self.assertEqual("20", config_b["channels"]["building"])
+            self.assertEqual("livonia", bot.server_map_key(runtime_a))
+            self.assertEqual("chernarus", bot.server_map_key(runtime_b))
+        finally:
+            bot.guild_configs = previous_configs
+
     def test_setup_server_settings_preserve_existing_values_when_blank(self):
         config = {
             "server_platform": "playstation",

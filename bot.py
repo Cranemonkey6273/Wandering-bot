@@ -5,6 +5,7 @@
 import os
 import re
 import json
+import copy
 import random
 import math
 import hashlib
@@ -804,7 +805,7 @@ def heatmap_mode_for_event(event_type):
 
 
 def guild_heatmap_mode(guild_id):
-    mode = guild_configs.get(str(guild_id), {}).get("heatmap_mode", "all")
+    mode = config_for_server_runtime(guild_id).get("heatmap_mode", "all")
     return mode if mode in HEATMAP_MODES else "all"
 
 
@@ -828,8 +829,214 @@ def heat_counts_for_mode(guild_id, mode):
     return heat_data.get("__modes__", {}).get(mode, {})
 
 
+SERVER_PROFILE_SEPARATOR = ":"
+SERVER_PROFILE_INHERITED_KEYS = (
+    "nitrado_token",
+    "nitrado_ftp_host",
+    "server_platform",
+    "platform",
+    "server_mode",
+    "admin_roles",
+    "member_onboarding",
+    "discord_link_enforcement",
+    "heatmap_images",
+    "economy_currency",
+    "currency",
+    "server_timezone",
+    "adm_timezone",
+    "restart_timezone",
+)
+SERVER_PROFILE_PERSIST_KEYS = (
+    "adm_last_log_path",
+    "adm_log_directory",
+    "adm_last_log_directory",
+    "linked_gamertag_index",
+    "discord_link_enforcement_state",
+    "nitrado_temp_bans",
+    "nitrado_perm_bans",
+    "pending_server_file_changes",
+    "safe_zone_offenses",
+    "_nitrado_banlist_working_path",
+    "_nitrado_banlist_source",
+    "_nitrado_messages_xml_working_path",
+)
+
+
+def normalize_server_profile_id(value, default="main"):
+    raw = str(value or "").strip().lower()
+    if not raw:
+        raw = str(default or "").strip().lower()
+        if not raw:
+            return ""
+    normalized = re.sub(r"[^a-z0-9_-]+", "-", raw).strip("-_")
+    if normalized:
+        return normalized
+    fallback = str(default or "").strip().lower()
+    return fallback or ""
+
+
+def split_server_runtime_id(guild_id):
+    text = str(guild_id or "").strip()
+    if SERVER_PROFILE_SEPARATOR not in text:
+        return text, ""
+    base_id, profile_id = text.split(SERVER_PROFILE_SEPARATOR, 1)
+    return base_id.strip(), normalize_server_profile_id(profile_id, default="")
+
+
+def discord_guild_id_for_runtime_id(guild_id):
+    base_id, _profile_id = split_server_runtime_id(guild_id)
+    return str(base_id)
+
+
+def discord_guild_for_runtime_id(guild_id):
+    base_id = discord_guild_id_for_runtime_id(guild_id)
+    try:
+        return bot.get_guild(int(base_id)) if base_id.isdigit() else None
+    except Exception:
+        return None
+
+
+def server_profile_runtime_id(guild_id, profile_id=""):
+    base_id = discord_guild_id_for_runtime_id(guild_id)
+    profile_key = normalize_server_profile_id(profile_id, default="")
+    return f"{base_id}{SERVER_PROFILE_SEPARATOR}{profile_key}" if profile_key else base_id
+
+
+def server_runtime_file_key(guild_id):
+    base_id, profile_id = split_server_runtime_id(guild_id)
+    return f"{base_id}_{profile_id}" if profile_id else base_id
+
+
+def adm_file_path(guild_id):
+    return os.path.join(GUILD_DATA_FOLDER, f"{server_runtime_file_key(guild_id)}.ADM")
+
+
+def server_profile_store(config):
+    profiles = config.setdefault("server_profiles", {})
+    if not isinstance(profiles, dict):
+        profiles = {}
+        config["server_profiles"] = profiles
+    return profiles
+
+
+def server_profile_config_for_id(config, profile_id):
+    profile_key = normalize_server_profile_id(profile_id, default="")
+    if not profile_key:
+        return None
+    profiles = server_profile_store(config)
+    if profile_key in profiles and isinstance(profiles.get(profile_key), dict):
+        return profiles[profile_key]
+    for stored_id, profile in profiles.items():
+        if normalize_server_profile_id(stored_id, default="") == profile_key and isinstance(profile, dict):
+            return profile
+    return None
+
+
+def has_server_profiles(config):
+    profiles = config.get("server_profiles")
+    if not isinstance(profiles, dict):
+        return False
+    return any(isinstance(profile, dict) and profile.get("enabled", True) for profile in profiles.values())
+
+
+def server_profile_name(profile_id, profile_config=None):
+    profile_config = profile_config or {}
+    return str(profile_config.get("profile_name") or profile_config.get("name") or profile_id or "Server").strip()
+
+
+def build_server_profile_runtime_config(base_guild_id, base_config, profile_id, profile_config):
+    runtime = {}
+    for key in SERVER_PROFILE_INHERITED_KEYS:
+        if key in base_config and key not in profile_config:
+            runtime[key] = copy.deepcopy(base_config.get(key))
+
+    for key, value in profile_config.items():
+        runtime[key] = copy.deepcopy(value)
+
+    runtime["channels"] = copy.deepcopy(profile_config.get("channels") or {})
+    runtime["custom_channel_routes"] = copy.deepcopy(profile_config.get("custom_channel_routes") or [])
+    runtime["disabled_channels"] = copy.deepcopy(profile_config.get("disabled_channels") or [])
+    runtime["custom_feeds"] = copy.deepcopy(profile_config.get("custom_feeds") or [])
+    runtime["guild_name"] = base_config.get("guild_name") or runtime.get("guild_name")
+    runtime["_base_guild_id"] = str(base_guild_id)
+    runtime["_server_profile_id"] = normalize_server_profile_id(profile_id, default="")
+    runtime["_server_profile_store"] = profile_config
+    runtime["_server_profile_parent"] = base_config
+    runtime["_is_server_profile_runtime"] = True
+    return runtime
+
+
+def config_for_server_runtime(guild_id):
+    base_id, profile_id = split_server_runtime_id(guild_id)
+    config = guild_configs.get(str(base_id), {})
+    if not profile_id:
+        return config
+    profile_config = server_profile_config_for_id(config, profile_id)
+    if not profile_config:
+        return {}
+    return build_server_profile_runtime_config(base_id, config, profile_id, profile_config)
+
+
+def persist_server_profile_runtime_config(config):
+    if not isinstance(config, dict) or not config.get("_is_server_profile_runtime"):
+        return False
+    profile_store = config.get("_server_profile_store")
+    if not isinstance(profile_store, dict):
+        return False
+    changed = False
+    for key in SERVER_PROFILE_PERSIST_KEYS:
+        if key in config and profile_store.get(key) != config.get(key):
+            profile_store[key] = copy.deepcopy(config.get(key))
+            changed = True
+    return changed
+
+
+def save_guild_configs_for_runtime(config=None):
+    persist_server_profile_runtime_config(config)
+    save_guild_configs()
+
+
+def active_adm_config_items():
+    for guild_id, config in active_guild_config_items():
+        if has_server_profiles(config):
+            for profile_id, profile_config in server_profile_store(config).items():
+                if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
+                    continue
+                runtime_id = server_profile_runtime_id(guild_id, profile_id)
+                yield runtime_id, build_server_profile_runtime_config(guild_id, config, profile_id, profile_config)
+        else:
+            yield str(guild_id), config
+
+
+def server_profile_choices_text(config):
+    if not has_server_profiles(config):
+        return ""
+    names = []
+    for profile_id, profile in server_profile_store(config).items():
+        if isinstance(profile, dict) and profile.get("enabled", True):
+            names.append(f"`{normalize_server_profile_id(profile_id)}` ({server_profile_name(profile_id, profile)})")
+    return ", ".join(names)
+
+
+def runtime_config_for_link_target(guild, server_profile_id=""):
+    base_id = str(guild.id)
+    base_config = guild_configs.setdefault(base_id, new_guild_config(guild))
+    requested_profile_id = normalize_server_profile_id(server_profile_id, default="")
+    if not has_server_profiles(base_config):
+        return base_id, base_config, None
+    if not requested_profile_id:
+        choices = server_profile_choices_text(base_config)
+        return None, None, f"Pick which server to link against using `server:`. Available: {choices or 'none'}."
+    profile_config = server_profile_config_for_id(base_config, requested_profile_id)
+    if not profile_config or not profile_config.get("enabled", True):
+        choices = server_profile_choices_text(base_config)
+        return None, None, f"Unknown server profile `{requested_profile_id}`. Available: {choices or 'none'}."
+    runtime_id = server_profile_runtime_id(base_id, requested_profile_id)
+    return runtime_id, build_server_profile_runtime_config(base_id, base_config, requested_profile_id, profile_config), None
+
+
 def server_map_key(guild_id):
-    config = guild_configs.get(str(guild_id), {})
+    config = config_for_server_runtime(guild_id)
     configured = config.get("server_map")
     if not configured:
         guild_name_key = normalize_discord_name(config.get("guild_name", ""))
@@ -866,7 +1073,7 @@ def normalize_server_platform(value):
 
 
 def server_platform_key(guild_id):
-    config = guild_configs.get(str(guild_id), {})
+    config = config_for_server_runtime(guild_id)
     return normalize_server_platform(config.get("server_platform") or config.get("platform"))
 
 
@@ -1643,7 +1850,7 @@ async def post_cheat_check_intro(channel, config):
 
 
 async def send_cheat_check_alert(guild_id, config, kill_details, reason, evidence, action_text):
-    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return
 
@@ -2005,7 +2212,7 @@ async def process_temp_ban_expiries():
     for guild_id, config in active_guild_config_items():
         temp_bans = config.get("temp_bans", [])
         remaining = []
-        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+        guild = discord_guild_for_runtime_id(guild_id)
 
         for ban_record in temp_bans:
             until_ts = float(ban_record.get("until_ts", 0) or 0)
@@ -2039,7 +2246,7 @@ async def process_temp_ban_expiries():
 
 
 async def send_special_adm_feed(guild_id, config, event_type, line, event_time=None):
-    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return
 
@@ -2869,7 +3076,7 @@ def find_live_or_enforcement_player_name(guild_id, typed_name):
         if normalize_discord_name(player_name) == wanted:
             return str(player_name)
 
-    config = guild_configs.get(str(guild_id), {})
+    config = config_for_server_runtime(guild_id)
     pending = {}
     try:
         pending = link_enforcement_pending_bucket(config)
@@ -2906,7 +3113,7 @@ def learn_recent_adm_players_for_linking(guild_id, config, hours=168, max_logs=4
         if not download_latest_adm(guild_id, config, adm_log):
             continue
 
-        adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+        adm_path = adm_file_path(guild_id)
         if not os.path.exists(adm_path):
             continue
 
@@ -3428,7 +3635,7 @@ def linked_gamertag_index_record(guild_id, gamertag):
     key = normalize_discord_name(gamertag)
     if not key:
         return None
-    config = guild_configs.get(str(guild_id), {}) if isinstance(guild_configs, dict) else {}
+    config = config_for_server_runtime(guild_id) if isinstance(guild_configs, dict) else {}
     if isinstance(config, dict):
         accepted_record = link_enforcement_accept_record(config, key)
         if isinstance(accepted_record, dict):
@@ -3524,7 +3731,7 @@ def link_enforcement_protected_gamertag_record(guild_id, gamertag):
     record = linked_gamertag_verified_anywhere_record(gamertag)
     if not isinstance(record, dict):
         return None
-    config = guild_configs.get(str(guild_id), {}) if isinstance(guild_configs, dict) else {}
+    config = config_for_server_runtime(guild_id) if isinstance(guild_configs, dict) else {}
     matched_name = record.get("gamertag") or gamertag
     if isinstance(config, dict) and remember_linked_gamertag_for_server(
         guild_id,
@@ -3574,7 +3781,7 @@ def active_non_link_ban_record_in_config(config, gamertag):
 
 
 def active_manual_ban_record_for_gamertag(guild_id, gamertag):
-    return active_non_link_ban_record_in_config(guild_configs.get(str(guild_id), {}), gamertag)
+    return active_non_link_ban_record_in_config(config_for_server_runtime(guild_id), gamertag)
 
 
 def gamertag_linked_to_other_user(gamertag, user_id, guild_id=None):
@@ -3860,13 +4067,19 @@ async def apply_member_onboarding_link_role(guild, config, member):
 
 
 async def announce_verified_gamer_link(guild, config, member, gamertag, account_label="Primary gamertag"):
-    channel = await get_or_create_feed_channel(
-        guild,
-        config,
-        "linked_players",
-        DEFAULT_CHANNEL_NAMES["linked_players"],
-        private=False
-    )
+    runtime_id = server_profile_runtime_id(guild.id, config.get("_server_profile_id", "")) if config.get("_is_server_profile_runtime") else str(guild.id)
+    if config.get("_is_server_profile_runtime"):
+        channel = resolve_feed_channel(runtime_id, config, "linked_players")
+    else:
+        channel = await get_or_create_feed_channel(
+            guild,
+            config,
+            "linked_players",
+            DEFAULT_CHANNEL_NAMES["linked_players"],
+            private=False
+        )
+    if not channel:
+        return
 
     embed = discord.Embed(
         title="VERIFIED GAMERTAG LINKED",
@@ -3881,13 +4094,16 @@ async def announce_verified_gamer_link(guild, config, member, gamertag, account_
     embed.set_footer(text="Wandering Bot Alpha - Verified Identity")
     await channel.send(embed=style_embed(embed))
 
-    audit_channel = await get_or_create_feed_channel(
-        guild,
-        config,
-        "link_audit",
-        DEFAULT_CHANNEL_NAMES["link_audit"],
-        private=True
-    )
+    if config.get("_is_server_profile_runtime"):
+        audit_channel = resolve_feed_channel(runtime_id, config, "link_audit")
+    else:
+        audit_channel = await get_or_create_feed_channel(
+            guild,
+            config,
+            "link_audit",
+            DEFAULT_CHANNEL_NAMES["link_audit"],
+            private=True
+        )
     if audit_channel:
         audit = discord.Embed(
             title="GAMERTAG LINK AUDIT",
@@ -3918,9 +4134,10 @@ def build_linkgamer_confirmation_embed(member, gamertag, account_label="Primary 
     return embed
 
 
-async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=False):
-    guild_id = str(guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=False, server_profile_id=""):
+    guild_id, config, target_error = runtime_config_for_link_target(guild, server_profile_id)
+    if target_error:
+        return False, target_error
     verified_name, error = find_adm_verified_player(guild_id, gamertag, minimum_age_seconds=0)
     learned = 0
     scanned_logs = 0
@@ -4050,6 +4267,7 @@ async def link_verified_gamertag_for_member(guild, member, gamertag, *, is_alt=F
     save_linked_players()
     save_linked_player_claims()
     if index_changed:
+        persist_server_profile_runtime_config(config)
         save_guild_configs()
     await cleanup_link_enforcement_after_link(
         guild_id,
@@ -4212,7 +4430,7 @@ AI_IMAGE_PROMPTS_SHOWCASE = {
 
 def is_showcase_guild(guild_id):
     """Return True if this guild is the designated showcase server."""
-    guild_key = str(guild_id)
+    guild_key = discord_guild_id_for_runtime_id(guild_id)
     if SHOWCASE_GUILD_ID and guild_key == str(SHOWCASE_GUILD_ID):
         return True
     config = guild_configs.get(guild_key, {})
@@ -6567,11 +6785,7 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
             print(f"[FEED ROUTE] {guild_id} #{DEFAULT_CHANNEL_NAMES.get(key, key)} is disabled in config; not posting feed.")
         return None
 
-    guild = None
-    try:
-        guild = bot.get_guild(int(guild_id))
-    except Exception:
-        guild = None
+    guild = discord_guild_for_runtime_id(guild_id)
 
     saved_id = _safe_channel_id(channels.get(key))
     if saved_id:
@@ -8802,7 +9016,7 @@ def resolve_survival_milestone_channel(guild_id, config, fallback_channel=None):
 
     guild = None
     try:
-        guild = bot.get_guild(int(guild_id))
+        guild = discord_guild_for_runtime_id(guild_id)
     except Exception:
         guild = None
 
@@ -12238,7 +12452,7 @@ def active_guild_ids():
 
 
 def is_active_guild(guild_id):
-    return str(guild_id) in active_guild_ids()
+    return discord_guild_id_for_runtime_id(guild_id) in active_guild_ids()
 
 
 def active_guild_config_items():
@@ -13370,7 +13584,7 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     })
     if not state.get("enabled", True):
         return "Tracker is disabled for this guild."
-    guild = bot.get_guild(int(guild_id))
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return "Guild not found."
 
@@ -13646,7 +13860,7 @@ def configured_heatmap_image_source(guild_id, map_key):
     bundled_source = bundled_map_image_path(map_key)
     if bundled_source:
         return bundled_source
-    config = guild_configs.get(str(guild_id), {})
+    config = config_for_server_runtime(guild_id)
     images = config.get("heatmap_images", {})
     configured = images.get(map_key) or images.get("default")
     if configured:
@@ -14177,7 +14391,7 @@ def build_pvp_kill_embed(kill_details, line=None, history=False, guild_id=None, 
     # Anchor the embed to the in-game event time so Discord shows "when
     # the kill actually happened" rather than "when the bot processed it".
     if event_time is None and line:
-        event_time = extract_adm_event_time(line, config=guild_configs.get(str(guild_id), {}) if guild_id else None)
+        event_time = extract_adm_event_time(line, config=config_for_server_runtime(guild_id) if guild_id else None)
     embed.timestamp = event_time or datetime.now(UTC)
     return embed
 
@@ -17008,7 +17222,7 @@ def download_latest_adm(
 
         adm_path = os.path.join(
             GUILD_DATA_FOLDER,
-            f"{guild_id}.ADM"
+            f"{server_runtime_file_key(guild_id)}.ADM"
         )
 
         with open(adm_path, "wb") as f:
@@ -17091,7 +17305,7 @@ async def parse_adm(guild_id, config):
 
     adm_path = os.path.join(
         GUILD_DATA_FOLDER,
-        f"{guild_id}.ADM"
+        f"{server_runtime_file_key(guild_id)}.ADM"
     )
 
     if not os.path.exists(adm_path):
@@ -17700,7 +17914,7 @@ async def parse_adm(guild_id, config):
             )
 
             if not hunting_channel:
-                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                guild = discord_guild_for_runtime_id(guild_id)
                 if guild and not is_channel_key_disabled(config, "pve_hunting"):
                     created = await ensure_pve_channels(guild, config)
                     hunting_channel = created.get("pve_hunting")
@@ -18260,11 +18474,11 @@ async def parse_adm(guild_id, config):
                             wallet = guild_wallet(guild_id, linked_user_id, linked_players.get(linked_user_id, {}).get("discord_name", killer))
                             wallet_credit(wallet, reward, "cash")
                             save_wallets()
-                            guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                            guild = discord_guild_for_runtime_id(guild_id)
                             if guild:
                                 await send_money_feed(
                                     guild,
-                                    guild_configs.get(str(guild_id), {}),
+                                    config_for_server_runtime(guild_id),
                                     "DAILY CHALLENGE REWARD",
                                     f"**{killer}** earned **{reward} pennies**.",
                                     [
@@ -18681,6 +18895,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
 
     if remember_adm_log_source(config, latest_log):
+        persist_server_profile_runtime_config(config)
         save_guild_configs()
 
     adm_parse_context[str(guild_id)] = {
@@ -18704,10 +18919,19 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
 def guild_display_name(guild_id):
     guild_id = str(guild_id)
-    guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
+    base_guild_id, profile_id = split_server_runtime_id(guild_id)
+    guild = bot.get_guild(int(base_guild_id)) if base_guild_id.isdigit() else None
 
     if guild:
+        if profile_id:
+            config = config_for_server_runtime(guild_id)
+            return f"{guild.name} - {server_profile_name(profile_id, config)}"
         return guild.name
+
+    if profile_id:
+        config = config_for_server_runtime(guild_id)
+        base_name = guild_configs.get(base_guild_id, {}).get("guild_name", base_guild_id)
+        return f"{base_name} - {server_profile_name(profile_id, config)}"
 
     return guild_configs.get(guild_id, {}).get("guild_name", guild_id)
 
@@ -18732,18 +18956,23 @@ async def refresh_adm_feeds(guild_id=None, *, force=False):
         if not is_active_guild(guild_id):
             return {guild_id: (False, "Bot is not in this guild anymore")}
 
-        config = guild_configs.get(guild_id)
-        if not config:
+        matched_items = [
+            (configured_guild_id, config)
+            for configured_guild_id, config in active_adm_config_items()
+            if configured_guild_id == guild_id or discord_guild_id_for_runtime_id(configured_guild_id) == guild_id
+        ]
+        if not matched_items:
             return {guild_id: (False, "Guild is not setup yet")}
 
-        results[guild_id] = await refresh_adm_for_guild(
-            guild_id,
-            config,
-            force=force
-        )
+        for configured_guild_id, config in matched_items:
+            results[configured_guild_id] = await refresh_adm_for_guild(
+                configured_guild_id,
+                config,
+                force=force
+            )
         return results
 
-    for configured_guild_id, config in active_guild_config_items():
+    for configured_guild_id, config in active_adm_config_items():
         try:
             results[configured_guild_id] = await refresh_adm_for_guild(
                 configured_guild_id,
@@ -18759,7 +18988,7 @@ async def refresh_adm_feeds(guild_id=None, *, force=False):
 @tasks.loop(seconds=ADM_LOOP_SECONDS)
 async def adm_loop():
 
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
 
         try:
             success, message = await refresh_adm_for_guild(guild_id, config)
@@ -19544,7 +19773,7 @@ async def dashboard_audit_loop():
         if not event_id or not guild_id or not guild_id.isdigit():
             sent_ids.add(event_id)
             continue
-        guild = bot.get_guild(int(guild_id))
+        guild = discord_guild_for_runtime_id(guild_id)
         if not guild:
             failed_attempts[event_id] = int(event.get("attempts") or 0) + 1
             continue
@@ -21790,7 +22019,7 @@ async def check_stack_watch_for_adm(guild_id, config, event_type, line, event_ti
         if now_ts - float(seen_ts or 0) > max(300, window * 2):
             recent_stack_watch_alerts.pop(key, None)
 
-    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return
 
@@ -22539,7 +22768,7 @@ def push_nitrado_banlist(config, entries):
         if ok:
             config["_nitrado_banlist_working_path"] = candidate
             config["_nitrado_banlist_source"] = "file_fallback"
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             return True, f"{msg} (file fallback path={candidate}; web setting unavailable: {web_message})"
         errors.append(f"`{candidate}` → {msg}")
 
@@ -22596,7 +22825,7 @@ async def post_nitrado_banlist_log(
 ):
     try:
         guild_id = str(guild_id)
-        guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
+        guild = discord_guild_for_runtime_id(guild_id)
         if not guild:
             return
         channel = None
@@ -22767,7 +22996,7 @@ async def cleanup_link_enforcement_after_link(guild_id, config, gamertag, *, sou
 
     if changed:
         config["nitrado_temp_bans"] = remaining
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
     return changed
 
 
@@ -23011,7 +23240,7 @@ def upload_messages_xml_to_nitrado(config):
             pending = config.get("pending_server_file_changes")
             if isinstance(pending, list):
                 config["pending_server_file_changes"] = [item for item in pending if item != "messages.xml"]
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             return True, f"messages.xml uploaded to {target_path}. {msg}"
         errors.append(f"{target_path}: {msg}")
     return False, "messages.xml upload failed: " + " | ".join(errors[:4])
@@ -23099,14 +23328,14 @@ def clear_link_enforcement_pending(config, player_name):
 def record_link_enforcement_join(guild_id, player_name):
     guild_id = str(guild_id)
     player_name = str(player_name or "").strip()
-    config = guild_configs.get(guild_id, {})
+    config = config_for_server_runtime(guild_id)
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
         return False
     if has_link_enforcement_protected_gamertag(guild_id, player_name):
         changed = clear_link_enforcement_pending(config, player_name)
         if changed:
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
         return False
     key = link_enforcement_pending_key(player_name)
     if not key:
@@ -23139,7 +23368,7 @@ def record_link_enforcement_join(guild_id, player_name):
     rejected_record["last_seen_ts"] = now_ts
     rejected_record["deadline_ts"] = record.get("deadline_ts")
     rejected_record["status"] = record.get("status") or "pending"
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     return True
 
 
@@ -23172,10 +23401,11 @@ async def _post_link_enforcement_notice(guild, config, title, description, color
     channel_key = settings.get("notification_channel_key") or "public_shame"
     channel_id = _safe_channel_id(settings.get("notification_channel_id"))
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    runtime_id = server_profile_runtime_id(guild.id, config.get("_server_profile_id", "")) if config.get("_is_server_profile_runtime") else str(guild.id)
     channel = bot.get_channel(channel_id) if channel_id else None
-    channel = channel or resolve_feed_channel(str(guild.id), config, channel_key)
-    channel = channel or resolve_feed_channel(str(guild.id), config, "public_shame")
-    channel = channel or resolve_feed_channel(str(guild.id), config, "admin_logs")
+    channel = channel or resolve_feed_channel(runtime_id, config, channel_key)
+    channel = channel or resolve_feed_channel(runtime_id, config, "public_shame")
+    channel = channel or resolve_feed_channel(runtime_id, config, "admin_logs")
     if not channel:
         print(f"[LINK ENFORCEMENT] {title}: {description}")
         return
@@ -23192,7 +23422,7 @@ async def _post_link_enforcement_notice(guild, config, title, description, color
 async def enforce_unlinked_player_after_grace(guild_id, player_name):
     guild_id = str(guild_id)
     player_name = str(player_name or "").strip()
-    config = guild_configs.get(guild_id, {})
+    config = config_for_server_runtime(guild_id)
     settings = config.get("discord_link_enforcement") or {}
     pending = link_enforcement_pending_bucket(config)
     key = link_enforcement_pending_key(player_name)
@@ -23209,7 +23439,7 @@ async def enforce_unlinked_player_after_grace(guild_id, player_name):
 async def enforce_unlinked_player_now(guild_id, player_name):
     guild_id = str(guild_id)
     player_name = str(player_name or "").strip()
-    config = guild_configs.get(guild_id, {})
+    config = config_for_server_runtime(guild_id)
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
         return False
@@ -23220,10 +23450,10 @@ async def enforce_unlinked_player_now(guild_id, player_name):
         return False
     if player_name not in online_players.get(guild_id, set()):
         return False
-    guild = bot.get_guild(int(guild_id))
+    guild = discord_guild_for_runtime_id(guild_id)
     if has_link_enforcement_protected_gamertag(guild_id, player_name) or await has_linked_discord_member_for_gamertag(guild, guild_id, player_name):
         clear_link_enforcement_pending(config, player_name)
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         return True
 
     action = str(settings.get("action") or "notify").lower()
@@ -23238,7 +23468,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             pending_record["status"] = "notified"
             pending_record["notified_ts"] = datetime.now(UTC).timestamp()
             mark_link_enforcement_rejected(config, player_name, "notified", notified_ts=pending_record["notified_ts"])
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
         await _post_link_enforcement_notice(guild, config, "Discord Link Required", base_message, 0xF1C40F)
         return True
 
@@ -23248,7 +23478,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             pending_record["status"] = "notified"
             pending_record["notified_ts"] = datetime.now(UTC).timestamp()
             mark_link_enforcement_rejected(config, player_name, "notified", notified_ts=pending_record["notified_ts"])
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
         await _post_link_enforcement_notice(
             guild,
             config,
@@ -23264,7 +23494,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             if isinstance(pending_record, dict):
                 pending_record["status"] = "linked"
                 pending_record["linked_ts"] = datetime.now(UTC).timestamp()
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             await _post_link_enforcement_notice(
                 guild,
                 config,
@@ -23294,7 +23524,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
             )
             if skipped:
                 clear_link_enforcement_pending(config, player_name)
-                save_guild_configs()
+                save_guild_configs_for_runtime(config)
                 return True
             return False
         if action == "temp_ban":
@@ -23326,7 +23556,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
                 action=action,
                 enforced_ts=pending_record["enforced_ts"],
             )
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         await _post_link_enforcement_notice(
             guild,
             config,
@@ -23341,7 +23571,7 @@ async def enforce_unlinked_player_now(guild_id, player_name):
 def schedule_link_enforcement_check(guild_id, player_name):
     guild_id = str(guild_id)
     player_name = str(player_name or "").strip()
-    config = guild_configs.get(guild_id, {})
+    config = config_for_server_runtime(guild_id)
     settings = config.get("discord_link_enforcement") or {}
     if not settings.get("enabled") or not player_name:
         return
@@ -23357,7 +23587,8 @@ def schedule_link_enforcement_check(guild_id, player_name):
 async def process_link_enforcement_deadlines():
     now_ts = datetime.now(UTC).timestamp()
     changed = False
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
+        profile_changed = False
         settings = config.get("discord_link_enforcement") or {}
         if not settings.get("enabled"):
             continue
@@ -23365,18 +23596,18 @@ async def process_link_enforcement_deadlines():
         for key, record in list(pending.items()):
             if not isinstance(record, dict):
                 pending.pop(key, None)
-                changed = True
+                profile_changed = True
                 continue
             player_name = str(record.get("gamertag") or "").strip()
             if not player_name:
                 pending.pop(key, None)
-                changed = True
+                profile_changed = True
                 continue
             if has_link_enforcement_protected_gamertag(guild_id, player_name):
                 record["status"] = "linked"
                 record["linked_ts"] = now_ts
                 pending.pop(key, None)
-                changed = True
+                profile_changed = True
                 continue
             if record.get("status") in {"enforced", "linked", "notified"}:
                 continue
@@ -23385,11 +23616,14 @@ async def process_link_enforcement_deadlines():
                 grace_seconds = max(1, int(settings.get("grace_minutes") or 30)) * 60
                 record["deadline_ts"] = float(record.get("first_seen_ts") or now_ts) + grace_seconds
                 mark_link_enforcement_rejected(config, player_name, record.get("status") or "pending", deadline_ts=record["deadline_ts"])
-                changed = True
+                profile_changed = True
                 continue
             if deadline_ts <= now_ts:
                 enforced = await enforce_unlinked_player_now(guild_id, player_name)
-                changed = changed or enforced
+                profile_changed = profile_changed or enforced
+        if profile_changed:
+            persist_server_profile_runtime_config(config)
+            changed = True
     if changed:
         save_guild_configs()
 
@@ -23506,7 +23740,7 @@ async def check_safe_zones_for_adm(guild_id, config, event_type, line):
     if not player_name:
         return
 
-    guild = bot.get_guild(int(guild_id))
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return
 
@@ -24008,7 +24242,7 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
             failed_downloads += 1
             continue
 
-        adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+        adm_path = adm_file_path(guild_id)
         if not os.path.exists(adm_path):
             failed_downloads += 1
             continue
@@ -24134,7 +24368,7 @@ async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, f
             failed_downloads += 1
             continue
 
-        adm_path = os.path.join(GUILD_DATA_FOLDER, f"{guild_id}.ADM")
+        adm_path = adm_file_path(guild_id)
         if not os.path.exists(adm_path):
             failed_downloads += 1
             continue
@@ -25245,7 +25479,7 @@ async def wage_loop():
                 wage["last_paid_ts"] = now_ts
                 changed = True
 
-                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                guild = discord_guild_for_runtime_id(guild_id)
                 channel = None
                 if guild:
                     channel = await get_or_create_feed_channel(
@@ -26883,7 +27117,7 @@ async def post_pve_challenge(guild_id, config, *, manual=False):
     if not server_allows_pve(config):
         return False, "PVE is disabled for this server mode"
 
-    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return False, "Guild not found"
 
@@ -26977,7 +27211,7 @@ async def post_pve_themed_challenge(guild_id, config, kind, *, manual=False, dif
     if not server_allows_pve(config):
         return False, "PVE is disabled for this server mode"
 
-    guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return False, "Guild not found"
 
@@ -27138,7 +27372,7 @@ async def process_pve_progress_from_adm(guild_id, config, event_type, line):
             if not paid:
                 reward_status = f"{challenge.get('reward_pennies', 0)} pennies pending. Survivor must link gamertag with `/linkgamer`."
             else:
-                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                guild = discord_guild_for_runtime_id(guild_id)
                 if guild:
                     await send_money_feed(
                         guild,
@@ -27198,7 +27432,7 @@ async def workshop_schedule_loop():
         config = guild_configs.get(str(guild_id))
         if not config:
             continue
-        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+        guild = discord_guild_for_runtime_id(guild_id)
         if not guild:
             continue
 
@@ -27268,7 +27502,7 @@ async def wages_payout_loop():
     for guild_id, payouts in list(wages.items()):
         if not isinstance(payouts, list):
             continue
-        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+        guild = discord_guild_for_runtime_id(guild_id)
         if not guild:
             continue
         config = guild_configs.get(str(guild_id)) or {}
@@ -27361,7 +27595,7 @@ async def pve_pvp_advice_loop():
             pve_settings = pve_config(config)
             last_pve_help = float(pve_settings.get("last_help_ts", 0))
             if server_allows_pve(config) and now_ts - last_pve_help >= 24 * 3600:
-                guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+                guild = discord_guild_for_runtime_id(guild_id)
                 if guild and not channels.get("pve_help") and not is_channel_key_disabled(config, "pve_help"):
                     await ensure_pve_channels(guild, config)
 
@@ -27813,13 +28047,14 @@ async def unlinkaltgamer(ctx):
 )
 @app_commands.describe(
     gamertag="Your Xbox gamertag",
-    account="Primary or your one allowed alt account"
+    account="Primary or your one allowed alt account",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno"
 )
 @app_commands.choices(account=[
     app_commands.Choice(name="Primary gamertag", value="primary"),
     app_commands.Choice(name="Alt gamertag", value="alt"),
 ])
-async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, account: str = "primary"):
+async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, account: str = "primary", server: str = ""):
     await interaction.response.defer(ephemeral=True)
     is_alt = normalize_discord_name(account) == "alt"
     await interaction.followup.send(
@@ -27836,6 +28071,7 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, accou
         interaction.user,
         gamertag,
         is_alt=is_alt,
+        server_profile_id=server,
     )
     if not success:
         await interaction.followup.send(result, ephemeral=True)
@@ -28387,7 +28623,7 @@ def build_online_dashboard_embed(guild_id, reason=""):
     ensure_guild_runtime(guild_id)
     guild_online = sorted(online_players[guild_id])
     online_count = len(guild_online)
-    guild_name = str(guild_configs.get(str(guild_id), {}).get("guild_name") or guild_display_name(guild_id))
+    guild_name = str(config_for_server_runtime(guild_id).get("guild_name") or guild_display_name(guild_id))
     now = datetime.now(UTC)
 
     if online_count >= 20:
@@ -29519,7 +29755,7 @@ def normalize_economy_currency(value):
 
 def guild_economy_currency(guild_id=None, config=None):
     if config is None and guild_id:
-        config = guild_configs.get(str(guild_id), {})
+        config = config_for_server_runtime(guild_id)
     if isinstance(config, dict):
         return normalize_economy_currency(config.get("economy_currency") or config.get("currency"))
     return DEFAULT_ECONOMY_CURRENCY
@@ -37607,7 +37843,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
 
 
 async def post_scenario_event_discord_notice(guild_id, config, notice):
-    guild = bot.get_guild(int(guild_id))
+    guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return False
     channel = await get_or_create_rpt_admin_channel(guild, config)
@@ -38803,7 +39039,7 @@ def format_reset_time(value):
 
 async def post_vehicle_reset_status(guild_id, config, title, description, color=0x3498DB):
     try:
-        guild = bot.get_guild(int(guild_id))
+        guild = discord_guild_for_runtime_id(guild_id)
     except Exception:
         guild = None
     if not guild:
@@ -41280,7 +41516,7 @@ async def ownerremovebot(interaction: discord.Interaction, secret_code: str, gui
         await reject_owner_command(interaction)
         return
 
-    target_guild = bot.get_guild(int(guild_id)) if guild_id.isdigit() else None
+    target_guild = discord_guild_for_runtime_id(guild_id)
     if not target_guild:
         await interaction.response.send_message("Server not found.", ephemeral=True)
         return

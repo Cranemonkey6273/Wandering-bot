@@ -117,6 +117,44 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(["placed_feed", "building"], [row["feed_key"] for row in rows])
         self.assertEqual(["placed tent", "built wall"], [row["summary"] for row in rows])
 
+    def test_server_profile_rows_use_profile_runtime_ids(self):
+        config = {
+            "nitrado_token": "shared-token",
+            "server_profiles": {
+                "cherno": {
+                    "profile_name": "Cherno",
+                    "service_id": "111",
+                    "server_map": "chernarus",
+                    "channels": {"building": "123456789012345678"},
+                    "dashboard_live_feed_keys": ["building"],
+                },
+                "livo": {
+                    "profile_name": "Livo",
+                    "service_id": "222",
+                    "server_map": "livonia",
+                    "channels": {"placed_feed": "223456789012345678"},
+                    "dashboard_live_feed_keys": ["placed_feed"],
+                },
+            },
+        }
+        store = {
+            "guild-1:cherno": [
+                {"id": "one", "feed_key": "building", "event_type": "build", "player": "Builder", "summary": "cherno build", "occurred_at": "2026-07-06T10:00:00+00:00"},
+            ],
+            "guild-1:livo": [
+                {"id": "two", "feed_key": "placed_feed", "event_type": "placed", "player": "Builder", "summary": "livo placed", "occurred_at": "2026-07-06T10:01:00+00:00"},
+            ],
+        }
+
+        with patch.object(dashboard, "discord_guild_channels", return_value=[]):
+            rows = dashboard.dashboard_server_profile_rows(config, "guild-1", store, True)
+
+        self.assertEqual(["cherno", "livo"], [row["id"] for row in rows])
+        self.assertEqual(["guild-1:cherno", "guild-1:livo"], [row["runtime_id"] for row in rows])
+        self.assertEqual(["cherno build"], [row["summary"] for row in rows[0]["dashboard_live_feed_rows"]])
+        self.assertEqual(["livo placed"], [row["summary"] for row in rows[1]["dashboard_live_feed_rows"]])
+        self.assertEqual("shared", rows[0]["token_status"])
+
     def test_gameserver_action_posts_to_restart_and_stop_endpoints(self):
         calls = []
 

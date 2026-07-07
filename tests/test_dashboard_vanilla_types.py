@@ -99,6 +99,7 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn("dashboard_live_feed_rows", source)
         self.assertIn("dashboard_live_feed_filter_groups", source)
         self.assertIn("dashboard_live_feed_keys", source)
+        self.assertIn("server_profile_id", source)
         self.assertIn('"dashboard_live_feeds": "dashboard_live_feeds.json"', source)
 
     def test_dashboard_has_plain_task_entry_points_for_setup_and_economy(self):
@@ -109,6 +110,9 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn('id="economy-common-tasks"', source)
         self.assertIn('action="/api/admin/server-profile"', source)
         self.assertIn('@APP.post("/api/admin/server-profile")', source)
+        self.assertIn('action="/api/admin/dayz-server-profile"', source)
+        self.assertIn('@APP.post("/api/admin/dayz-server-profile")', source)
+        self.assertIn("server_profiles", source)
         self.assertIn("normalize_dashboard_server_mode", source)
         self.assertIn("shop_economy_section", source)
 
