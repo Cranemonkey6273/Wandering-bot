@@ -23004,6 +23004,25 @@ def dashboard_server_profile_store(config: Any, create: bool = False) -> dict[st
     return profiles
 
 
+def dashboard_enabled_server_profile_items(config: Any) -> list[tuple[str, dict[str, Any]]]:
+    profiles = dashboard_server_profile_store(config)
+    return [
+        (str(profile_id), profile)
+        for profile_id, profile in profiles.items()
+        if isinstance(profile, dict) and dashboard_bool(profile.get("enabled"), True)
+    ]
+
+
+def dashboard_should_include_base_server_profile(config: Any) -> bool:
+    if not isinstance(config, dict) or not dashboard_server_profile_store(config):
+        return False
+    if not dashboard_bool(config.get("base_server_profile_enabled"), True):
+        return False
+    if len(dashboard_enabled_server_profile_items(config)) >= 2 and not dashboard_bool(config.get("include_base_server_profile"), False):
+        return False
+    return True
+
+
 def dashboard_server_profile_name(profile_id: str, profile: Any) -> str:
     profile = profile if isinstance(profile, dict) else {}
     name = str(
@@ -23121,7 +23140,7 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
     if not isinstance(config, dict):
         return rows
     profile_store = dashboard_server_profile_store(config)
-    if profile_store:
+    if dashboard_should_include_base_server_profile(config):
         rows.append(dashboard_base_server_profile_row(config, guild_id, live_feed_store, needs_live_feeds))
     for raw_profile_id, profile in sorted(profile_store.items(), key=lambda item: str(item[0]).lower()):
         if not isinstance(profile, dict):

@@ -996,6 +996,29 @@ def has_server_profiles(config):
     return any(isinstance(profile, dict) and profile.get("enabled", True) for profile in profiles.values())
 
 
+def enabled_server_profile_items(config):
+    profiles = config.get("server_profiles") if isinstance(config, dict) else {}
+    if not isinstance(profiles, dict):
+        return []
+    return [
+        (profile_id, profile)
+        for profile_id, profile in profiles.items()
+        if isinstance(profile, dict) and profile.get("enabled", True)
+    ]
+
+
+def should_include_base_server_profile(config):
+    if not has_server_profiles(config):
+        return False
+    if not config.get("base_server_profile_enabled", True):
+        return False
+    # Once explicit Cherno/Livo profiles exist, the old base Discord config is
+    # just a migration fallback and should not appear as a third DayZ server.
+    if len(enabled_server_profile_items(config)) >= 2 and not config.get("include_base_server_profile", False):
+        return False
+    return True
+
+
 def server_profile_name(profile_id, profile_config=None):
     profile_config = profile_config or {}
     return str(
@@ -1159,7 +1182,7 @@ def save_guild_configs_for_runtime(config=None):
 def active_adm_config_items():
     for guild_id, config in active_guild_config_items():
         if has_server_profiles(config):
-            if config.get("base_server_profile_enabled", True):
+            if should_include_base_server_profile(config):
                 yield str(guild_id), config
             for profile_id, profile_config in server_profile_store(config).items():
                 if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
@@ -1173,7 +1196,9 @@ def active_adm_config_items():
 def server_profile_choices_text(config):
     if not has_server_profiles(config):
         return ""
-    names = [f"`{base_server_profile_primary_alias(config)}` ({base_server_profile_name(config)})"]
+    names = []
+    if should_include_base_server_profile(config):
+        names.append(f"`{base_server_profile_primary_alias(config)}` ({base_server_profile_name(config)})")
     for profile_id, profile in server_profile_store(config).items():
         if isinstance(profile, dict) and profile.get("enabled", True):
             names.append(f"`{normalize_server_profile_id(profile_id)}` ({server_profile_name(profile_id, profile)})")
@@ -1363,14 +1388,15 @@ def server_profile_context_match_score(profile_id, profile_config, *, channel=No
 
 def infer_server_profile_id_from_context(base_config, *, channel=None, member=None):
     matches = []
-    base_score, base_reason = server_profile_context_match_score(
-        "",
-        base_server_profile_context_config(base_config),
-        channel=channel,
-        member=member,
-    )
-    if base_score > 0:
-        matches.append((base_score, "", base_reason))
+    if should_include_base_server_profile(base_config):
+        base_score, base_reason = server_profile_context_match_score(
+            "",
+            base_server_profile_context_config(base_config),
+            channel=channel,
+            member=member,
+        )
+        if base_score > 0:
+            matches.append((base_score, "", base_reason))
 
     for stored_id, profile_config in server_profile_store(base_config).items():
         if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
@@ -1422,7 +1448,7 @@ def runtime_config_for_command_context(guild, *, channel=None, member=None, serv
         if profile_config and profile_config.get("enabled", True):
             runtime_id = server_profile_runtime_id(base_id, requested_profile_id)
             return runtime_id, build_server_profile_runtime_config(base_id, base_config, requested_profile_id, profile_config), None
-        if is_base_server_profile_request(base_config, requested_profile_id):
+        if should_include_base_server_profile(base_config) and is_base_server_profile_request(base_config, requested_profile_id):
             return base_id, base_config, None
         if not profile_config or not profile_config.get("enabled", True):
             choices = server_profile_choices_text(base_config)
