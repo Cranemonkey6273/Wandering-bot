@@ -7,6 +7,7 @@ local JSON state only so the Discord bot can pick up changes on its next read.
 
 from __future__ import annotations
 
+import copy
 import json
 import io
 import os
@@ -901,6 +902,22 @@ DASHBOARD_LIVE_FEED_DEFAULT_KEYS = (
 )
 DASHBOARD_LIVE_FEED_ROW_LIMIT = 150
 SERVER_PROFILE_SEPARATOR = ":"
+DASHBOARD_SERVER_PROFILE_INHERITED_KEYS = (
+    "nitrado_token",
+    "nitrado_ftp_host",
+    "server_platform",
+    "platform",
+    "server_mode",
+    "admin_roles",
+    "member_onboarding",
+    "discord_link_enforcement",
+    "heatmap_images",
+    "economy_currency",
+    "currency",
+    "server_timezone",
+    "adm_timezone",
+    "restart_timezone",
+)
 DEFAULT_BILLING_PLANS = [
     {
         "id": "free_bot",
@@ -3876,7 +3893,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}#pve-workshop">Create Event</a>{% endif %}
       {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Edit Zones</a>{% endif %}
       {% if section_allowed('shop') or section_allowed('economy') %}<a href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}">Shop / Money</a>{% endif %}
-      {% if section_allowed('server-control') %}<a href="/admin?section=access&setup_tool=control{{ server_qs }}">Restart Server</a>{% endif %}
+      {% if section_allowed('server-control') %}<a href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}">Restart Server</a>{% endif %}
     </div>
     {% endif %}
   </aside>
@@ -4041,7 +4058,7 @@ PAGE_TEMPLATE = """
             {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Messages</a>{% endif %}
             {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
             {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
-            {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}#server-control">Restart & Damage</a>{% endif %}
+            {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#server-control">Restart & Damage</a>{% endif %}
           </nav>
         </div>
       </div>
@@ -4196,7 +4213,7 @@ PAGE_TEMPLATE = """
         <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
         <a class="quick-guide-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Set up shop or money</strong><span>Add buyable items, build bundles, adjust wallets, set wages and choose the currency wording.</span></a>
         <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
-        <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}"><strong>Schedule raid weekend</strong><span>Use Admin Center controls for restarts, base damage and container damage schedules.</span></a>
+        <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}"><strong>Schedule raid weekend</strong><span>Use Admin Center controls for restarts, base damage and container damage schedules.</span></a>
         <a class="quick-guide-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
       </div>
     </section>
@@ -6236,7 +6253,7 @@ PAGE_TEMPLATE = """
         <article class="admin-panel" data-pve-panel="builder">
           <h3>Server Control Moved</h3>
           <p class="tool-note">Restarts, raid damage and vehicle resets now live in Admin Center.</p>
-          <a class="button-link" href="/admin?section=access&setup_tool=control{{ server_qs }}">Open Admin Center</a>
+          <a class="button-link" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}">Open Admin Center</a>
         </article>
         <article class="admin-panel full" data-pve-panel="events">
           {% set scenario_summary = server.scenario_summary if server and server.scenario_summary else {} %}
@@ -8171,6 +8188,20 @@ PAGE_TEMPLATE = """
           <p class="tool-note">Maintenance controls for this server only: restarts, raid damage, container damage, and vehicle reset schedules. Spawn events and loadout builders live on their own pages.</p>
         </div>
       </div>
+      {% if server and server.dayz_profiles %}
+      <article class="admin-panel full" id="server-control-profile-picker">
+        <h3>DayZ Server</h3>
+        <p class="tool-note">Pick the server profile before changing restart times, base damage, container damage, or vehicle reset schedules.</p>
+        <div class="command-server-grid compact">
+          {% for option in server.dayz_profiles %}
+          <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#server-control">
+            <strong>{{ option.name }}</strong>
+            <span>{{ option.map|title }} · {{ option.platform_label }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </article>
+      {% endif %}
       {% set restart_on = server and server.config.restart_schedule_enabled == true and server.config.restart_schedule_confirmed == true %}
       {% set restart_hours = (server.config.restart_interval_hours if server else 4) or 4 %}
       {% set restart_start = (server.config.restart_start_hour if server else 0) or 0 %}
@@ -8235,6 +8266,7 @@ PAGE_TEMPLATE = """
                 {% if restart_on %}
                 <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the restart schedule for {{ server.guild_name if server else 'this server' }}?">
                   <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
                   <input class="hidden-field" name="schedule_delete" value="restart">
                   <button class="schedule-mini-button danger" type="submit">Delete</button>
                 </form>
@@ -8254,6 +8286,7 @@ PAGE_TEMPLATE = """
                 {% if dmg_enabled %}
                 <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the raid start schedule for {{ server.guild_name if server else 'this server' }}?">
                   <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
                   <input class="hidden-field" name="schedule_delete" value="damage">
                   <button class="schedule-mini-button danger" type="submit">Delete</button>
                 </form>
@@ -8273,6 +8306,7 @@ PAGE_TEMPLATE = """
                 {% if dmg_restore_enabled %}
                 <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the raid end schedule for {{ server.guild_name if server else 'this server' }}?">
                   <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
                   <input class="hidden-field" name="schedule_delete" value="damage_restore">
                   <button class="schedule-mini-button danger" type="submit">Delete</button>
                 </form>
@@ -8292,6 +8326,7 @@ PAGE_TEMPLATE = """
                 {% if vr_enabled %}
                 <form class="schedule-action-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Delete the vehicle reset schedule for {{ server.guild_name if server else 'this server' }}?">
                   <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                  <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
                   <input class="hidden-field" name="schedule_delete" value="vehicle_reset">
                   <button class="schedule-mini-button danger" type="submit">Delete</button>
                 </form>
@@ -8306,6 +8341,7 @@ PAGE_TEMPLATE = """
           <h3>Restart Schedule</h3>
           <form class="admin-form" id="restart-schedule-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Restart schedule <select name="restart_schedule_enabled"><option value="true" {% if restart_on %}selected{% endif %}>On</option><option value="false" {% if not restart_on %}selected{% endif %}>Off</option></select></label>
             <label>Server timezone <input name="server_timezone" value="{{ restart_timezone }}"><small class="field-help">IANA name, for example Europe/London, Europe/Berlin, America/New_York, or UTC.</small></label>
@@ -8334,11 +8370,13 @@ PAGE_TEMPLATE = """
           <div class="inline-actions" style="margin-top:.65rem">
             <form class="admin-form inline-action" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Restart {{ server.guild_name if server else 'this server' }} now through Nitrado?">
               <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
               <input class="hidden-field" name="server_action" value="restart">
               <button type="submit">Restart Now</button> <span class="result muted"></span>
             </form>
             <form class="admin-form inline-action" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Stop {{ server.guild_name if server else 'this server' }} now through Nitrado? Players will be kicked and the server stays offline until started again.">
               <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
               <input class="hidden-field" name="server_action" value="stop">
               <button class="danger" type="submit">Stop Server</button> <span class="result muted"></span>
             </form>
@@ -8374,6 +8412,7 @@ PAGE_TEMPLATE = """
           <h3>Damage Settings</h3>
           <form class="admin-form" id="damage-settings-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Base damage <select name="base_damage_state"><option value="on" {% if base_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if base_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage bases. The bot writes disableBaseDamage=false before restart.</small></label>
             <label>Container damage <select name="container_damage_state"><option value="on" {% if container_state != 'off' %}selected{% endif %}>On</option><option value="off" {% if container_state == 'off' %}selected{% endif %}>Off</option></select><small class="field-help">On means players can damage containers. Off writes disableContainerDamage=true.</small></label>
@@ -8438,6 +8477,7 @@ PAGE_TEMPLATE = """
           <h3>Vehicle Reset Schedule</h3>
           <form class="admin-form" id="vehicle-reset-form" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Schedule <select name="vehicle_reset_schedule_enabled"><option value="false" {% if not vr_enabled %}selected{% endif %}>Off</option><option value="true" {% if vr_enabled %}selected{% endif %}>On</option></select></label>
             <label>Method <select name="vehicle_reset_method"><option value="cfgignorelist" {% if vr_method != 'bridge' %}selected{% endif %}>cfgignorelist.xml vehicle-only reset</option><option value="bridge" {% if vr_method == 'bridge' %}selected{% endif %}>Bridge radius delete</option></select></label>
@@ -8635,7 +8675,7 @@ PAGE_TEMPLATE = """
             <a class="quick-guide-link" href="#server-profile"><strong>Change PVE / PVP / map</strong><span>Update the basic server profile without entering Nitrado tokens again.</span></a>
             <a class="quick-guide-link" href="#nitrado-connection"><strong>Fix Nitrado connection</strong><span>Replace API token, service ID, FTP login or password only when they have changed.</span></a>
             <a class="quick-guide-link" href="/admin?section=access&setup_tool=feeds{{ server_qs }}#feed-routes"><strong>Move Discord feeds</strong><span>See every feed and choose which existing channel it posts into.</span></a>
-            <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}#server-control"><strong>Restart or schedule raid weekend</strong><span>Restart, stop, base damage, container damage and vehicle reset schedules.</span></a>
+            <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#server-control"><strong>Restart or schedule raid weekend</strong><span>Restart, stop, base damage, container damage and vehicle reset schedules.</span></a>
             <a class="quick-guide-link" href="#temporary-logins"><strong>Give staff dashboard access</strong><span>Create short-lived logins for helpers without sharing your owner details.</span></a>
             <a class="quick-guide-link" href="#linked-servers"><strong>Switch or link servers</strong><span>Join multiple dashboards into one login and choose the active server.</span></a>
           </div>
@@ -22967,6 +23007,22 @@ def dashboard_server_profile_name(profile_id: str, profile: Any) -> str:
     return name[:80] or "Server"
 
 
+def dashboard_server_profile_runtime_config(base_config: Any, guild_id: str, profile_id: Any, profile: Any) -> dict[str, Any]:
+    base_config = base_config if isinstance(base_config, dict) else {}
+    profile = profile if isinstance(profile, dict) else {}
+    runtime: dict[str, Any] = {}
+    for key in DASHBOARD_SERVER_PROFILE_INHERITED_KEYS:
+        if key in base_config and key not in profile:
+            runtime[key] = copy.deepcopy(base_config.get(key))
+    for key, value in profile.items():
+        runtime[key] = copy.deepcopy(value)
+    runtime["channels"] = copy.deepcopy(profile.get("channels") if isinstance(profile.get("channels"), dict) else {})
+    runtime["_base_guild_id"] = normalize_guild_id(guild_id)
+    runtime["_server_profile_id"] = normalize_server_profile_id(profile_id, "")
+    runtime["_is_server_profile_runtime"] = True
+    return runtime
+
+
 def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: Any = None, needs_live_feeds: bool = False) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if not isinstance(config, dict):
@@ -22981,7 +23037,9 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
             for value in (profile.get("channels") or {}).values()
             if str(value or "").strip()
         ]) if isinstance(profile.get("channels"), dict) else 0
+        runtime_config = dashboard_server_profile_runtime_config(config, guild_id, profile_id, profile)
         profile_channels = public_channels(profile.get("channels", {}), guild_id)
+        runtime_channels = public_channels(runtime_config.get("channels", {}), guild_id)
         server_map = str(profile.get("server_map") or profile.get("map") or config.get("server_map") or config.get("map") or "chernarus")
         server_platform = normalize_dashboard_server_platform(profile.get("server_platform") or profile.get("platform") or config.get("server_platform") or config.get("platform"))
         rows.append(
@@ -23007,6 +23065,8 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
                 "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(profile, live_feed_store, runtime_id) if needs_live_feeds else []),
                 "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, runtime_id)) if needs_live_feeds else 0,
                 "config": redact(profile),
+                "server_control_config": redact(runtime_config),
+                "server_control_channels": runtime_channels,
             }
         )
     return rows
@@ -23026,6 +23086,32 @@ def dashboard_target_config_for_profile(guild_configs: dict[str, Any], guild_id:
     if not isinstance(profile, dict):
         return None, dashboard_server_profile_runtime_id(guild_id, profile_id), f"DayZ server profile `{profile_id}` was not found."
     return profile, dashboard_server_profile_runtime_id(guild_id, profile_id), ""
+
+
+def dashboard_server_control_target(
+    guild_configs: dict[str, Any],
+    guild_id: str,
+    profile_id: Any = "",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str, str]:
+    guild_id = normalize_guild_id(guild_id)
+    base_config = guild_configs.setdefault(guild_id, {"channels": {}})
+    if not isinstance(base_config, dict):
+        base_config = {"channels": {}}
+        guild_configs[guild_id] = base_config
+
+    target_config, runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or target_config is None:
+        return None, None, runtime_id, target_error
+
+    clean_profile_id = normalize_server_profile_id(profile_id, "")
+    if clean_profile_id:
+        return (
+            target_config,
+            dashboard_server_profile_runtime_config(base_config, guild_id, clean_profile_id, target_config),
+            runtime_id,
+            "",
+        )
+    return target_config, target_config, runtime_id, ""
 
 
 def dashboard_next_custom_feed_id(feeds: Any) -> int:
@@ -25319,6 +25405,23 @@ def page(mode: str, auth: dict[str, Any]):
                 if server_rows:
                     server_rows[0] = selected_server
                     state["servers"] = server_rows
+    if (
+        isinstance(selected_server, dict)
+        and selected_dayz_profile
+        and (active_section == "server-control" or (active_section == "access" and setup_tool == "control"))
+    ):
+        selected_server = dict(selected_server)
+        selected_server["config"] = selected_dayz_profile.get("server_control_config") or selected_dayz_profile.get("config") or {}
+        selected_server["channels"] = selected_dayz_profile.get("server_control_channels") or selected_dayz_profile.get("channels") or []
+        selected_server["guild_name"] = (
+            f"{selected_server.get('guild_name') or 'Server'} - {selected_dayz_profile.get('name') or selected_dayz_profile_id}"
+        )
+        selected_server["server_control_runtime_id"] = selected_dayz_profile.get("runtime_id") or ""
+        state = dict(state)
+        server_rows = list(state.get("servers") or [])
+        if server_rows:
+            server_rows[0] = selected_server
+            state["servers"] = server_rows
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
     dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
     ai_agent_state: dict[str, Any] = {}
@@ -29085,18 +29188,21 @@ def api_server_control():
     raw_payload = payload or {}
     payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    config, action_config, runtime_id, target_error = dashboard_server_control_target(guild_configs, guild_id, profile_id)
+    if target_error or config is None or action_config is None:
+        return jsonify({"ok": False, "error": target_error or "server profile not found"}), 404
     server_action = str(payload.get("server_action") or "").strip().lower()
     if server_action:
         if server_action not in {"restart", "stop"}:
             return jsonify({"ok": False, "error": "Unsupported server action."}), 400
-        ok, action_message, status_code = dashboard_nitrado_gameserver_action(config, server_action)
+        ok, action_message, status_code = dashboard_nitrado_gameserver_action(action_config, server_action)
         actor = dashboard_audit_actor(current_auth())
         record = dashboard_append_restart_history(
-            guild_id,
+            runtime_id,
             config,
             f"dashboard_{server_action}",
             "requested" if ok else "failed",
@@ -29113,9 +29219,11 @@ def api_server_control():
         }
         config["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
         g.dashboard_audit_payload = dict(
             raw_payload,
             guild_id=guild_id,
+            runtime_id=runtime_id,
             action=f"server_{server_action}",
             nitrado_status=status_code,
             result="requested" if ok else "failed",
@@ -29362,6 +29470,7 @@ def api_server_control():
     config["updated_at"] = datetime.now(UTC).isoformat()
     normalize_dashboard_server_control_schedules(config)
     save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
     saved_parts = []
     if {
         "restart_schedule_enabled",
@@ -29383,7 +29492,7 @@ def api_server_control():
     note = "Saved " + (", ".join(saved_parts) if saved_parts else "server control") + " for this server."
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "server_control": redact(config), "note": note},
+        {"ok": True, "runtime_id": runtime_id, "server_control": redact(config), "note": note},
         "server-control",
         "#server-control",
     )

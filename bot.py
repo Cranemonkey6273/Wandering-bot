@@ -850,12 +850,67 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "adm_last_log_path",
     "adm_log_directory",
     "adm_last_log_directory",
+    "base_damage_state",
+    "container_damage_state",
+    "damage_first_date",
+    "damage_interval_unit",
+    "damage_interval_value",
+    "damage_day_of_month",
+    "damage_day_of_week",
+    "damage_preflight_minutes",
+    "damage_restore_first_date",
+    "damage_restore_interval_unit",
+    "damage_restore_interval_value",
+    "damage_restore_day_of_month",
+    "damage_restore_day_of_week",
+    "damage_restore_schedule",
+    "damage_restore_schedule_enabled",
+    "damage_restore_time",
+    "damage_restore_timezone",
+    "damage_schedule",
+    "damage_schedule_enabled",
+    "damage_time",
+    "damage_timezone",
     "linked_gamertag_index",
     "discord_link_enforcement_state",
     "nitrado_temp_bans",
     "nitrado_perm_bans",
+    "online_dashboard_message_id",
     "pending_server_file_changes",
+    "restart_channel_id",
+    "restart_channel_key",
+    "restart_history",
+    "restart_interval_hours",
+    "restart_log_channel_id",
+    "restart_log_channel_key",
+    "restart_schedule_confirmed",
+    "restart_schedule_enabled",
+    "restart_start_hour",
+    "restart_timezone",
+    "restart_warning_minutes",
     "safe_zone_offenses",
+    "scenario_events",
+    "scenario_events_cleanup_completed_at",
+    "scenario_events_cleanup_error",
+    "scenario_events_cleanup_pending",
+    "server_control_scheduler_status",
+    "server_timezone",
+    "vehicle_reset_cfgignorelist_workflow",
+    "vehicle_reset_day_of_month",
+    "vehicle_reset_day_of_week",
+    "vehicle_reset_exclusions",
+    "vehicle_reset_first_date",
+    "vehicle_reset_interval_unit",
+    "vehicle_reset_interval_value",
+    "vehicle_reset_method",
+    "vehicle_reset_preflight_minutes",
+    "vehicle_reset_restore_wait_seconds",
+    "vehicle_reset_schedule",
+    "vehicle_reset_schedule_enabled",
+    "vehicle_reset_server_online_wait_seconds",
+    "vehicle_reset_time",
+    "vehicle_reset_timezone",
+    "vehicle_reset_wipe_wait_seconds",
     "_nitrado_banlist_working_path",
     "_nitrado_banlist_source",
     "_nitrado_messages_xml_working_path",
@@ -24801,14 +24856,25 @@ async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, f
 
 
 @bot.command()
-async def restartserver(ctx):
+async def restartserver(ctx, server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
 
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+
     embed = discord.Embed(
         title="🔄 SERVER RESTART REQUESTED",
-        description="Live restart request sent to Nitrado server.",
+        description=f"Live restart request sent to `{guild_display_name(guild_id)}`.",
         color=0xE67E22
     )
 
@@ -24820,9 +24886,6 @@ async def restartserver(ctx):
 
     print("SERVER RESTART REQUESTED")
 
-    guild_id = str(ctx.guild.id)
-    config = guild_configs.get(guild_id, {})
-
     ok, message = await asyncio.to_thread(nitrado_restart_server_now, config)
     print(f"RESTART STATUS: ok={ok} {message}")
     record = append_restart_history(
@@ -24833,12 +24896,12 @@ async def restartserver(ctx):
         message,
         str(ctx.author),
     )
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     await publish_restart_history(guild_id, config, record)
 
 
 @bot.command()
-async def togglebasedamage(ctx, state: str):
+async def togglebasedamage(ctx, state: str, server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
@@ -24853,14 +24916,23 @@ async def togglebasedamage(ctx, state: str):
 
         return
 
-    guild_id = str(ctx.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": ctx.guild.name, "channels": {}})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+
     config["base_damage_state"] = state
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     embed = discord.Embed(
         title="🛡️ BASE DAMAGE SETTINGS",
-        description=f"Base damage turned {state.upper()}.",
+        description=f"`{guild_display_name(guild_id)}` base damage turned {state.upper()}.",
         color=0x3498DB
     )
 
@@ -24877,7 +24949,7 @@ async def togglebasedamage(ctx, state: str):
 # =========================================================
 
 @bot.command()
-async def setrestartinterval(ctx, hours: int):
+async def setrestartinterval(ctx, hours: int, server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
@@ -24890,20 +24962,26 @@ async def setrestartinterval(ctx, hours: int):
 
         return
 
-    guild_id = str(ctx.guild.id)
-
-    if guild_id not in guild_configs:
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
         return
 
-    guild_configs[guild_id]["restart_interval_hours"] = hours
-    guild_configs[guild_id]["restart_schedule_enabled"] = True
-    guild_configs[guild_id]["restart_schedule_confirmed"] = True
+    config["restart_interval_hours"] = hours
+    config["restart_schedule_enabled"] = True
+    config["restart_schedule_confirmed"] = True
 
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     embed = discord.Embed(
         title="⏰ RESTART INTERVAL UPDATED",
-        description=f"Server will now restart every {hours} hours.",
+        description=f"`{guild_display_name(guild_id)}` will now restart every {hours} hours.",
         color=0x3498DB
     )
 
@@ -24913,7 +24991,7 @@ async def setrestartinterval(ctx, hours: int):
 
 
 @bot.command()
-async def setrestartstart(ctx, hour: int):
+async def setrestartstart(ctx, hour: int, server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
@@ -24926,21 +25004,27 @@ async def setrestartstart(ctx, hour: int):
 
         return
 
-    guild_id = str(ctx.guild.id)
-
-    if guild_id not in guild_configs:
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
         return
 
-    guild_configs[guild_id]["restart_start_hour"] = hour
-    guild_configs[guild_id]["restart_schedule_enabled"] = True
-    guild_configs[guild_id]["restart_schedule_confirmed"] = True
-    timezone_name = restart_timezone_name(guild_configs[guild_id])
+    config["restart_start_hour"] = hour
+    config["restart_schedule_enabled"] = True
+    config["restart_schedule_confirmed"] = True
+    timezone_name = restart_timezone_name(config)
 
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     embed = discord.Embed(
         title="🕒 RESTART START HOUR UPDATED",
-        description=f"Restart schedule now begins at {hour:02d}:00 {timezone_name}.",
+        description=f"`{guild_display_name(guild_id)}` restart schedule now begins at {hour:02d}:00 {timezone_name}.",
         color=0x1ABC9C
     )
 
@@ -24950,16 +25034,23 @@ async def setrestartstart(ctx, hour: int):
 
 
 @bot.command()
-async def listrestarts(ctx):
+async def listrestarts(ctx, server: str = ""):
 
-    guild_id = str(ctx.guild.id)
-
-    config = guild_configs.get(guild_id, {})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
 
     if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
         embed = discord.Embed(
             title="RESTART SCHEDULE OFF",
-            description="Automatic recurring restarts are disabled. Use `/setrestartinterval` and `/setrestartstart` to set them up again.",
+            description=f"Automatic recurring restarts are disabled for `{guild_display_name(guild_id)}`. Use `/setrestartinterval` and `/setrestartstart` to set them up again.",
             color=0x95A5A6
         )
         embed.set_thumbnail(url=BOT_IMAGE)
@@ -24989,7 +25080,7 @@ async def listrestarts(ctx):
 
     embed = discord.Embed(
         title="📢 ACTIVE RESTART SCHEDULE",
-        description="\n".join(times),
+        description=f"`{guild_display_name(guild_id)}`\n" + "\n".join(times),
         color=0xE67E22
     )
 
@@ -25010,24 +25101,33 @@ async def listrestarts(ctx):
 
 
 @bot.command()
-async def settimezone(ctx, timezone: str):
+async def settimezone(ctx, timezone: str, server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
 
-    guild_id = str(ctx.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": ctx.guild.name, "channels": {}})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+
     clean, error = apply_server_timezone(config, timezone)
     if error:
         await ctx.send(error)
         return
 
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     local_now = datetime.now(ZoneInfo(clean)).strftime("%Y-%m-%d %H:%M")
     embed = discord.Embed(
         title="SERVER TIMEZONE UPDATED",
         description=(
-            f"This server now uses `{clean}` for ADM log timestamps and scheduled restarts.\n"
+            f"`{guild_display_name(guild_id)}` now uses `{clean}` for ADM log timestamps and scheduled restarts.\n"
             f"Current local server time: `{local_now}`.\n"
             "`/setrestartstart hour` now means that hour in this timezone."
         ),
@@ -25038,23 +25138,29 @@ async def settimezone(ctx, timezone: str):
 
 
 @bot.command()
-async def cancelrestarts(ctx):
+async def cancelrestarts(ctx, server: str = ""):
 
     if not has_staff_permissions(ctx):
         return
 
-    guild_id = str(ctx.guild.id)
-
-    if guild_id not in guild_configs:
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
         return
 
-    guild_configs[guild_id]["restart_schedule_enabled"] = False
-    guild_configs[guild_id]["restart_schedule_confirmed"] = False
-    save_guild_configs()
+    config["restart_schedule_enabled"] = False
+    config["restart_schedule_confirmed"] = False
+    save_guild_configs_for_runtime(config)
 
     embed = discord.Embed(
         title="RESTART SCHEDULE CANCELLED",
-        description="Automatic recurring server restarts are now disabled. Manual `/restartserver` still works.",
+        description=f"Automatic recurring server restarts are now disabled for `{guild_display_name(guild_id)}`. Manual `/restartserver` still works.",
         color=0xE74C3C
     )
 
@@ -25348,7 +25454,7 @@ async def scheduled_restart_loop():
     # The warning is deleted when the restart triggers so chat does not
     # fill up with old restart notices.
     # ────────────────────────────────────────────────────────────────
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
         try:
             if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
                 continue
@@ -25440,7 +25546,7 @@ async def scheduled_restart_loop():
         except Exception as countdown_error:
             print(f"RESTART COUNTDOWN ERROR {guild_id}: {countdown_error}")
 
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
 
         if config.get("restart_schedule_enabled") is not True or config.get("restart_schedule_confirmed") is not True:
             continue
@@ -25627,7 +25733,7 @@ async def scheduled_restart_loop():
                             f"Scheduled restart at {current_hour:02d}:00 {restart_timezone_name(config)} ({now.strftime('%Y-%m-%d %H:%M UTC')}). Nitrado status {restart_response.status_code}.",
                             "scheduled_restart_loop",
                         )
-                        save_guild_configs()
+                        save_guild_configs_for_runtime(config)
                         await publish_restart_history(guild_id, config, record)
 
                     except Exception as restart_error:
@@ -25640,7 +25746,7 @@ async def scheduled_restart_loop():
                             f"Scheduled restart exception: {restart_error}",
                             "scheduled_restart_loop",
                         )
-                        save_guild_configs()
+                        save_guild_configs_for_runtime(config)
                         await publish_restart_history(guild_id, config, record)
                 else:
                     record = append_restart_history(
@@ -25651,7 +25757,7 @@ async def scheduled_restart_loop():
                         "Scheduled restart reached its time, but Nitrado token or service id is missing.",
                         "scheduled_restart_loop",
                     )
-                    save_guild_configs()
+                    save_guild_configs_for_runtime(config)
                     await publish_restart_history(guild_id, config, record)
 
         except Exception as error:
@@ -29037,7 +29143,13 @@ def build_online_dashboard_embed(guild_id, reason=""):
     ensure_guild_runtime(guild_id)
     guild_online = sorted(online_players[guild_id])
     online_count = len(guild_online)
-    guild_name = str(config_for_server_runtime(guild_id).get("guild_name") or guild_display_name(guild_id))
+    runtime_config = config_for_server_runtime(guild_id)
+    _base_id, profile_id = split_server_runtime_id(guild_id)
+    guild_name = (
+        server_profile_name(profile_id, runtime_config)
+        if profile_id
+        else str(runtime_config.get("guild_name") or guild_display_name(guild_id))
+    )
     now = datetime.now(UTC)
 
     if online_count >= 20:
@@ -29125,7 +29237,7 @@ async def find_existing_online_dashboard_message(channel):
             if old_msg.author != bot.user or not old_msg.embeds:
                 continue
             title = str(getattr(old_msg.embeds[0], "title", "") or "")
-            if "LIVE SURVIVORS ONLINE" in title or "ONLINE SURVIVORS" in title:
+            if "LIVE SURVIVOR BOARD" in title or "LIVE SURVIVORS ONLINE" in title or "ONLINE SURVIVORS" in title:
                 return old_msg
     except Exception:
         pass
@@ -29140,7 +29252,12 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
         return
 
     ensure_guild_runtime(guild_id)
-    snapshot = tuple(sorted(online_players[guild_id]))
+    configured_message_id = str(config.get("online_dashboard_message_id") or "").strip()
+    snapshot = (
+        str(online_channel_id),
+        configured_message_id,
+        tuple(sorted(online_players[guild_id])),
+    )
     if not force and last_online_dashboard_snapshots.get(guild_id) == snapshot:
         return
 
@@ -29183,7 +29300,7 @@ async def online_dashboard_loop():
     for guild_id, config in active_adm_config_items():
 
         try:
-            await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=False)
+            await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=True)
             continue
 
             channels = config.get("channels", {})
@@ -39569,7 +39686,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
         "stage": "download_economy_xml",
     })
     event["status"] = "Economy XML reset running: preparing economy.xml"
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     path = ""
     original_text = ""
@@ -39592,7 +39709,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "upload_init_0"
         event["status"] = message
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         upload_ok, upload_message = await asyncio.to_thread(
             upload_text_file_to_nitrado,
             config,
@@ -39605,7 +39722,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "restart_with_init_0"
         event["status"] = "Vehicles init set to 0; restarting server for wipe cycle"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
         record = append_restart_history(
             guild_id,
@@ -39615,7 +39732,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
             f"Economy vehicle reset restart: {restart_message}",
             "vehicle reset workflow",
         )
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         await publish_restart_history(guild_id, config, record)
         if not restart_ok:
             event["status"] = restart_message
@@ -39625,7 +39742,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "stop_for_restore"
         event["status"] = "Stopping server so vehicles init can be restored to 1"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         stop_ok, stop_message = await asyncio.to_thread(nitrado_gameserver_action, config, "stop")
         if not stop_ok:
             event["status"] = stop_message
@@ -39640,7 +39757,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "upload_init_1"
         event["status"] = message
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         upload_ok, upload_message = await asyncio.to_thread(
             upload_text_file_to_nitrado,
             config,
@@ -39654,7 +39771,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "start_with_init_1"
         event["status"] = "Vehicles init restored to 1; starting server"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         start_ok, start_message = await asyncio.to_thread(nitrado_gameserver_action, config, "start")
         if not start_ok:
             event["status"] = start_message
@@ -39680,7 +39797,7 @@ async def run_economy_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["running"] = False
         workflow["finished_at"] = datetime.now(UTC).isoformat()
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
 
 
 async def process_economy_vehicle_reset_events(guild_id, config):
@@ -39720,7 +39837,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                 f"at {format_reset_time(target_restart.isoformat() if target_restart else '')} "
                 f"then restore after {format_reset_time(restore_after.isoformat())}."
             )
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             return True, event["status"]
 
         stage = "restore_original_cfgignorelist"
@@ -39738,7 +39855,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
         })
         event["reset_method"] = "cfgignorelist"
         event["status"] = "Preparing vehicle-only cfgignorelist before the scheduled restart"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
 
         try:
             vehicle_classes = vehicle_reset_cfgignorelist_classes(config)
@@ -39807,7 +39924,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                 "last_path": path,
                 "backup_path": backup_path,
             })
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             await post_vehicle_reset_status(
                 guild_id,
                 config,
@@ -39828,7 +39945,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
         finally:
             workflow["running"] = False
             workflow["finished_at"] = datetime.now(UTC).isoformat()
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
 
     if stage == "restore_original_cfgignorelist":
         if workflow.get("running"):
@@ -39838,7 +39955,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
         backup_path = str(event.get("cfgignorelist_backup_path") or cfgignorelist_vehicle_reset_backup_path(path)).strip()
         if not path or not backup_path:
             event["status"] = "Cannot restore cfgignorelist because the live path or backup path is missing."
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             return False, event["status"]
 
         workflow.update({
@@ -39850,7 +39967,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
             "backup_path": backup_path,
         })
         event["status"] = "Restoring original cfgignorelist after the scheduled vehicle reset"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
 
         try:
             wait_ok, wait_message = await wait_for_nitrado_gameserver_online(config)
@@ -39886,7 +40003,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                 f"Scheduled cfgignorelist vehicle reset restore restart: {restart_message}",
                 "vehicle reset workflow",
             )
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             await publish_restart_history(guild_id, config, record)
             if not restart_ok:
                 event["status"] = f"Original cfgignorelist restored, but restore restart failed: {restart_message}"
@@ -39897,7 +40014,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
             event["cfgignorelist_stage"] = "complete"
             event["status"] = "cfgignorelist vehicle-only reset complete; original ignore list restored and restart requested"
             mark_scenario_event_completed(config, event_id)
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             await post_vehicle_reset_status(
                 guild_id,
                 config,
@@ -39916,10 +40033,10 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
         finally:
             workflow["running"] = False
             workflow["finished_at"] = datetime.now(UTC).isoformat()
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
 
     event["status"] = f"Unknown cfgignorelist reset stage `{stage}`."
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     return False, event["status"]
 
 
@@ -39940,7 +40057,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
     })
     event["reset_method"] = "cfgignorelist"
     event["status"] = "cfgignorelist vehicle-only reset running: preparing vehicle list"
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     path = ""
     original_text = ""
@@ -39969,7 +40086,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
         workflow["stage"] = "upload_vehicle_cfgignorelist"
         workflow["vehicle_class_count"] = len(vehicle_classes)
         event["status"] = message
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         upload_ok, upload_message = await asyncio.to_thread(
             upload_text_file_to_nitrado,
             config,
@@ -39982,7 +40099,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "restart_with_vehicle_cfgignorelist"
         event["status"] = "Vehicle-only cfgignorelist.xml uploaded; restarting server for reset cycle"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
         record = append_restart_history(
             guild_id,
@@ -39992,7 +40109,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
             f"cfgignorelist vehicle reset restart: {restart_message}",
             "vehicle reset workflow",
         )
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         await publish_restart_history(guild_id, config, record)
         if not restart_ok:
             event["status"] = restart_message
@@ -40002,7 +40119,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "stop_for_cfgignorelist_restore"
         event["status"] = "Stopping server so the original cfgignorelist.xml can be restored"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         stop_ok, stop_message = await asyncio.to_thread(nitrado_gameserver_action, config, "stop")
         if not stop_ok:
             event["status"] = stop_message
@@ -40012,7 +40129,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "restore_original_cfgignorelist"
         event["status"] = "Restoring original cfgignorelist.xml"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         restore_ok, restore_message = await asyncio.to_thread(
             upload_text_file_to_nitrado,
             config,
@@ -40026,7 +40143,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["stage"] = "start_after_cfgignorelist_restore"
         event["status"] = "Original cfgignorelist.xml restored; starting server"
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         start_ok, start_message = await asyncio.to_thread(nitrado_gameserver_action, config, "start")
         if not start_ok:
             event["status"] = start_message
@@ -40050,7 +40167,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
 
         workflow["running"] = False
         workflow["finished_at"] = datetime.now(UTC).isoformat()
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
 
 
 async def process_cfgignorelist_vehicle_reset_events(guild_id, config):
@@ -40323,7 +40440,7 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
     scenario_events_for_config(config).append(event)
     schedule["last_queued_at"] = now_utc.isoformat()
     _advance_vehicle_reset_schedule(schedule, now_utc)
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     return event
 
 
@@ -40356,7 +40473,7 @@ def _apply_due_damage_schedule_entry(guild_id, config, schedule, now_utc, label,
     if not upload_ok:
         schedule["last_error_at"] = now_utc.isoformat()
         schedule["last_error"] = upload_message
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
         return {
             "guild_id": str(guild_id),
             "ok": False,
@@ -40374,7 +40491,7 @@ def _apply_due_damage_schedule_entry(guild_id, config, schedule, now_utc, label,
     schedule["last_error"] = ""
     schedule["last_flags"] = flags
     _advance_vehicle_reset_schedule(schedule, now_utc)
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
     return {
         "guild_id": str(guild_id),
         "ok": True,
@@ -40443,7 +40560,7 @@ def apply_due_damage_schedule(guild_id, config, now_utc):
             results.append(result)
 
     if changed and not results:
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
 
     return results or None
 
@@ -41061,7 +41178,18 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
 
 @bot.command()
 @commands.check(lambda ctx: has_staff_permissions(ctx))
-async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35):
+async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35, server: str = ""):
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+
     x_value = parse_dayz_map_number(x)
     y_value = parse_dayz_map_number(y)
 
@@ -41071,7 +41199,7 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35)
 
     radius = max(5, min(250, int(radius or 35)))
     reset_entry = {
-        "guild_id": str(ctx.guild.id),
+        "guild_id": str(guild_id),
         "action": "reset_vehicle",
         "player": str(ctx.author),
         "discord_id": str(ctx.author.id),
@@ -41096,6 +41224,7 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35)
         color=0xF1C40F
     )
     embed.add_field(name="Vehicle", value=vehicle_name, inline=True)
+    embed.add_field(name="Server", value=guild_display_name(guild_id), inline=True)
     embed.add_field(name="Reset Radius", value=f"{radius}m", inline=True)
     embed.add_field(name="Spawn Position", value=f"[Open Map](<{map_link}>)", inline=False)
     embed.add_field(
@@ -41135,7 +41264,7 @@ class VehicleResetExcludeSelect(discord.ui.Select):
             return
 
         self.config["vehicle_reset_exclusions"] = list(self.values)
-        save_guild_configs()
+        save_guild_configs_for_runtime(self.config)
         excluded = vehicle_reset_exclusions(self.config)
         text = ", ".join(f"`{item}`" for item in excluded) or "None"
         await interaction.response.send_message(
@@ -41186,7 +41315,7 @@ async def restart_delivery_processor():
 
     now = datetime.now(UTC)
 
-    for guild_id, config in active_guild_config_items():
+    for guild_id, config in active_adm_config_items():
 
         try:
 
@@ -41226,9 +41355,9 @@ async def restart_delivery_processor():
                     print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
 
             if await process_dashboard_scenario_xml_upload(guild_id, config):
-                save_guild_configs()
+                save_guild_configs_for_runtime(config)
             elif scheduler_status_changed:
-                save_guild_configs()
+                save_guild_configs_for_runtime(config)
 
             restart_interval = config.get(
                 "restart_interval_hours",
@@ -41281,7 +41410,7 @@ async def restart_delivery_processor():
         except Exception as error:
             print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
             if mark_server_control_scheduler_status(config, now, error):
-                save_guild_configs()
+                save_guild_configs_for_runtime(config)
 
 
 def ensure_task_loop_running(loop, label):
@@ -41304,13 +41433,13 @@ async def server_control_watchdog_loop():
     restarted |= ensure_task_loop_running(scheduled_restart_loop, "scheduled_restart_loop")
     restarted |= ensure_task_loop_running(restart_delivery_processor, "restart_delivery_processor")
     if restarted:
-        for guild_id, config in active_guild_config_items():
+        for guild_id, config in active_adm_config_items():
             try:
                 status = config.setdefault("server_control_scheduler_status", {})
                 if isinstance(status, dict):
                     status["last_watchdog_restart_at"] = datetime.now(UTC).isoformat()
                     status["last_error"] = ""
-                    save_guild_configs()
+                    save_guild_configs_for_runtime(config)
             except Exception as error:
                 print(f"[TASK WATCHDOG] status update failed {guild_id}: {error}")
 
@@ -45516,7 +45645,8 @@ async def event_airdrop(
     radius="Reset radius. All reset uses a map-wide radius.",
     x="Custom X coordinate if location is custom",
     z="Custom Z coordinate if location is custom",
-    y="Optional height coordinate"
+    y="Optional height coordinate",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno"
 )
 @app_commands.choices(scope=[
     app_commands.Choice(name="All vehicles, with exceptions", value="all"),
@@ -45534,14 +45664,24 @@ async def event_vehiclereset(
     x: str = "",
     z: str = "",
     y: str = "0",
+    server: str = "",
 ):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.followup.send(target_error, ephemeral=True)
+        return
+
     map_key = server_map_key(guild_id)
     event_id = next_scenario_event_id(config)
 
@@ -45608,7 +45748,7 @@ async def event_vehiclereset(
         }
 
     scenario_events_for_config(config).append(event_record)
-    save_guild_configs()
+    save_guild_configs_for_runtime(config)
 
     embed = discord.Embed(
         title="VEHICLE RESET EVENT CREATED",
@@ -45619,6 +45759,7 @@ async def event_vehiclereset(
         color=0xF1C40F
     )
     embed.add_field(name="Event ID", value=f"`{event_id}`", inline=True)
+    embed.add_field(name="Server", value=f"`{guild_display_name(guild_id)}`", inline=True)
     embed.add_field(name="Runs", value=scenario_event_mode_text(event_record), inline=True)
     embed.add_field(name="Scope", value="All vehicles" if scope == "all" else f"`{event_record['class_name']}` near point", inline=False)
     embed.add_field(name="Radius", value=f"`{event_record.get('radius')}`m", inline=True)
@@ -49171,14 +49312,19 @@ async def slash_restartadm(interaction: discord.Interaction, force: bool = False
     await run_legacy_as_slash(interaction, "restartadm", force="force" if force else "no", server=server)
 @bot.tree.command(name="restartserver", description="Restart server")
 @app_commands.default_permissions(administrator=True)
-async def slash_restartserver(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "restartserver")
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_restartserver(interaction: discord.Interaction, server: str = ""):
+    await run_legacy_as_slash(interaction, "restartserver", server=server)
 
 
 @bot.tree.command(name="timezone", description="Admin: set local server timezone for ADM logs and restart schedules")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York")
-async def slash_timezone(interaction: discord.Interaction, timezone: str):
-    await run_legacy_as_slash(interaction, "settimezone", timezone=timezone)
+@app_commands.describe(
+    timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_timezone(interaction: discord.Interaction, timezone: str, server: str = ""):
+    await run_legacy_as_slash(interaction, "settimezone", timezone=timezone, server=server)
 
 
 # =========================================================
@@ -49193,30 +49339,42 @@ server_group = app_commands.Group(
 
 @server_group.command(name="togglebasedamage", description="Toggle base damage on/off via Nitrado")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(state="on or off")
-async def slash_server_togglebasedamage(interaction: discord.Interaction, state: str):
-    await run_legacy_as_slash(interaction, "togglebasedamage", state=state)
+@app_commands.describe(
+    state="on or off",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_server_togglebasedamage(interaction: discord.Interaction, state: str, server: str = ""):
+    await run_legacy_as_slash(interaction, "togglebasedamage", state=state, server=server)
 
 
 @server_group.command(name="setrestartinterval", description="Set the server restart interval (hours)")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(hours="Hours 1-24")
-async def slash_server_setrestartinterval(interaction: discord.Interaction, hours: int):
-    await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours)
+@app_commands.describe(
+    hours="Hours 1-24",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_server_setrestartinterval(interaction: discord.Interaction, hours: int, server: str = ""):
+    await run_legacy_as_slash(interaction, "setrestartinterval", hours=hours, server=server)
 
 
 @server_group.command(name="setrestartstart", description="Set the first daily restart hour in this server's timezone")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(hour="Hour 0-23")
-async def slash_server_setrestartstart(interaction: discord.Interaction, hour: int):
-    await run_legacy_as_slash(interaction, "setrestartstart", hour=hour)
+@app_commands.describe(
+    hour="Hour 0-23",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_server_setrestartstart(interaction: discord.Interaction, hour: int, server: str = ""):
+    await run_legacy_as_slash(interaction, "setrestartstart", hour=hour, server=server)
 
 
 @server_group.command(name="settimezone", description="Set local server timezone for ADM logs and restart schedules")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York")
-async def slash_server_settimezone(interaction: discord.Interaction, timezone: str):
-    await run_legacy_as_slash(interaction, "settimezone", timezone=timezone)
+@app_commands.describe(
+    timezone="IANA timezone, e.g. Europe/London, Europe/Berlin, America/New_York",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_server_settimezone(interaction: discord.Interaction, timezone: str, server: str = ""):
+    await run_legacy_as_slash(interaction, "settimezone", timezone=timezone, server=server)
 
 
 @server_group.command(name="shopbackfill", description="Admin: add missing vanilla build/tool/medical shop items")
@@ -49301,14 +49459,16 @@ async def slash_server_bulkprice(
 
 @server_group.command(name="cancelrestarts", description="Disable the recurring server restart schedule")
 @app_commands.default_permissions(administrator=True)
-async def slash_server_cancelrestarts(interaction: discord.Interaction):
-    await run_legacy_as_slash(interaction, "cancelrestarts")
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_server_cancelrestarts(interaction: discord.Interaction, server: str = ""):
+    await run_legacy_as_slash(interaction, "cancelrestarts", server=server)
 
 
 @server_group.command(name="listrestarts", description="List the current restart schedule")
 @app_commands.default_permissions(administrator=True)
-async def slash_server_listrestarts(interaction: discord.Interaction):
-    await run_legacy_as_slash(interaction, "listrestarts")
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_server_listrestarts(interaction: discord.Interaction, server: str = ""):
+    await run_legacy_as_slash(interaction, "listrestarts", server=server)
 
 
 @server_group.command(name="setmission", description="Pin the active DayZ mission folder for CE XML and fallback file writes")
@@ -51004,21 +51164,37 @@ bot.tree.add_command(extra_tools_group)
 async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
 @extra_tools_group.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(vehicle_name="DayZ vehicle class name", x="Map X", y="Map Y", radius="Delete matching old vehicles within this many meters")
-async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, y: str, radius: int = 35):
+@app_commands.describe(
+    vehicle_name="DayZ vehicle class name",
+    x="Map X",
+    y="Map Y",
+    radius="Delete matching old vehicles within this many meters",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, y: str, radius: int = 35, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
-    await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, y=y, radius=radius)
+    await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, y=y, radius=radius, server=server)
 @console_group.command(name="resetvehicles", description="Admin: reset all vehicles on next restart, with optional exclusions")
 @app_commands.default_permissions(administrator=True)
-async def slash_resetvehicles(interaction: discord.Interaction):
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_resetvehicles(interaction: discord.Interaction, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    guild_id = str(interaction.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+
     vehicle_classes = known_vehicle_classes()
     excluded = vehicle_reset_exclusions(config)
     excluded_text = ", ".join(f"`{item}`" for item in excluded) or "None"
@@ -51032,6 +51208,7 @@ async def slash_resetvehicles(interaction: discord.Interaction):
         color=0xE67E22
     )
     embed.add_field(name="Detected Vehicle Options", value=str(len(vehicle_classes)), inline=True)
+    embed.add_field(name="Server", value=guild_display_name(guild_id), inline=True)
     embed.add_field(name="Current Exclusions", value=excluded_text[:1000], inline=False)
     embed.add_field(
         name="Before Using",
