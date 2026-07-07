@@ -4324,11 +4324,35 @@ def member_onboarding_settings(config):
         "pending_role_id": str(saved.get("pending_role_id") or "").strip(),
         "reaction_emoji": reaction,
         "rules_message_id": str(saved.get("rules_message_id") or "").strip(),
+        "choice_channel_key": str(saved.get("choice_channel_key") or "").strip(),
+        "choice_channel_id": str(saved.get("choice_channel_id") or "").strip(),
+        "choice_message_id": str(saved.get("choice_message_id") or "").strip(),
+        "choice_require_rules": bool(saved.get("choice_require_rules", True)),
+        "choice_single": bool(saved.get("choice_single", False)),
+        "choice_cherno_emoji": str(saved.get("choice_cherno_emoji") or "🔵").strip(),
+        "choice_cherno_role_id": str(saved.get("choice_cherno_role_id") or "").strip(),
+        "choice_livo_emoji": str(saved.get("choice_livo_emoji") or "🟢").strip(),
+        "choice_livo_role_id": str(saved.get("choice_livo_role_id") or "").strip(),
+        "choice_bot_emoji": str(saved.get("choice_bot_emoji") or "🤖").strip(),
+        "choice_bot_role_id": str(saved.get("choice_bot_role_id") or "").strip(),
         "require_rules_before_linked_role": bool(saved.get("require_rules_before_linked_role", True)),
         "welcome_message": str(saved.get("welcome_message") or "Read the rules, react to accept them, then link your gamertag with /linkgamer.").strip(),
         "accepted_message": str(saved.get("accepted_message") or "Rules accepted. Next step: link your gamertag with /linkgamer.").strip(),
         "linked_message": str(saved.get("linked_message") or "Gamertag linked. Your linked-player role has been applied.").strip(),
     }
+
+
+def onboarding_server_choice_entries(settings):
+    choices = [
+        ("cherno", "Cherno", settings.get("choice_cherno_emoji"), settings.get("choice_cherno_role_id")),
+        ("livo", "Livo", settings.get("choice_livo_emoji"), settings.get("choice_livo_role_id")),
+        ("bot", "Wandering Bot", settings.get("choice_bot_emoji"), settings.get("choice_bot_role_id")),
+    ]
+    return [
+        {"key": key, "label": label, "emoji": str(emoji or "").strip(), "role_id": str(role_id or "").strip()}
+        for key, label, emoji, role_id in choices
+        if str(emoji or "").strip() and str(role_id or "").strip()
+    ]
 
 
 def resolve_onboarding_channel(guild, config, settings, prefix, fallback_key="welcome"):
@@ -4561,6 +4585,67 @@ async def apply_member_onboarding_link_role(guild, config, member):
             except Exception as error:
                 print(f"[ONBOARDING] linked notice failed for {member}: {error}")
     return changed
+
+
+async def onboarding_member_from_payload(guild, payload):
+    member = guild.get_member(int(payload.user_id))
+    if not member:
+        try:
+            member = await guild.fetch_member(int(payload.user_id))
+        except Exception:
+            return None
+    if getattr(member, "bot", False):
+        return None
+    return member
+
+
+async def apply_member_onboarding_server_choice(guild, config, payload, *, remove=False):
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return False
+    choice_message_id = str(settings.get("choice_message_id") or "").strip()
+    if not choice_message_id or str(payload.message_id) != choice_message_id:
+        return False
+    choice_channel = resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
+    if choice_channel and int(payload.channel_id) != int(choice_channel.id):
+        return False
+    choice = next(
+        (
+            entry
+            for entry in onboarding_server_choice_entries(settings)
+            if str(payload.emoji) == str(entry.get("emoji") or "")
+        ),
+        None,
+    )
+    if not choice:
+        return False
+
+    member = await onboarding_member_from_payload(guild, payload)
+    if not member:
+        return True
+
+    if (
+        settings.get("choice_require_rules", True)
+        and settings.get("rules_role_id")
+        and not member_has_role_id(member, settings.get("rules_role_id"))
+    ):
+        return True
+
+    if remove:
+        await remove_onboarding_role(member, choice.get("role_id"), "Wandering Bot onboarding server choice removed")
+        return True
+
+    if settings.get("choice_single"):
+        for other in onboarding_server_choice_entries(settings):
+            if str(other.get("role_id") or "") != str(choice.get("role_id") or ""):
+                await remove_onboarding_role(member, other.get("role_id"), "Wandering Bot onboarding single server choice")
+
+    await add_onboarding_role(
+        member,
+        choice.get("role_id"),
+        f"Wandering Bot onboarding choice: {choice.get('label')}",
+    )
+    return True
 
 
 async def announce_verified_gamer_link(guild, config, member, gamertag, account_label="Primary gamertag"):
@@ -20458,6 +20543,9 @@ async def on_raw_reaction_add(payload):
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return
+    handled_choice = await apply_member_onboarding_server_choice(guild, config, payload, remove=False)
+    if handled_choice:
+        return
     rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
     if not rules_channel or int(payload.channel_id) != int(rules_channel.id):
         return
@@ -20468,15 +20556,24 @@ async def on_raw_reaction_add(payload):
         return
     if str(payload.emoji) != settings.get("reaction_emoji"):
         return
-    member = guild.get_member(int(payload.user_id))
+    member = await onboarding_member_from_payload(guild, payload)
     if not member:
-        try:
-            member = await guild.fetch_member(int(payload.user_id))
-        except Exception:
-            return
-    if getattr(member, "bot", False):
         return
     await apply_member_onboarding_rules_acceptance(guild, config, member)
+
+
+@bot.event
+async def on_raw_reaction_remove(payload):
+    if not payload.guild_id or not payload.user_id:
+        return
+    if bot.user and int(payload.user_id) == int(bot.user.id):
+        return
+    guild = bot.get_guild(int(payload.guild_id))
+    if not guild:
+        return
+    guild_id = str(guild.id)
+    config = guild_configs.get(guild_id, {})
+    await apply_member_onboarding_server_choice(guild, config, payload, remove=True)
 
 
 WANDERING_MASTER_GUILD_ID = os.environ.get("WANDERING_MASTER_GUILD_ID", "").strip()

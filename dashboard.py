@@ -4056,7 +4056,7 @@ PAGE_TEMPLATE = """
             <a class="{{ 'active' if setup_tool == 'servers' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks">Setup</a>
             <a class="{{ 'active' if setup_tool == 'feeds' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=feeds{{ server_qs }}{{ profile_qs }}#feed-routes">Feeds</a>
             {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'discord' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=discord{{ server_qs }}#automations">Messages</a>{% endif %}
-            {% if section_allowed('automations') %}<a class="{{ 'active' if setup_tool == 'onboarding' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=onboarding{{ server_qs }}#member-onboarding-form">Onboarding</a>{% endif %}
+            {% if section_allowed('access') %}<a class="{{ 'active' if setup_tool == 'onboarding' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=onboarding{{ server_qs }}#member-onboarding-form">Onboarding</a>{% endif %}
             {% if section_allowed('server-rules') %}<a class="{{ 'active' if setup_tool == 'rules' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=rules{{ server_qs }}#server-rules">Rules</a>{% endif %}
             {% if section_allowed('moderation') %}<a class="{{ 'active' if setup_tool == 'moderation' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation{{ server_qs }}#moderation">Moderation</a>{% endif %}
             {% if section_allowed('server-control') %}<a class="{{ 'active' if setup_tool == 'control' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#server-control">Restart & Damage</a>{% endif %}
@@ -5386,13 +5386,65 @@ PAGE_TEMPLATE = """
                 <option value="false" {% if not onboarding.require_rules_before_linked_role %}selected{% endif %}>No</option>
               </select>
             </label>
+            <div class="full embed-preview">
+              <strong>Server choice roles</strong>
+              <span>{{ onboarding.choice_channel_label }}{% if onboarding.choice_message_id %} -> message {{ onboarding.choice_message_id }}{% endif %}</span>
+              <small>{{ onboarding.choice_cherno_emoji }} {{ onboarding.choice_cherno_role_label }} | {{ onboarding.choice_livo_emoji }} {{ onboarding.choice_livo_role_label }} | {{ onboarding.choice_bot_emoji }} {{ onboarding.choice_bot_role_label }}</small>
+            </div>
+            <label>Choice channel
+              <select name="choice_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_channel_value or channel.id == onboarding.choice_channel_value or channel.key == onboarding.choice_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Choice message ID
+              <input name="choice_message_id" value="{{ onboarding.choice_message_id }}" placeholder="paste Discord choice message ID">
+            </label>
+            <label>Require rules before choice
+              <select name="choice_require_rules">
+                <option value="true" {% if onboarding.choice_require_rules %}selected{% endif %}>Yes</option>
+                <option value="false" {% if not onboarding.choice_require_rules %}selected{% endif %}>No</option>
+              </select>
+            </label>
+            <label>Choice mode
+              <select name="choice_single">
+                <option value="false" {% if not onboarding.choice_single %}selected{% endif %}>Allow multiple</option>
+                <option value="true" {% if onboarding.choice_single %}selected{% endif %}>One choice only</option>
+              </select>
+            </label>
+            <label>Cherno reaction
+              <input name="choice_cherno_emoji" value="{{ onboarding.choice_cherno_emoji }}" placeholder="emoji">
+            </label>
+            <label>Cherno role
+              <select name="choice_cherno_role_id">
+                <option value="" {% if not onboarding.choice_cherno_role_id %}selected{% endif %}>No Cherno role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_cherno_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Livo reaction
+              <input name="choice_livo_emoji" value="{{ onboarding.choice_livo_emoji }}" placeholder="emoji">
+            </label>
+            <label>Livo role
+              <select name="choice_livo_role_id">
+                <option value="" {% if not onboarding.choice_livo_role_id %}selected{% endif %}>No Livo role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_livo_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label>Bot reaction
+              <input name="choice_bot_emoji" value="{{ onboarding.choice_bot_emoji }}" placeholder="emoji">
+            </label>
+            <label>Bot role
+              <select name="choice_bot_role_id">
+                <option value="" {% if not onboarding.choice_bot_role_id %}selected{% endif %}>No bot role selected</option>
+                {% for role in (server.discord_roles if server else []) %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_bot_role_id %}selected{% endif %}>{{ role.label }}</option>{% endfor %}
+              </select>
+            </label>
             <label class="full">Join message <textarea name="welcome_message">{{ onboarding.welcome_message }}</textarea></label>
             <label class="full">After rules message <textarea name="accepted_message">{{ onboarding.accepted_message }}</textarea></label>
             <label class="full">After link message <textarea name="linked_message">{{ onboarding.linked_message }}</textarea></label>
             <div class="full embed-preview">
               <strong>Current gate</strong>
-              <span>{{ 'On' if onboarding.enabled else 'Off' }} -> {{ onboarding.rules_channel_label }} -> {{ onboarding.next_channel_label }}</span>
-              <small>Use Discord permissions so the rules role and linked role unlock the channels you want players to see. The bot no longer accepts reactions on its own onboarding notices.</small>
+              <span>{{ 'On' if onboarding.enabled else 'Off' }} -> {{ onboarding.rules_channel_label }} -> {{ onboarding.next_channel_label }} -> {{ onboarding.choice_channel_label }}</span>
+              <small>Rules: {{ onboarding.rules_role_label }} | Linked: {{ onboarding.linked_role_label }} | Choice mode: {{ 'one only' if onboarding.choice_single else 'multiple allowed' }}</small>
             </div>
             <div class="full modal-actions"><button type="submit">Save Onboarding Gate</button><span class="result muted"></span></div>
           </form>
@@ -8676,7 +8728,7 @@ PAGE_TEMPLATE = """
             <a class="quick-guide-link" href="#server-profile"><strong>Change PVE / PVP / map</strong><span>Update the basic server profile without entering Nitrado tokens again.</span></a>
             <a class="quick-guide-link" href="#nitrado-connection"><strong>Fix Nitrado connection</strong><span>Replace API token, service ID, FTP login or password only when they have changed.</span></a>
             <a class="quick-guide-link" href="/admin?section=access&setup_tool=feeds{{ server_qs }}#feed-routes"><strong>Move Discord feeds</strong><span>See every feed and choose which existing channel it posts into.</span></a>
-            <a class="quick-guide-link" href="/admin?section=access&setup_tool=onboarding{{ server_qs }}#member-onboarding-form"><strong>Set member onboarding</strong><span>Choose the rules channel, accepted role, linked role and next channel for new members.</span></a>
+            <a class="quick-guide-link" href="/admin?section=access&setup_tool=onboarding{{ server_qs }}#member-onboarding-form"><strong>Set member onboarding</strong><span>Choose rules, linked player access and Cherno/Livo/Bot choice roles.</span></a>
             <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#server-control"><strong>Restart or schedule raid weekend</strong><span>Restart, stop, base damage, container damage and vehicle reset schedules.</span></a>
             <a class="quick-guide-link" href="#temporary-logins"><strong>Give staff dashboard access</strong><span>Create short-lived logins for helpers without sharing your owner details.</span></a>
             <a class="quick-guide-link" href="#linked-servers"><strong>Switch or link servers</strong><span>Join multiple dashboards into one login and choose the active server.</span></a>
@@ -23291,6 +23343,13 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         settings.get("next_channel_id") or settings.get("next_channel_key") or "general_chat",
         default="general_chat",
     )
+    choice_channel_value = dashboard_channel_value(
+        config,
+        settings.get("choice_channel_id") or settings.get("choice_channel_key") or next_channel_value or "general_chat",
+        default=next_channel_value or "general_chat",
+    )
+    choice_require_rules = dashboard_bool(settings.get("choice_require_rules"), True)
+    choice_single = dashboard_bool(settings.get("choice_single"), False)
     return {
         "enabled": dashboard_bool(settings.get("enabled"), False),
         "enabled_value": "true" if dashboard_bool(settings.get("enabled"), False) else "false",
@@ -23298,6 +23357,22 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         "rules_channel_label": channel_label_from_channels(channels, rules_channel_value, "Rules channel"),
         "next_channel_value": next_channel_value,
         "next_channel_label": channel_label_from_channels(channels, next_channel_value, "Next channel"),
+        "choice_channel_value": choice_channel_value,
+        "choice_channel_label": channel_label_from_channels(channels, choice_channel_value, "Choice channel"),
+        "choice_message_id": str(settings.get("choice_message_id") or ""),
+        "choice_require_rules": choice_require_rules,
+        "choice_require_rules_value": "true" if choice_require_rules else "false",
+        "choice_single": choice_single,
+        "choice_single_value": "true" if choice_single else "false",
+        "choice_cherno_emoji": str(settings.get("choice_cherno_emoji") or "🔵"),
+        "choice_cherno_role_id": str(settings.get("choice_cherno_role_id") or ""),
+        "choice_cherno_role_label": role_label_from_roles(roles, settings.get("choice_cherno_role_id"), "No Cherno role"),
+        "choice_livo_emoji": str(settings.get("choice_livo_emoji") or "🟢"),
+        "choice_livo_role_id": str(settings.get("choice_livo_role_id") or ""),
+        "choice_livo_role_label": role_label_from_roles(roles, settings.get("choice_livo_role_id"), "No Livo role"),
+        "choice_bot_emoji": str(settings.get("choice_bot_emoji") or "🤖"),
+        "choice_bot_role_id": str(settings.get("choice_bot_role_id") or ""),
+        "choice_bot_role_label": role_label_from_roles(roles, settings.get("choice_bot_role_id"), "No bot role"),
         "rules_role_id": str(settings.get("rules_role_id") or ""),
         "rules_role_label": role_label_from_roles(roles, settings.get("rules_role_id"), "No rules role"),
         "linked_role_id": str(settings.get("linked_role_id") or ""),
@@ -26803,6 +26878,15 @@ def api_member_onboarding():
         "enabled": dashboard_bool(raw_payload.get("enabled"), False),
         "reaction_emoji": reaction,
         "rules_message_id": str(raw_payload.get("rules_message_id") or "").strip(),
+        "choice_message_id": str(raw_payload.get("choice_message_id") or "").strip(),
+        "choice_require_rules": dashboard_bool(raw_payload.get("choice_require_rules"), True),
+        "choice_single": dashboard_bool(raw_payload.get("choice_single"), False),
+        "choice_cherno_emoji": (str(raw_payload.get("choice_cherno_emoji") or "🔵").strip()[:40] or "🔵"),
+        "choice_cherno_role_id": str(raw_payload.get("choice_cherno_role_id") or "").strip(),
+        "choice_livo_emoji": (str(raw_payload.get("choice_livo_emoji") or "🟢").strip()[:40] or "🟢"),
+        "choice_livo_role_id": str(raw_payload.get("choice_livo_role_id") or "").strip(),
+        "choice_bot_emoji": (str(raw_payload.get("choice_bot_emoji") or "🤖").strip()[:40] or "🤖"),
+        "choice_bot_role_id": str(raw_payload.get("choice_bot_role_id") or "").strip(),
         "rules_role_id": str(raw_payload.get("rules_role_id") or "").strip(),
         "linked_role_id": str(raw_payload.get("linked_role_id") or "").strip(),
         "pending_role_id": str(raw_payload.get("pending_role_id") or "").strip(),
@@ -26814,6 +26898,7 @@ def api_member_onboarding():
     }
     settings.update(channel_setting(raw_payload.get("rules_channel_key") or raw_payload.get("rules_channel_id"), "rules_channel_key", "rules_channel_id", "rules"))
     settings.update(channel_setting(raw_payload.get("next_channel_key") or raw_payload.get("next_channel_id"), "next_channel_key", "next_channel_id", "general_chat"))
+    settings.update(channel_setting(raw_payload.get("choice_channel_key") or raw_payload.get("choice_channel_id"), "choice_channel_key", "choice_channel_id", "general_chat"))
     config["member_onboarding"] = settings
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
