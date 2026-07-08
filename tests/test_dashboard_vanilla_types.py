@@ -89,6 +89,8 @@ class DashboardVanillaTypesTests(unittest.TestCase):
         self.assertIn('@APP.post("/api/admin/custom-feed")', source)
         self.assertIn("dashboard_feed_route_groups", source)
         self.assertIn("dashboard_custom_feed_rows", source)
+        self.assertIn('"rpt_admin": "Server spawns / RPT tracker"', source)
+        self.assertIn('"restart_alerts", "rpt_admin"', source)
 
     def test_dashboard_live_feeds_page_and_settings_are_wired(self):
         source = (REPO_ROOT / "dashboard.py").read_text(encoding="utf-8", errors="ignore")

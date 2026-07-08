@@ -395,6 +395,7 @@ DEFAULT_CHANNEL_NAMES = {
     "longshots": "🎯🏹・longshots・🏹🎯",
     "restart_alerts": "📢⏰・restart-alerts・⏰📢",
     "restart_logs": "restart-log",
+    "rpt_admin": "server-spawns",
     "bot_updates": "📢✨・bot-updates・✨📢",
     "welcome": "👋🟩・welcome・🟩👋",
     "public_shame": "🚫📣・wandering-in-shame・📣🚫",
@@ -463,6 +464,7 @@ CHANNEL_ALIASES = {
     "longshots": ["longshots", "longshot", "snipes"],
     "restart_alerts": ["restartalerts", "restart", "restarts", "serverrestarts"],
     "restart_logs": ["restartlog", "restartlogs", "restartaudit", "restartauditlog", "serverrestartlog", "serverrestartlogs"],
+    "rpt_admin": ["serverspawns", "server-spawns", "rptadmin", "rpttracker", "livetracker", "eventtracker"],
     "bot_updates": ["botupdates", "updates", "changelog", "newfeatures", "patchnotes"],
     "welcome": ["welcome", "newsurvivor"],
     "public_shame": ["wanderinginshame", "publicshame", "nameandshame", "bans"],
@@ -891,6 +893,7 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "damage_timezone",
     "linked_gamertag_index",
     "discord_link_enforcement_state",
+    "heatmap_mode",
     "heatmap_message_id",
     "nitrado_temp_bans",
     "nitrado_perm_bans",
@@ -2781,7 +2784,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Placement Intelligence")
         embed.timestamp = event_time
-        await channel.send(embed=style_embed(embed))
+        await send_feed_embed(guild_id, key, channel, embed, style=True, context=event_type)
         return
 
     if event_type == "suicide":
@@ -2813,7 +2816,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Private Suicide Feed")
         embed.timestamp = event_time
-        sent_msg = await channel.send(embed=style_embed(embed))
+        sent_msg = await send_feed_embed(guild_id, key, channel, embed, style=True, context=event_type)
 
         # 💀 AI Last Words for suicide — fire-and-forget background task.
         async def _suicide_last_words(target_msg, target_embed, victim_name, suicide_method):
@@ -2833,7 +2836,8 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
                 await target_msg.edit(embed=normalize_embed_footer(target_embed))
             except Exception:
                 pass
-        asyncio.create_task(_suicide_last_words(sent_msg, embed, player, method))
+        if sent_msg:
+            asyncio.create_task(_suicide_last_words(sent_msg, embed, player, method))
         return
 
     if event_type in ["cut", "bleedout", "respawn"]:
@@ -2869,7 +2873,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - Survivor Damage Feed")
         embed.timestamp = event_time
-        await channel.send(embed=style_embed(embed))
+        await send_feed_embed(guild_id, key, channel, embed, style=True, context=event_type)
         return
 
     if event_type in ["flag_raise", "flag_lower"]:
@@ -2916,7 +2920,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
         embed.set_thumbnail(url=dayz_db_item_image_url(flag_cloth_class) if flag_cloth_class else BOT_IMAGE)
         embed.set_footer(text="Wandering Bot Alpha - 🚩 Territory Flag Feed")
         embed.timestamp = event_time
-        await channel.send(embed=style_embed(embed))
+        await send_feed_embed(guild_id, key, channel, embed, style=True, context=event_type)
         return
 
     embed = discord.Embed(
@@ -2930,7 +2934,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot Alpha - Private ADM Feed")
     embed.timestamp = event_time
-    await channel.send(embed=style_embed(embed))
+    await send_feed_embed(guild_id, key, channel, embed, style=True, context=event_type)
 
 
 async def send_swear_jar_feed(message, found_words, fine, pennies_total):
@@ -7060,6 +7064,7 @@ PRIVATE_FEED_CHANNEL_KEYS = {
     "dashboard_audit",
     "nitrado_ban_logs",
     "restart_logs",
+    "rpt_admin",
     "money_feed",
     "livo_trader_log",
     "link_audit",
@@ -7116,6 +7121,7 @@ CHANNEL_RESTORE_PACKS = {
         "dashboard_audit",
         "nitrado_ban_logs",
         "restart_logs",
+        "rpt_admin",
         "link_audit",
         "moderation_logs",
         "faction_staff",
@@ -7205,6 +7211,7 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "longshots": "server_info",
     "restart_alerts": "server_info",
     "restart_logs": "staff_ops",
+    "rpt_admin": "staff_ops",
     "bot_updates": "bot_updates",
     "welcome": "survivor_comms",
     "public_shame": "survivor_comms",
@@ -7451,6 +7458,21 @@ def resolve_feed_channel(guild_id, config, key, *, required=False, allow_name_re
         else:
             print(f"[FEED ROUTE] {guild_id} has no saved channel id for #{DEFAULT_CHANNEL_NAMES.get(key, key)}.")
     return None
+
+
+def live_leaderboard_channel_route(config):
+    channels = config.setdefault("channels", {})
+    if not isinstance(channels, dict):
+        channels = {}
+        config["channels"] = channels
+
+    for key in ("mega_leaderboard", "leaderboards"):
+        if is_channel_key_disabled(config, key):
+            continue
+        channel_id = _safe_channel_id(channels.get(key))
+        if channel_id:
+            return key, channel_id
+    return "", None
 
 
 async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False, context="", **send_kwargs):
@@ -14101,11 +14123,13 @@ def parse_rpt_diagnostics(rpt_text, limit=16):
 
 async def get_or_create_rpt_admin_channel(guild, config):
     channels = config.setdefault("channels", {})
-    existing_id = channels.get("rpt_admin")
+    existing_id = _safe_channel_id(channels.get("rpt_admin"))
     if existing_id:
-        ch = guild.get_channel(int(existing_id))
+        ch = guild.get_channel(existing_id)
         if ch:
             return ch
+        if is_channel_key_custom_routed(config, "rpt_admin"):
+            return None
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(read_messages=False),
         guild.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True, embed_links=True),
@@ -14130,7 +14154,7 @@ async def get_or_create_rpt_admin_channel(guild, config):
 
 def _rpt_world_link(x, z, guild_id):
     try:
-        return build_izurvive_link(f"{int(x)},{int(z)}", guild_id=int(guild_id))
+        return build_izurvive_link(f"{int(x)},{int(z)}", guild_id=guild_id)
     except Exception:
         return None
 
@@ -14198,11 +14222,11 @@ def _build_rpt_event_embed(guild_id, state):
     return embed
 
 
-async def _post_or_update_rpt_embed(guild, state):
+async def _post_or_update_rpt_embed(guild_id, guild, state):
     channel = guild.get_channel(int(state.get("channel_id", 0)))
     if not channel:
         return False
-    embed = _build_rpt_event_embed(guild.id, state)
+    embed = _build_rpt_event_embed(guild_id, state)
     msg_id = state.get("embed_message_id")
     try:
         if msg_id:
@@ -14224,7 +14248,7 @@ async def _post_or_update_rpt_embed(guild, state):
         return False
 
 
-async def _post_rpt_restart_report(guild, state, new_events, diagnostics=None):
+async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnostics=None):
     channel = guild.get_channel(int(state.get("channel_id", 0)))
     if not channel:
         return
@@ -14239,7 +14263,7 @@ async def _post_rpt_restart_report(guild, state, new_events, diagnostics=None):
     if new_events:
         lines = []
         for ev in new_events[:10]:
-            link = _rpt_world_link(ev["x"], ev["z"], guild.id)
+            link = _rpt_world_link(ev["x"], ev["z"], guild_id)
             ct = f"({int(ev['x'])}, {int(ev['z'])})"
             if link:
                 ct = f"[{ct}]({link})"
@@ -14272,7 +14296,13 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     if not guild:
         return "Guild not found."
 
-    channel = guild.get_channel(int(state.get("channel_id") or 0))
+    configured_channel_id = _safe_channel_id(config.get("channels", {}).get("rpt_admin"))
+    state_channel_id = _safe_channel_id(state.get("channel_id"))
+    channel_id = configured_channel_id or state_channel_id
+    if configured_channel_id and configured_channel_id != state_channel_id:
+        state["channel_id"] = configured_channel_id
+        state["embed_message_id"] = None
+    channel = guild.get_channel(channel_id) if channel_id else None
     if not channel:
         channel = await get_or_create_rpt_admin_channel(guild, config)
         if not channel:
@@ -14343,10 +14373,10 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     state["events"] = kept
 
     save_rpt_event_tracker()
-    await _post_or_update_rpt_embed(guild, state)
+    await _post_or_update_rpt_embed(guild_id, guild, state)
 
     if saw_new_restart:
-        await _post_rpt_restart_report(guild, state, new_events_this_cycle or kept, diagnostics)
+        await _post_rpt_restart_report(guild_id, guild, state, new_events_this_cycle or kept, diagnostics)
         if restart_history_record:
             save_guild_configs()
             await publish_restart_history(guild_id, config, restart_history_record)
@@ -14357,7 +14387,7 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
 
 @tasks.loop(minutes=5)
 async def rpt_event_tracker_loop():
-    for guild_id, config in list(guild_configs.items()):
+    for guild_id, config in active_adm_config_items():
         try:
             if not config.get("rpt_tracker_enabled", True):
                 continue
@@ -30004,7 +30034,7 @@ async def purge_heatmap_dashboard_messages(channel, *, pve=False, limit=25):
 
 
 async def upsert_heatmap_dashboard_message(guild_id, config, *, pve=False):
-    channels = config.get("channels", {})
+    channels = config.setdefault("channels", {})
     channel_key = "pve_heatmap" if pve else "heatmap"
     message_key = "pve_heatmap_message_id" if pve else "heatmap_message_id"
     last_message_ids = last_pve_heatmap_message_ids if pve else last_heatmap_message_ids
@@ -49310,14 +49340,12 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     """Delete the previous leaderboard message(s) and post a fresh one
     with three stacked embeds: summary header + Server scope + Global
     scope. Runs hourly."""
-    channels = config.get("channels", {})
-    ch_id = channels.get("mega_leaderboard")
-    if not ch_id:
+    channel_key, channel_id = live_leaderboard_channel_route(config)
+    if not channel_id:
         return False, "no channel configured"
-    channel_id = _safe_channel_id(ch_id)
     channel = bot.get_channel(channel_id) if channel_id else None
     if not channel:
-        return False, "channel not found"
+        return False, f"{channel_key or 'leaderboard'} channel not found"
 
     # ── Delete previous bot messages we tracked ─────────────────
     last_ids = last_mega_leaderboard_message_ids.get(str(guild_id), [])
@@ -49447,7 +49475,7 @@ async def slash_leaderboard_refresh(interaction: discord.Interaction, server: st
     if target_error:
         await interaction.response.send_message(target_error, ephemeral=True)
         return
-    if not config.get("channels", {}).get("mega_leaderboard"):
+    if not live_leaderboard_channel_route(config)[1]:
         await interaction.response.send_message(
             "No live-leaderboard channel set. Run `/leaderboard setup` first.",
             ephemeral=True,
@@ -49478,9 +49506,15 @@ async def slash_leaderboard_unset(interaction: discord.Interaction, server: str 
     if target_error:
         await interaction.response.send_message(target_error, ephemeral=True)
         return
-    channels = config.get("channels", {})
+    channels = config.setdefault("channels", {})
+    changed = False
     if "mega_leaderboard" in channels:
         channels.pop("mega_leaderboard", None)
+        changed = True
+    if channels.get("leaderboards") and not is_channel_key_disabled(config, "leaderboards"):
+        set_channel_key_disabled(config, "leaderboards", True)
+        changed = True
+    if changed:
         save_guild_configs_for_runtime(config)
         last_mega_leaderboard_message_ids.pop(guild_id, None)
         await interaction.response.send_message(

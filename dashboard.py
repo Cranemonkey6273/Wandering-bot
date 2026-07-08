@@ -801,7 +801,7 @@ FEED_ROUTE_GROUPS = {
     },
     "info": {
         "label": "Info & Status",
-        "keys": ["online", "leaderboards", "heatmap", "longshots", "restart_alerts", "bot_updates", "welcome"],
+        "keys": ["online", "leaderboards", "heatmap", "longshots", "restart_alerts", "rpt_admin", "bot_updates", "welcome"],
     },
     "staff": {
         "label": "Staff & Audit",
@@ -844,6 +844,7 @@ FEED_ROUTE_LABELS = {
     "longshots": "Longshots",
     "restart_alerts": "Restart alerts",
     "restart_logs": "Restart logs",
+    "rpt_admin": "Server spawns / RPT tracker",
     "bot_updates": "Bot updates",
     "welcome": "Welcome",
     "public_shame": "Wandering in shame",
@@ -884,7 +885,7 @@ FEED_ROUTE_LABELS = {
     "quest_workshop": "Quest workshop",
 }
 FEED_ROUTE_PRIVATE_KEYS = {
-    "admin_logs", "cheat_checks", "command_logs", "dashboard_audit", "nitrado_ban_logs", "restart_logs",
+    "admin_logs", "cheat_checks", "command_logs", "dashboard_audit", "nitrado_ban_logs", "restart_logs", "rpt_admin",
     "money_feed", "link_audit", "moderation_logs", "cuts_feed", "faction_staff", "flag_feed",
     "placed_feed", "suicide_feed", "pve_rewards_private", "quest_workshop",
 }

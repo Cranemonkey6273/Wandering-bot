@@ -183,6 +183,44 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertIs(channel, routed)
         self.assertEqual([], routed.edit_calls)
 
+    def test_server_profile_heatmap_mode_persists(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {
+                            "profile_name": "Wandering Around Cherno",
+                            "server_map": "chernarus",
+                            "channels": {},
+                        },
+                    },
+                }
+            }
+
+            config = bot.config_for_server_runtime("guild-a:cherno")
+            config["heatmap_mode"] = "pvp"
+
+            self.assertTrue(bot.persist_server_profile_runtime_config(config))
+            self.assertEqual(
+                "pvp",
+                bot.guild_configs["guild-a"]["server_profiles"]["cherno"]["heatmap_mode"],
+            )
+            self.assertEqual("pvp", bot.guild_heatmap_mode("guild-a:cherno"))
+        finally:
+            bot.guild_configs = previous_configs
+
+    def test_live_leaderboard_uses_dashboard_route_key(self):
+        config = {"channels": {"leaderboards": "300"}}
+
+        self.assertEqual(("leaderboards", 300), bot.live_leaderboard_channel_route(config))
+
+    def test_disabled_dashboard_leaderboard_route_does_not_post(self):
+        config = {"channels": {"leaderboards": "300"}, "disabled_channels": ["leaderboards"]}
+
+        self.assertEqual(("", None), bot.live_leaderboard_channel_route(config))
+
     def test_explicit_repair_can_rename_saved_dashboard_audit_channel(self):
         custom = FakeChannel("staff-change-log", 300)
         category = FakeCategory("Staff Ops", 900)
@@ -245,6 +283,30 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertTrue(bot.channel_matches_bot_default_name(channel, "swear_jar_feed"))
         self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
+
+    def test_rpt_admin_is_routeable_private_staff_channel(self):
+        self.assertEqual("server-spawns", bot.DEFAULT_CHANNEL_NAMES["rpt_admin"])
+        self.assertIn("rpt_admin", bot.PRIVATE_FEED_CHANNEL_KEYS)
+        self.assertIn("rpt_admin", bot.CHANNEL_RESTORE_PACKS["staff"])
+        self.assertEqual("staff_ops", bot.BOT_CHANNEL_CATEGORY_BY_KEY["rpt_admin"])
+
+    def test_rpt_world_link_uses_server_profile_map(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "livo": {"profile_name": "Livo", "server_map": "livonia", "channels": {}},
+                    },
+                }
+            }
+
+            link = bot._rpt_world_link(5201, 6178, "guild-a:livo")
+
+            self.assertIn("dayz.ginfo.gg/livonia/", link)
+        finally:
+            bot.guild_configs = previous_configs
 
     def test_dashboard_live_feed_mapping_records_dashboard_only_events(self):
         previous = bot.dashboard_live_feeds
