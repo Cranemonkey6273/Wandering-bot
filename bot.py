@@ -254,7 +254,7 @@ last_heatmap_render_status = {}
 cheat_kill_chains = {}
 
 # =========================================================
-# AUTONOMOUS SHOWCASE GLOBALS
+# RETIRED SHOWCASE COMPATIBILITY STATE
 # =========================================================
 
 DEFAULT_SHOWCASE_GUILD_ID = "1505197634951053404"
@@ -265,6 +265,7 @@ DEFAULT_BOT_INVITE_URL = os.getenv(
     "https://discord.com/oauth2/authorize?client_id=1500819036026437662&permissions=8&integration_type=0&scope=bot+applications.commands"
 )
 DEFAULT_BOT_OWNER_ID = "1466097358713651220"
+SHOWCASE_FEATURES_ENABLED = False
 user_style_profiles = {}          # user_id -> style data
 last_showcase_proactive_time = {} # guild_id -> timestamp
 last_showcase_greeting_image = {} # guild_id -> timestamp
@@ -515,13 +516,6 @@ CHANNEL_ALIASES = {
 
 BOT_UPDATE_NOTES = [
     {
-        "id": "2026-05-16-showcase-mode",
-        "title": "Showcase Server Mode",
-        "summary": "Owner showcase setup now creates an advertising/demo Discord instead of normal DayZ server feeds. The bot can greet visitors, answer feature questions, suggest commands, and show off AI image/chat abilities.",
-        "commands": "`/ownerbotshowcase`, `/showcasestatus`",
-        "audience": "Bot owner and showcase visitors",
-    },
-    {
         "id": "2026-05-16-pve-quest-ids",
         "title": "PVE Quest IDs and Difficulty Slots",
         "summary": "PVE quests now show a stable quest ID like `PVE-123456`. Each themed PVE feed keeps one Easy, one Medium, and one Hard quest active, and completing a quest replaces the same difficulty slot.",
@@ -573,8 +567,8 @@ BOT_UPDATE_NOTES = [
     {
         "id": "2026-05-16-full-command-guide",
         "title": "Full Command Guide Pages",
-        "summary": "The help page now posts a live, paged command guide that lists every slash command, what it does, and how to type its required and optional options. New setup runs seed the full guide into the help desk, showcase setup posts it in the commands guide channel, and existing servers can run /helpme to refresh it.",
-        "commands": "`/helpme`, `/setup`, `/ownerbotshowcase`",
+        "summary": "The help page now posts a live, paged command guide that lists every slash command, what it does, and how to type its required and optional options. New setup runs seed the full guide into the help desk, and existing servers can run /helpme to refresh it.",
+        "commands": "`/helpme`, `/setup`",
         "audience": "Everyone",
     },
     {
@@ -1658,7 +1652,7 @@ async def get_or_create_feed_channel(
     if force:
         set_channel_key_disabled(config, key, False)
 
-    existing_id = channels.get(key)
+    existing_id = _safe_channel_id(channels.get(key))
     category = None
     preferred_existing = preferred_existing_feed_channel(guild, key) if force else None
 
@@ -5078,12 +5072,8 @@ AI_IMAGE_PROMPTS_SHOWCASE = {
 
 
 def is_showcase_guild(guild_id):
-    """Return True if this guild is the designated showcase server."""
-    guild_key = discord_guild_id_for_runtime_id(guild_id)
-    if SHOWCASE_GUILD_ID and guild_key == str(SHOWCASE_GUILD_ID):
-        return True
-    config = guild_configs.get(guild_key, {})
-    return bool(config.get("is_showcase_guild") or config.get("showcase_mode"))
+    """Showcase mode has been retired and should not activate for any guild."""
+    return False
 
 
 def update_user_style_profile(user_id, message_content):
@@ -21213,11 +21203,6 @@ async def on_message(message):
             pennies_total
         )
 
-    # Detect showcase guild early so DayZ-specific responses are suppressed
-    _is_showcase = (
-        message.guild is not None
-        and guild_configs.get(str(message.guild.id), {}).get("is_showcase_guild", False)
-    )
     now_ts = datetime.now(UTC).timestamp()
 
     if await maybe_handle_owner_natural_language(message, lower, now_ts):
@@ -21247,17 +21232,8 @@ async def on_message(message):
     # 🔇 FUNNY_ROTATION random "🧠 Pro tip / 💡 Tip" chatter DISABLED by owner
     # request (PR #44). The 4% per-message chance + 15min cooldown still
     # surfaced unsolicited tips to every speaker; the owner explicitly asked
-    # for these to stop. Mention-based replies + showcase responses below
-    # are kept because they only fire when a human pings the bot directly.
-
-    # ── Autonomous showcase handling ─────────────────────
-    if message.guild and is_showcase_guild(str(message.guild.id)):
-        await showcase_handle_message(message, lower, str(message.guild.id), now_ts)
-        # Also run the keyword-based response matcher so the bot recognises
-        # a wide range of topics (kills, factions, economy, loot, etc.)
-        # without requiring slash commands. Internal cooldown prevents spam.
-        await maybe_showcase_guild_response(message, lower)
-
+    # for these to stop. Mention-based replies are kept because they only fire
+    # when a human pings the bot directly.
     await maybe_reply_to_bot_mention(message, lower)
     await maybe_owner_mention_remark(message)
     await maybe_send_wandering_personality(message, now_ts)
@@ -29627,9 +29603,6 @@ async def start_background_tasks():
 
         if not wage_loop.is_running():
             wage_loop.start()
-
-        if not showcase_autonomous_loop.is_running():
-            showcase_autonomous_loop.start()
 
         if not temp_ban_expiry_loop.is_running():
             temp_ban_expiry_loop.start()
@@ -42829,9 +42802,6 @@ async def remove_non_showcase_channels(guild, showcase_category, showcase_channe
     return deleted_channels, deleted_categories
 
 
-@bot.tree.command(name="ownerbotshowcase", description="Owner only: build Wandering Bot advertising/info channels")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(secret_code="Owner secret code", invite_url="Bot invite URL to display")
 async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, invite_url: str = ""):
     if not owner_secret_valid(interaction, secret_code):
         await reject_owner_command(interaction)

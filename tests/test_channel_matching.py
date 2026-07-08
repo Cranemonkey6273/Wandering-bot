@@ -164,6 +164,25 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual("staff-change-log", custom.name)
         self.assertEqual([], custom.edit_calls)
 
+    def test_get_or_create_feed_channel_resolves_dashboard_string_channel_id(self):
+        routed = FakeChannel("LiVo-FLAg-FeeD", 1507886422521155644)
+        guild = FakeGuild([routed])
+        config = {"channels": {"flag_feed": "1507886422521155644"}}
+
+        async def run():
+            return await bot.get_or_create_feed_channel(
+                guild,
+                config,
+                "flag_feed",
+                bot.DEFAULT_CHANNEL_NAMES["flag_feed"],
+                private=True,
+            )
+
+        channel = asyncio.run(run())
+
+        self.assertIs(channel, routed)
+        self.assertEqual([], routed.edit_calls)
+
     def test_explicit_repair_can_rename_saved_dashboard_audit_channel(self):
         custom = FakeChannel("staff-change-log", 300)
         category = FakeCategory("Staff Ops", 900)

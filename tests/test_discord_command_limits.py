@@ -22,6 +22,14 @@ class DiscordCommandLimitTests(unittest.TestCase):
 
         self.assertLessEqual(tools_children, 25)
 
+    def test_retired_showcase_command_is_not_registered(self):
+        text = BOT_SOURCE.read_text(encoding="utf-8")
+
+        self.assertNotRegex(
+            text,
+            r"@bot\.tree\.command\(name=[\"']ownerbotshowcase[\"']",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
