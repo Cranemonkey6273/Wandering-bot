@@ -1623,7 +1623,15 @@ def heat_points_for_mode(guild_id, mode):
     return points.get(mode, [])[-300:]
 
 
-async def get_or_create_feed_channel(guild, config, key, name, private=False, force=False):
+async def get_or_create_feed_channel(
+    guild,
+    config,
+    key,
+    name,
+    private=False,
+    force=False,
+    repair_existing=False,
+):
     channels = config.setdefault("channels", {})
     if is_channel_key_disabled(config, key) and not force:
         return None
@@ -1632,18 +1640,25 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
         set_channel_key_disabled(config, key, False)
 
     existing_id = channels.get(key)
-    category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds")) if force else None
+    category = None
     preferred_existing = preferred_existing_feed_channel(guild, key) if force else None
+
+    async def target_category():
+        nonlocal category
+        if category is None and force:
+            category = await ensure_bot_category(guild, BOT_CHANNEL_CATEGORY_BY_KEY.get(key, "live_feeds"))
+        return category
 
     if existing_id:
         existing = guild.get_channel(existing_id)
         if existing:
             if is_channel_key_custom_routed(config, key):
                 return existing
-            if force and preferred_existing and preferred_existing.id != existing.id and not channel_matches_preferred_default_name(existing, key):
+            if repair_existing and preferred_existing and preferred_existing.id != existing.id and not channel_matches_preferred_default_name(existing, key):
                 existing = preferred_existing
                 channels[key] = existing.id
-            if force and (existing.name != name or (category and existing.category_id != category.id)):
+            category = await target_category() if repair_existing else None
+            if repair_existing and (existing.name != name or (category and existing.category_id != category.id)):
                 try:
                     await existing.edit(name=name, category=category)
                 except Exception:
@@ -1652,7 +1667,8 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
 
     if preferred_existing:
         channels[key] = preferred_existing.id
-        if force and (preferred_existing.name != name or (category and preferred_existing.category_id != category.id)):
+        category = await target_category() if repair_existing else None
+        if repair_existing and (preferred_existing.name != name or (category and preferred_existing.category_id != category.id)):
             try:
                 await preferred_existing.edit(name=name, category=category)
             except Exception:
@@ -1672,6 +1688,7 @@ async def get_or_create_feed_channel(guild, config, key, name, private=False, fo
             if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
                 overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
+    category = await target_category()
     channel = await guild.create_text_channel(name, overwrites=overwrites, category=category)
     channels[key] = channel.id
     save_guild_configs()
@@ -7862,7 +7879,8 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
                 key,
                 name,
                 private=key in PRIVATE_FEED_CHANNEL_KEYS,
-                force=True
+                force=True,
+                repair_existing=True,
             )
 
         if channel:

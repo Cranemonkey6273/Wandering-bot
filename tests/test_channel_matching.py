@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+import asyncio
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from _bot_loader import import_bot_module  # noqa: E402
@@ -26,6 +28,17 @@ class FakeChannel:
         self.name = name
         self.id = channel_id
         self.category = category
+        self.category_id = getattr(category, "id", None)
+        self.edit_calls = []
+
+    async def edit(self, **kwargs):
+        self.edit_calls.append(kwargs)
+        if "name" in kwargs:
+            self.name = kwargs["name"]
+        if "category" in kwargs:
+            self.category = kwargs["category"]
+            self.category_id = getattr(kwargs["category"], "id", None)
+        return self
 
 
 class FakeCategory:
@@ -87,6 +100,54 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertFalse(bot.discover_existing_guild_channels(guild, config))
         self.assertEqual(config["channels"]["raids"], custom.id)
+
+    def test_forced_create_does_not_rename_saved_dashboard_audit_channel(self):
+        custom = FakeChannel("staff-change-log", 300)
+        guild = FakeGuild([custom])
+        config = {"channels": {"dashboard_audit": custom.id}}
+
+        async def run():
+            with mock.patch.object(bot, "ensure_bot_category", new_callable=mock.AsyncMock) as ensure_category:
+                channel = await bot.get_or_create_feed_channel(
+                    guild,
+                    config,
+                    "dashboard_audit",
+                    bot.DEFAULT_CHANNEL_NAMES["dashboard_audit"],
+                    private=True,
+                    force=True,
+                )
+                ensure_category.assert_not_awaited()
+                return channel
+
+        channel = asyncio.run(run())
+
+        self.assertIs(channel, custom)
+        self.assertEqual("staff-change-log", custom.name)
+        self.assertEqual([], custom.edit_calls)
+
+    def test_explicit_repair_can_rename_saved_dashboard_audit_channel(self):
+        custom = FakeChannel("staff-change-log", 300)
+        category = FakeCategory("Staff Ops", 900)
+        guild = FakeGuild([custom])
+        config = {"channels": {"dashboard_audit": custom.id}}
+
+        async def run():
+            with mock.patch.object(bot, "ensure_bot_category", new_callable=mock.AsyncMock, return_value=category):
+                return await bot.get_or_create_feed_channel(
+                    guild,
+                    config,
+                    "dashboard_audit",
+                    bot.DEFAULT_CHANNEL_NAMES["dashboard_audit"],
+                    private=True,
+                    force=True,
+                    repair_existing=True,
+                )
+
+        channel = asyncio.run(run())
+
+        self.assertIs(channel, custom)
+        self.assertEqual(bot.DEFAULT_CHANNEL_NAMES["dashboard_audit"], custom.name)
+        self.assertEqual(category.id, custom.category_id)
 
     def test_feed_target_resolves_live_pack_and_raid_alias(self):
         keys, error = bot.resolve_feed_target_keys("live")
