@@ -47,6 +47,30 @@ class FakeCategory:
         self.id = category_id
 
 
+class FakeFooter:
+    def __init__(self, text=""):
+        self.text = text
+
+
+class FakeEmbed:
+    def __init__(self, footer_text=""):
+        self.footer = FakeFooter(footer_text)
+        self.timestamp = None
+
+    def set_footer(self, *, text=None, **_kwargs):
+        self.footer = FakeFooter(text or "")
+        return self
+
+
+class FakeSendChannel:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, **kwargs):
+        self.sent.append(kwargs)
+        return type("SentMessage", (), {"id": 123})()
+
+
 class FakeGuild:
     def __init__(self, channels, guild_id="guild-a", name="Guild A"):
         self.text_channels = channels
@@ -62,6 +86,21 @@ class FakeGuild:
 
 
 class ChannelMatchingTests(unittest.TestCase):
+    def test_style_embed_replaces_legacy_alpha_footer(self):
+        embed = FakeEmbed("Wandering Bot Alpha - Disconnect Feed")
+
+        bot.style_embed(embed)
+
+        self.assertEqual(bot.POWERED_BY_FOOTER_TEXT, embed.footer.text)
+
+    def test_send_feed_embed_replaces_legacy_alpha_footer_without_style_flag(self):
+        embed = FakeEmbed("Wandering Bot Alpha - Disconnect Feed")
+        channel = FakeSendChannel()
+
+        asyncio.run(bot.send_feed_embed("guild-1", "disconnects", channel, embed, context="disconnect"))
+
+        self.assertEqual(bot.POWERED_BY_FOOTER_TEXT, channel.sent[0]["embed"].footer.text)
+
     def test_nitrado_ban_feed_matches_decorated_renamed_original(self):
         channel = FakeChannel("nitrado-ban", 100)
 

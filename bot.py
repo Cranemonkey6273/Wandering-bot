@@ -698,7 +698,26 @@ def has_staff_permissions(ctx):
 # HELPERS
 # =========================================================
 
+POWERED_BY_FOOTER_TEXT = "Powered By Wandering Bot"
+LEGACY_BOT_FOOTER_TEXT = "Wandering Bot Alpha"
+
+
+def normalize_embed_footer(embed):
+    try:
+        footer_text = str(getattr(getattr(embed, "footer", None), "text", "") or "")
+    except Exception:
+        footer_text = ""
+
+    if LEGACY_BOT_FOOTER_TEXT.lower() in footer_text.lower():
+        try:
+            embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
+        except Exception:
+            pass
+    return embed
+
+
 def style_embed(embed):
+    normalize_embed_footer(embed)
     embed.timestamp = datetime.now(UTC)
     return embed
 
@@ -2817,7 +2836,7 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
                     value=f"_\"{words}\"_",
                     inline=False,
                 )
-                await target_msg.edit(embed=target_embed)
+                await target_msg.edit(embed=normalize_embed_footer(target_embed))
             except Exception:
                 pass
         asyncio.create_task(_suicide_last_words(sent_msg, embed, player, method))
@@ -6302,7 +6321,7 @@ async def maybe_post_owner_rules_from_message(message, lower):
         return False
 
     embed = generic_discord_rules_embed(message.guild.name)
-    await message.channel.send(embed=embed)
+    await message.channel.send(embed=normalize_embed_footer(embed))
 
     if here:
         await message.channel.send(
@@ -7449,6 +7468,7 @@ async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False,
         return None
     try:
         payload = style_embed(embed) if style else embed
+        normalize_embed_footer(payload)
         return await channel.send(embed=payload, **send_kwargs)
     except discord.Forbidden as err:
         if _feed_route_should_log(guild_id, channel_key, "missing_access", seconds=60):
@@ -8014,7 +8034,7 @@ async def ensure_pve_channels(guild, config, force=False, create_missing=False):
                 )
                 welcome.set_thumbnail(url=BOT_IMAGE)
                 welcome.set_footer(text="Wandering Bot Alpha - AI Quest Workshop")
-                await channel.send(embed=welcome)
+                await channel.send(embed=normalize_embed_footer(welcome))
             except Exception as error:
                 print(f"WORKSHOP WELCOME SEND FAILED: {error}")
         return channel
@@ -8475,6 +8495,8 @@ class SlashContextAdapter:
         self.message = type("Msg", (), {"content": f"/{interaction.command.name}"})()
 
     async def send(self, content=None, embed=None):
+        if embed is not None:
+            embed = normalize_embed_footer(embed)
         if not self.interaction.response.is_done():
             await self.interaction.response.send_message(content=content, embed=embed, ephemeral=True)
         else:
@@ -11886,7 +11908,7 @@ async def deliver_quest_reward(guild, config, challenge, member):
                 color=0x34495E,
             )
             audit.set_footer(text="Wandering Bot Alpha - Reward Audit Log")
-            await private_channel.send(embed=audit)
+            await private_channel.send(embed=normalize_embed_footer(audit))
         except Exception as audit_error:
             print(f"REWARD AUDIT FAILED: {audit_error}")
 
@@ -19162,7 +19184,7 @@ async def parse_adm(guild_id, config):
                             value=f"_\"{words}\"_",
                             inline=False,
                         )
-                        await target_msg.edit(embed=target_embed)
+                        await target_msg.edit(embed=normalize_embed_footer(target_embed))
                     except Exception as lw_err:
                         print(f"[LAST WORDS] edit failed: {lw_err}")
                 asyncio.create_task(_post_last_words(killfeed_message, embed, victim, killer, weapon, distance))
@@ -20554,7 +20576,7 @@ async def dashboard_audit_loop():
                 failed_attempts[event_id] = int(event.get("attempts") or 0) + 1
                 continue
             await channel.send(
-                embed=build_dashboard_audit_embed(event, guild),
+                embed=normalize_embed_footer(build_dashboard_audit_embed(event, guild)),
                 allowed_mentions=discord.AllowedMentions.none(),
             )
             if str(event.get("route") or "") in MONEY_DASHBOARD_ROUTES:
@@ -21698,11 +21720,11 @@ async def send_command_guide_pages(destination, *, title="WANDERING BOT COMMAND 
     async def send_embed(embed):
         if ephemeral:
             try:
-                await destination.send(embed=embed, ephemeral=True)
+                await destination.send(embed=normalize_embed_footer(embed), ephemeral=True)
                 return
             except TypeError:
                 pass
-        await destination.send(embed=embed)
+        await destination.send(embed=normalize_embed_footer(embed))
 
     if intro:
         embed = discord.Embed(
@@ -27557,11 +27579,11 @@ async def update_public_quest_posts_with_claim(guild, challenge):
             # Disable the Start button by attaching a fresh disabled View.
             disabled_view = PVEQuestCompletionView(quest_code, disabled=True)
             try:
-                await message.edit(embed=embed, view=disabled_view)
+                await message.edit(embed=normalize_embed_footer(embed), view=disabled_view)
             except Exception:
                 # Some message edits may still succeed without the view.
                 try:
-                    await message.edit(embed=embed)
+                    await message.edit(embed=normalize_embed_footer(embed))
                 except Exception:
                     pass
         except Exception as err:
@@ -29121,13 +29143,13 @@ async def slash_linkgamer(interaction: discord.Interaction, gamertag: str, accou
     )
 
     if interaction.channel:
-        await interaction.channel.send(embed=confirmation)
+        await interaction.channel.send(embed=normalize_embed_footer(confirmation))
         await interaction.followup.send(
             f"Linked `{gamertag}` as your {'alt' if is_alt else 'primary'} and posted the confirmation in this channel.",
             ephemeral=True
         )
     else:
-        await interaction.followup.send(embed=confirmation, ephemeral=True)
+        await interaction.followup.send(embed=normalize_embed_footer(confirmation), ephemeral=True)
     return
 
     embed = discord.Embed(
@@ -29840,7 +29862,7 @@ async def upsert_online_dashboard_message(guild_id, config, reason="", force=Fal
 
     if message is not None:
         try:
-            await message.edit(embed=embed, view=view)
+            await message.edit(embed=normalize_embed_footer(embed), view=view)
             last_online_message_ids[guild_id] = message.id
             config["online_dashboard_message_id"] = message.id
             last_online_dashboard_snapshots[guild_id] = snapshot
@@ -29920,7 +29942,7 @@ async def online_dashboard_loop():
             # ID was lost on bot restart). Then post the fresh dashboard.
             await purge_self_dashboard_messages(online_channel, limit=10)
 
-            sent_message = await online_channel.send(embed=embed)
+            sent_message = await online_channel.send(embed=normalize_embed_footer(embed))
             last_online_message_ids[guild_id] = sent_message.id
 
         except Exception as error:
@@ -30048,7 +30070,7 @@ async def upsert_heatmap_dashboard_message(guild_id, config, *, pve=False):
                 pass
 
         await purge_heatmap_dashboard_messages(channel, pve=pve, limit=25)
-        sent_message = await channel.send(embed=embed, file=file)
+        sent_message = await channel.send(embed=normalize_embed_footer(embed), file=file)
         last_message_ids[guild_id] = sent_message.id
         config[message_key] = sent_message.id
         save_guild_configs_for_runtime(config)
@@ -30127,7 +30149,7 @@ async def heatmap_loop():
             # bot sessions) before posting the fresh one.
             await purge_self_dashboard_messages(heatmap_channel, limit=10)
 
-            sent_message = await heatmap_channel.send(embed=embed, file=file)
+            sent_message = await heatmap_channel.send(embed=normalize_embed_footer(embed), file=file)
             last_heatmap_message_ids[guild_id] = sent_message.id
 
             pve_heatmap_channel_id = _safe_channel_id(channels.get("pve_heatmap"))
@@ -30158,7 +30180,7 @@ async def heatmap_loop():
                 # Purge stale PVE heatmaps before posting the fresh one.
                 await purge_self_dashboard_messages(pve_heatmap_channel, limit=10)
 
-                pve_sent_message = await pve_heatmap_channel.send(embed=pve_embed, file=pve_file)
+                pve_sent_message = await pve_heatmap_channel.send(embed=normalize_embed_footer(pve_embed), file=pve_file)
                 last_pve_heatmap_message_ids[guild_id] = pve_sent_message.id
                 try:
                     os.remove(pve_heatmap_path)
@@ -30300,7 +30322,7 @@ async def leaderboard_loop():
             # bot sessions) before posting the fresh one.
             await purge_self_dashboard_messages(leaderboard_channel, limit=10)
 
-            sent_message = await leaderboard_channel.send(embed=embed)
+            sent_message = await leaderboard_channel.send(embed=normalize_embed_footer(embed))
             last_leaderboard_message_ids[guild_id] = [sent_message.id]
 
         except Exception as error:
@@ -46864,7 +46886,7 @@ async def event_generate_quests(interaction: discord.Interaction, theme: str, co
         embed.set_footer(text="Wandering Bot Alpha - AI PVE Campaign")
     embed.set_thumbnail(url=BOT_IMAGE)
 
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=normalize_embed_footer(embed), ephemeral=True)
 
 
 @events_group.command(
@@ -46907,7 +46929,7 @@ async def event_list_campaigns(interaction: discord.Interaction):
             inline=False,
         )
     embed.set_footer(text="Use /events deletecampaign campaign_id:<id> to remove one.")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=normalize_embed_footer(embed), ephemeral=True)
 
 
 @events_group.command(
@@ -49003,7 +49025,7 @@ async def slash_playercard(interaction: discord.Interaction, player_name: str = 
             ephemeral=True,
         )
         return
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=normalize_embed_footer(embed))
 
 
 # =========================================================
@@ -49362,7 +49384,7 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     try:
         sent_messages = []
         for embed in (summary_embed, server_embed, global_embed):
-            sent_messages.append(await channel.send(embed=embed))
+            sent_messages.append(await channel.send(embed=normalize_embed_footer(embed)))
     except Exception as send_err:
         print(f"[MEGA LEADERBOARD] send failed: {send_err}")
         return False, f"send failed: {send_err}"
@@ -49801,7 +49823,7 @@ async def slash_recap(interaction: discord.Interaction, period: app_commands.Cho
         embed = build_recap_embed(guild_id, _yesterday_key(), title_prefix="📰 RECAP")
     else:
         embed = build_recap_embed(guild_id, _today_key(), title_prefix="📰 TODAY SO FAR")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=normalize_embed_footer(embed))
 
 
 # =========================================================
@@ -49890,7 +49912,7 @@ async def recap_loop():
                     save_recap_posted()
                     continue
                 recap_embed = build_recap_embed(guild_id, yesterday, title_prefix="📰 DAILY RECAP")
-                await channel.send(embed=recap_embed)
+                await channel.send(embed=normalize_embed_footer(recap_embed))
                 if NEWS_BULLETIN_ENABLED:
                     bulletin = await generate_news_bulletin(
                         guild_display_name(guild_id), yesterday, bucket
@@ -50400,7 +50422,7 @@ async def slash_faction_list(interaction: discord.Interaction):
             ),
             inline=False,
         )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=normalize_embed_footer(embed), ephemeral=True)
 
 
 @server_group.command(name="factiondelete", description="Admin: delete a faction")
@@ -50528,7 +50550,7 @@ async def slash_wage_list(interaction: discord.Interaction):
             ),
             inline=False,
         )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=normalize_embed_footer(embed), ephemeral=True)
 
 
 @server_group.command(name="wagecancel", description="Cancel a wage payout by id")
