@@ -186,6 +186,7 @@ ADM_SOURCE_FETCH_CACHE_SECONDS = 45
 online_players = {}
 player_last_coords = {}
 player_online_times = {}
+online_players_loaded_mtime = 0
 territory_heat = {}
 zone_keywords = {
     "NWAF": ["nwaf", "airfield"],
@@ -9395,8 +9396,12 @@ def save_player_stats():
 
 
 def load_online_players():
-    global online_players
+    global online_players, online_players_loaded_mtime
     data = load_json(ONLINE_PLAYERS_FILE)
+    try:
+        online_players_loaded_mtime = os.path.getmtime(ONLINE_PLAYERS_FILE)
+    except Exception:
+        online_players_loaded_mtime = 0
     online_players = {}
     if not isinstance(data, dict):
         return
@@ -9412,11 +9417,16 @@ def load_online_players():
 
 
 def save_online_players():
+    global online_players_loaded_mtime
     data = {
         str(guild_id): sorted(str(player) for player in players if str(player).strip())
         for guild_id, players in online_players.items()
     }
     save_json(ONLINE_PLAYERS_FILE, data)
+    try:
+        online_players_loaded_mtime = os.path.getmtime(ONLINE_PLAYERS_FILE)
+    except Exception:
+        online_players_loaded_mtime = time.time()
 
 
 def load_longshot_records():
@@ -13345,6 +13355,93 @@ def remember_online_state_from_adm_line(guild_id, line, event_type=None, event_t
     return changed, event_type, player_name
 
 
+def _as_utc_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = parse_saved_datetime(value)
+    if not parsed:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def latest_restart_cutoff_for_online_state(guild_id, config):
+    candidates = []
+    for record in (config or {}).get("restart_history") or []:
+        if not isinstance(record, dict):
+            continue
+        if str(record.get("status") or "").lower() not in {"requested", "detected"}:
+            continue
+        when = _as_utc_datetime(record.get("created_at"))
+        if when:
+            candidates.append(when)
+
+    state = rpt_event_tracker.get(str(guild_id), {})
+    try:
+        rpt_restart_ts = float(state.get("last_restart_ts") or 0)
+    except Exception:
+        rpt_restart_ts = 0
+    if rpt_restart_ts > 0:
+        candidates.append(datetime.fromtimestamp(rpt_restart_ts, UTC))
+
+    return max(candidates) if candidates else None
+
+
+def is_online_state_event_before_latest_restart(guild_id, config, event_time):
+    cutoff = latest_restart_cutoff_for_online_state(guild_id, config)
+    event_dt = _as_utc_datetime(event_time)
+    if not cutoff or not event_dt:
+        return False
+    return event_dt < (cutoff - timedelta(minutes=5))
+
+
+def prune_online_state_before_latest_restart(guild_id, config):
+    guild_id = str(guild_id)
+    cutoff = latest_restart_cutoff_for_online_state(guild_id, config)
+    if not cutoff:
+        return []
+
+    ensure_guild_runtime(guild_id)
+    roster_saved_before_restart = False
+    try:
+        roster_saved_before_restart = (
+            online_players_loaded_mtime > 0
+            and datetime.fromtimestamp(float(online_players_loaded_mtime), UTC) < (cutoff - timedelta(minutes=5))
+        )
+    except Exception:
+        roster_saved_before_restart = False
+    removed = []
+    for player_name in list(online_players.get(guild_id, set())):
+        started = _as_utc_datetime(player_online_times.get(guild_id, {}).get(player_name))
+        if started:
+            if started >= (cutoff - timedelta(minutes=5)):
+                continue
+        elif not roster_saved_before_restart:
+            continue
+        online_players[guild_id].discard(player_name)
+        player_online_times[guild_id].pop(player_name, None)
+        removed.append(player_name)
+
+    if removed:
+        save_online_players()
+    return removed
+
+
+def clear_online_state_for_restart(guild_id):
+    guild_id = str(guild_id)
+    ensure_guild_runtime(guild_id)
+    had_state = bool(online_players.get(guild_id)) or bool(player_online_times.get(guild_id))
+    online_players[guild_id].clear()
+    player_online_times[guild_id].clear()
+    if had_state:
+        save_online_players()
+    return had_state
+
+
 def classify_event(line):
 
     lower = line.lower()
@@ -14410,6 +14507,11 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     await _post_or_update_rpt_embed(guild_id, guild, state)
 
     if saw_new_restart:
+        if clear_online_state_for_restart(guild_id):
+            try:
+                await upsert_online_dashboard_message(guild_id, config, "server restart detected", force=True)
+            except Exception as online_reset_error:
+                print(f"[ONLINE STATE] restart clear failed for {guild_id}: {online_reset_error}")
         await _post_rpt_restart_report(guild_id, guild, state, new_events_this_cycle or kept, diagnostics)
         if restart_history_record:
             save_guild_configs()
@@ -18190,17 +18292,6 @@ async def parse_adm(guild_id, config):
             )
         event_time = parsed_event_time or datetime.now(UTC)
         event_type = classify_event(line)
-        changed_online, state_event_type, state_player_name = remember_online_state_from_adm_line(
-            guild_id,
-            line,
-            event_type=event_type,
-            event_time=event_time,
-        )
-        if changed_online:
-            online_state_changed = True
-            if state_player_name:
-                online_state_reason = f"{state_player_name} {'joined' if state_event_type == 'connect' else 'left'}"
-
         line_hash = stable_line_hash(line)
 
         ensure_guild_runtime(guild_id)
@@ -18233,6 +18324,20 @@ async def parse_adm(guild_id, config):
         if is_processed_adm_event(guild_id, event_fingerprint):
             continue
         remember_processed_adm_event(guild_id, event_fingerprint)
+
+        if event_type in {"connect", "disconnect"} and is_online_state_event_before_latest_restart(guild_id, config, event_time):
+            continue
+
+        changed_online, state_event_type, state_player_name = remember_online_state_from_adm_line(
+            guild_id,
+            line,
+            event_type=event_type,
+            event_time=event_time,
+        )
+        if changed_online:
+            online_state_changed = True
+            if state_player_name:
+                online_state_reason = f"{state_player_name} {'joined' if state_event_type == 'connect' else 'left'}"
 
         if event_type == "kill":
             kill_details = extract_pvp_kill_details(line)
@@ -26351,6 +26456,11 @@ async def scheduled_restart_loop():
                         )
                         save_guild_configs_for_runtime(config)
                         await publish_restart_history(guild_id, config, record)
+                        if restart_ok and clear_online_state_for_restart(guild_id):
+                            try:
+                                await upsert_online_dashboard_message(guild_id, config, "scheduled restart", force=True)
+                            except Exception as online_reset_error:
+                                print(f"[ONLINE STATE] scheduled restart clear failed for {guild_id}: {online_reset_error}")
 
                     except Exception as restart_error:
                         print(restart_error)
@@ -29933,7 +30043,11 @@ async def online_dashboard_loop():
     for guild_id, config in active_adm_config_items():
 
         try:
-            await upsert_online_dashboard_message(guild_id, config, "15 min safety refresh", force=True)
+            removed_stale = prune_online_state_before_latest_restart(guild_id, config)
+            refresh_reason = "15 min safety refresh"
+            if removed_stale:
+                refresh_reason = f"restart cleanup removed {len(removed_stale)} stale survivor(s)"
+            await upsert_online_dashboard_message(guild_id, config, refresh_reason, force=True)
             continue
 
             channels = config.get("channels", {})
