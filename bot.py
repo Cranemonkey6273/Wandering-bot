@@ -13959,6 +13959,23 @@ def _extract_rpt_event_type(line):
     return None
 
 
+def rpt_generation_signature(path, rpt_text):
+    if not rpt_text:
+        return ""
+    # Use the start of the RPT, not the tail. Appended runtime logs should not
+    # look like a new restart, but a fresh/replaced RPT normally changes here.
+    head_lines = []
+    for raw_line in rpt_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        head_lines.append(line[:220])
+        if len(head_lines) >= 48:
+            break
+    seed = f"{path or ''}\n" + "\n".join(head_lines)
+    return hashlib.sha1(seed.encode("utf-8", errors="ignore")).hexdigest()
+
+
 def parse_rpt_for_events(rpt_text):
     """Returns (restart_markers, events).
     restart_markers = list of restart banner indexes
@@ -14309,6 +14326,10 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
             return "Could not create the admin channel."
         state["channel_id"] = channel.id
 
+    previous_path = str(state.get("last_rpt_path") or "")
+    previous_size = int(state.get("last_rpt_size") or 0)
+    previous_signature = str(state.get("last_rpt_generation_signature") or "")
+
     path, modified_at, text = await asyncio.to_thread(fetch_latest_rpt_content, config)
     now_ts = datetime.now(UTC).timestamp()
     state["last_rpt_path"] = path or ""
@@ -14318,10 +14339,12 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
         return "XML uploaded, but the tracker could not pull the latest .RPT yet. If this server recently changed map/platform, confirm `/server setplatform` is correct and restart once so Nitrado creates a fresh log."
 
     new_size = len(text)
-    if not force_restart_post and new_size == int(state.get("last_rpt_size") or 0):
+    new_signature = rpt_generation_signature(path, text)
+    if not force_restart_post and new_size == previous_size and new_signature == previous_signature:
         save_rpt_event_tracker()
         return "Latest RPT checked; file unchanged since last tracker pull."
     state["last_rpt_size"] = new_size
+    state["last_rpt_generation_signature"] = new_signature
 
     restart_markers, events = parse_rpt_for_events(text)
     diagnostics = parse_rpt_diagnostics(text)
@@ -14332,11 +14355,22 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     restart_history_record = None
     last_known = int(state.get("restart_marker_count") or 0)
     new_restart_marker_detected = len(restart_markers) > last_known
+    restart_reasons = []
     if new_restart_marker_detected:
+        restart_reasons.append(f"marker count increased from {last_known} to {len(restart_markers)}")
+    elif restart_markers:
+        if previous_path and path and path != previous_path:
+            restart_reasons.append("latest RPT file changed")
+        if previous_size > 0 and new_size < previous_size:
+            restart_reasons.append("latest RPT file was replaced or truncated")
+        if previous_signature and new_signature and new_signature != previous_signature:
+            restart_reasons.append("RPT startup signature changed")
+
+    if restart_reasons:
         saw_new_restart = True
         state["restart_marker_count"] = len(restart_markers)
         state["last_restart_ts"] = now_ts
-        details = f"Fresh mission marker detected in latest RPT. Total restart markers now {len(restart_markers)}."
+        details = f"Fresh restart evidence detected in latest RPT ({'; '.join(restart_reasons)}). Total restart markers now {len(restart_markers)}."
         if last_known > 0 and mark_one_time_scenario_events_uploaded(config, require_native_upload=True):
             details += " Dashboard native CE event run counters advanced."
         restart_history_record = append_restart_history(
