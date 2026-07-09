@@ -499,6 +499,7 @@ PUBLIC_SEO_PAGES = {
         "path": "/",
         "title": "Wandering Bot - DayZ Console Killfeed and Server Dashboard",
         "description": "Wandering Bot is a DayZ console Discord bot for killfeeds, ADM logs, Nitrado tools, heatmaps, raid alerts, economy, trader shops, XML events, and server dashboards.",
+        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ killfeed bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools"],
         "eyebrow": "DayZ console server control",
         "headline": "Add Wandering Bot to your DayZ server",
         "lead": "Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, events, XML tools, economy, trader systems, bans, zones, and server setup.",
@@ -513,11 +514,46 @@ PUBLIC_SEO_PAGES = {
             ("Does Wandering Bot work with Xbox and PlayStation DayZ servers?", "Yes. Wandering Bot is built around DayZ console server workflows, including Xbox and PlayStation communities using Nitrado and ADM logs."),
             ("Can server admins use the dashboard without full Nitrado access?", "Yes. Owners can use server-specific dashboard logins so trusted admins can manage selected tools without sharing the full Nitrado account."),
         ],
+        "search_intro": "Wandering Bot is built as a DayZ bot for Discord communities that need killfeeds, Nitrado tools, dashboards, server feeds, and console-friendly admin workflows.",
+        "search_terms": [
+            ("DayZ bot", "A Discord bot and web dashboard for running DayZ console communities."),
+            ("DayZ killfeed bot", "Kill, death, longshot, online player, restart, and ADM log feeds for Discord."),
+            ("DayZ server dashboard", "Private owner and admin pages for events, economy, XML tools, feeds, and schedules."),
+            ("DayZ Nitrado tools", "Server status, restart controls, guarded XML workflows, and live event tools for Nitrado-hosted console servers."),
+        ],
+    },
+    "dayz-bot": {
+        "path": "/dayz-bot",
+        "title": "DayZ Bot for Discord and Console Servers - Wandering Bot",
+        "description": "A DayZ bot for Discord communities and console server owners, with killfeeds, linked gamertags, Nitrado tools, dashboards, economy, alerts, and server automation.",
+        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ server bot", "DayZ console bot", "DayZ admin bot", "DayZ Nitrado bot"],
+        "eyebrow": "DayZ bot for Discord",
+        "headline": "A DayZ bot for console server owners",
+        "lead": "Wandering Bot gives DayZ communities one bot for Discord killfeeds, gamertag linking, staff feeds, Nitrado-connected server tools, economy, live events, dashboards, and safer admin workflows.",
+        "focus": "A general DayZ bot page for owners searching for Discord automation, killfeeds, console server tools, Nitrado support, and server dashboards.",
+        "features": [
+            ("Discord automation", "Create cleaner DayZ server feeds for kills, deaths, player joins, restarts, staff actions, economy logs, and server alerts."),
+            ("Console server tools", "Support Xbox and PlayStation server workflows with ADM log parsing, Nitrado details, restart schedules, and dashboard access."),
+            ("Owner dashboard", "Manage feeds, events, shop items, XML tools, gamertag links, zones, heatmaps, and staff access from the web dashboard."),
+        ],
+        "faqs": [
+            ("What does a DayZ bot do?", "A DayZ bot connects Discord with server management tools such as killfeeds, player activity, restart alerts, linked gamertags, economy logs, and admin dashboards."),
+            ("Is Wandering Bot a DayZ Discord bot?", "Yes. Wandering Bot is a Discord bot with a private web dashboard for DayZ server owners and trusted staff."),
+            ("Does Wandering Bot support console servers?", "Yes. The bot is built around DayZ Xbox and PlayStation communities that use Nitrado and ADM-style server logs."),
+        ],
+        "search_intro": "This page is for server owners looking for a DayZ bot, DayZ Discord bot, DayZ console bot, or DayZ server admin bot.",
+        "search_terms": [
+            ("DayZ bot", "General DayZ Discord automation for community and server management."),
+            ("DayZ Discord bot", "Bot commands, feed routing, gamertag linking, and staff-friendly Discord tools."),
+            ("DayZ console bot", "Xbox and PlayStation workflows without needing PC-only mods."),
+            ("DayZ Nitrado bot", "Nitrado-connected setup, restart tools, server status, and guarded XML workflows."),
+        ],
     },
     "dayz-killfeed-bot": {
         "path": "/dayz-killfeed-bot",
         "title": "DayZ Killfeed Bot for Console Servers - Wandering Bot",
         "description": "A DayZ killfeed bot for Xbox and PlayStation console servers with ADM log tracking, Discord kill feeds, longshots, heatmaps, player activity, and admin dashboard tools.",
+        "keywords": ["DayZ killfeed", "DayZ killfeed bot", "DayZ Discord killfeed", "DayZ Xbox killfeed", "DayZ PlayStation killfeed", "DayZ ADM logs"],
         "eyebrow": "DayZ killfeed bot",
         "headline": "DayZ console killfeeds without the mess",
         "lead": "Turn DayZ ADM logs into clean Discord feeds for kills, deaths, longshots, online players, server restarts, and player activity so your staff can see what is happening without digging through raw logs.",
@@ -531,6 +567,13 @@ PUBLIC_SEO_PAGES = {
             ("Can Wandering Bot post DayZ kills into Discord?", "Yes. It reads server activity from ADM-style logs and turns kills, deaths, longshots, and player activity into cleaner Discord feeds."),
             ("Is this for DayZ console servers?", "Yes. The killfeed tools are designed for DayZ Xbox and PlayStation server communities."),
             ("Can I choose where killfeed messages go?", "Yes. Server owners can route feeds and alerts into the Discord channels that fit their server layout."),
+        ],
+        "search_intro": "Wandering Bot targets DayZ killfeed searches with console-friendly Discord feeds, ADM log parsing, player activity, longshots, deaths, and admin context.",
+        "search_terms": [
+            ("DayZ killfeed", "Kills, deaths, weapons, distances, longshots, and player activity posted into Discord."),
+            ("DayZ killfeed bot", "A bot that turns server log activity into readable Discord killfeed messages."),
+            ("DayZ Discord killfeed", "Route killfeed, longshot, raid, online, and disconnect feeds into selected Discord channels."),
+            ("DayZ ADM logs", "ADM-style server logs are parsed into cleaner player activity and staff-facing feeds."),
         ],
     },
     "dayz-console-discord-bot": {
@@ -1031,6 +1074,7 @@ PUBLIC_LANDING_TEMPLATE = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page.title }}</title>
   <meta name="description" content="{{ page.description }}">
+  {% if page.keywords %}<meta name="keywords" content="{{ page.keywords|join(', ') }}">{% endif %}
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="{{ page.canonical_url }}">
   <meta property="og:type" content="website">
@@ -1176,6 +1220,11 @@ PUBLIC_LANDING_TEMPLATE = """
     .faq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
     .faq-item { border: 1px solid rgba(126, 204, 184, .18); border-radius: .45rem; background: rgba(10, 18, 16, .72); padding: .85rem; }
     .faq-item strong { display: block; color: var(--text); margin-bottom: .3rem; }
+    .keyword-section { margin-top: 1rem; padding: 1rem; border: 1px solid rgba(236, 161, 64, .3); border-radius: .5rem; background: rgba(236, 161, 64, .07); }
+    .keyword-section p { max-width: 54rem; margin: .2rem 0 .85rem; }
+    .keyword-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; margin: 0; padding: 0; list-style: none; }
+    .keyword-list li { min-width: 0; border: 1px solid rgba(236, 161, 64, .24); border-radius: .45rem; padding: .75rem; background: rgba(0, 0, 0, .2); }
+    .keyword-list strong { display: block; color: var(--text); margin-bottom: .25rem; }
     .review-band { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .24); }
     .review-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .8rem; }
     .review-score { color: var(--amber); font-weight: 950; font-size: 1.8rem; }
@@ -1187,7 +1236,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features, .faq-grid, .review-grid { grid-template-columns: 1fr; }
+      .hero, .band, .features, .faq-grid, .keyword-list, .review-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -1265,6 +1314,17 @@ PUBLIC_LANDING_TEMPLATE = """
         {% endfor %}
       </div>
     </section>
+    {% if page.search_terms %}
+    <section class="keyword-section" aria-label="DayZ bot search topics">
+      <h2>DayZ Bot Search Topics</h2>
+      <p>{{ page.search_intro or page.focus }}</p>
+      <ul class="keyword-list">
+        {% for term, detail in page.search_terms %}
+        <li><strong>{{ term }}</strong><span>{{ detail }}</span></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
     {% if review_summary.count or page.path == "/reviews" %}
     <section class="review-band" aria-label="Wandering Bot reviews">
       <div class="review-head">
@@ -19196,6 +19256,7 @@ def public_page_url(path: str) -> str:
 def public_seo_nav_pages() -> list[dict[str, str]]:
     labels = {
         "home": "Overview",
+        "dayz-bot": "DayZ Bot",
         "dayz-killfeed-bot": "Killfeed",
         "dayz-console-discord-bot": "Discord Bot",
         "dayz-nitrado-server-tools": "Nitrado Tools",
@@ -19218,6 +19279,16 @@ def public_landing_page(page_key: str = "home"):
     page["canonical_url"] = public_page_url(str(page.get("path") or "/"))
     page["image_url"] = public_page_url("/brand-character")
     page["faqs"] = list(page.get("faqs") or [])
+    page["keywords"] = [
+        str(item).strip()
+        for item in (page.get("keywords") or [])
+        if str(item).strip()
+    ][:12]
+    page["search_terms"] = [
+        (str(term).strip(), str(detail).strip())
+        for term, detail in (page.get("search_terms") or [])
+        if str(term).strip() and str(detail).strip()
+    ][:8]
     public_reviews = load_review_rows(public_only=True, limit=6)
     summary = review_summary(load_review_rows(public_only=True))
     software_node = {
@@ -19229,6 +19300,7 @@ def public_landing_page(page_key: str = "home"):
         "url": page["canonical_url"],
         "image": page["image_url"],
         "description": page["description"],
+        "keywords": ", ".join(page["keywords"]),
         "publisher": {"@id": public_page_url("/#organization")},
         "offers": {"@type": "Offer", "availability": "https://schema.org/InStock"},
     }
@@ -19267,6 +19339,24 @@ def public_landing_page(page_key: str = "home"):
                 "name": "Wandering Bot",
                 "url": public_page_url("/"),
                 "publisher": {"@id": public_page_url("/#organization")},
+            },
+            {
+                "@type": "WebPage",
+                "@id": f"{page['canonical_url']}#webpage",
+                "name": page["title"],
+                "url": page["canonical_url"],
+                "description": page["description"],
+                "keywords": ", ".join(page["keywords"]),
+                "isPartOf": {"@id": public_page_url("/#website")},
+                "about": {"@id": f"{page['canonical_url']}#software"},
+            },
+            {
+                "@type": "BreadcrumbList",
+                "@id": f"{page['canonical_url']}#breadcrumb",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Wandering Bot", "item": public_page_url("/")},
+                    {"@type": "ListItem", "position": 2, "name": page["eyebrow"], "item": page["canonical_url"]},
+                ],
             },
             software_node,
             {
@@ -26381,6 +26471,11 @@ def index():
 @APP.get("/dayz-killfeed-bot")
 def public_dayz_killfeed_bot():
     return public_landing_page("dayz-killfeed-bot")
+
+
+@APP.get("/dayz-bot")
+def public_dayz_bot():
+    return public_landing_page("dayz-bot")
 
 
 @APP.get("/dayz-console-discord-bot")
