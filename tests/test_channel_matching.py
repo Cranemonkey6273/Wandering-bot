@@ -211,6 +211,91 @@ class ChannelMatchingTests(unittest.TestCase):
         finally:
             bot.guild_configs = previous_configs
 
+    def test_base_dashboard_scenario_event_migrates_to_matching_profile(self):
+        config = {
+            "guild_name": "Merged",
+            "server_map": "chernarus",
+            "scenario_events": [
+                {
+                    "id": 33,
+                    "created_by": "dashboard",
+                    "event_type": "airdrop",
+                    "upload_status": "blocked",
+                    "upload_attempts": 3,
+                    "status": "Native CE source required",
+                },
+                {"id": 44, "created_by": "manual", "event_type": "airdrop"},
+            ],
+            "server_profiles": {
+                "cherno": {"profile_name": "Wandering Around Cherno", "server_map": "chernarus"},
+                "livo": {"profile_name": "Wandering Around Livo", "server_map": "livonia"},
+            },
+        }
+
+        self.assertTrue(bot.migrate_base_dashboard_scenario_events_to_matching_profile(config))
+
+        self.assertEqual([{"id": 44, "created_by": "manual", "event_type": "airdrop"}], config["scenario_events"])
+        cherno_events = config["server_profiles"]["cherno"]["scenario_events"]
+        self.assertEqual(1, len(cherno_events))
+        self.assertEqual(33, cherno_events[0]["id"])
+        self.assertEqual("waiting_for_bot_upload", cherno_events[0]["upload_status"])
+        self.assertEqual(0, cherno_events[0]["upload_attempts"])
+        self.assertIn("Wandering Around Cherno profile", cherno_events[0]["status"])
+        self.assertNotIn("scenario_events", config["server_profiles"]["livo"])
+
+    def test_dashboard_scenario_upload_loop_expands_server_profiles(self):
+        previous_configs = bot.guild_configs
+        previous_guilds = bot.bot.guilds
+        previous_load = bot.load_guild_configs
+        previous_save = bot.save_guild_configs
+        previous_process = bot.process_dashboard_scenario_xml_upload
+        previous_notices = bot.process_scenario_event_discord_notices
+        calls = []
+
+        async def fake_process(guild_id, config):
+            calls.append(guild_id)
+            config["scenario_events"] = [{"id": guild_id, "upload_status": "uploaded"}]
+            config["scenario_event_discord_notices"] = [{"id": guild_id}]
+            return True
+
+        async def fake_notices(_guild_id, _config):
+            return False
+
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {"profile_name": "Wandering Around Cherno", "server_map": "chernarus"},
+                        "livo": {"profile_name": "Wandering Around Livo", "server_map": "livonia"},
+                    },
+                },
+            }
+            bot.bot.guilds = [FakeGuild([], guild_id="guild-a", name="Merged")]
+            bot.load_guild_configs = lambda: None
+            bot.save_guild_configs = lambda: None
+            bot.process_dashboard_scenario_xml_upload = fake_process
+            bot.process_scenario_event_discord_notices = fake_notices
+
+            asyncio.run(bot.dashboard_scenario_upload_loop())
+
+            self.assertEqual(["guild-a:cherno", "guild-a:livo"], calls)
+            self.assertEqual(
+                "guild-a:cherno",
+                bot.guild_configs["guild-a"]["server_profiles"]["cherno"]["scenario_events"][0]["id"],
+            )
+            self.assertEqual(
+                "guild-a:livo",
+                bot.guild_configs["guild-a"]["server_profiles"]["livo"]["scenario_event_discord_notices"][0]["id"],
+            )
+        finally:
+            bot.guild_configs = previous_configs
+            bot.bot.guilds = previous_guilds
+            bot.load_guild_configs = previous_load
+            bot.save_guild_configs = previous_save
+            bot.process_dashboard_scenario_xml_upload = previous_process
+            bot.process_scenario_event_discord_notices = previous_notices
+
     def test_live_leaderboard_uses_dashboard_route_key(self):
         config = {"channels": {"leaderboards": "300"}}
 

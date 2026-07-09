@@ -917,6 +917,7 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "schedule_reminder_minutes",
     "schedule_reminders_enabled",
     "safe_zone_offenses",
+    "scenario_event_discord_notices",
     "scenario_events",
     "scenario_events_cleanup_completed_at",
     "scenario_events_cleanup_error",
@@ -1521,6 +1522,37 @@ def server_map_key(guild_id):
     if key in ["sakhal", "sakhalplus"]:
         return "sakhal"
 
+    return "chernarus"
+
+
+def server_map_key_from_config(config, default="chernarus"):
+    config = config if isinstance(config, dict) else {}
+    configured = (
+        config.get("server_map")
+        or config.get("map")
+        or config.get("map_key")
+        or config.get("map_name")
+    )
+    if not configured:
+        guild_name_key = normalize_discord_name(
+            config.get("guild_name")
+            or config.get("profile_name")
+            or config.get("server_name")
+            or config.get("display_name")
+            or config.get("name")
+            or ""
+        )
+        if any(term in guild_name_key for term in ["livonia", "livo", "enoch"]):
+            configured = "livonia"
+        elif any(term in guild_name_key for term in ["sakhal", "sakhalplus"]):
+            configured = "sakhal"
+        else:
+            configured = default
+    key = normalize_discord_name(configured)
+    if key in {"livonia", "livo", "enoch"}:
+        return "livonia"
+    if key in {"sakhal", "sakhalplus"}:
+        return "sakhal"
     return "chernarus"
 
 
@@ -39268,14 +39300,21 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
     success = bool(notice.get("success"))
     bridge_delivery_path = str(notice.get("bridge_delivery_path") or "").strip()
     success_status = "Bridge XML uploaded - restart once for new spawns" if bridge_delivery_path else "CE XML uploaded - restart once for new spawns"
+    server_label = dayz_server_display_name(guild_id, config) or guild_display_name(guild_id)
+    discord_label = str(getattr(guild, "name", "") or "").strip()
+    server_lines = [
+        f"Source: **{notice.get('source') or 'Dashboard'}**",
+        f"DayZ server: **{server_label}**",
+    ]
+    if discord_label and discord_label != server_label:
+        server_lines.append(f"Discord: **{discord_label}**")
+    server_lines.extend([
+        f"Status: **{success_status if success else 'needs attention before it can spawn'}**",
+        f"Tracker: {tracker_status or 'waiting for next .RPT pull'}",
+    ])
     embed = discord.Embed(
         title="🛰️ LIVE EVENT DEPLOYMENT" if success else "⚠️ LIVE EVENT DEPLOYMENT FAILED",
-        description=(
-            f"Source: **{notice.get('source') or 'Dashboard'}**\n"
-            f"Server: **{guild.name}**\n"
-            f"Status: **{success_status if success else 'needs attention before it can spawn'}**\n"
-            f"Tracker: {tracker_status or 'waiting for next .RPT pull'}"
-        ),
+        description="\n".join(server_lines),
         color=0x2ECC71 if success else 0xE74C3C,
     )
     event_lines = []
@@ -39338,7 +39377,8 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
         if value:
             path_lines.append(f"- **animal territory** `{value}`")
     if path_lines:
-        embed.add_field(name="Uploaded CE files", value="\n".join(path_lines)[:1024], inline=False)
+        path_title = "Uploaded CE files" if success else "CE file targets"
+        embed.add_field(name=path_title, value="\n".join(path_lines)[:1024], inline=False)
 
     diagnostics = list((rpt_event_tracker.get(str(guild_id), {}) or {}).get("diagnostics") or [])
     warning_lines = []
@@ -39356,11 +39396,13 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
     if warning_lines:
         embed.add_field(name="Spawn / upload details", value="\n".join(warning_lines)[-1024:], inline=False)
 
-    embed.add_field(
-        name="What happens next",
-        value="Restart the server. The pinned live spawn tracker will update from the next `.RPT` pull and will show what actually spawned, where, and any warnings the parser can see.",
-        inline=False,
-    )
+    if success:
+        next_title = "What happens next"
+        next_value = "Restart the server. The pinned live spawn tracker will update from the next `.RPT` pull and will show what actually spawned, where, and any warnings the parser can see."
+    else:
+        next_title = "What needs fixing"
+        next_value = "Do not restart for this queued event yet. Fix the upload/source issue shown above, then retry the dashboard event upload so the CE files can be written first."
+    embed.add_field(name=next_title, value=next_value, inline=False)
     embed.set_footer(text=f"Wandering Bot live events · Posted {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     try:
         await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
@@ -39436,10 +39478,11 @@ def scenario_event_upload_needs_resolution(event):
     upload_status = str(event.get("upload_status") or "waiting_for_bot_upload").strip().lower()
     status_text = str(event.get("status") or "").strip().lower()
     return (
-        upload_status in {"", "waiting_for_bot_upload", "failed", "queued", "uploading", "starting"}
+        upload_status in {"", "waiting_for_bot_upload", "failed", "blocked", "queued", "uploading", "starting"}
         or "upload requested" in status_text
         or "upload starting" in status_text
         or "waiting for bot upload" in status_text
+        or "source required" in status_text
     )
 
 
@@ -42348,6 +42391,80 @@ def pending_dashboard_scenario_xml_events(config):
     return pending_events
 
 
+def migrate_base_dashboard_scenario_events_to_matching_profile(config):
+    if not isinstance(config, dict) or not has_server_profiles(config):
+        return False
+    base_events = config.get("scenario_events")
+    if not isinstance(base_events, list) or not base_events:
+        return False
+
+    base_map = server_map_key_from_config(config)
+    candidates = []
+    for profile_id, profile_config in enabled_server_profile_items(config):
+        profile_map = server_map_key_from_config(profile_config, default=base_map)
+        if profile_map == base_map:
+            candidates.append((profile_id, profile_config))
+    if len(candidates) != 1:
+        return False
+
+    profile_id, profile_config = candidates[0]
+    profile_events = profile_config.get("scenario_events")
+    if not isinstance(profile_events, list):
+        profile_events = []
+        profile_config["scenario_events"] = profile_events
+
+    used_ids = {
+        safe_int(event.get("id"), 0)
+        for event in profile_events
+        if isinstance(event, dict) and safe_int(event.get("id"), 0) > 0
+    }
+    next_id = max(used_ids, default=0) + 1
+    retained_events = []
+    moved_count = 0
+
+    for event in base_events:
+        if not isinstance(event, dict):
+            retained_events.append(event)
+            continue
+        if str(event.get("created_by") or "") != "dashboard":
+            retained_events.append(event)
+            continue
+        if scenario_event_has_confirmed_upload(event):
+            retained_events.append(event)
+            continue
+        if not scenario_event_upload_needs_resolution(event):
+            retained_events.append(event)
+            continue
+        event_map = server_map_key_from_config(event, default=base_map)
+        if event_map != base_map:
+            retained_events.append(event)
+            continue
+
+        migrated = copy.deepcopy(event)
+        migrated_id = safe_int(migrated.get("id"), 0)
+        if migrated_id <= 0 or migrated_id in used_ids:
+            while next_id in used_ids:
+                next_id += 1
+            migrated["id"] = next_id
+            used_ids.add(next_id)
+            next_id += 1
+        else:
+            used_ids.add(migrated_id)
+        now_text = datetime.now(UTC).isoformat()
+        migrated["upload_status"] = "waiting_for_bot_upload"
+        migrated["upload_attempts"] = 0
+        migrated["updated_at"] = now_text
+        migrated["status"] = f"Moved to {server_profile_name(profile_id, profile_config)} profile - Native CE XML upload requested"
+        profile_events.append(migrated)
+        moved_count += 1
+
+    if not moved_count:
+        return False
+    config["scenario_events"] = retained_events
+    config["scenario_events_migrated_to_profile_at"] = datetime.now(UTC).isoformat()
+    return True
+
+
 async def process_dashboard_scenario_xml_upload(guild_id, config):
     pending_events = pending_dashboard_scenario_xml_events(config)
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
@@ -42465,11 +42582,25 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
 @tasks.loop(minutes=1)
 async def dashboard_scenario_upload_loop():
     changed = False
-    for guild_id, config in active_guild_config_items():
+    migrated = False
+    for _guild_id, config in active_guild_config_items():
         try:
+            if migrate_base_dashboard_scenario_events_to_matching_profile(config):
+                migrated = True
+        except Exception as error:
+            print(f"DASHBOARD SCENARIO PROFILE MIGRATION ERROR {_guild_id}: {error}")
+    if migrated:
+        save_guild_configs()
+        changed = True
+    for guild_id, config in active_adm_config_items():
+        try:
+            runtime_changed = False
             if await process_dashboard_scenario_xml_upload(guild_id, config):
-                changed = True
+                runtime_changed = True
             if await process_scenario_event_discord_notices(guild_id, config):
+                runtime_changed = True
+            if runtime_changed:
+                persist_server_profile_runtime_config(config)
                 changed = True
         except Exception as error:
             print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")
