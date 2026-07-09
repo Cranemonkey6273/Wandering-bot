@@ -724,13 +724,26 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual(container.get("name"), "lootFloor")
         self.assertGreater(int(container.get("lootmax") or "0"), 0)
         self.assertEqual([node.get("name") for node in crash_group.findall("usage")], ["Military"])
-        self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier4"])
+        self.assertEqual([node.get("name") for node in crash_group.findall("value")], ["Tier3", "Tier4"])
         self.assertIsNotNone(container.find("category"))
         self.assertIsNotNone(container.find("tag"))
         self.assertIsNotNone(container.find("point"))
         self.assertEqual(container.find("tag").get("name"), "floor")
         self.assertEqual(container.find("point").get("flags"), "32")
         self.assertGreaterEqual(len(container.findall("point")), 8)
+
+    def test_airdrop_preset_counts_for_loot_budget(self):
+        event = _base_event(
+            34,
+            "airdrop",
+            "WoodenCrate",
+            loot_preset="military_high",
+        )
+
+        loot_min, loot_max = bot.scenario_ce_loot_budget(event)
+
+        self.assertGreater(loot_max, 15)
+        self.assertGreaterEqual(loot_min, 1)
 
     def test_livonia_proto_values_do_not_generate_tier4(self):
         event = _base_event(
@@ -1027,19 +1040,19 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertIs(returned_group, crash_group)
         self.assertEqual(1, len(proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")))
 
-    def test_unmarked_static_helicrash_proto_can_bump_lootmax_when_requested(self):
+    def test_reference_static_helicrash_proto_can_bump_lootmax_when_requested(self):
         proto_root = ET.Element("prototype")
-        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "15"})
-        ET.SubElement(crash_group, "usage", {"name": "Military"})
-        container = ET.SubElement(crash_group, "container", {"name": "lootFloor", "lootmax": "15"})
-        ET.SubElement(container, "category", {"name": "weapons"})
-        ET.SubElement(container, "tag", {"name": "floor"})
-        ET.SubElement(container, "point", {"pos": "-2.693787 -1.888990 1.671386", "range": "0.703328", "height": "2.000000", "flags": "32"})
+        crash_group = bot.dayz_reference_mapgroupproto_group("chernarus", "Wreck_Mi8_Crashed")
+        self.assertIsNotNone(crash_group)
+        proto_root.append(crash_group)
+        container = crash_group.find("./container[@name='lootFloor']")
+        self.assertIsNotNone(container)
 
         returned_group, changed = bot.add_mapgroupproto_loot_group(
             proto_root,
             "Wreck_Mi8_Crashed",
             lootmax=40,
+            map_key="chernarus",
             patch_static_helicrash_lootmax=True,
         )
 
@@ -1048,6 +1061,33 @@ class MapGroupProtoTests(unittest.TestCase):
         self.assertEqual("40", crash_group.get("lootmax"))
         self.assertEqual("40", container.get("lootmax"))
         self.assertEqual(1, len(proto_root.findall("./group[@name='Wreck_Mi8_Crashed']")))
+
+    def test_custom_unmarked_static_helicrash_proto_is_not_bumped(self):
+        proto_root = ET.Element("prototype")
+        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "15"})
+        ET.SubElement(crash_group, "usage", {"name": "Military"})
+        container = ET.SubElement(crash_group, "container", {"name": "lootFloor", "lootmax": "15"})
+        ET.SubElement(container, "category", {"name": "weapons"})
+        ET.SubElement(container, "tag", {"name": "floor"})
+        ET.SubElement(container, "point", {
+            "pos": "-2.693787 -1.888990 1.671386",
+            "range": "0.703328",
+            "height": "2.000000",
+            "flags": "32",
+        })
+
+        returned_group, changed = bot.add_mapgroupproto_loot_group(
+            proto_root,
+            "Wreck_Mi8_Crashed",
+            lootmax=40,
+            map_key="chernarus",
+            patch_static_helicrash_lootmax=True,
+        )
+
+        self.assertFalse(changed)
+        self.assertIs(returned_group, crash_group)
+        self.assertEqual("15", crash_group.get("lootmax"))
+        self.assertEqual("15", container.get("lootmax"))
 
     def test_existing_marked_proto_group_gets_lootfloor_repaired(self):
         proto_root = ET.Element("prototype")

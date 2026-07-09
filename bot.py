@@ -34843,7 +34843,11 @@ def scenario_ce_loot_budget(event, default_max=15):
         return max(0, min_count), max(1, min(80, max_count))
 
     resolved_loot = scenario_loot_items(event)
-    if (event or {}).get("loot") and resolved_loot:
+    if resolved_loot and (
+        (event or {}).get("loot")
+        or (event or {}).get("loot_preset")
+        or (event or {}).get("loot_mix")
+    ):
         lootmax = max(1, min(80, len(resolved_loot)))
         return max(1, min(lootmax, lootmax // 2)), lootmax
 
@@ -35110,7 +35114,7 @@ MAPGROUPPROTO_LOOT_TAGS_BY_KEY = {
     },
     "military_high": {
         "usage": ("Military",),
-        "value": ("Tier4",),
+        "value": ("Tier3", "Tier4"),
         "category": ("weapons", "explosives", "tools", "clothes"),
     },
     "medical": {
@@ -35638,6 +35642,16 @@ def normalized_static_helicrash_proto_text(group_node):
     return canonical_ce_scope_node_text(clone)
 
 
+def mapgroupproto_group_matches_reference_ignoring_lootmax(group_node, map_key, class_name):
+    reference_group = dayz_reference_mapgroupproto_group(map_key, class_name)
+    if reference_group is None or group_node is None:
+        return False
+    return (
+        normalized_static_helicrash_proto_text(group_node)
+        == normalized_static_helicrash_proto_text(reference_group)
+    )
+
+
 def static_helicrash_proto_lootmax_values(group_node):
     if group_node is None:
         return []
@@ -36014,7 +36028,8 @@ def add_mapgroupproto_loot_group(root, class_name, lootmax=80, tags=None, map_ke
         if patch_static_helicrash_lootmax and wanted.lower() in {
             item.lower() for item in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES
         }:
-            return usable_unmanaged, bump_static_helicrash_mapgroupproto_lootmax(usable_unmanaged, lootmax)
+            if mapgroupproto_group_matches_reference_ignoring_lootmax(usable_unmanaged, map_key, wanted):
+                return usable_unmanaged, bump_static_helicrash_mapgroupproto_lootmax(usable_unmanaged, lootmax)
         return usable_unmanaged, False
 
     append_wandering_xml_comment(root, f"managed mapgroupproto group {wanted}")
@@ -38075,10 +38090,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     patch_static_helicrash_lootmax=(
                         str(proto_class or "").strip().lower()
                         in {item.lower() for item in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES}
-                        and (
-                            str(record.get("loot_count_range") or "").strip().lower() not in {"", "default"}
-                            or safe_int(record.get("explicit_lootmax"), 0) > 0
-                        )
+                        and safe_int(record.get("child_lootmax"), 0) > 0
                     ),
                 )
                 if created:
@@ -38110,7 +38122,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         )
         output["messages"].append(
             f"Updated `mapgroupproto.xml`: removed `{removed_proto_groups}` old Wandering Bot proto group(s), "
-            f"left live server proto groups unchanged, and added/repaired `{added_proto}` lootFloor proto group(s)."
+            f"kept unrelated live server proto groups untouched, and added/repaired/bumped `{added_proto}` lootFloor proto group(s)."
         )
         if removed_invalid_usages:
             output["messages"].append(
