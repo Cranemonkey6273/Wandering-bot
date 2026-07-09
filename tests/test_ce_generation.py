@@ -1193,10 +1193,15 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         bot.download_text_file_from_nitrado = self.original_download_text
         bot.guild_configs.pop(self.guild_id, None)
 
-    def test_airdrop_upload_includes_existing_mi8_proto_for_validation(self):
+    def test_airdrop_upload_uses_existing_mi8_proto_as_context_only(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
         proto_root = ET.Element("prototype")
         proto_root.append(bot.dayz_reference_mapgroupproto_group("chernarus", "Wreck_Mi8_Crashed"))
+        bunker_group = ET.SubElement(proto_root, "group", {
+            "name": "Land_Underground_Storage_Laboratory",
+            "lootmax": "80",
+        })
+        ET.SubElement(bunker_group, "usage", {"name": "Bunker"})
         sources = {
             "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
             "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
@@ -1238,8 +1243,9 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         built = bot.build_console_ce_event_files(self.guild_id, config)
 
-        self.assertTrue(built.get("mapgroupproto_text"))
-        proto_after = ET.fromstring(built["mapgroupproto_text"])
+        self.assertFalse(built.get("mapgroupproto_text"))
+        self.assertTrue(built.get("mapgroupproto_context_text"))
+        proto_after = ET.fromstring(built["mapgroupproto_context_text"])
         self.assertIsNotNone(proto_after.find("./group[@name='Wreck_Mi8_Crashed']"))
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))

@@ -37769,6 +37769,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "mapgroupproto_path": "",
         "mapgroupproto_text": "",
         "mapgroupproto_source_text": "",
+        "mapgroupproto_context_path": "",
+        "mapgroupproto_context_text": "",
         "types_path": "",
         "types_text": "",
         "types_source_text": "",
@@ -38090,7 +38092,10 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     patch_static_helicrash_lootmax=(
                         str(proto_class or "").strip().lower()
                         in {item.lower() for item in VANILLA_STATIC_HELICRASH_PROTO_REPAIR_CLASSES}
-                        and safe_int(record.get("child_lootmax"), 0) > 0
+                        and (
+                            str(record.get("loot_count_range") or "").strip().lower() not in {"", "default"}
+                            or safe_int(record.get("explicit_lootmax"), 0) > 0
+                        )
                     ),
                 )
                 if created:
@@ -38107,9 +38112,22 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
             output["eventgroups_source_text"] = eventgroups_text
-        if proto_changed or added_proto or repaired_static_proto_classes or repaired_airplanecrate_proto_classes or removed_invalid_usages or eventgroup_records or mapgroupproto_records or revamp_mapgroupproto_classes or cleanup_pending:
+        mapgroupproto_changed_for_upload = bool(
+            proto_changed
+            or added_proto
+            or repaired_static_proto_classes
+            or repaired_airplanecrate_proto_classes
+            or removed_invalid_usages
+            or revamp_mapgroupproto_classes
+            or cleanup_pending
+        )
+        if mapgroupproto_changed_for_upload:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
+            output["mapgroupproto_source_text"] = mapgroupproto_text
+        elif eventgroup_records or mapgroupproto_records:
+            output["mapgroupproto_context_path"] = resolved_mapgroupproto_path
+            output["mapgroupproto_context_text"] = xml_text_from_root(mapgroupproto_root)
             output["mapgroupproto_source_text"] = mapgroupproto_text
         output["messages"].append(eventgroups_source)
         output["messages"].append(mapgroupproto_source)
@@ -38120,10 +38138,15 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         output["messages"].append(
             f"Updated `cfgeventgroups.xml` with `{len(eventgroup_records)}` event group(s), removed `{removed_groups}` old Wandering Bot group(s)."
         )
-        output["messages"].append(
-            f"Updated `mapgroupproto.xml`: removed `{removed_proto_groups}` old Wandering Bot proto group(s), "
-            f"kept unrelated live server proto groups untouched, and added/repaired/bumped `{added_proto}` lootFloor proto group(s)."
-        )
+        if output.get("mapgroupproto_text"):
+            output["messages"].append(
+                f"Updated `mapgroupproto.xml`: removed `{removed_proto_groups}` old Wandering Bot proto group(s), "
+                f"kept unrelated live server proto groups untouched, and added/repaired/bumped `{added_proto}` lootFloor proto group(s)."
+            )
+        elif eventgroup_records or mapgroupproto_records:
+            output["messages"].append(
+                "`mapgroupproto.xml` was read for validation only; no mapgroupproto upload is needed for this event."
+            )
         if removed_invalid_usages:
             output["messages"].append(
                 f"Removed `{removed_invalid_usages}` invalid `Crash` usage tag(s) from `mapgroupproto.xml`; "
@@ -38227,12 +38250,20 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         if not scope_ok:
             return False, scope_messages
 
+    mapgroupproto_upload_text = str(built.get("mapgroupproto_text") or "")
+    mapgroupproto_uploading = bool(mapgroupproto_upload_text.strip())
+    mapgroupproto_context_text = str(
+        mapgroupproto_upload_text
+        or built.get("mapgroupproto_context_text")
+        or built.get("mapgroupproto_source_text")
+        or "<prototype></prototype>"
+    )
     try:
         events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
         spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
         types_root = ET.fromstring(str(built.get("types_text") or "<types></types>").encode("utf-8"))
         eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
-        mapgroupproto_root = ET.fromstring(str(built.get("mapgroupproto_text") or "<prototype></prototype>").encode("utf-8"))
+        mapgroupproto_root = ET.fromstring(mapgroupproto_context_text.encode("utf-8"))
         cfgenvironment_root = ET.fromstring(str(
             built.get("cfgenvironment_text")
             or built.get("cfgenvironment_source_text")
@@ -38407,7 +38438,32 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         str(group_node.get("name") or "").strip(): group_node
         for group_node in mapgroupproto_root.findall("group")
     }
-    if normalize_dayz_reference_map_key(map_key) == "livonia" and built.get("mapgroupproto_text"):
+    required_proto_names = set()
+    for name, event_node in generated_events.items():
+        if not name.startswith("Static"):
+            continue
+        spawn_node = generated_spawns.get(name)
+        has_group_pos = bool(spawn_node is not None and any(
+            str(pos.get("group") or "").strip()
+            for pos in spawn_node.findall("pos")
+        ))
+        if has_group_pos:
+            continue
+        for child in event_node.findall("children/child"):
+            child_type = str(child.get("type") or "").strip()
+            if not child_type or dayz_class_looks_like_vehicle(child_type):
+                continue
+            if safe_int(child.get("lootmax"), 0) > 0:
+                required_proto_names.add(child_type)
+    for group_node in generated_groups.values():
+        for child in group_node.findall("child"):
+            child_type = str(child.get("type") or "").strip()
+            is_static_scene_prop = str(child.get("spawnsecondary") or "").strip().lower() == "false"
+            if not child_type or is_static_scene_prop or dayz_class_looks_like_vehicle(child_type):
+                continue
+            if max(safe_int(child.get("lootmax"), 0), safe_int(child.get("max"), 0)) > 0:
+                required_proto_names.add(child_type)
+    if normalize_dayz_reference_map_key(map_key) == "livonia" and mapgroupproto_uploading:
         heli_groups = mapgroupproto_groups_named(mapgroupproto_root, "Wreck_Mi8_Crashed")
         if len(heli_groups) != 1:
             messages.append(
@@ -38426,6 +38482,11 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         ("tag", valid_tag_flags),
     )
     for group_name, group_node in proto_nodes.items():
+        if not (
+            group_name in required_proto_names
+            or is_wandering_managed_name(group_name)
+        ):
+            continue
         for tag_name, allowed_flags in limit_flag_checks:
             if not allowed_flags:
                 continue
