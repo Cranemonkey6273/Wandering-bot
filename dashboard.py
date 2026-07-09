@@ -8896,7 +8896,7 @@ PAGE_TEMPLATE = """
             <label>Plan preset
               <select name="plan_preset">
                 <option value="">Manual feature checkboxes</option>
-                {% for plan in billing_plans %}<option value="{{ plan.id }}" {% if server and server.dashboard_access.tier == plan.id %}selected{% endif %}>{{ plan.name }} - {{ plan.price_text or 'price unset' }}</option>{% endfor %}
+                {% for plan in billing_plans %}<option value="{{ plan.id }}">{{ plan.name }} - {{ plan.price_text or 'price unset' }}</option>{% endfor %}
               </select>
               <small class="field-help">Selecting a preset applies that plan's feature list when you save.</small>
             </label>
@@ -8933,6 +8933,7 @@ PAGE_TEMPLATE = """
             <div class="full">
               <span class="muted">Enabled modules</span>
               {% set features = server.dashboard_access.features if server else {} %}
+              <input class="hidden-field" name="features_present" value="true">
               <div class="check-grid">
                 <label class="check"><input type="checkbox" name="feature_leaderboards" {% if features.leaderboards %}checked{% endif %}> Leaderboards</label>
                 <label class="check"><input type="checkbox" name="feature_economy" {% if features.economy %}checked{% endif %}> Economy</label>
@@ -9425,6 +9426,7 @@ PAGE_TEMPLATE = """
             <label class="full">Description <textarea name="description">{{ plan.description }}</textarea></label>
             <div class="full">
               <span class="muted">Features in this plan</span>
+              <input class="hidden-field" name="features_present" value="true">
               <div class="check-grid">
                 {% for key, label in dashboard_feature_labels.items() %}
                 <label class="check"><input type="checkbox" name="feature_{{ key }}" {% if plan.features.get(key) %}checked{% endif %}> {{ label }}</label>
@@ -12815,6 +12817,7 @@ PAGE_TEMPLATE = """
       "/api/admin/on-screen-message",
       "/api/admin/server-control",
       "/api/admin/guild-access",
+      "/api/owner/billing-plan",
       "/api/admin/server-profile",
       "/api/admin/nitrado-credentials",
       "/api/admin/link-server",
@@ -13967,7 +13970,7 @@ PAGE_TEMPLATE = """
           }
         });
         payload.dashboard_mode = "{{ mode }}";
-        const featureBoxes = form.querySelectorAll('input[name^="feature_"]');
+        const featureBoxes = form.querySelectorAll('input[type="checkbox"][name^="feature_"]');
         if (featureBoxes.length) {
           payload.features = {};
           featureBoxes.forEach((box) => {
@@ -16627,6 +16630,18 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+def dashboard_feature_flags_from_payload(payload: dict[str, Any], fallback: Any = None) -> dict[str, bool]:
+    payload = payload if isinstance(payload, dict) else {}
+    source = payload.get("features")
+    if isinstance(source, dict):
+        return {key: safe_bool(source.get(key), False) for key in DASHBOARD_FEATURE_KEYS}
+    if safe_bool(payload.get("features_present"), False) or any(f"feature_{key}" in payload for key in DASHBOARD_FEATURE_KEYS):
+        return {key: safe_bool(payload.get(f"feature_{key}"), False) for key in DASHBOARD_FEATURE_KEYS}
+    if isinstance(fallback, dict):
+        return {key: safe_bool(fallback.get(key), False) for key in DASHBOARD_FEATURE_KEYS}
+    return {key: False for key in DASHBOARD_FEATURE_KEYS}
+
+
 def dashboard_plan_by_id(plan_id: Any) -> dict[str, Any]:
     wanted = str(plan_id or "").strip().lower()
     for plan in dashboard_billing_plans():
@@ -19028,7 +19043,7 @@ def dashboard_feature_allowed(config: dict[str, Any], feature: str) -> bool:
         return False
     features = dashboard.get("features")
     if not isinstance(features, dict) or feature not in features:
-        return safe_bool(dashboard.get("enabled"), True)
+        return False
     return safe_bool(features.get(feature), False)
 
 
@@ -30829,9 +30844,7 @@ def api_owner_billing_plan():
         return error
     raw_payload = payload or {}
     payload = strip_dashboard_control_fields(raw_payload)
-    features = payload.get("features")
-    if not isinstance(features, dict):
-        features = {}
+    features = dashboard_feature_flags_from_payload(payload)
     try:
         record = save_dashboard_billing_plan(
             {
@@ -31071,8 +31084,7 @@ def api_guild_access():
     if selected_plan:
         access["features"] = {key: safe_bool((selected_plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
     else:
-        features = payload.get("features", access.get("features", {}))
-        access["features"] = {key: safe_bool((features if isinstance(features, dict) else {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
+        access["features"] = dashboard_feature_flags_from_payload(payload, access.get("features", {}))
     access["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     return dashboard_api_response(
