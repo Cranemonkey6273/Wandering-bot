@@ -75,6 +75,53 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_dashboard_feature_allowed_uses_tier_when_features_missing(self):
+        plans = list(dashboard.default_billing_plan_map().values())
+        config = {"dashboard": {"enabled": True, "tier": "dashboard_ultimate", "plan_status": "lifetime"}}
+
+        with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "pve_quests"))
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "xml_workshop"))
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "ai_agent"))
+
+    def test_dashboard_feature_allowed_uses_plan_for_missing_feature_keys(self):
+        plans = list(dashboard.default_billing_plan_map().values())
+        config = {
+            "dashboard": {
+                "enabled": True,
+                "tier": "dashboard",
+                "plan_status": "subscription",
+                "features": {"leaderboards": True},
+            }
+        }
+
+        with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "pve_quests"))
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "shop"))
+
+    def test_dashboard_feature_allowed_preserves_manual_denies(self):
+        plans = list(dashboard.default_billing_plan_map().values())
+        config = {
+            "dashboard": {
+                "enabled": True,
+                "tier": "dashboard_ultimate",
+                "plan_status": "lifetime",
+                "features": {"pve_quests": False},
+            }
+        }
+
+        with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
+            self.assertFalse(dashboard.dashboard_feature_allowed(config, "pve_quests"))
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "xml_workshop"))
+
+    def test_owner_tier_resolves_to_full_feature_access(self):
+        plans = list(dashboard.default_billing_plan_map().values())
+        config = {"dashboard": {"enabled": True, "tier": "owner", "plan_status": "lifetime"}}
+
+        with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "pve_quests"))
+            self.assertTrue(dashboard.dashboard_feature_allowed(config, "ai_agent"))
+
     def test_manual_channel_id_accepts_channel_mentions_and_wins_over_dropdown(self):
         channel_id, manual, error = dashboard.dashboard_channel_id_from_payload({
             "channel_id": "111111111111111111",

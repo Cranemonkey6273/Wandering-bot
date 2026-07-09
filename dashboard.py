@@ -3599,6 +3599,7 @@ PAGE_TEMPLATE = """
     .billing-plan-card { display: grid; gap: .65rem; border: 1px solid var(--line); border-radius: .55rem; padding: .8rem; background: #070b08; min-width: 0; }
     .billing-plan-card h4 { margin: 0; color: var(--gold); overflow-wrap: anywhere; }
     .billing-plan-card p { margin: 0; color: var(--muted); line-height: 1.4; }
+    .billing-plan-card.current { border-color: color-mix(in srgb, var(--green, #8ee85f) 56%, var(--line)); background: linear-gradient(135deg, rgba(142,232,95,.08), #070b08); }
     .billing-feature-list { display: flex; flex-wrap: wrap; gap: .32rem; }
     .billing-feature-list span { border: 1px solid var(--line); border-radius: 999px; padding: .16rem .42rem; background: rgba(255,255,255,.035); color: var(--muted); font-size: .76rem; }
     .billing-feature-list span.on { color: #c8f28b; border-color: rgba(142,232,95,.38); background: rgba(142,232,95,.08); }
@@ -4159,6 +4160,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
+      {% if customer_billing_plans %}<a href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
@@ -4282,6 +4284,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
+      {% if customer_billing_plans %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
@@ -4314,6 +4317,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
+          {% if customer_billing_plans %}<option value="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</option>{% endif %}
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
@@ -4545,6 +4549,45 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help & Guides</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
     </section>
+
+    {% if customer_billing_plans %}
+    <section class="section-panel" id="dashboard-upgrade">
+      <div class="section-head">
+        <div>
+          <h2>Dashboard Plan</h2>
+          <p class="tool-note">Your current access is shown below. Upgrade buttons use the checkout link configured by the owner.</p>
+        </div>
+        {% if server %}<span class="pill">{{ server.dashboard_access.tier }}</span>{% endif %}
+      </div>
+      <div class="billing-plan-grid">
+        {% for plan in customer_billing_plans %}
+        <article class="billing-plan-card {{ 'current' if plan.current else '' }}">
+          <div class="row-between">
+            <div>
+              <h4>{{ plan.name }}</h4>
+              <p>{{ plan.price_text or 'Contact owner' }}</p>
+            </div>
+            <span class="pill {{ 'ok' if plan.current else '' }}">{{ 'Current' if plan.current else 'Available' }}</span>
+          </div>
+          <p>{{ plan.description }}</p>
+          <div class="billing-feature-list">
+            {% for feature in plan.public_features %}
+            <span class="on">{{ feature }}</span>
+            {% endfor %}
+          </div>
+          {% if plan.current %}
+          <button type="button" disabled>Current plan</button>
+          {% elif plan.checkout_url %}
+          <a class="button" href="{{ plan.checkout_url }}" {% if plan.external_checkout %}target="_blank" rel="noopener"{% endif %}>{{ plan.upgrade_cta }}</a>
+          {% else %}
+          <button type="button" disabled>Checkout not connected</button>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      <p class="tool-note" style="margin-top:.75rem">Stripe can calculate upgrade or downgrade differences only after customer subscriptions and the Stripe Customer Portal/webhook flow are connected. Payment links and buy buttons start checkout, but they do not know an existing subscription on their own.</p>
+    </section>
+    {% endif %}
     {% endif %}
 
     {% if active_section == "leaderboards" %}
@@ -17041,6 +17084,109 @@ def dashboard_plan_by_id(plan_id: Any) -> dict[str, Any]:
     return {}
 
 
+def dashboard_access_tier(access: Any) -> str:
+    access = access if isinstance(access, dict) else {}
+    raw_tier = str(access.get("tier") or "").strip()
+    canonical = canonical_billing_plan_id(raw_tier)
+    if canonical:
+        return canonical
+    if raw_tier:
+        return clean_billing_plan_id(raw_tier) or raw_tier
+    return "none"
+
+
+def dashboard_access_plan_status(access: Any) -> str:
+    access = access if isinstance(access, dict) else {}
+    raw_status = str(access.get("plan_status") or "").strip().lower()
+    if raw_status in {"trial", "subscription", "lifetime", "suspended", "none"}:
+        return raw_status
+    tier = dashboard_access_tier(access)
+    if tier in {"suspended", "none"}:
+        return tier
+    if tier == "trial":
+        return "trial"
+    if canonical_billing_plan_id(tier):
+        return "subscription"
+    return "none"
+
+
+def dashboard_plan_features_for_access(access: Any) -> dict[str, bool]:
+    access = access if isinstance(access, dict) else {}
+    tier = dashboard_access_tier(access)
+    if tier == "owner":
+        return {key: True for key in DASHBOARD_FEATURE_KEYS}
+    if not canonical_billing_plan_id(tier) and dashboard_access_plan_status(access) in {"trial", "subscription", "lifetime"}:
+        tier = "dashboard"
+    plan = dashboard_plan_by_id(tier)
+    features = plan.get("features") if isinstance(plan, dict) and isinstance(plan.get("features"), dict) else {}
+    return {key: safe_bool(features.get(key), False) for key in DASHBOARD_FEATURE_KEYS} if features else {}
+
+
+def dashboard_effective_features(access: Any) -> dict[str, bool]:
+    access = access if isinstance(access, dict) else {}
+    effective = {key: False for key in DASHBOARD_FEATURE_KEYS}
+    effective.update(dashboard_plan_features_for_access(access))
+    stored = access.get("features") if isinstance(access.get("features"), dict) else {}
+    for key in DASHBOARD_FEATURE_KEYS:
+        if key in stored:
+            effective[key] = safe_bool(stored.get(key), False)
+    return effective
+
+
+def dashboard_access_feature_allowed(access: Any, feature: str) -> bool:
+    if not feature:
+        return True
+    if feature not in DASHBOARD_FEATURE_KEYS:
+        return True
+    access = access if isinstance(access, dict) else {}
+    if dashboard_access_plan_status(access) in {"suspended", "none"}:
+        return False
+    return safe_bool(dashboard_effective_features(access).get(feature), False)
+
+
+def dashboard_plan_rank(plan_id: Any) -> int:
+    canonical = canonical_billing_plan_id(plan_id)
+    if canonical in BILLING_PLAN_ORDER:
+        return BILLING_PLAN_ORDER.index(canonical)
+    return -1
+
+
+def dashboard_checkout_target_for_plan(plan: dict[str, Any]) -> tuple[str, bool]:
+    plan_id = str(plan.get("id") or "")
+    if plan_id == "free_bot":
+        return dashboard_bot_invite_url(), True
+    if plan.get("payment_url"):
+        return str(plan.get("payment_url") or ""), True
+    if plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key"):
+        return f"/checkout/{urllib.parse.quote(plan_id)}", False
+    return "", False
+
+
+def dashboard_customer_billing_plans(access: Any) -> list[dict[str, Any]]:
+    current_tier = dashboard_access_tier(access)
+    current_rank = dashboard_plan_rank(current_tier)
+    rows: list[dict[str, Any]] = []
+    for plan in dashboard_billing_plans():
+        if not safe_bool(plan.get("enabled"), True):
+            continue
+        row = dict(plan)
+        plan_id = str(row.get("id") or "")
+        checkout_url, external = dashboard_checkout_target_for_plan(row)
+        plan_rank = dashboard_plan_rank(plan_id)
+        row["public_features"] = public_billing_plan_features(row)
+        row["current"] = plan_id == current_tier
+        row["rank"] = plan_rank
+        row["checkout_url"] = checkout_url
+        row["external_checkout"] = external
+        row["upgrade_cta"] = "Change plan" if plan_rank <= current_rank else "Upgrade"
+        if plan_id == "free_bot":
+            row["upgrade_cta"] = "Add Wandering Bot"
+        if row["current"]:
+            row["upgrade_cta"] = "Current plan"
+        rows.append(row)
+    return rows[:4]
+
+
 
 AI_AGENT_PERMISSION_KEYS = ("read", "edit", "execute", "deploy")
 AI_AGENT_DEFAULT_APPROVAL_RULES = {
@@ -19429,13 +19575,7 @@ def dashboard_feature_allowed(config: dict[str, Any], feature: str) -> bool:
     dashboard = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
     if not isinstance(dashboard, dict):
         return True
-    plan_status = str(dashboard.get("plan_status") or dashboard.get("tier") or "trial").strip().lower()
-    if plan_status in {"suspended", "none"}:
-        return False
-    features = dashboard.get("features")
-    if not isinstance(features, dict) or feature not in features:
-        return False
-    return safe_bool(features.get(feature), False)
+    return dashboard_access_feature_allowed(dashboard, feature)
 
 
 def find_guild_by_dashboard_id(dashboard_id: str) -> tuple[str | None, dict[str, Any] | None]:
@@ -24521,13 +24661,11 @@ def leaderboard_categories(players: list[dict[str, Any]], swear_jar: Any, longsh
 
 def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
     access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
-    features = access.get("features") if isinstance(access.get("features"), dict) else {}
-    plan_status = str(access.get("plan_status") or access.get("tier") or "none").lower()
-    if plan_status not in {"trial", "subscription", "lifetime", "suspended", "none"}:
-        plan_status = "none"
+    features = dashboard_effective_features(access)
+    plan_status = dashboard_access_plan_status(access)
     return {
         "enabled": bool(access.get("enabled", False)),
-        "tier": str(access.get("tier") or "none"),
+        "tier": dashboard_access_tier(access),
         "plan_status": plan_status,
         "trial_ends_at": str(access.get("trial_ends_at") or ""),
         "subscription_ends_at": str(access.get("subscription_ends_at") or ""),
@@ -26263,6 +26401,7 @@ def page(mode: str, auth: dict[str, Any]):
             server_rows[0] = selected_server
             state["servers"] = server_rows
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
+    selected_access = selected_server.get("dashboard_access", {}) if isinstance(selected_server, dict) and isinstance(selected_server.get("dashboard_access"), dict) else {}
     dashboard_theme = dashboard_theme_from_config(selected_config) if isinstance(selected_config, dict) else "default"
     ai_agent_state: dict[str, Any] = {}
     ai_agent_access: dict[str, Any] = {
@@ -26294,11 +26433,16 @@ def page(mode: str, auth: dict[str, Any]):
         if auth.get("kind") == "owner":
             return True
         feature = SECTION_FEATURES.get(section)
-        return dashboard_feature_allowed(selected_config, feature) if feature else True
+        if not feature:
+            return True
+        if selected_access:
+            return dashboard_access_feature_allowed(selected_access, feature)
+        return dashboard_feature_allowed(selected_config, feature)
 
     if active_section == "access":
         setup_feature = ADMIN_CENTER_TOOL_FEATURES.get(setup_tool)
-        if setup_feature and not dashboard_feature_allowed(selected_config, setup_feature) and auth.get("kind") != "owner":
+        setup_allowed = dashboard_access_feature_allowed(selected_access, setup_feature) if selected_access else dashboard_feature_allowed(selected_config, setup_feature)
+        if setup_feature and not setup_allowed and auth.get("kind") != "owner":
             setup_tool = "servers"
 
     if not section_allowed(active_section):
@@ -26441,6 +26585,7 @@ def page(mode: str, auth: dict[str, Any]):
         "guild_id": normalize_guild_id(selected_review_guild_id),
     }
     billing_plans = dashboard_billing_plans()
+    customer_billing_plans = dashboard_customer_billing_plans(selected_access) if mode != "owner" and auth.get("kind") != "agent_account" else []
     billing_has_stripe_buy_buttons = False
     return render_template_string(
         PAGE_TEMPLATE,
@@ -26522,6 +26667,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_members=ai_agent_state.get("members", {}),
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
         billing_plans=billing_plans,
+        customer_billing_plans=customer_billing_plans,
         billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
         dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
         custom_feed_types=CUSTOM_FEED_TYPES,
@@ -31516,7 +31662,17 @@ def api_guild_access():
     access["enabled"] = safe_bool(payload.get("enabled"), safe_bool(access.get("enabled"), True))
     plan_preset = str(payload.get("plan_preset") or "").strip()
     selected_plan = dashboard_plan_by_id(plan_preset) if plan_preset else {}
-    access["tier"] = str((selected_plan.get("id") if selected_plan else payload.get("tier")) or access.get("tier") or "owner")
+    tier_plan = dashboard_plan_by_id(payload.get("tier")) if payload.get("tier") else {}
+    requested_tier = clean_billing_plan_id(payload.get("tier"))
+    manual_tier = requested_tier if requested_tier in {"owner", "trial", "suspended", "none"} else ""
+    access["tier"] = str(
+        selected_plan.get("id")
+        or tier_plan.get("id")
+        or canonical_billing_plan_id(payload.get("tier"))
+        or manual_tier
+        or dashboard_access_tier(access)
+        or "dashboard"
+    )
     plan_status = str(payload.get("plan_status") or access.get("plan_status") or access.get("tier") or "trial").strip().lower()
     if plan_status not in {"trial", "subscription", "lifetime", "suspended", "none"}:
         plan_status = "trial"
@@ -31539,7 +31695,12 @@ def api_guild_access():
     if selected_plan:
         access["features"] = {key: safe_bool((selected_plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
     else:
-        access["features"] = dashboard_feature_flags_from_payload(payload, access.get("features", {}))
+        fallback_features = access.get("features") if isinstance(access.get("features"), dict) else {}
+        if not fallback_features:
+            fallback_features = tier_plan.get("features") if isinstance(tier_plan.get("features"), dict) else {}
+        if not fallback_features:
+            fallback_features = dashboard_plan_features_for_access(access)
+        access["features"] = dashboard_feature_flags_from_payload(payload, fallback_features)
     access["updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
     return dashboard_api_response(
