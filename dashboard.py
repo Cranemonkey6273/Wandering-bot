@@ -965,7 +965,7 @@ DASHBOARD_SERVER_PROFILE_INHERITED_KEYS = (
 DEFAULT_BILLING_PLANS = [
     {
         "id": "free_bot",
-        "name": "Free Bot",
+        "name": "Wandering Bot Free",
         "price_text": "Free",
         "description": "Basic Discord bot access while dashboard tools stay locked.",
         "enabled": True,
@@ -976,7 +976,7 @@ DEFAULT_BILLING_PLANS = [
     },
     {
         "id": "dashboard",
-        "name": "Wandering Bot Scout",
+        "name": "Wandering Bot Basic",
         "price_text": "€5.99 / month",
         "description": "Full server dashboard with economy, shop, maps, XML tools, events and server controls.",
         "enabled": True,
@@ -1003,9 +1003,37 @@ DEFAULT_BILLING_PLANS = [
     },
     {
         "id": "dashboard_ai",
-        "name": "Dashboard + AI",
+        "name": "Wandering Bot Pro",
         "price_text": "Set monthly price",
-        "description": "Everything in Dashboard Pro plus the private AI development agent features.",
+        "description": "Expanded dashboard access for active communities that need deeper event, moderation and server management tools.",
+        "enabled": True,
+        "features": {
+            "leaderboards": True,
+            "economy": True,
+            "factions": True,
+            "embeds": True,
+            "safe_zones": True,
+            "members": True,
+            "heatmaps": True,
+            "pve_quests": True,
+            "quest_workshop": True,
+            "shop": True,
+            "xml_workshop": True,
+            "server_rules": True,
+            "server_control": True,
+            "wages": True,
+            "moderation": True,
+            "ai_agent": False,
+        },
+        "payment_url": "",
+        "stripe_buy_button_id": "",
+        "stripe_publishable_key": "",
+    },
+    {
+        "id": "dashboard_ultimate",
+        "name": "Wandering Bot Ultimate",
+        "price_text": "Set monthly price",
+        "description": "Top tier dashboard access with every server tool plus private AI development agent access.",
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1096,6 +1124,9 @@ PUBLIC_LANDING_TEMPLATE = """
   <meta name="twitter:description" content="{{ page.description }}">
   <meta name="twitter:image" content="{{ page.image_url }}">
   <script type="application/ld+json">{{ structured_data|tojson }}</script>
+  {% if public_pricing_has_stripe %}
+  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+  {% endif %}
   <style>
     :root {
       color-scheme: dark;
@@ -1223,6 +1254,20 @@ PUBLIC_LANDING_TEMPLATE = """
     .need strong, .feature strong { display: block; color: var(--text); margin-bottom: .2rem; }
     .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .9rem; }
     .feature { padding: .85rem; background: rgba(0, 0, 0, .2); }
+    .pricing-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
+    .pricing-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
+    .pricing-head p { max-width: 42rem; margin: .25rem 0 0; }
+    .pricing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
+    .pricing-card { min-width: 0; display: grid; gap: .65rem; align-content: start; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: .85rem; background: rgba(0, 0, 0, .23); }
+    .pricing-card.featured { border-color: var(--line-warm); box-shadow: inset 0 1px 0 rgba(236, 161, 64, .16); }
+    .pricing-card-title { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
+    .pricing-card h3 { color: var(--text); overflow-wrap: anywhere; }
+    .pricing-price { display: block; color: var(--amber); font-size: 1.3rem; line-height: 1.1; }
+    .pricing-features { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+    .pricing-features li { position: relative; padding-left: 1rem; color: #d7e4dc; }
+    .pricing-features li::before { content: ""; position: absolute; left: 0; top: .72rem; width: .38rem; height: .38rem; border-radius: 50%; background: var(--green); }
+    .pricing-card stripe-buy-button { max-width: 100%; overflow: hidden; }
+    .pricing-pill { display: inline-flex; align-items: center; border: 1px solid rgba(236, 161, 64, .36); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .72rem; font-weight: 950; white-space: nowrap; }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
     .faq-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .2); }
     .faq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
@@ -1244,11 +1289,11 @@ PUBLIC_LANDING_TEMPLATE = """
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features, .faq-grid, .keyword-list, .review-grid { grid-template-columns: 1fr; }
+      .hero, .band, .features, .pricing-grid, .faq-grid, .keyword-list, .review-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
-      .review-head { align-items: start; flex-direction: column; }
+      .pricing-head, .review-head { align-items: start; flex-direction: column; }
     }
     @media (max-width: 560px) {
       main { width: min(100vw - 1rem, 42rem); padding-top: .75rem; }
@@ -1308,6 +1353,44 @@ PUBLIC_LANDING_TEMPLATE = """
         </div>
       </aside>
     </section>
+    {% if public_pricing_plans %}
+    <section class="pricing-section" id="pricing" aria-label="Wandering Bot pricing">
+      <div class="pricing-head">
+        <div>
+          <p class="eyebrow">Pricing</p>
+          <h2>Pick the dashboard access that fits your server</h2>
+          <p>These plans are managed from the owner billing page, so prices and checkout buttons can be changed without rebuilding the homepage.</p>
+        </div>
+        <a class="button ghost" href="/login">Existing customer login</a>
+      </div>
+      <div class="pricing-grid">
+        {% for plan in public_pricing_plans %}
+        <article class="pricing-card {{ 'featured' if plan.public_featured else '' }}">
+          <div class="pricing-card-title">
+            <h3>{{ plan.name }}</h3>
+            {% if plan.public_badge %}<span class="pricing-pill">{{ plan.public_badge }}</span>{% endif %}
+          </div>
+          <strong class="pricing-price">{{ plan.price_text or 'Price not set' }}</strong>
+          <p>{{ plan.description }}</p>
+          <ul class="pricing-features">
+            {% for feature in plan.public_features %}
+            <li>{{ feature }}</li>
+            {% endfor %}
+          </ul>
+          {% if plan.stripe_buy_button_id and plan.stripe_publishable_key %}
+          <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
+          {% elif plan.payment_url %}
+          <a class="button primary" href="{{ plan.payment_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
+          {% elif plan.id == "free_bot" %}
+          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
+          {% else %}
+          <a class="button" href="/login">{{ plan.public_cta }}</a>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
     <section class="band" aria-label="Information needed for setup">
       <div class="need"><strong>Nitrado token</strong><span>Created from your Nitrado account so the bot can read server status and settings.</span></div>
       <div class="need"><strong>Service ID</strong><span>Your DayZ server service number from Nitrado.</span></div>
@@ -9404,8 +9487,8 @@ PAGE_TEMPLATE = """
     <section class="section-panel" id="billing">
       <div class="section-head">
         <div>
-          <h2>Plans & Billing</h2>
-          <p class="tool-note">Owner-only controls for what each paid tier unlocks. Add the checkout URL you use now; full payment automation can sit behind these saved plans later.</p>
+          <h2>Plan Setup</h2>
+          <p class="tool-note">Owner-only setup for the four public tiers. This page controls names, prices, checkout buttons and the dashboard features each tier unlocks.</p>
         </div>
         <span class="pill">{{ billing_plans|length }} plan(s)</span>
       </div>
@@ -9426,9 +9509,9 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
           {% if plan.stripe_buy_button_id and plan.stripe_publishable_key %}
-          <div class="stripe-billing-box">
-            <span class="muted">Stripe checkout preview</span>
-            <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
+          <div class="billing-link-row">
+            <span class="pill ok">Stripe button connected</span>
+            <code>{{ plan.stripe_buy_button_id }}</code>
           </div>
           {% elif plan.payment_url %}
           <div class="billing-link-row">
@@ -16628,11 +16711,17 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
         features = plan.get("features") if isinstance(plan.get("features"), dict) else base.get("features", {})
         stripe_buy_button_id = plan.get("stripe_buy_button_id", base.get("stripe_buy_button_id", ""))
         stripe_publishable_key = plan.get("stripe_publishable_key", base.get("stripe_publishable_key", ""))
+        name = str(plan.get("name") or base.get("name") or clean_id).strip()[:80]
+        description = str(plan.get("description") or base.get("description") or "").strip()[:400]
+        if clean_id == "dashboard_ai" and name == "Dashboard + AI":
+            name = str(base.get("name") or name).strip()[:80]
+        if clean_id == "dashboard_ai" and description == "Everything in Dashboard Pro plus the private AI development agent features.":
+            description = str(base.get("description") or description).strip()[:400]
         base.update({
             "id": clean_id,
-            "name": str(plan.get("name") or base.get("name") or clean_id).strip()[:80],
+            "name": name,
             "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
-            "description": str(plan.get("description") or base.get("description") or "").strip()[:400],
+            "description": description,
             "payment_url": str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500],
             "stripe_buy_button_id": stripe_buy_button_id_from_text(stripe_buy_button_id),
             "stripe_publishable_key": stripe_publishable_key_from_text(stripe_publishable_key),
@@ -16641,7 +16730,44 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             "updated_at": str(plan.get("updated_at") or base.get("updated_at") or ""),
         })
         plans[clean_id] = base
-    return sorted(plans.values(), key=lambda item: (0 if item.get("id") in {"free_bot", "dashboard", "dashboard_ai"} else 1, str(item.get("id"))))
+    plan_order = {"free_bot": 0, "dashboard": 1, "dashboard_ai": 2, "dashboard_ultimate": 3}
+    return sorted(plans.values(), key=lambda item: (plan_order.get(str(item.get("id")), 50), str(item.get("id"))))
+
+
+def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
+    feature_labels = []
+    features = plan.get("features") if isinstance(plan.get("features"), dict) else {}
+    for key in DASHBOARD_FEATURE_KEYS:
+        if safe_bool(features.get(key), False):
+            feature_labels.append(DASHBOARD_FEATURE_LABELS.get(key, key.replace("_", " ").title()))
+    if not feature_labels:
+        feature_labels = ["Discord bot access", "Server setup help", "Basic community tools"]
+    return feature_labels[:6]
+
+
+def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
+    public_plans = []
+    for plan in dashboard_billing_plans():
+        if not safe_bool(plan.get("enabled"), True):
+            continue
+        price_text = str(plan.get("price_text") or "").strip()
+        has_checkout = bool(plan.get("payment_url") or (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")))
+        if not price_text:
+            continue
+        if price_text.lower() == "set monthly price" and not has_checkout:
+            continue
+        public_plan = dict(plan)
+        public_plan["public_features"] = public_billing_plan_features(public_plan)
+        public_plan["public_featured"] = str(public_plan.get("id") or "") == "dashboard"
+        public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ""
+        if str(public_plan.get("id") or "") == "free_bot":
+            public_plan["public_cta"] = "Add Wandering Bot"
+        elif has_checkout:
+            public_plan["public_cta"] = "Subscribe"
+        else:
+            public_plan["public_cta"] = "Open dashboard"
+        public_plans.append(public_plan)
+    return public_plans[:4]
 
 
 def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -19366,6 +19492,11 @@ def public_landing_page(page_key: str = "home"):
     ][:8]
     public_reviews = load_review_rows(public_only=True, limit=6)
     summary = review_summary(load_review_rows(public_only=True))
+    public_pricing_plans = public_billing_plans_for_homepage() if page_key == "home" else []
+    public_pricing_has_stripe = any(
+        plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")
+        for plan in public_pricing_plans
+    )
     software_node = {
         "@type": "SoftwareApplication",
         "@id": f"{page['canonical_url']}#software",
@@ -19455,6 +19586,8 @@ def public_landing_page(page_key: str = "home"):
         structured_data=structured_data,
         public_reviews=public_reviews,
         review_summary=summary,
+        public_pricing_plans=public_pricing_plans,
+        public_pricing_has_stripe=public_pricing_has_stripe,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
     )
@@ -26078,10 +26211,7 @@ def page(mode: str, auth: dict[str, Any]):
         "guild_id": normalize_guild_id(selected_review_guild_id),
     }
     billing_plans = dashboard_billing_plans()
-    billing_has_stripe_buy_buttons = bool(
-        active_section == "billing"
-        and any(plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key") for plan in billing_plans)
-    )
+    billing_has_stripe_buy_buttons = False
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
