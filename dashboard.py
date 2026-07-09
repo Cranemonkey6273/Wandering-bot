@@ -45,6 +45,7 @@ DATA_ROOT = (
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
+PUBLIC_FEED_PREVIEW_FOLDER = os.path.join(APP_ROOT, "public_feed_previews")
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 DAYZ_REFERENCE_MAP_FOLDERS = {
@@ -998,8 +999,8 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
         },
         "payment_url": "",
-        "stripe_buy_button_id": "buy_btn_1TrKZr7WVHSC7E5ASIACKUu7",
-        "stripe_publishable_key": "pk_test_51TrKIg7WVHSC7E5AM2ZyZkjJCBt7SKuxqTnIyCC8WqnOMWVCQeYW0p8mhsot1QX7Ecbqp6Vjt0ZYjo3nqKF6B2gA00qvWeVmkD",
+        "stripe_buy_button_id": "",
+        "stripe_publishable_key": "",
     },
     {
         "id": "dashboard_ai",
@@ -1057,6 +1058,22 @@ DEFAULT_BILLING_PLANS = [
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
+]
+PUBLIC_FEED_PREVIEW_ITEMS = [
+    {"image": "connected.png", "title": "Survivor connected", "category": "Player activity", "summary": "Show who has just spawned in and how many survivors are online."},
+    {"image": "disconnected.png", "title": "Survivor disconnected", "category": "Player activity", "summary": "Keep staff aware when players leave and where they were last seen."},
+    {"image": "new-survivor.png", "title": "New survivor detected", "category": "Onboarding", "summary": "Welcome first-time players and point them toward linking and help commands."},
+    {"image": "building.png", "title": "Building activity", "category": "Base intelligence", "summary": "Track structures, tools and map links for base-building events."},
+    {"image": "flag-raised.png", "title": "Flag raised", "category": "Territory", "summary": "Surface territory flag activity with base area and player context."},
+    {"image": "item-placed.png", "title": "Item placed", "category": "Placed items", "summary": "Watch crates, containers and key placement events without digging through ADM logs."},
+    {"image": "radar-zone.png", "title": "Radar zone triggered", "category": "Radar", "summary": "Notify staff when a survivor enters a configured zone or base radius."},
+    {"image": "damage.png", "title": "Survivor damage", "category": "Combat", "summary": "Highlight damage events with map links for quick admin review."},
+    {"image": "unconscious.png", "title": "Unconscious survivor", "category": "Combat", "summary": "Catch knockdowns and risky encounters as they happen."},
+    {"image": "infected.png", "title": "Killed by infected", "category": "Deaths", "summary": "Separate infected deaths from player combat and raid activity."},
+    {"image": "suicide.png", "title": "Suicide event", "category": "Deaths", "summary": "Log self-inflicted deaths with survivor and location context."},
+    {"image": "milestone.png", "title": "Survival milestone", "category": "Progression", "summary": "Celebrate long survivor streaks and community moments automatically."},
+    {"image": "member-left.png", "title": "Member audit", "category": "Discord staff", "summary": "Private staff audit embeds for joins, leaves, roles and linked gamertags."},
+    {"image": "restart-log.png", "title": "Restart evidence", "category": "Server ops", "summary": "Show restart detection and RPT evidence in a clear staff-facing format."},
 ]
 STRIPE_BUY_BUTTON_RE = re.compile(r"\b(buy_btn_[A-Za-z0-9_]+)\b")
 STRIPE_PUBLISHABLE_KEY_RE = re.compile(r"\b(pk_(?:test|live)_[A-Za-z0-9_]+)\b")
@@ -1148,9 +1165,6 @@ PUBLIC_LANDING_TEMPLATE = """
   <meta name="twitter:description" content="{{ page.description }}">
   <meta name="twitter:image" content="{{ page.image_url }}">
   <script type="application/ld+json">{{ structured_data|tojson }}</script>
-  {% if public_pricing_has_stripe %}
-  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
-  {% endif %}
   <style>
     :root {
       color-scheme: dark;
@@ -1278,19 +1292,34 @@ PUBLIC_LANDING_TEMPLATE = """
     .need strong, .feature strong { display: block; color: var(--text); margin-bottom: .2rem; }
     .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .9rem; }
     .feature { padding: .85rem; background: rgba(0, 0, 0, .2); }
+    .feed-preview-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .24); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
+    .feed-preview-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .8rem; }
+    .feed-preview-head p { max-width: 48rem; margin: .25rem 0 0; }
+    .proof-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; margin: 0 0 .85rem; }
+    .proof-tile { min-width: 0; border: 1px solid rgba(236, 161, 64, .24); border-radius: .45rem; padding: .7rem; background: rgba(236, 161, 64, .075); }
+    .proof-tile strong { display: block; color: var(--amber); font-size: 1.25rem; line-height: 1.1; }
+    .proof-tile span { display: block; margin-top: .2rem; }
+    .feed-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .8rem; }
+    .feed-preview-card { min-width: 0; display: grid; gap: .55rem; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: .75rem; background: rgba(10, 18, 16, .78); }
+    .feed-preview-frame { display: grid; place-items: center; min-height: 9.5rem; border: 1px solid rgba(126, 204, 184, .12); border-radius: .45rem; background: #1f2024; overflow: hidden; }
+    .feed-preview-frame img { display: block; width: 100%; height: auto; max-height: 22rem; object-fit: contain; }
+    .feed-preview-meta { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .feed-preview-meta strong { color: var(--text); overflow-wrap: anywhere; }
+    .feed-preview-meta span { color: var(--amber); font-size: .78rem; font-weight: 950; text-transform: uppercase; }
+    .feed-preview-card p { margin: 0; }
     .pricing-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
     .pricing-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
     .pricing-head p { max-width: 42rem; margin: .25rem 0 0; }
-    .pricing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; }
-    .pricing-card { min-width: 0; display: grid; gap: .65rem; align-content: start; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: .85rem; background: rgba(0, 0, 0, .23); }
+    .pricing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+    .pricing-card { min-width: 0; display: grid; grid-template-rows: auto auto auto 1fr auto; gap: .8rem; align-content: start; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: 1rem; background: rgba(0, 0, 0, .23); }
     .pricing-card.featured { border-color: var(--line-warm); box-shadow: inset 0 1px 0 rgba(236, 161, 64, .16); }
     .pricing-card-title { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
     .pricing-card h3 { color: var(--text); overflow-wrap: anywhere; }
     .pricing-price { display: block; color: var(--amber); font-size: 1.3rem; line-height: 1.1; }
-    .pricing-features { display: grid; gap: .35rem; margin: 0; padding: 0; list-style: none; }
+    .pricing-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .38rem .7rem; margin: 0; padding: 0; list-style: none; }
     .pricing-features li { position: relative; padding-left: 1rem; color: #d7e4dc; }
     .pricing-features li::before { content: ""; position: absolute; left: 0; top: .72rem; width: .38rem; height: .38rem; border-radius: 50%; background: var(--green); }
-    .pricing-card stripe-buy-button { max-width: 100%; overflow: hidden; }
+    .pricing-card .button { width: 100%; align-self: end; }
     .pricing-pill { display: inline-flex; align-items: center; border: 1px solid rgba(236, 161, 64, .36); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .72rem; font-weight: 950; white-space: nowrap; }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
     .faq-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .2); }
@@ -1313,11 +1342,11 @@ PUBLIC_LANDING_TEMPLATE = """
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features, .pricing-grid, .faq-grid, .keyword-list, .review-grid { grid-template-columns: 1fr; }
+      .hero, .band, .features, .proof-strip, .pricing-grid, .faq-grid, .keyword-list, .review-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
-      .pricing-head, .review-head { align-items: start; flex-direction: column; }
+      .feed-preview-head, .pricing-head, .review-head { align-items: start; flex-direction: column; }
     }
     @media (max-width: 560px) {
       main { width: min(100vw - 1rem, 42rem); padding-top: .75rem; }
@@ -1326,6 +1355,7 @@ PUBLIC_LANDING_TEMPLATE = """
       .mark img { width: 2.35rem; height: 2.35rem; }
       .button { width: 100%; }
       .top-actions { width: 100%; }
+      .pricing-features { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -1377,6 +1407,32 @@ PUBLIC_LANDING_TEMPLATE = """
         </div>
       </aside>
     </section>
+    {% if public_feed_previews %}
+    <section class="feed-preview-section" aria-label="Live feed previews">
+      <div class="feed-preview-head">
+        <div>
+          <p class="eyebrow">Live Feed Previews</p>
+          <h2>See how Wandering Bot posts into Discord</h2>
+          <p>Real embed examples from the feeds Wandering Bot can route into your server channels, from player joins and damage to base activity, radar pings and staff audits.</p>
+        </div>
+        <a class="button ghost" href="#pricing">View plans</a>
+      </div>
+      <div class="proof-strip" aria-label="Wandering Bot proof points">
+        <div class="proof-tile"><strong>{{ public_feed_previews|length }}</strong><span>feed examples shown from real bot embeds</span></div>
+        <div class="proof-tile"><strong>PS/Xbox</strong><span>built around console DayZ server workflows</span></div>
+        <div class="proof-tile"><strong>ADM + Discord</strong><span>turn logs into readable staff and community feeds</span></div>
+      </div>
+      <div class="feed-preview-grid">
+        {% for feed in public_feed_previews %}
+        <article class="feed-preview-card">
+          <div class="feed-preview-frame"><img src="{{ feed.url }}" alt="{{ feed.title }} feed preview" loading="lazy"></div>
+          <div class="feed-preview-meta"><strong>{{ feed.title }}</strong><span>{{ feed.category }}</span></div>
+          <p>{{ feed.summary }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
     {% if public_pricing_plans %}
     <section class="pricing-section" id="pricing" aria-label="Wandering Bot pricing">
       <div class="pricing-head">
@@ -1401,15 +1457,7 @@ PUBLIC_LANDING_TEMPLATE = """
             <li>{{ feature }}</li>
             {% endfor %}
           </ul>
-          {% if plan.id == "free_bot" %}
-          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
-          {% elif plan.stripe_buy_button_id and plan.stripe_publishable_key %}
-          <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
-          {% elif plan.payment_url %}
-          <a class="button primary" href="{{ plan.payment_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
-          {% else %}
-          <a class="button" href="/login">{{ plan.public_cta }}</a>
-          {% endif %}
+          <a class="button {{ 'primary' if plan.public_primary_cta else '' }}" href="{{ plan.public_checkout_url }}" {% if plan.public_external_checkout %}target="_blank" rel="noopener"{% endif %}>{{ plan.public_cta }}</a>
         </article>
         {% endfor %}
       </div>
@@ -1466,6 +1514,46 @@ PUBLIC_LANDING_TEMPLATE = """
       </div>
     </section>
     {% endif %}
+  </main>
+</body>
+</html>
+"""
+
+PUBLIC_CHECKOUT_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ plan.name }} Checkout - Wandering Bot</title>
+  <meta name="robots" content="noindex, nofollow">
+  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+  <style>
+    :root { color-scheme: dark; --bg: #050806; --panel: rgba(10,18,16,.94); --line: rgba(126,204,184,.24); --text: #f2f7ef; --muted: #b9c8bf; --green: #8ee85f; --amber: #eca140; --ink: #030605; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1rem; background: linear-gradient(180deg, rgba(7,18,15,.96), var(--bg)); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(100%, 34rem); display: grid; gap: .9rem; border: 1px solid var(--line); border-radius: .5rem; padding: 1rem; background: var(--panel); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.32); }
+    header { display: flex; gap: .75rem; align-items: center; }
+    img { width: 3rem; height: 3rem; object-fit: cover; border-radius: .45rem; border: 1px solid var(--line); }
+    h1 { margin: 0; font-size: 1.35rem; line-height: 1.15; }
+    p { margin: 0; color: var(--muted); line-height: 1.5; }
+    strong { color: var(--amber); font-size: 1.25rem; }
+    stripe-buy-button { width: 100%; overflow: hidden; }
+    .button { display: inline-flex; justify-content: center; align-items: center; min-height: 2.6rem; border: 1px solid rgba(126,204,184,.36); border-radius: .45rem; padding: .7rem .9rem; color: var(--text); text-decoration: none; font-weight: 950; background: rgba(11,27,23,.86); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="/brand-image" alt="Wandering Bot">
+      <div>
+        <h1>{{ plan.name }}</h1>
+        <strong>{{ plan.price_text }}</strong>
+      </div>
+    </header>
+    <p>{{ plan.description }}</p>
+    <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
+    <a class="button" href="/#pricing">Back to pricing</a>
   </main>
 </body>
 </html>
@@ -16793,7 +16881,7 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
             feature_labels.append(DASHBOARD_FEATURE_LABELS.get(key, key.replace("_", " ").title()))
     if not feature_labels:
         feature_labels = ["Discord bot access", "Server setup help", "Basic community tools"]
-    return feature_labels[:6]
+    return feature_labels
 
 
 def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
@@ -16808,17 +16896,48 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
         if price_text.lower() == "set monthly price" and not has_checkout:
             continue
         public_plan = dict(plan)
+        plan_id = str(public_plan.get("id") or "")
         public_plan["public_features"] = public_billing_plan_features(public_plan)
-        public_plan["public_featured"] = str(public_plan.get("id") or "") == "dashboard"
+        public_plan["public_featured"] = plan_id == "dashboard"
         public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ""
-        if str(public_plan.get("id") or "") == "free_bot":
+        if plan_id == "free_bot":
             public_plan["public_cta"] = "Add Wandering Bot"
+            public_plan["public_checkout_url"] = dashboard_bot_invite_url()
+            public_plan["public_external_checkout"] = True
+            public_plan["public_primary_cta"] = True
+        elif public_plan.get("payment_url"):
+            public_plan["public_cta"] = "Subscribe"
+            public_plan["public_checkout_url"] = str(public_plan.get("payment_url") or "")
+            public_plan["public_external_checkout"] = True
+            public_plan["public_primary_cta"] = True
         elif has_checkout:
             public_plan["public_cta"] = "Subscribe"
+            public_plan["public_checkout_url"] = f"/checkout/{urllib.parse.quote(plan_id)}"
+            public_plan["public_external_checkout"] = False
+            public_plan["public_primary_cta"] = True
         else:
             public_plan["public_cta"] = "Open dashboard"
+            public_plan["public_checkout_url"] = "/login"
+            public_plan["public_external_checkout"] = False
+            public_plan["public_primary_cta"] = False
         public_plans.append(public_plan)
     return public_plans[:4]
+
+
+def public_feed_preview_items() -> list[dict[str, str]]:
+    items = []
+    for item in PUBLIC_FEED_PREVIEW_ITEMS:
+        filename = os.path.basename(str(item.get("image") or ""))
+        if not filename:
+            continue
+        path = os.path.join(PUBLIC_FEED_PREVIEW_FOLDER, filename)
+        if not os.path.isfile(path):
+            continue
+        row = dict(item)
+        row["image"] = filename
+        row["url"] = f"/feed-preview/{urllib.parse.quote(filename)}"
+        items.append(row)
+    return items
 
 
 def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
@@ -19547,10 +19666,7 @@ def public_landing_page(page_key: str = "home"):
     public_reviews = load_review_rows(public_only=True, limit=6)
     summary = review_summary(load_review_rows(public_only=True))
     public_pricing_plans = public_billing_plans_for_homepage() if page_key == "home" else []
-    public_pricing_has_stripe = any(
-        plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")
-        for plan in public_pricing_plans
-    )
+    public_feed_previews = public_feed_preview_items() if page_key == "home" else []
     software_node = {
         "@type": "SoftwareApplication",
         "@id": f"{page['canonical_url']}#software",
@@ -19641,7 +19757,7 @@ def public_landing_page(page_key: str = "home"):
         public_reviews=public_reviews,
         review_summary=summary,
         public_pricing_plans=public_pricing_plans,
-        public_pricing_has_stripe=public_pricing_has_stripe,
+        public_feed_previews=public_feed_previews,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
     )
@@ -26504,6 +26620,18 @@ def brand_character():
     return ("", 404)
 
 
+@APP.get("/feed-preview/<filename>")
+def feed_preview_image(filename: str):
+    safe_name = os.path.basename(str(filename or ""))
+    allowed = {str(item.get("image") or "") for item in PUBLIC_FEED_PREVIEW_ITEMS}
+    if safe_name not in allowed:
+        return Response("Not found", status=404)
+    path = os.path.join(PUBLIC_FEED_PREVIEW_FOLDER, safe_name)
+    if not os.path.isfile(path):
+        return Response("Not found", status=404)
+    return send_file(path)
+
+
 @APP.get("/google6d2facbfcf642623.html")
 def google_site_verification():
     return Response(
@@ -26746,6 +26874,19 @@ def index():
     if auth.get("kind") == "agent_account":
         return redirect("/agent")
     return page("overview", auth)
+
+
+@APP.get("/checkout/<plan_id>")
+def public_checkout(plan_id: str):
+    plan = dashboard_plan_by_id(plan_id)
+    if not plan or str(plan.get("id") or "") == "free_bot" or not safe_bool(plan.get("enabled"), True):
+        return redirect("/#pricing")
+    payment_url = str(plan.get("payment_url") or "").strip()
+    if payment_url:
+        return redirect(payment_url)
+    if not (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")):
+        return redirect("/#pricing")
+    return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan)
 
 
 @APP.get("/dayz-killfeed-bot")
