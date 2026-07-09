@@ -14493,7 +14493,7 @@ async def _post_or_update_rpt_embed(guild_id, guild, state):
         return False
 
 
-async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnostics=None):
+async def _post_rpt_restart_report_verbose_legacy(guild_id, guild, state, new_events, diagnostics=None):
     channel = guild.get_channel(int(state.get("channel_id", 0)))
     if not channel:
         return
@@ -14523,6 +14523,42 @@ async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnosti
             message = str(item.get("message") or "Check the latest RPT.")
             lines.append(f"- **{kind}** `{name}`: {message}"[:240])
         embed.add_field(name="Warnings found in startup RPT", value="\n".join(lines)[:1024], inline=False)
+    try:
+        await channel.send(embed=style_embed(embed))
+    except Exception as err:
+        print(f"[RPT TRACKER] restart report failed: {err}")
+
+
+async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnostics=None, config=None):
+    channel = guild.get_channel(int(state.get("channel_id", 0)))
+    if not channel:
+        return
+    server_label = dayz_server_display_name(guild_id, config or {}) or guild_display_name(guild_id)
+    embed = discord.Embed(
+        title="SERVER RESTART DETECTED",
+        description=(
+            f"DayZ server: **{server_label}**\n"
+            f"Status: **fresh mission started**\n"
+            f"Live spawns detected: **{len(new_events)}**"
+        ),
+        color=0xE74C3C,
+    )
+    if new_events:
+        lines = []
+        for ev in new_events[:6]:
+            link = _rpt_world_link(ev["x"], ev["z"], guild_id)
+            ct = f"({int(ev['x'])}, {int(ev['z'])})"
+            if link:
+                ct = f"[{ct}]({link})"
+            first_seen_ts = int(float(ev.get("first_seen_ts", datetime.now(UTC).timestamp())))
+            lines.append(f"- **{ev['type']}** at {ct} | seen <t:{first_seen_ts}:R>")
+        if len(new_events) > 6:
+            lines.append(f"- +{len(new_events) - 6} more tracked spawn(s)")
+        embed.add_field(name="Event spawns seen", value="\n".join(lines)[:1024], inline=False)
+    lines = _rpt_restart_warning_summary(diagnostics)
+    if lines:
+        embed.add_field(name="Startup notes", value="\n".join(lines)[:1024], inline=False)
+    embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
     try:
         await channel.send(embed=style_embed(embed))
     except Exception as err:
@@ -14643,7 +14679,7 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
                 await upsert_online_dashboard_message(guild_id, config, "server restart detected", force=True)
             except Exception as online_reset_error:
                 print(f"[ONLINE STATE] restart clear failed for {guild_id}: {online_reset_error}")
-        await _post_rpt_restart_report(guild_id, guild, state, new_events_this_cycle or kept, diagnostics)
+        await _post_rpt_restart_report(guild_id, guild, state, new_events_this_cycle or kept, diagnostics, config)
         if restart_history_record:
             save_guild_configs()
             await publish_restart_history(guild_id, config, restart_history_record)
@@ -39405,6 +39441,86 @@ def _scenario_notice_event_line(event, guild_id):
     )[:260]
 
 
+def _compact_discord_line(text, limit=180):
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _rpt_restart_warning_summary(diagnostics):
+    managed_loaded = 0
+    ignored_items = []
+    other_count = 0
+    for item in diagnostics or []:
+        kind = str(item.get("kind") or "")
+        name = str(item.get("name") or "")
+        message = str(item.get("message") or "")
+        text = f"{kind} {name} {message}"
+        if "Managed event loaded" in text or "CE loaded this Wandering Bot definition" in text:
+            managed_loaded += 1
+            continue
+        if "Ignored preset item" in text or "ignored item" in text:
+            ignored_items.append(name or "preset item")
+            continue
+        other_count += 1
+
+    lines = []
+    if managed_loaded:
+        lines.append(f"- {managed_loaded} Wandering Bot event definition(s) loaded by DayZ CE.")
+    if ignored_items:
+        unique_items = []
+        for item in ignored_items:
+            item = str(item or "").strip()
+            if item and item not in unique_items:
+                unique_items.append(item)
+        label = ", ".join(unique_items[:3]) if unique_items else "preset item"
+        lines.append(f"- {len(ignored_items)} preset item warning(s) found: {label}.")
+    if other_count:
+        lines.append(f"- {other_count} other startup warning(s) found. Full details stay in the dashboard/logs.")
+    return lines[:4]
+
+
+def _scenario_notice_tracker_summary(text):
+    text = _compact_discord_line(text, 220)
+    if not text:
+        return "Waiting for the next RPT pull."
+    lowered = text.lower()
+    if "unchanged since last tracker pull" in lowered or "no change in rpt" in lowered:
+        return "Latest RPT checked; waiting for the next post-restart update."
+    ok_match = re.search(r"OK\s+\S+\s+(\d+)\s+live event", text, re.IGNORECASE)
+    if ok_match:
+        return f"Tracker checked: {ok_match.group(1)} live event(s) currently visible."
+    if "tracker refresh failed" in lowered:
+        return "Tracker refresh failed; check the dashboard/logs."
+    return text
+
+
+def _scenario_notice_public_error(messages):
+    for message in messages or []:
+        text = _compact_discord_line(message, 420)
+        lowered = text.lower()
+        file_match = re.search(
+            r"\b(events\.xml|cfgeventspawns\.xml|eventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|zombie_territories\.xml)\b",
+            text,
+            re.IGNORECASE,
+        )
+        file_name = file_match.group(1) if file_match else "CE XML"
+        token_match = re.search(r"unclosed token: line \d+, column \d+", text, re.IGNORECASE)
+        if token_match:
+            return (
+                f"{file_name} looks malformed or incomplete ({token_match.group(0)}). "
+                "Fix or re-upload that XML, then retry the event upload."
+            )
+        if "could not compare existing xml records" in lowered:
+            return f"The bot could not compare the existing {file_name} before upload. Check that file, then retry."
+        if "could not download existing" in lowered or "native ce source required" in lowered:
+            return f"The bot could not read the live {file_name} through Nitrado/API access. Check the FTP/API details, then retry."
+        if "upload failed" in lowered or "refusing to upload" in lowered:
+            return text
+    return "Open the dashboard event details, fix the upload/source warning, then retry the event upload."
+
+
 def queue_scenario_event_discord_notice(config, success, built=None, messages=None, events=None, source="Dashboard"):
     if not isinstance(config, dict):
         return False
@@ -39446,7 +39562,7 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
     return True
 
 
-async def post_scenario_event_discord_notice(guild_id, config, notice):
+async def _post_scenario_event_discord_notice_verbose_legacy(guild_id, config, notice):
     guild = discord_guild_for_runtime_id(guild_id)
     if not guild:
         return False
@@ -39578,6 +39694,92 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
     embed.set_footer(text=f"Wandering Bot live events · Posted {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     try:
         await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
+        return True
+    except Exception as err:
+        print(f"[SCENARIO NOTICE] Discord post failed for {guild_id}: {err}")
+        return False
+
+
+async def post_scenario_event_discord_notice(guild_id, config, notice):
+    guild = discord_guild_for_runtime_id(guild_id)
+    if not guild:
+        return False
+    channel = await get_or_create_rpt_admin_channel(guild, config)
+    if not channel:
+        return False
+
+    state = rpt_event_tracker.setdefault(str(guild_id), {
+        "events": [], "last_restart_ts": 0, "last_rpt_size": 0,
+        "enabled": True, "embed_message_id": None, "channel_id": None,
+        "restart_marker_count": 0,
+    })
+    state["channel_id"] = channel.id
+
+    tracker_status = ""
+    try:
+        tracker_status = await refresh_rpt_event_tracker(guild_id, config)
+    except Exception as tracker_error:
+        tracker_status = f"Tracker refresh failed: {tracker_error}"
+
+    success = bool(notice.get("success"))
+    server_label = dayz_server_display_name(guild_id, config) or guild_display_name(guild_id)
+    discord_label = str(getattr(guild, "name", "") or "").strip()
+    bridge_delivery_path = str(notice.get("bridge_delivery_path") or "").strip()
+    success_status = "Bridge XML uploaded - restart once" if bridge_delivery_path else "CE XML uploaded - restart once"
+    tracker_summary = _scenario_notice_tracker_summary(tracker_status)
+
+    description_lines = [
+        f"DayZ server: **{server_label}**",
+    ]
+    if discord_label and discord_label != server_label:
+        description_lines.append(f"Discord: **{discord_label}**")
+    description_lines.extend([
+        f"Status: **{success_status if success else 'upload needs attention'}**",
+        f"Tracker: {tracker_summary}",
+    ])
+
+    embed = discord.Embed(
+        title="LIVE EVENT DEPLOYMENT" if success else "LIVE EVENT NEEDS ATTENTION",
+        description="\n".join(description_lines),
+        color=0x2ECC71 if success else 0xE74C3C,
+    )
+
+    event_lines = []
+    for event in notice.get("events") or []:
+        event_lines.append(_scenario_notice_event_line(event, guild.id))
+    if event_lines:
+        if len(event_lines) > 6:
+            shown = event_lines[:6] + [f"- +{len(event_lines) - 6} more queued event(s)"]
+        else:
+            shown = event_lines
+        embed.add_field(name="Queued event(s)", value="\n".join(shown)[:1024], inline=False)
+
+    if success:
+        embed.add_field(
+            name="Next step",
+            value="Restart this DayZ server once. The tracker will update after the next RPT pull.",
+            inline=False,
+        )
+    else:
+        messages = [str(message) for message in (notice.get("messages") or []) if str(message).strip()]
+        embed.add_field(
+            name="What needs fixing",
+            value=_scenario_notice_public_error(messages)[:1024],
+            inline=False,
+        )
+        embed.add_field(
+            name="Next step",
+            value="Do not restart for this queued event yet. Fix the XML/source issue above, then press Retry on the dashboard.",
+            inline=False,
+        )
+
+    embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
+    try:
+        await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions.none())
+        print(
+            f"[SCENARIO NOTICE] posted compact notice for {guild_id}: "
+            f"success={success}, tracker={_compact_discord_line(tracker_status, 180)}"
+        )
         return True
     except Exception as err:
         print(f"[SCENARIO NOTICE] Discord post failed for {guild_id}: {err}")

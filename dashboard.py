@@ -1301,8 +1301,8 @@ PUBLIC_LANDING_TEMPLATE = """
     .proof-tile span { display: block; margin-top: .2rem; }
     .feed-preview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .8rem; }
     .feed-preview-card { min-width: 0; display: grid; gap: .55rem; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: .75rem; background: rgba(10, 18, 16, .78); }
-    .feed-preview-frame { display: grid; place-items: center; min-height: 9.5rem; border: 1px solid rgba(126, 204, 184, .12); border-radius: .45rem; background: #1f2024; overflow: hidden; }
-    .feed-preview-frame img { display: block; width: 100%; height: auto; max-height: 22rem; object-fit: contain; }
+    .feed-preview-frame { display: block; border: 1px solid rgba(126, 204, 184, .12); border-radius: .45rem; background: #1f2024; overflow: hidden; }
+    .feed-preview-frame img { display: block; width: 100%; height: auto; object-fit: contain; }
     .feed-preview-meta { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .feed-preview-meta strong { color: var(--text); overflow-wrap: anywhere; }
     .feed-preview-meta span { color: var(--amber); font-size: .78rem; font-weight: 950; text-transform: uppercase; }
