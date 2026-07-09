@@ -4384,6 +4384,21 @@ def gamertag_linked_to_other_user(gamertag, user_id, guild_id=None):
 
 
 ONBOARDING_REACTION_OPTIONS = {"✅", "👍", "🟢", "🛡️", "📜"}
+ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES = {
+    "cherno": "Welcome to Wandering Around Cherno. You now have Cherno access. Link your gamertag with /linkgamer and check the Cherno info channels before jumping in.",
+    "livo": "Welcome to Wandering Around Livo. You now have Livo access. Link your gamertag with /linkgamer and check the Livo info channels before jumping in.",
+    "bot": "Welcome to Wandering Bot support. You now have bot access. Use the support and command-help channels if you need setup help.",
+}
+ONBOARDING_CHOICE_WELCOME_COLORS = {
+    "cherno": 0xE74C3C,
+    "livo": 0x3498DB,
+    "bot": 0x9B59B6,
+}
+ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS = {
+    "cherno": ("cherno", "chernarus"),
+    "livo": ("livo", "livonia"),
+    "bot": ("bot", "support"),
+}
 
 
 def member_onboarding_settings(config):
@@ -4392,7 +4407,7 @@ def member_onboarding_settings(config):
     reaction = str(saved.get("reaction_emoji") or "✅").strip() or "✅"
     if reaction not in ONBOARDING_REACTION_OPTIONS:
         reaction = "✅"
-    return {
+    settings = {
         "enabled": bool(saved.get("enabled")),
         "rules_channel_key": str(saved.get("rules_channel_key") or "").strip(),
         "rules_channel_id": str(saved.get("rules_channel_id") or "").strip(),
@@ -4419,6 +4434,11 @@ def member_onboarding_settings(config):
         "accepted_message": str(saved.get("accepted_message") or "Rules accepted. Next step: link your gamertag with /linkgamer.").strip(),
         "linked_message": str(saved.get("linked_message") or "Gamertag linked. Your linked-player role has been applied.").strip(),
     }
+    for choice_key, default_message in ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES.items():
+        settings[f"choice_{choice_key}_welcome_channel_key"] = str(saved.get(f"choice_{choice_key}_welcome_channel_key") or "").strip()
+        settings[f"choice_{choice_key}_welcome_channel_id"] = str(saved.get(f"choice_{choice_key}_welcome_channel_id") or "").strip()
+        settings[f"choice_{choice_key}_welcome_message"] = str(saved.get(f"choice_{choice_key}_welcome_message") or default_message).strip()
+    return settings
 
 
 def onboarding_server_choice_entries(settings):
@@ -4691,6 +4711,61 @@ async def onboarding_member_from_payload(guild, payload):
     return member
 
 
+def find_onboarding_choice_welcome_channel(guild, choice_key):
+    tokens = ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS.get(str(choice_key or "").strip().lower(), ())
+    if not tokens:
+        return None
+    for channel in getattr(guild, "text_channels", []) or []:
+        name_key = normalize_discord_name(getattr(channel, "name", ""))
+        if "welcome" in name_key and any(token in name_key for token in tokens):
+            return channel
+    return None
+
+
+def resolve_onboarding_choice_welcome_channel(guild, config, settings, choice):
+    choice_key = str((choice or {}).get("key") or "").strip().lower()
+    if not choice_key:
+        return None
+    channel = resolve_onboarding_channel(guild, config, settings, f"choice_{choice_key}_welcome", "")
+    if channel:
+        return channel
+    return find_onboarding_choice_welcome_channel(guild, choice_key)
+
+
+async def send_member_onboarding_choice_welcome(guild, config, settings, member, choice):
+    choice_key = str((choice or {}).get("key") or "").strip().lower()
+    choice_label = str((choice or {}).get("label") or choice_key or "Server").strip()
+    channel = resolve_onboarding_choice_welcome_channel(guild, config, settings, choice)
+    if not channel:
+        return False
+    bot_member = getattr(guild, "me", None)
+    try:
+        if bot_member and not channel.permissions_for(bot_member).send_messages:
+            print(f"[ONBOARDING] cannot send {choice_key} welcome in #{getattr(channel, 'name', channel)}; missing send permission")
+            return False
+    except Exception:
+        pass
+    message = str(
+        settings.get(f"choice_{choice_key}_welcome_message")
+        or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES.get(choice_key)
+        or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["bot"]
+    ).strip()
+    embed = discord.Embed(
+        title=f"WELCOME TO {choice_label.upper()}",
+        description=f"{member.mention}\n\n{discord_safe_content(discord.utils.escape_mentions(message), 1200)}",
+        color=ONBOARDING_CHOICE_WELCOME_COLORS.get(choice_key, 0x1ABC9C),
+    )
+    embed.add_field(name="Access", value=f"{choice_label} role applied.", inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot - Member Onboarding")
+    try:
+        await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+        return True
+    except Exception as error:
+        print(f"[ONBOARDING] {choice_key} welcome notice failed for {member}: {error}")
+        return False
+
+
 async def apply_member_onboarding_server_choice(guild, config, payload, *, remove=False):
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
@@ -4737,6 +4812,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
         choice.get("role_id"),
         f"Wandering Bot onboarding choice: {choice.get('label')}",
     )
+    await send_member_onboarding_choice_welcome(guild, config, settings, member, choice)
     return True
 
 

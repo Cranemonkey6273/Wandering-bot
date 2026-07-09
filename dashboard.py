@@ -5422,6 +5422,13 @@ PAGE_TEMPLATE = """
                 {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_cherno_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
+            <label>Cherno welcome channel
+              <select name="choice_cherno_welcome_channel_key">
+                <option value="" {% if not onboarding.choice_cherno_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_cherno_welcome_channel_value or channel.id == onboarding.choice_cherno_welcome_channel_value or channel.key == onboarding.choice_cherno_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="full">Cherno welcome message <textarea name="choice_cherno_welcome_message">{{ onboarding.choice_cherno_welcome_message }}</textarea></label>
             <label>Livo reaction
               <input name="choice_livo_emoji" value="{{ onboarding.choice_livo_emoji }}" placeholder="emoji">
             </label>
@@ -5431,6 +5438,13 @@ PAGE_TEMPLATE = """
                 {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_livo_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
+            <label>Livo welcome channel
+              <select name="choice_livo_welcome_channel_key">
+                <option value="" {% if not onboarding.choice_livo_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_livo_welcome_channel_value or channel.id == onboarding.choice_livo_welcome_channel_value or channel.key == onboarding.choice_livo_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="full">Livo welcome message <textarea name="choice_livo_welcome_message">{{ onboarding.choice_livo_welcome_message }}</textarea></label>
             <label>Bot reaction
               <input name="choice_bot_emoji" value="{{ onboarding.choice_bot_emoji }}" placeholder="emoji">
             </label>
@@ -5440,6 +5454,13 @@ PAGE_TEMPLATE = """
                 {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_bot_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
+            <label>Bot welcome channel
+              <select name="choice_bot_welcome_channel_key">
+                <option value="" {% if not onboarding.choice_bot_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_bot_welcome_channel_value or channel.id == onboarding.choice_bot_welcome_channel_value or channel.key == onboarding.choice_bot_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="full">Bot welcome message <textarea name="choice_bot_welcome_message">{{ onboarding.choice_bot_welcome_message }}</textarea></label>
             <label class="full">Join message <textarea name="welcome_message">{{ onboarding.welcome_message }}</textarea></label>
             <label class="full">After rules message <textarea name="accepted_message">{{ onboarding.accepted_message }}</textarea></label>
             <label class="full">After link message <textarea name="linked_message">{{ onboarding.linked_message }}</textarea></label>
@@ -23350,6 +23371,11 @@ def dashboard_survival_milestone_settings(config: Any, channels: list[dict[str, 
 
 
 ONBOARDING_REACTION_OPTIONS = ("✅", "👍", "🟢", "🛡️", "📜")
+ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES = {
+    "cherno": "Welcome to Wandering Around Cherno. You now have Cherno access. Link your gamertag with /linkgamer and check the Cherno info channels before jumping in.",
+    "livo": "Welcome to Wandering Around Livo. You now have Livo access. Link your gamertag with /linkgamer and check the Livo info channels before jumping in.",
+    "bot": "Welcome to Wandering Bot support. You now have bot access. Use the support and command-help channels if you need setup help.",
+}
 
 
 def dashboard_channel_value(config: Any, value: Any, *, default: str = "") -> str:
@@ -23387,6 +23413,14 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         settings.get("choice_channel_id") or settings.get("choice_channel_key") or next_channel_value or "general_chat",
         default=next_channel_value or "general_chat",
     )
+    choice_welcome_channels = {}
+    for choice_key in ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES:
+        value = dashboard_channel_value(
+            config,
+            settings.get(f"choice_{choice_key}_welcome_channel_id") or settings.get(f"choice_{choice_key}_welcome_channel_key"),
+            default="",
+        )
+        choice_welcome_channels[choice_key] = value
     choice_require_rules = dashboard_bool(settings.get("choice_require_rules"), True)
     choice_single = dashboard_bool(settings.get("choice_single"), False)
     return {
@@ -23406,12 +23440,21 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         "choice_cherno_emoji": str(settings.get("choice_cherno_emoji") or "🔵"),
         "choice_cherno_role_id": str(settings.get("choice_cherno_role_id") or ""),
         "choice_cherno_role_label": role_label_from_roles(roles, settings.get("choice_cherno_role_id"), "No Cherno role"),
+        "choice_cherno_welcome_channel_value": choice_welcome_channels.get("cherno", ""),
+        "choice_cherno_welcome_channel_label": channel_label_from_channels(channels, choice_welcome_channels.get("cherno", ""), "No Cherno welcome channel"),
+        "choice_cherno_welcome_message": str(settings.get("choice_cherno_welcome_message") or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["cherno"]),
         "choice_livo_emoji": str(settings.get("choice_livo_emoji") or "🟢"),
         "choice_livo_role_id": str(settings.get("choice_livo_role_id") or ""),
         "choice_livo_role_label": role_label_from_roles(roles, settings.get("choice_livo_role_id"), "No Livo role"),
+        "choice_livo_welcome_channel_value": choice_welcome_channels.get("livo", ""),
+        "choice_livo_welcome_channel_label": channel_label_from_channels(channels, choice_welcome_channels.get("livo", ""), "No Livo welcome channel"),
+        "choice_livo_welcome_message": str(settings.get("choice_livo_welcome_message") or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["livo"]),
         "choice_bot_emoji": str(settings.get("choice_bot_emoji") or "🤖"),
         "choice_bot_role_id": str(settings.get("choice_bot_role_id") or ""),
         "choice_bot_role_label": role_label_from_roles(roles, settings.get("choice_bot_role_id"), "No bot role"),
+        "choice_bot_welcome_channel_value": choice_welcome_channels.get("bot", ""),
+        "choice_bot_welcome_channel_label": channel_label_from_channels(channels, choice_welcome_channels.get("bot", ""), "No bot welcome channel"),
+        "choice_bot_welcome_message": str(settings.get("choice_bot_welcome_message") or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["bot"]),
         "rules_role_id": str(settings.get("rules_role_id") or ""),
         "rules_role_label": role_label_from_roles(roles, settings.get("rules_role_id"), "No rules role"),
         "linked_role_id": str(settings.get("linked_role_id") or ""),
@@ -26961,10 +27004,13 @@ def api_member_onboarding():
         "choice_single": dashboard_bool(raw_payload.get("choice_single"), False),
         "choice_cherno_emoji": (str(raw_payload.get("choice_cherno_emoji") or "🔵").strip()[:40] or "🔵"),
         "choice_cherno_role_id": assignable_role_id(raw_payload.get("choice_cherno_role_id")),
+        "choice_cherno_welcome_message": str(raw_payload.get("choice_cherno_welcome_message") or "").strip() or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["cherno"],
         "choice_livo_emoji": (str(raw_payload.get("choice_livo_emoji") or "🟢").strip()[:40] or "🟢"),
         "choice_livo_role_id": assignable_role_id(raw_payload.get("choice_livo_role_id")),
+        "choice_livo_welcome_message": str(raw_payload.get("choice_livo_welcome_message") or "").strip() or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["livo"],
         "choice_bot_emoji": (str(raw_payload.get("choice_bot_emoji") or "🤖").strip()[:40] or "🤖"),
         "choice_bot_role_id": assignable_role_id(raw_payload.get("choice_bot_role_id")),
+        "choice_bot_welcome_message": str(raw_payload.get("choice_bot_welcome_message") or "").strip() or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["bot"],
         "rules_role_id": assignable_role_id(raw_payload.get("rules_role_id")),
         "linked_role_id": assignable_role_id(raw_payload.get("linked_role_id")),
         "pending_role_id": assignable_role_id(raw_payload.get("pending_role_id")),
@@ -26977,6 +27023,9 @@ def api_member_onboarding():
     settings.update(channel_setting(raw_payload.get("rules_channel_key") or raw_payload.get("rules_channel_id"), "rules_channel_key", "rules_channel_id", "rules"))
     settings.update(channel_setting(raw_payload.get("next_channel_key") or raw_payload.get("next_channel_id"), "next_channel_key", "next_channel_id", "general_chat"))
     settings.update(channel_setting(raw_payload.get("choice_channel_key") or raw_payload.get("choice_channel_id"), "choice_channel_key", "choice_channel_id", "general_chat"))
+    settings.update(channel_setting(raw_payload.get("choice_cherno_welcome_channel_key") or raw_payload.get("choice_cherno_welcome_channel_id"), "choice_cherno_welcome_channel_key", "choice_cherno_welcome_channel_id", ""))
+    settings.update(channel_setting(raw_payload.get("choice_livo_welcome_channel_key") or raw_payload.get("choice_livo_welcome_channel_id"), "choice_livo_welcome_channel_key", "choice_livo_welcome_channel_id", ""))
+    settings.update(channel_setting(raw_payload.get("choice_bot_welcome_channel_key") or raw_payload.get("choice_bot_welcome_channel_id"), "choice_bot_welcome_channel_key", "choice_bot_welcome_channel_id", ""))
     config["member_onboarding"] = settings
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
