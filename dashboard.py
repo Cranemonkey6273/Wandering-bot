@@ -4141,6 +4141,14 @@ PAGE_TEMPLATE = """
     <nav class="command-side-nav">
       {% if auth.kind == "agent_account" %}
       <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
+      {% elif auth.kind == "owner" and mode == "owner" %}
+      <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
+      <a class="{{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
+      <a class="{{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
+      <a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
+      <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
+      <a class="{{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
+      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
@@ -4159,11 +4167,17 @@ PAGE_TEMPLATE = """
     {% if auth.kind != "agent_account" %}
     <div class="command-quick">
       <span>Quick actions</span>
+      {% if auth.kind == "owner" and mode == "owner" %}
+      <a href="/owner?section=owner#owner-control">Server list</a>
+      <a href="/owner?section=billing#billing">Billing plans</a>
+      <a href="/owner?section=access&setup_tool=servers{{ server_qs }}#access">Edit access</a>
+      {% else %}
       <a href="/admin?section=overview{{ server_qs }}#where-to-go">Common Tasks</a>
       {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}#pve-workshop">Create Event</a>{% endif %}
       {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Edit Zones</a>{% endif %}
       {% if section_allowed('shop') or section_allowed('economy') %}<a href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}">Shop / Money</a>{% endif %}
       {% if section_allowed('server-control') %}<a href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}">Restart Server</a>{% endif %}
+      {% endif %}
     </div>
     {% endif %}
   </aside>
@@ -4250,6 +4264,15 @@ PAGE_TEMPLATE = """
 
     {% if auth.kind != "agent_account" %}
     <section class="section-nav" aria-label="Dashboard sections">
+      {% if auth.kind == "owner" and mode == "owner" %}
+      <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
+      <a class="tab-link {{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
+      <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
+      <a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
+      <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
+      <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
+      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
+      {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
@@ -4267,11 +4290,21 @@ PAGE_TEMPLATE = """
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
+      {% endif %}
     </section>
     <section class="mobile-section-picker" aria-label="Dashboard section picker">
       <label>
         Jump to section
         <select onchange="if (this.value) window.location.href = this.value;">
+          {% if auth.kind == "owner" and mode == "owner" %}
+          <option value="/owner?section=overview" {{ 'selected' if active_section == 'overview' else '' }}>Owner Home</option>
+          <option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Servers</option>
+          <option value="/owner?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Server Access</option>
+          <option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>
+          <option value="/owner?section=reviews" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
+          <option value="/owner?section=help" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
+          {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
+          {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
@@ -4289,6 +4322,7 @@ PAGE_TEMPLATE = """
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
           {% if auth.kind == "owner" and mode == "owner" %}<option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>{% endif %}
+          {% endif %}
           <option value="{{ logout_path }}">Logout</option>
         </select>
       </label>
@@ -20090,6 +20124,10 @@ def normalize_guild_id(value: Any) -> str:
     return str(value or "global").strip() or "global"
 
 
+def is_discord_guild_snowflake(value: Any) -> bool:
+    return bool(re.fullmatch(r"\d{15,24}", normalize_guild_id(value)))
+
+
 def validate_dashboard_nitrado_api_token(token: Any) -> tuple[bool, str, str]:
     clean = str(token or "").strip()
     if not clean:
@@ -25888,6 +25926,8 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
         if not isinstance(config, dict):
             continue
         guild_id = normalize_guild_id(guild_id)
+        if not is_discord_guild_snowflake(guild_id):
+            continue
         live_guild_name = runtime_discord_guild_name(guild_id, discord_guild_counts)
         if live_guild_name and live_guild_name != str(config.get("guild_name") or ""):
             config["guild_name"] = live_guild_name
@@ -26048,7 +26088,16 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
 def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str = "admin") -> dict[str, Any]:
     if auth["kind"] == "owner" and mode == "owner":
         return state
-    allowed_guild_ids = [str(item) for item in auth.get("guild_ids", [auth.get("guild_id")]) if item]
+    allowed_guild_ids = []
+    for item in auth.get("guild_ids", [auth.get("guild_id")]):
+        if not item:
+            continue
+        raw_id = normalize_guild_id(item)
+        base_id = raw_id.split(SERVER_PROFILE_SEPARATOR, 1)[0]
+        if base_id and base_id not in allowed_guild_ids:
+            allowed_guild_ids.append(base_id)
+        if raw_id and raw_id not in allowed_guild_ids:
+            allowed_guild_ids.append(raw_id)
     servers = [server for server in state["servers"] if str(server.get("guild_id")) in allowed_guild_ids]
     summary = dict(state["summary"])
     if servers:
@@ -26117,6 +26166,9 @@ def page(mode: str, auth: dict[str, Any]):
     if auth.get("kind") == "owner" and mode != "owner" and active_section == "owner":
         active_section = "overview"
     if active_section not in valid_sections:
+        active_section = "overview"
+    owner_sections = {"overview", "owner", "access", "billing", "reviews", "help", "ai-agent"}
+    if auth.get("kind") == "owner" and mode == "owner" and active_section not in owner_sections:
         active_section = "overview"
     setup_tool = str(request.args.get("setup_tool") or "servers").strip().lower()
     if setup_tool not in {"servers", "feeds", "discord", "onboarding", "rules", "moderation", "control"}:

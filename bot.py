@@ -14463,7 +14463,7 @@ def _build_rpt_event_embed(guild_id, state):
         if len(diagnostics) > 8:
             lines.append(f"- +{len(diagnostics) - 8} more warning(s) in the latest RPT pull")
         embed.add_field(name="Spawn / XML status", value="\n".join(lines)[:1024], inline=False)
-    embed.set_footer(text=f"Wandering Bot Alpha — refresh every 5 min · Updated {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
+    embed.set_footer(text=f"{POWERED_BY_FOOTER_TEXT} - tracker updates from RPT pulls")
     return embed
 
 
@@ -39441,6 +39441,9 @@ def _scenario_notice_event_line(event, guild_id):
     )[:260]
 
 
+SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS = 25 * 60
+
+
 def _compact_discord_line(text, limit=180):
     text = re.sub(r"\s+", " ", str(text or "")).strip()
     if len(text) <= limit:
@@ -39521,6 +39524,25 @@ def _scenario_notice_public_error(messages):
     return "Open the dashboard event details, fix the upload/source warning, then retry the event upload."
 
 
+def _scenario_notice_signature(success, notice):
+    event_bits = []
+    for event in notice.get("events") or []:
+        event_bits.append(
+            ":".join(
+                str(event.get(key) or "").strip()
+                for key in ("id", "name", "type", "class", "x", "z", "status")
+            )
+        )
+    message_bits = [_compact_discord_line(message, 140) for message in (notice.get("messages") or [])[-3:]]
+    return "|".join([
+        "ok" if success else "failed",
+        str(notice.get("source") or ""),
+        ",".join(event_bits),
+        ",".join(str(name) for name in (notice.get("managed_event_names") or [])[:8]),
+        ",".join(message_bits),
+    ])[:900]
+
+
 def queue_scenario_event_discord_notice(config, success, built=None, messages=None, events=None, source="Dashboard"):
     if not isinstance(config, dict):
         return False
@@ -39557,6 +39579,17 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "messages": [str(message)[:320] for message in (messages or [])[-10:]],
         "events": summaries[:10],
     }
+    now_ts = datetime.now(UTC).timestamp()
+    signature = _scenario_notice_signature(success, notice)
+    last_signature = str(config.get("scenario_event_discord_notice_last_signature") or "")
+    try:
+        last_ts = float(config.get("scenario_event_discord_notice_last_ts") or 0.0)
+    except (TypeError, ValueError):
+        last_ts = 0.0
+    if signature and signature == last_signature and (now_ts - last_ts) < SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS:
+        return False
+    config["scenario_event_discord_notice_last_signature"] = signature
+    config["scenario_event_discord_notice_last_ts"] = now_ts
     notices.append(notice)
     config["scenario_event_discord_notices"] = notices[-8:]
     return True
@@ -39757,7 +39790,10 @@ async def post_scenario_event_discord_notice(guild_id, config, notice):
     if success:
         embed.add_field(
             name="Next step",
-            value="Restart this DayZ server once. The tracker will update after the next RPT pull.",
+            value=(
+                "Restart this DayZ server once. This notice only lists queued dashboard events; "
+                "vanilla spawns, gas zones and existing live events stay on the pinned RPT tracker."
+            ),
             inline=False,
         )
     else:
