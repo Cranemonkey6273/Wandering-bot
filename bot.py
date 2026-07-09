@@ -38107,7 +38107,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             output["eventgroups_path"] = resolved_eventgroups_path
             output["eventgroups_text"] = xml_text_from_root(eventgroups_root)
             output["eventgroups_source_text"] = eventgroups_text
-        if proto_changed or added_proto or repaired_static_proto_classes or repaired_airplanecrate_proto_classes or removed_invalid_usages or eventgroup_records or revamp_mapgroupproto_classes or cleanup_pending:
+        if proto_changed or added_proto or repaired_static_proto_classes or repaired_airplanecrate_proto_classes or removed_invalid_usages or eventgroup_records or mapgroupproto_records or revamp_mapgroupproto_classes or cleanup_pending:
             output["mapgroupproto_path"] = resolved_mapgroupproto_path
             output["mapgroupproto_text"] = xml_text_from_root(mapgroupproto_root)
             output["mapgroupproto_source_text"] = mapgroupproto_text
