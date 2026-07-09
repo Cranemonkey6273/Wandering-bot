@@ -971,11 +971,13 @@ DEFAULT_BILLING_PLANS = [
         "enabled": True,
         "features": {"leaderboards": True, "embeds": True, "server_rules": True},
         "payment_url": "",
+        "stripe_buy_button_id": "",
+        "stripe_publishable_key": "",
     },
     {
         "id": "dashboard",
-        "name": "Dashboard Pro",
-        "price_text": "Set monthly price",
+        "name": "Wandering Bot Scout",
+        "price_text": "€5.99 / month",
         "description": "Full server dashboard with economy, shop, maps, XML tools, events and server controls.",
         "enabled": True,
         "features": {
@@ -996,6 +998,8 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
         },
         "payment_url": "",
+        "stripe_buy_button_id": "buy_btn_1TrKZr7WVHSC7E5ASIACKUu7",
+        "stripe_publishable_key": "pk_test_51TrKIg7WVHSC7E5AM2ZyZkjJCBt7SKuxqTnIyCC8WqnOMWVCQeYW0p8mhsot1QX7Ecbqp6Vjt0ZYjo3nqKF6B2gA00qvWeVmkD",
     },
     {
         "id": "dashboard_ai",
@@ -1022,8 +1026,12 @@ DEFAULT_BILLING_PLANS = [
             "ai_agent": True,
         },
         "payment_url": "",
+        "stripe_buy_button_id": "",
+        "stripe_publishable_key": "",
     },
 ]
+STRIPE_BUY_BUTTON_RE = re.compile(r"\b(buy_btn_[A-Za-z0-9_]+)\b")
+STRIPE_PUBLISHABLE_KEY_RE = re.compile(r"\b(pk_(?:test|live)_[A-Za-z0-9_]+)\b")
 GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
 LEGACY_GUILD_CONFIG_FOLDER = "guilds"
 
@@ -1427,6 +1435,9 @@ PAGE_TEMPLATE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wandering Bot Dashboard</title>
+  {% if billing_has_stripe_buy_buttons %}
+  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+  {% endif %}
   <script>
     (function () {
       if (window.__wanderingDashboardCoreClicks) return;
@@ -3388,6 +3399,9 @@ PAGE_TEMPLATE = """
     .billing-feature-list { display: flex; flex-wrap: wrap; gap: .32rem; }
     .billing-feature-list span { border: 1px solid var(--line); border-radius: 999px; padding: .16rem .42rem; background: rgba(255,255,255,.035); color: var(--muted); font-size: .76rem; }
     .billing-feature-list span.on { color: #c8f28b; border-color: rgba(142,232,95,.38); background: rgba(142,232,95,.08); }
+    .stripe-billing-box { display: grid; gap: .4rem; border: 1px solid rgba(53,212,194,.24); border-radius: .5rem; padding: .65rem; background: rgba(53,212,194,.055); overflow: hidden; }
+    .stripe-billing-box stripe-buy-button { max-width: 100%; }
+    .billing-link-row { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
     .plan-edit-form { grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
     .plan-edit-form .check-grid { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
     .types-engine-layout { display: grid; grid-template-columns: minmax(19rem, .75fr) minmax(24rem, 1.25fr); gap: .85rem; align-items: start; }
@@ -9411,6 +9425,16 @@ PAGE_TEMPLATE = """
             <span class="{{ 'on' if plan.features.get(key) else '' }}">{{ label }}</span>
             {% endfor %}
           </div>
+          {% if plan.stripe_buy_button_id and plan.stripe_publishable_key %}
+          <div class="stripe-billing-box">
+            <span class="muted">Stripe checkout preview</span>
+            <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
+          </div>
+          {% elif plan.payment_url %}
+          <div class="billing-link-row">
+            <a class="button" href="{{ plan.payment_url }}" target="_blank" rel="noopener">Open Checkout</a>
+          </div>
+          {% endif %}
           <form class="admin-form plan-edit-form" method="post" action="/api/owner/billing-plan" data-route="/api/owner/billing-plan">
             <input class="hidden-field" name="return_to" value="/owner?section=billing#billing">
             <label>Plan ID <input name="plan_id" value="{{ plan.id }}" autocomplete="off"></label>
@@ -9423,6 +9447,8 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label class="full">Checkout / payment URL <input name="payment_url" value="{{ plan.payment_url }}" placeholder="Stripe, PayPal, Ko-fi, Tebex, etc"></label>
+            <label>Stripe buy button ID <input name="stripe_buy_button_id" value="{{ plan.stripe_buy_button_id }}" placeholder="buy_btn_..."><small class="field-help">You can paste the full Stripe embed here; the dashboard stores only the buy button ID.</small></label>
+            <label>Stripe publishable key <input name="stripe_publishable_key" value="{{ plan.stripe_publishable_key }}" placeholder="pk_test_... or pk_live_..."><small class="field-help">Publishable key only. Never paste a Stripe secret key starting with sk_.</small></label>
             <label class="full">Description <textarea name="description">{{ plan.description }}</textarea></label>
             <div class="full">
               <span class="muted">Features in this plan</span>
@@ -16574,6 +16600,16 @@ def default_billing_plan_map() -> dict[str, dict[str, Any]]:
     return {str(plan["id"]): json.loads(json.dumps(plan)) for plan in DEFAULT_BILLING_PLANS}
 
 
+def stripe_buy_button_id_from_text(value: Any) -> str:
+    match = STRIPE_BUY_BUTTON_RE.search(str(value or ""))
+    return match.group(1)[:120] if match else ""
+
+
+def stripe_publishable_key_from_text(value: Any) -> str:
+    match = STRIPE_PUBLISHABLE_KEY_RE.search(str(value or ""))
+    return match.group(1)[:220] if match else ""
+
+
 def dashboard_billing_plans() -> list[dict[str, Any]]:
     admin = load_store("dashboard_admin", {})
     if not isinstance(admin, dict):
@@ -16590,12 +16626,16 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             continue
         base = plans.get(clean_id, {"id": clean_id, "features": {}})
         features = plan.get("features") if isinstance(plan.get("features"), dict) else base.get("features", {})
+        stripe_buy_button_id = plan.get("stripe_buy_button_id", base.get("stripe_buy_button_id", ""))
+        stripe_publishable_key = plan.get("stripe_publishable_key", base.get("stripe_publishable_key", ""))
         base.update({
             "id": clean_id,
             "name": str(plan.get("name") or base.get("name") or clean_id).strip()[:80],
             "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
             "description": str(plan.get("description") or base.get("description") or "").strip()[:400],
             "payment_url": str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500],
+            "stripe_buy_button_id": stripe_buy_button_id_from_text(stripe_buy_button_id),
+            "stripe_publishable_key": stripe_publishable_key_from_text(stripe_publishable_key),
             "enabled": safe_bool(plan.get("enabled"), safe_bool(base.get("enabled"), True)),
             "features": {key: safe_bool(features.get(key), False) for key in DASHBOARD_FEATURE_KEYS},
             "updated_at": str(plan.get("updated_at") or base.get("updated_at") or ""),
@@ -16615,12 +16655,22 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
     plan_id = re.sub(r"[^a-z0-9_]+", "_", str(plan.get("id") or "").strip().lower()).strip("_")
     if not plan_id:
         raise ValueError("plan_id is required.")
+    raw_stripe_buy_button = str(plan.get("stripe_buy_button_id") or "").strip()
+    raw_stripe_key = str(plan.get("stripe_publishable_key") or "").strip()
+    stripe_buy_button_id = stripe_buy_button_id_from_text(raw_stripe_buy_button)
+    stripe_publishable_key = stripe_publishable_key_from_text(raw_stripe_key)
+    if raw_stripe_buy_button and not stripe_buy_button_id:
+        raise ValueError("Stripe buy button ID must start with buy_btn_.")
+    if raw_stripe_key and not stripe_publishable_key:
+        raise ValueError("Stripe publishable key must start with pk_test_ or pk_live_. Do not paste secret sk_ keys.")
     record = {
         "id": plan_id,
         "name": str(plan.get("name") or plan_id).strip()[:80],
         "price_text": str(plan.get("price_text") or "").strip()[:80],
         "description": str(plan.get("description") or "").strip()[:400],
         "payment_url": str(plan.get("payment_url") or "").strip()[:500],
+        "stripe_buy_button_id": stripe_buy_button_id,
+        "stripe_publishable_key": stripe_publishable_key,
         "enabled": safe_bool(plan.get("enabled"), True),
         "features": {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS},
         "updated_at": datetime.now(UTC).isoformat(),
@@ -19478,6 +19528,8 @@ DASHBOARD_AUDIT_IGNORED_KEYS = {
     "events_xml",
     "eventspawns_xml",
     "eventgroups_xml",
+    "stripe_buy_button_id",
+    "stripe_publishable_key",
     "loadout_json",
     "cfggameplay_json",
 }
@@ -26025,6 +26077,11 @@ def page(mode: str, auth: dict[str, Any]):
         "eligible": bool(auth.get("kind") != "agent_account" and selected_review_guild_id and not dashboard_has_review_for_guild(selected_review_guild_id)),
         "guild_id": normalize_guild_id(selected_review_guild_id),
     }
+    billing_plans = dashboard_billing_plans()
+    billing_has_stripe_buy_buttons = bool(
+        active_section == "billing"
+        and any(plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key") for plan in billing_plans)
+    )
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
@@ -26104,7 +26161,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
-        billing_plans=dashboard_billing_plans(),
+        billing_plans=billing_plans,
+        billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
         dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
         custom_feed_types=CUSTOM_FEED_TYPES,
         agent_accounts=agent_account_rows() if auth.get("kind") == "owner" and active_section == "ai-agent" else [],
@@ -30853,6 +30911,8 @@ def api_owner_billing_plan():
                 "price_text": payload.get("price_text"),
                 "description": payload.get("description"),
                 "payment_url": payload.get("payment_url"),
+                "stripe_buy_button_id": payload.get("stripe_buy_button_id"),
+                "stripe_publishable_key": payload.get("stripe_publishable_key"),
                 "enabled": payload.get("enabled"),
                 "features": features,
             }
