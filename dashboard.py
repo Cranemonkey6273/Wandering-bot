@@ -1060,6 +1060,30 @@ DEFAULT_BILLING_PLANS = [
 ]
 STRIPE_BUY_BUTTON_RE = re.compile(r"\b(buy_btn_[A-Za-z0-9_]+)\b")
 STRIPE_PUBLISHABLE_KEY_RE = re.compile(r"\b(pk_(?:test|live)_[A-Za-z0-9_]+)\b")
+BILLING_PLAN_ORDER = ("free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate")
+BILLING_PLAN_ID_ALIASES = {
+    "free": "free_bot",
+    "free_bot": "free_bot",
+    "wandering_free": "free_bot",
+    "wandering_bot_free": "free_bot",
+    "basic": "dashboard",
+    "dashboard": "dashboard",
+    "dashboard_basic": "dashboard",
+    "scout": "dashboard",
+    "wandering_basic": "dashboard",
+    "wandering_bot_basic": "dashboard",
+    "wandering_bot_scout": "dashboard",
+    "pro": "dashboard_ai",
+    "dashboard_ai": "dashboard_ai",
+    "dashboard_pro": "dashboard_ai",
+    "wandering_pro": "dashboard_ai",
+    "wandering_bot_pro": "dashboard_ai",
+    "ultimate": "dashboard_ultimate",
+    "dashboard_ultimate": "dashboard_ultimate",
+    "dashboard_plus_ai": "dashboard_ultimate",
+    "wandering_ultimate": "dashboard_ultimate",
+    "wandering_bot_ultimate": "dashboard_ultimate",
+}
 GUILD_CONFIG_FOLDER = os.path.join("guild_data", "guilds")
 LEGACY_GUILD_CONFIG_FOLDER = "guilds"
 
@@ -1377,12 +1401,12 @@ PUBLIC_LANDING_TEMPLATE = """
             <li>{{ feature }}</li>
             {% endfor %}
           </ul>
-          {% if plan.stripe_buy_button_id and plan.stripe_publishable_key %}
+          {% if plan.id == "free_bot" %}
+          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
+          {% elif plan.stripe_buy_button_id and plan.stripe_publishable_key %}
           <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
           {% elif plan.payment_url %}
           <a class="button primary" href="{{ plan.payment_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
-          {% elif plan.id == "free_bot" %}
-          <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">{{ plan.public_cta }}</a>
           {% else %}
           <a class="button" href="/login">{{ plan.public_cta }}</a>
           {% endif %}
@@ -16683,6 +16707,29 @@ def default_billing_plan_map() -> dict[str, dict[str, Any]]:
     return {str(plan["id"]): json.loads(json.dumps(plan)) for plan in DEFAULT_BILLING_PLANS}
 
 
+def clean_billing_plan_id(value: Any) -> str:
+    return re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def canonical_billing_plan_id(value: Any, plan: dict[str, Any] | None = None) -> str:
+    clean_id = clean_billing_plan_id(value)
+    if clean_id in BILLING_PLAN_ID_ALIASES:
+        return BILLING_PLAN_ID_ALIASES[clean_id]
+    if isinstance(plan, dict):
+        clean_name = clean_billing_plan_id(plan.get("name"))
+        if clean_name in BILLING_PLAN_ID_ALIASES:
+            return BILLING_PLAN_ID_ALIASES[clean_name]
+        if "ultimate" in clean_name:
+            return "dashboard_ultimate"
+        if "pro" in clean_name:
+            return "dashboard_ai"
+        if "basic" in clean_name or "scout" in clean_name:
+            return "dashboard"
+        if "free" in clean_name:
+            return "free_bot"
+    return clean_id if clean_id in BILLING_PLAN_ORDER else ""
+
+
 def stripe_buy_button_id_from_text(value: Any) -> str:
     match = STRIPE_BUY_BUTTON_RE.search(str(value or ""))
     return match.group(1)[:120] if match else ""
@@ -16704,13 +16751,18 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
     for plan_id, plan in saved.items():
         if not isinstance(plan, dict):
             continue
-        clean_id = re.sub(r"[^a-z0-9_]+", "_", str(plan_id).strip().lower()).strip("_")
+        clean_id = canonical_billing_plan_id(plan_id, plan)
         if not clean_id:
             continue
         base = plans.get(clean_id, {"id": clean_id, "features": {}})
         features = plan.get("features") if isinstance(plan.get("features"), dict) else base.get("features", {})
         stripe_buy_button_id = plan.get("stripe_buy_button_id", base.get("stripe_buy_button_id", ""))
         stripe_publishable_key = plan.get("stripe_publishable_key", base.get("stripe_publishable_key", ""))
+        payment_url = str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500]
+        if clean_id == "free_bot":
+            payment_url = ""
+            stripe_buy_button_id = ""
+            stripe_publishable_key = ""
         name = str(plan.get("name") or base.get("name") or clean_id).strip()[:80]
         description = str(plan.get("description") or base.get("description") or "").strip()[:400]
         if clean_id == "dashboard_ai" and name == "Dashboard + AI":
@@ -16722,7 +16774,7 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             "name": name,
             "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
             "description": description,
-            "payment_url": str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500],
+            "payment_url": payment_url,
             "stripe_buy_button_id": stripe_buy_button_id_from_text(stripe_buy_button_id),
             "stripe_publishable_key": stripe_publishable_key_from_text(stripe_publishable_key),
             "enabled": safe_bool(plan.get("enabled"), safe_bool(base.get("enabled"), True)),
@@ -16730,8 +16782,7 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             "updated_at": str(plan.get("updated_at") or base.get("updated_at") or ""),
         })
         plans[clean_id] = base
-    plan_order = {"free_bot": 0, "dashboard": 1, "dashboard_ai": 2, "dashboard_ultimate": 3}
-    return sorted(plans.values(), key=lambda item: (plan_order.get(str(item.get("id")), 50), str(item.get("id"))))
+    return [plans[plan_id] for plan_id in BILLING_PLAN_ORDER if plan_id in plans]
 
 
 def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
@@ -16778,29 +16829,32 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(plans, dict):
         plans = {}
         admin["billing_plans"] = plans
-    plan_id = re.sub(r"[^a-z0-9_]+", "_", str(plan.get("id") or "").strip().lower()).strip("_")
+    plan_id = canonical_billing_plan_id(plan.get("id") or plan.get("plan_id"), plan)
     if not plan_id:
-        raise ValueError("plan_id is required.")
+        raise ValueError("Choose one of the four billing plans: free, basic, pro or ultimate.")
     raw_stripe_buy_button = str(plan.get("stripe_buy_button_id") or "").strip()
     raw_stripe_key = str(plan.get("stripe_publishable_key") or "").strip()
-    stripe_buy_button_id = stripe_buy_button_id_from_text(raw_stripe_buy_button)
-    stripe_publishable_key = stripe_publishable_key_from_text(raw_stripe_key)
-    if raw_stripe_buy_button and not stripe_buy_button_id:
+    stripe_buy_button_id = "" if plan_id == "free_bot" else stripe_buy_button_id_from_text(raw_stripe_buy_button)
+    stripe_publishable_key = "" if plan_id == "free_bot" else stripe_publishable_key_from_text(raw_stripe_key)
+    if plan_id != "free_bot" and raw_stripe_buy_button and not stripe_buy_button_id:
         raise ValueError("Stripe buy button ID must start with buy_btn_.")
-    if raw_stripe_key and not stripe_publishable_key:
+    if plan_id != "free_bot" and raw_stripe_key and not stripe_publishable_key:
         raise ValueError("Stripe publishable key must start with pk_test_ or pk_live_. Do not paste secret sk_ keys.")
     record = {
         "id": plan_id,
         "name": str(plan.get("name") or plan_id).strip()[:80],
         "price_text": str(plan.get("price_text") or "").strip()[:80],
         "description": str(plan.get("description") or "").strip()[:400],
-        "payment_url": str(plan.get("payment_url") or "").strip()[:500],
+        "payment_url": "" if plan_id == "free_bot" else str(plan.get("payment_url") or "").strip()[:500],
         "stripe_buy_button_id": stripe_buy_button_id,
         "stripe_publishable_key": stripe_publishable_key,
         "enabled": safe_bool(plan.get("enabled"), True),
         "features": {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS},
         "updated_at": datetime.now(UTC).isoformat(),
     }
+    for existing_id in list(plans):
+        if existing_id != plan_id and canonical_billing_plan_id(existing_id, plans.get(existing_id)) == plan_id:
+            plans.pop(existing_id, None)
     plans[plan_id] = record
     save_store("dashboard_admin", admin)
     return record
@@ -16819,7 +16873,7 @@ def dashboard_feature_flags_from_payload(payload: dict[str, Any], fallback: Any 
 
 
 def dashboard_plan_by_id(plan_id: Any) -> dict[str, Any]:
-    wanted = str(plan_id or "").strip().lower()
+    wanted = canonical_billing_plan_id(plan_id)
     for plan in dashboard_billing_plans():
         if str(plan.get("id") or "").lower() == wanted:
             return plan
