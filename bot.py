@@ -1382,7 +1382,21 @@ def server_profile_role_ids(profile_config):
     return {str(item).strip() for item in ids if str(item).strip()}
 
 
-def server_profile_context_match_score(profile_id, profile_config, *, channel=None, member=None):
+def server_profile_onboarding_choice_role_ids(base_config, profile_id, profile_config):
+    settings = base_config.get("member_onboarding") if isinstance(base_config, dict) else {}
+    if not isinstance(settings, dict):
+        return set()
+
+    tokens = server_profile_context_tokens(profile_id, profile_config)
+    ids = set()
+    if tokens.intersection({"cherno", "chernarus", "chernarusplus"}):
+        ids.update(server_profile_context_id_values(settings.get("choice_cherno_role_id")))
+    if tokens.intersection({"livo", "livonia", "enoch"}):
+        ids.update(server_profile_context_id_values(settings.get("choice_livo_role_id")))
+    return {str(item).strip() for item in ids if str(item).strip()}
+
+
+def server_profile_context_match_score(profile_id, profile_config, *, channel=None, member=None, base_config=None):
     tokens = server_profile_context_tokens(profile_id, profile_config)
     if not tokens:
         return 0, ""
@@ -1410,7 +1424,9 @@ def server_profile_context_match_score(profile_id, profile_config, *, channel=No
         if server_profile_context_token_matches(getattr(role, "name", ""), tokens) and score < 55:
             score, reason = 55, "role name"
 
-    if member_role_ids.intersection(server_profile_role_ids(profile_config)) and score < 70:
+    profile_role_ids = server_profile_role_ids(profile_config)
+    profile_role_ids.update(server_profile_onboarding_choice_role_ids(base_config, profile_id, profile_config))
+    if member_role_ids.intersection(profile_role_ids) and score < 70:
         score, reason = 70, "saved role"
 
     return score, reason
@@ -1424,6 +1440,7 @@ def infer_server_profile_id_from_context(base_config, *, channel=None, member=No
             base_server_profile_context_config(base_config),
             channel=channel,
             member=member,
+            base_config=base_config,
         )
         if base_score > 0:
             matches.append((base_score, "", base_reason))
@@ -1432,7 +1449,13 @@ def infer_server_profile_id_from_context(base_config, *, channel=None, member=No
         if not isinstance(profile_config, dict) or not profile_config.get("enabled", True):
             continue
         profile_id = normalize_server_profile_id(stored_id, default="")
-        score, reason = server_profile_context_match_score(profile_id, profile_config, channel=channel, member=member)
+        score, reason = server_profile_context_match_score(
+            profile_id,
+            profile_config,
+            channel=channel,
+            member=member,
+            base_config=base_config,
+        )
         if score > 0:
             matches.append((score, profile_id, reason))
 
