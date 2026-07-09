@@ -85,6 +85,31 @@ class FakeGuild:
         return None
 
 
+class FakeInteractionResponse:
+    def __init__(self):
+        self.deferred = False
+
+    async def defer(self, **_kwargs):
+        self.deferred = True
+
+
+class FakeInteractionFollowup:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *args, **kwargs):
+        self.sent.append((args, kwargs))
+
+
+class FakeInteraction:
+    def __init__(self, guild, channel, user=None):
+        self.guild = guild
+        self.channel = channel
+        self.user = user or FakeMember([])
+        self.response = FakeInteractionResponse()
+        self.followup = FakeInteractionFollowup()
+
+
 class ChannelMatchingTests(unittest.TestCase):
     def test_style_embed_replaces_legacy_alpha_footer(self):
         embed = FakeEmbed("Wandering Bot Alpha - Disconnect Feed")
@@ -543,6 +568,39 @@ class ChannelMatchingTests(unittest.TestCase):
             self.assertIn("more than one possible", error)
         finally:
             bot.guild_configs = previous_configs
+
+    def test_live_map_uses_server_profile_context(self):
+        previous_configs = bot.guild_configs
+        previous_online = bot.online_players
+        previous_last_coords = bot.player_last_coords
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {"profile_name": "Cherno", "server_map": "chernarus", "channels": {"online": "100"}},
+                        "livo": {"profile_name": "Wandering Around Livo", "server_map": "livonia", "channels": {"online": "200"}},
+                    },
+                }
+            }
+            bot.online_players = {"guild-a": {"BaseOnly"}, "guild-a:livo": set()}
+            bot.player_last_coords = {}
+            channel = FakeChannel("online-survivors", 200)
+            guild = FakeGuild([channel])
+            interaction = FakeInteraction(guild, channel)
+
+            with mock.patch.object(bot, "has_interaction_admin_power", return_value=True):
+                asyncio.run(bot.send_live_map_response(interaction))
+
+            self.assertTrue(interaction.response.deferred)
+            self.assertEqual(1, len(interaction.followup.sent))
+            message = interaction.followup.sent[0][0][0]
+            self.assertIn("Wandering Around Livo", message)
+            self.assertNotIn("BaseOnly", message)
+        finally:
+            bot.guild_configs = previous_configs
+            bot.online_players = previous_online
+            bot.player_last_coords = previous_last_coords
 
     def test_player_stats_same_name_can_split_by_server_profile(self):
         previous_stats = bot.player_stats

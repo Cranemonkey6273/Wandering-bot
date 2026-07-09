@@ -1525,6 +1525,40 @@ def runtime_config_for_link_target(guild, server_profile_id=""):
     return runtime_config_for_command_context(guild, server_profile_id=server_profile_id, require_profile=True)
 
 
+async def server_profile_autocomplete(interaction: discord.Interaction, current: str):
+    guild = getattr(interaction, "guild", None)
+    guild_id = str(getattr(guild, "id", "") or "").strip()
+    config = guild_configs.get(guild_id) if guild_id else None
+    if not isinstance(config, dict) or not has_server_profiles(config):
+        return []
+
+    search = normalize_discord_name(current)
+    choices = []
+
+    def add_choice(value, label):
+        value = str(value or "").strip()
+        label = str(label or value or "Server").strip()
+        haystack = normalize_discord_name(f"{label} {value}")
+        if search and search not in haystack:
+            return
+        choices.append(app_commands.Choice(name=label[:100], value=value[:100]))
+
+    if should_include_base_server_profile(config):
+        add_choice(base_server_profile_primary_alias(config), f"{base_server_profile_name(config)} (base)")
+
+    for profile_id, profile in server_profile_store(config).items():
+        if not isinstance(profile, dict) or not profile.get("enabled", True):
+            continue
+        clean_id = normalize_server_profile_id(profile_id, default="")
+        if not clean_id:
+            continue
+        add_choice(clean_id, f"{server_profile_name(clean_id, profile)} ({clean_id})")
+        if len(choices) >= 25:
+            break
+
+    return choices[:25]
+
+
 def server_map_key(guild_id):
     config = config_for_server_runtime(guild_id)
     configured = config.get("server_map")
@@ -45430,9 +45464,10 @@ async def maybe_save_map_image_from_message(message, lower):
     return True
 
 
-async def send_live_map_response(interaction: discord.Interaction):
+async def send_live_map_response(interaction: discord.Interaction, server: str = ""):
 
-    guild_id = str(getattr(getattr(interaction, "guild", None), "id", "") or "unknown")
+    base_guild_id = str(getattr(getattr(interaction, "guild", None), "id", "") or "unknown")
+    guild_id = base_guild_id
     user_id = str(getattr(getattr(interaction, "user", None), "id", "") or "unknown")
 
     try:
@@ -45459,10 +45494,23 @@ async def send_live_map_response(interaction: discord.Interaction):
         await send_map_followup("Admin only.", ephemeral=True)
         return
 
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await send_map_followup(target_error, ephemeral=True)
+        return
+
+    guild_id = str(guild_id or base_guild_id)
     ensure_guild_runtime(guild_id)
+    server_label = dayz_server_display_name(guild_id, config) or guild_display_name(guild_id)
 
     if not online_players.get(guild_id):
-        await send_map_followup("No online survivors are currently tracked.", ephemeral=True)
+        await send_map_followup(f"No online survivors are currently tracked for **{server_label}**.", ephemeral=True)
         return
 
     map_path, error = await asyncio.to_thread(generate_live_player_map_image, guild_id)
@@ -45483,6 +45531,7 @@ async def send_live_map_response(interaction: discord.Interaction):
     embed = discord.Embed(
         title=f"LIVE SURVIVOR MAP - {map_name.upper()}",
         description=(
+            f"DayZ server: **{server_label}**\n"
             f"Showing latest known ADM positions for online survivors.\n"
             f"Plotted `{plotted_count}` of `{online_count}` tracked online players."
         ),
@@ -45503,13 +45552,16 @@ async def send_live_map_response(interaction: discord.Interaction):
 
 @bot.tree.command(name="map", description="Admin: show online survivors on the server map")
 @app_commands.default_permissions(administrator=True)
-async def live_map(interaction: discord.Interaction):
-    await send_live_map_response(interaction)
+@app_commands.describe(server="Optional merged-server id, for example cherno or livo")
+@app_commands.autocomplete(server=server_profile_autocomplete)
+async def live_map(interaction: discord.Interaction, server: str = ""):
+    await send_live_map_response(interaction, server=server)
 
 
 @app_commands.default_permissions(administrator=True)
-async def slash_livemap_alias(interaction: discord.Interaction):
-    await send_live_map_response(interaction)
+@app_commands.describe(server="Optional merged-server id, for example cherno or livo")
+async def slash_livemap_alias(interaction: discord.Interaction, server: str = ""):
+    await send_live_map_response(interaction, server=server)
 
 
 @bot.tree.command(name="setdayzmessages", description="Owner: upload simple in-game rotating server messages")
