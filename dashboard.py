@@ -498,27 +498,27 @@ DISCORD_GUILD_COUNT_CACHE: dict[str, tuple[datetime, int]] = {}
 PUBLIC_SEO_PAGES = {
     "home": {
         "path": "/",
-        "title": "Wandering Bot - DayZ Console Killfeed and Server Dashboard",
-        "description": "Wandering Bot is a DayZ console Discord bot for killfeeds, ADM logs, Nitrado tools, heatmaps, raid alerts, economy, trader shops, XML events, and server dashboards.",
-        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ killfeed bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools"],
+        "title": "Wandering Bot - DayZ Kill Feed Bot and Console Server Dashboard",
+        "description": "Wandering Bot is a DayZ kill feed bot and console Discord dashboard for killfeeds, ADM logs, Nitrado tools, heatmaps, raid alerts, economy, trader shops, XML events, and server admin tools.",
+        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ kill feed bot", "DayZ killfeed bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools"],
         "eyebrow": "DayZ console server control",
         "headline": "Add Wandering Bot to your DayZ server",
         "lead": "Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, events, XML tools, economy, trader systems, bans, zones, and server setup.",
         "focus": "DayZ console killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.",
         "features": [
-            ("DayZ killfeed and ADM feeds", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs."),
+            ("DayZ kill feed and ADM feeds", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs."),
             ("Console server dashboard", "Give trusted admins a private web dashboard for live events, XML tools, schedules, shops, economy, zones, and moderation."),
             ("Nitrado and Discord automation", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible."),
         ],
         "faqs": [
-            ("What is Wandering Bot?", "Wandering Bot is a Discord bot and web dashboard for DayZ console server owners who want killfeeds, Nitrado tools, live events, economy tools, zones, and admin workflows in one place."),
+            ("What is Wandering Bot?", "Wandering Bot is a Discord bot and web dashboard for DayZ console server owners who want kill feeds, killfeeds, Nitrado tools, live events, economy tools, zones, and admin workflows in one place."),
             ("Does Wandering Bot work with Xbox and PlayStation DayZ servers?", "Yes. Wandering Bot is built around DayZ console server workflows, including Xbox and PlayStation communities using Nitrado and ADM logs."),
             ("Can server admins use the dashboard without full Nitrado access?", "Yes. Owners can use server-specific dashboard logins so trusted admins can manage selected tools without sharing the full Nitrado account."),
         ],
-        "search_intro": "Wandering Bot is built as a DayZ bot for Discord communities that need killfeeds, Nitrado tools, dashboards, server feeds, and console-friendly admin workflows.",
+        "search_intro": "Wandering Bot is built as a DayZ bot for Discord communities that need kill feed messages, killfeeds, Nitrado tools, dashboards, server feeds, and console-friendly admin workflows.",
         "search_terms": [
             ("DayZ bot", "A Discord bot and web dashboard for running DayZ console communities."),
-            ("DayZ killfeed bot", "Kill, death, longshot, online player, restart, and ADM log feeds for Discord."),
+            ("DayZ kill feed bot", "Kill, death, longshot, online player, restart, and ADM log feeds for Discord."),
             ("DayZ server dashboard", "Private owner and admin pages for events, economy, XML tools, feeds, and schedules."),
             ("DayZ Nitrado tools", "Server status, restart controls, guarded XML workflows, and live event tools for Nitrado-hosted console servers."),
         ],
@@ -551,26 +551,27 @@ PUBLIC_SEO_PAGES = {
         ],
     },
     "dayz-killfeed-bot": {
-        "path": "/dayz-killfeed-bot",
-        "title": "DayZ Killfeed Bot for Console Servers - Wandering Bot",
-        "description": "A DayZ killfeed bot for Xbox and PlayStation console servers with ADM log tracking, Discord kill feeds, longshots, heatmaps, player activity, and admin dashboard tools.",
-        "keywords": ["DayZ killfeed", "DayZ killfeed bot", "DayZ Discord killfeed", "DayZ Xbox killfeed", "DayZ PlayStation killfeed", "DayZ ADM logs"],
-        "eyebrow": "DayZ killfeed bot",
-        "headline": "DayZ console killfeeds without the mess",
-        "lead": "Turn DayZ ADM logs into clean Discord feeds for kills, deaths, longshots, online players, server restarts, and player activity so your staff can see what is happening without digging through raw logs.",
-        "focus": "Built for DayZ Xbox and PlayStation communities that need readable killfeeds, longshot records, heatmaps, and player tracking.",
+        "path": "/dayz-kill-feed-bot",
+        "title": "DayZ Kill Feed Bot for Xbox, PlayStation and Nitrado Servers - Wandering Bot",
+        "description": "A DayZ kill feed bot and killfeed dashboard for Xbox and PlayStation console servers with ADM log tracking, Discord kill feeds, longshots, heatmaps, player activity, and admin tools.",
+        "keywords": ["DayZ kill feed bot", "DayZ killfeed bot", "DayZ kill feed", "DayZ Discord killfeed", "DayZ Xbox kill feed", "DayZ PlayStation killfeed", "DayZ ADM logs"],
+        "eyebrow": "DayZ kill feed bot",
+        "headline": "DayZ kill feed bot for console servers",
+        "lead": "Turn DayZ ADM logs into clean Discord kill feed messages for kills, deaths, longshots, online players, server restarts, and player activity so staff can see what is happening without digging through raw logs.",
+        "focus": "Built for DayZ Xbox and PlayStation communities searching for a readable DayZ kill feed bot, killfeed dashboard, longshot records, heatmaps, and player tracking.",
         "features": [
-            ("Killfeed channels", "Post readable kill, death, weapon, distance, and location information into the Discord channels you choose."),
+            ("Kill feed channels", "Post readable kill, death, weapon, distance, and location information into the Discord channels you choose."),
             ("Longshot and leaderboard tracking", "Keep competitive records for PvP servers, faction wars, events, and community challenges."),
             ("Live server context", "Pair killfeeds with online player counts, restart detection, ADM refresh tools, and dashboard audit logs."),
         ],
         "faqs": [
-            ("Can Wandering Bot post DayZ kills into Discord?", "Yes. It reads server activity from ADM-style logs and turns kills, deaths, longshots, and player activity into cleaner Discord feeds."),
+            ("Is Wandering Bot a DayZ kill feed bot?", "Yes. It reads server activity from ADM-style logs and turns kills, deaths, longshots, and player activity into cleaner Discord kill feed messages."),
             ("Is this for DayZ console servers?", "Yes. The killfeed tools are designed for DayZ Xbox and PlayStation server communities."),
             ("Can I choose where killfeed messages go?", "Yes. Server owners can route feeds and alerts into the Discord channels that fit their server layout."),
         ],
-        "search_intro": "Wandering Bot targets DayZ killfeed searches with console-friendly Discord feeds, ADM log parsing, player activity, longshots, deaths, and admin context.",
+        "search_intro": "Wandering Bot targets DayZ kill feed bot and DayZ killfeed searches with console-friendly Discord feeds, ADM log parsing, player activity, longshots, deaths, and admin context.",
         "search_terms": [
+            ("DayZ kill feed bot", "A bot that turns server log activity into readable Discord kill feed messages."),
             ("DayZ killfeed", "Kills, deaths, weapons, distances, longshots, and player activity posted into Discord."),
             ("DayZ killfeed bot", "A bot that turns server log activity into readable Discord killfeed messages."),
             ("DayZ Discord killfeed", "Route killfeed, longshot, raid, online, and disconnect feeds into selected Discord channels."),
@@ -578,22 +579,29 @@ PUBLIC_SEO_PAGES = {
         ],
     },
     "dayz-console-discord-bot": {
-        "path": "/dayz-console-discord-bot",
-        "title": "DayZ Console Discord Bot for Server Owners - Wandering Bot",
-        "description": "Wandering Bot helps DayZ console server owners run Discord automation, linked gamertags, moderation, economy, staff feeds, live events, and private dashboards.",
-        "eyebrow": "DayZ console Discord bot",
-        "headline": "One Discord bot for serious DayZ console servers",
-        "lead": "Run your DayZ community from Discord and the web dashboard with gamertag linking, staff tools, moderation guard, economy features, live events, feeds, audit logs, and server-specific admin access.",
-        "focus": "Made for DayZ console owners who need Discord automation and a dashboard without handing every staff member full Nitrado access.",
+        "path": "/dayz-discord-bot",
+        "title": "DayZ Discord Bot for Console Servers, Kill Feeds and Nitrado - Wandering Bot",
+        "description": "A DayZ Discord bot for console server owners with kill feeds, linked gamertags, moderation, economy, staff feeds, live events, Nitrado tools, and private dashboards.",
+        "eyebrow": "DayZ Discord bot",
+        "headline": "A DayZ Discord bot for serious console servers",
+        "lead": "Run your DayZ community from Discord and the web dashboard with kill feeds, gamertag linking, staff tools, moderation guard, economy features, live events, audit logs, and server-specific admin access.",
+        "focus": "Made for DayZ owners searching for a Discord bot with console kill feeds, Discord automation, and a dashboard without handing every staff member full Nitrado access.",
         "features": [
             ("Gamertag linking", "Let players link Discord users to survivor names and help staff keep ban, whitelist, and identity checks organised."),
             ("Role and channel control", "Use server-scoped dashboards, staff-only views, moderation guard settings, and clean Discord feed channels."),
             ("Owner and admin views", "Keep owner controls protected while letting trusted admins manage the server tools they need."),
         ],
         "faqs": [
-            ("What can the Discord bot do for a DayZ server?", "It can help with killfeeds, channel setup, gamertag linking, economy tools, event tracking, moderation guard settings, and staff feeds."),
+            ("What can a DayZ Discord bot do for a server?", "It can help with kill feeds, channel setup, gamertag linking, economy tools, event tracking, moderation guard settings, and staff feeds."),
             ("Can different staff members have different access?", "Yes. The dashboard supports owner and admin-style access so server staff only need the tools they are trusted to use."),
             ("Does the bot help with linked gamertags?", "Yes. Players can link Discord users to survivor names so staff can manage identity checks more clearly."),
+        ],
+        "search_intro": "This page targets DayZ Discord bot searches for server owners who need kill feeds, gamertag linking, Nitrado tools, channel feeds, staff logs, and a web dashboard.",
+        "search_terms": [
+            ("DayZ Discord bot", "Discord automation, commands, feeds, linked gamertags, and staff tools for DayZ servers."),
+            ("DayZ server bot", "Server-owner tools for community management, feeds, activity, and setup."),
+            ("DayZ kill feed Discord bot", "Kill feed and activity messages routed into selected Discord channels."),
+            ("DayZ Nitrado Discord bot", "Nitrado-connected dashboard tools for console server owners."),
         ],
     },
     "dayz-nitrado-server-tools": {
@@ -19665,7 +19673,7 @@ def public_seo_nav_pages() -> list[dict[str, str]]:
     labels = {
         "home": "Overview",
         "dayz-bot": "DayZ Bot",
-        "dayz-killfeed-bot": "Killfeed",
+        "dayz-killfeed-bot": "Kill Feed",
         "dayz-console-discord-bot": "Discord Bot",
         "dayz-nitrado-server-tools": "Nitrado Tools",
         "dayz-economy-trader-bot": "Trader Economy",
@@ -26941,9 +26949,14 @@ def public_checkout(plan_id: str):
     return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan)
 
 
+@APP.get("/dayz-kill-feed-bot")
+def public_dayz_kill_feed_bot():
+    return public_landing_page("dayz-killfeed-bot")
+
+
 @APP.get("/dayz-killfeed-bot")
 def public_dayz_killfeed_bot():
-    return public_landing_page("dayz-killfeed-bot")
+    return redirect("/dayz-kill-feed-bot", code=301)
 
 
 @APP.get("/dayz-bot")
@@ -26951,9 +26964,14 @@ def public_dayz_bot():
     return public_landing_page("dayz-bot")
 
 
+@APP.get("/dayz-discord-bot")
+def public_dayz_discord_bot():
+    return public_landing_page("dayz-console-discord-bot")
+
+
 @APP.get("/dayz-console-discord-bot")
 def public_dayz_console_discord_bot():
-    return public_landing_page("dayz-console-discord-bot")
+    return redirect("/dayz-discord-bot", code=301)
 
 
 @APP.get("/dayz-nitrado-server-tools")
