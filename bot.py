@@ -39857,8 +39857,8 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
     guild_id = str(guild_id)
     try:
         load_guild_configs()
-        config = guild_configs.get(guild_id)
-        if not isinstance(config, dict):
+        config = config_for_server_runtime(guild_id)
+        if not isinstance(config, dict) or not config:
             return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
         target_event_id = safe_int(event_id, 0)
         cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
@@ -39943,7 +39943,7 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
                 )
             except Exception as notice_error:
                 bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
-            save_guild_configs()
+            save_guild_configs_for_runtime(config)
             if not native_events and not bool(config.get("scenario_events_cleanup_pending")):
                 return {
                     "ok": bridge_success,
@@ -39967,8 +39967,8 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
         built = {}
         trace = compact_exception_leaf_trace(error)
         messages = [f"Native CE upload exception: {type(error).__name__}: {error}. Leaf trace: {trace[:1000]}"]
-        config = guild_configs.get(guild_id)
-        if not isinstance(config, dict):
+        config = config_for_server_runtime(guild_id)
+        if not isinstance(config, dict) or not config:
             return {"ok": False, "built": built, "messages": messages}
     source_blocked = native_ce_upload_blocked_messages(messages)
     status_text = (
@@ -40025,7 +40025,7 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
             queue_scenario_event_discord_notice(config, success, built, messages, queue_events, "Dashboard upload")
         except Exception as notice_error:
             messages.append(f"Discord notice queue skipped after upload state update: {type(notice_error).__name__}: {notice_error}")
-        save_guild_configs()
+        save_guild_configs_for_runtime(config)
     return {"ok": success, "built": built, "messages": messages}
 
 

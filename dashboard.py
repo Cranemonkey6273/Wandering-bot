@@ -16217,7 +16217,13 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         return upload_result
-    config = guild_configs.setdefault(str(guild_id), {"channels": {}})
+    config, _runtime_id, target_error = dashboard_target_config_for_runtime(guild_configs, guild_id)
+    if target_error or config is None:
+        upload_result["ok"] = False
+        messages = upload_result.setdefault("messages", [])
+        if isinstance(messages, list):
+            messages.append(target_error or f"DayZ server runtime `{guild_id}` was not found.")
+        return upload_result
     events = config.get("scenario_events", [])
     if not isinstance(events, list):
         events = []
@@ -16348,7 +16354,9 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
             guild_configs = load_store("guild_configs", {})
             if not isinstance(guild_configs, dict):
                 return
-            config = guild_configs.setdefault(str(guild_id), {"channels": {}})
+            config, _runtime_id, target_error = dashboard_target_config_for_runtime(guild_configs, guild_id)
+            if target_error or config is None:
+                return
             events = config.get("scenario_events", [])
             if isinstance(events, list) and mark_dashboard_scenario_upload_worker_unavailable(
                 events,
@@ -16361,7 +16369,9 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
             guild_configs = load_store("guild_configs", {})
             if not isinstance(guild_configs, dict):
                 return
-            config = guild_configs.setdefault(str(guild_id), {"channels": {}})
+            config, _runtime_id, target_error = dashboard_target_config_for_runtime(guild_configs, guild_id)
+            if target_error or config is None:
+                return
             status_text = f"Native CE XML upload failed: {type(error).__name__}: {error}"
             events = config.get("scenario_events", [])
             if isinstance(events, list):
@@ -23195,6 +23205,14 @@ def dashboard_server_profile_runtime_id(guild_id: str, profile_id: Any = "") -> 
     return f"{normalize_guild_id(guild_id)}{SERVER_PROFILE_SEPARATOR}{profile_id}" if profile_id else normalize_guild_id(guild_id)
 
 
+def dashboard_split_server_runtime_id(runtime_id: Any) -> tuple[str, str]:
+    text = normalize_guild_id(runtime_id)
+    if SERVER_PROFILE_SEPARATOR not in text:
+        return text, ""
+    guild_id, profile_id = text.split(SERVER_PROFILE_SEPARATOR, 1)
+    return normalize_guild_id(guild_id), normalize_server_profile_id(profile_id, "")
+
+
 def dashboard_server_profile_store(config: Any, create: bool = False) -> dict[str, Any]:
     if not isinstance(config, dict):
         return {}
@@ -23403,6 +23421,11 @@ def dashboard_target_config_for_profile(guild_configs: dict[str, Any], guild_id:
     if not isinstance(profile, dict):
         return None, dashboard_server_profile_runtime_id(guild_id, profile_id), f"DayZ server profile `{profile_id}` was not found."
     return profile, dashboard_server_profile_runtime_id(guild_id, profile_id), ""
+
+
+def dashboard_target_config_for_runtime(guild_configs: dict[str, Any], runtime_id: Any) -> tuple[dict[str, Any] | None, str, str]:
+    guild_id, profile_id = dashboard_split_server_runtime_id(runtime_id)
+    return dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
 
 
 def dashboard_server_control_target(
