@@ -26251,8 +26251,34 @@ def schedule_reminder_time_label(schedule, next_run):
     return local_time.strftime("%A %d %b %H:%M %Z").strip()
 
 
-def schedule_reminder_marker(guild_id, schedule_key, next_run, minutes):
-    return f"{guild_id}:{schedule_key}:{next_run.astimezone(UTC).isoformat()}:{int(minutes)}"
+SCHEDULE_REMINDER_RUNTIME_MARKERS = {}
+SCHEDULE_REMINDER_RUNTIME_MARKER_TTL_SECONDS = 3 * 24 * 60 * 60
+
+
+def schedule_reminder_marker(guild_id, schedule_key, next_run, minutes, channel_id="", server_label=""):
+    server_key = normalize_discord_name(server_label) or normalize_discord_name(guild_id)
+    channel_key = str(channel_id or "").strip()
+    return f"{channel_key}:{server_key}:{schedule_key}:{next_run.astimezone(UTC).isoformat()}:{int(minutes)}"
+
+
+def schedule_reminder_runtime_already_sent(marker, now_utc):
+    now_ts = now_utc.timestamp()
+    stale = []
+    for existing_marker, sent_ts in SCHEDULE_REMINDER_RUNTIME_MARKERS.items():
+        try:
+            age = now_ts - float(sent_ts or 0.0)
+        except (TypeError, ValueError):
+            stale.append(existing_marker)
+            continue
+        if age > SCHEDULE_REMINDER_RUNTIME_MARKER_TTL_SECONDS:
+            stale.append(existing_marker)
+    for existing_marker in stale:
+        SCHEDULE_REMINDER_RUNTIME_MARKERS.pop(existing_marker, None)
+    return marker in SCHEDULE_REMINDER_RUNTIME_MARKERS
+
+
+def remember_schedule_reminder_runtime(marker, now_utc):
+    SCHEDULE_REMINDER_RUNTIME_MARKERS[marker] = now_utc.timestamp()
 
 
 def schedule_reminder_config_markers(config):
@@ -26343,13 +26369,21 @@ async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc
         for minute in reminder_minutes:
             if seconds_until > minute * 60:
                 continue
-            marker = schedule_reminder_marker(guild_id, schedule_key, next_run, minute)
-            if schedule_reminder_already_sent(config, schedule, marker):
+            server_label = dayz_server_display_name(guild_id, config)
+            marker = schedule_reminder_marker(
+                guild_id,
+                schedule_key,
+                next_run,
+                minute,
+                getattr(channel, "id", ""),
+                server_label,
+            )
+            if schedule_reminder_runtime_already_sent(marker, now_utc) or schedule_reminder_already_sent(config, schedule, marker):
                 continue
             embed = discord.Embed(
                 title=f"{title} - {minute} MINUTES",
                 description=(
-                    f"**Server:** {dayz_server_display_name(guild_id, config)}\n"
+                    f"**Server:** {server_label}\n"
                     f"**When:** {schedule_reminder_time_label(schedule, next_run)}\n\n"
                     f"{body}"
                 ),
@@ -26360,6 +26394,7 @@ async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc
             embed.timestamp = now_utc
             try:
                 await channel.send(embed=style_embed(embed))
+                remember_schedule_reminder_runtime(marker, now_utc)
                 remember_schedule_reminder(config, schedule, marker, now_utc)
                 sent_any = True
                 break
@@ -39495,6 +39530,7 @@ def _scenario_notice_event_line(event, guild_id):
 
 
 SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS = 25 * 60
+SCENARIO_EVENT_NOTICE_RUNTIME_SIGNATURES = {}
 
 
 def _compact_discord_line(text, limit=180):
@@ -39583,17 +39619,35 @@ def _scenario_notice_signature(success, notice):
         event_bits.append(
             ":".join(
                 str(event.get(key) or "").strip()
-                for key in ("id", "name", "type", "class", "x", "z", "status")
+                for key in ("id", "name", "type", "class", "x", "z", "radius", "permanent", "runs")
             )
         )
-    message_bits = [_compact_discord_line(message, 140) for message in (notice.get("messages") or [])[-3:]]
     return "|".join([
         "ok" if success else "failed",
         str(notice.get("source") or ""),
         ",".join(event_bits),
         ",".join(str(name) for name in (notice.get("managed_event_names") or [])[:8]),
-        ",".join(message_bits),
     ])[:900]
+
+
+def scenario_notice_runtime_recent(signature, now_ts):
+    stale = []
+    for existing_signature, sent_ts in SCENARIO_EVENT_NOTICE_RUNTIME_SIGNATURES.items():
+        try:
+            age = now_ts - float(sent_ts or 0.0)
+        except (TypeError, ValueError):
+            stale.append(existing_signature)
+            continue
+        if age >= SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS:
+            stale.append(existing_signature)
+    for existing_signature in stale:
+        SCENARIO_EVENT_NOTICE_RUNTIME_SIGNATURES.pop(existing_signature, None)
+    if not signature:
+        return False
+    if signature in SCENARIO_EVENT_NOTICE_RUNTIME_SIGNATURES:
+        return True
+    SCENARIO_EVENT_NOTICE_RUNTIME_SIGNATURES[signature] = now_ts
+    return False
 
 
 def scenario_notice_recent_signatures(config):
@@ -39648,6 +39702,8 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
     except (TypeError, ValueError):
         last_ts = 0.0
     if signature and signature == last_signature and (now_ts - last_ts) < SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS:
+        return False
+    if scenario_notice_runtime_recent(signature, now_ts):
         return False
     recent_signatures = scenario_notice_recent_signatures(config)
     stale_keys = []
