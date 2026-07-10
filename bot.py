@@ -40900,6 +40900,33 @@ def remove_vehicle_cfgignorelist_entries(original_text, vehicle_classes):
     return True, f"Removed {removed} stale vehicle reset {entry_word} before creating the backup.", xml_text
 
 
+def cfgignorelist_vehicle_entries(original_text, vehicle_classes):
+    try:
+        root = ET.fromstring(original_text or empty_cfgignorelist_xml())
+    except ET.ParseError:
+        return None
+
+    vehicle_keys = {
+        normalize_discord_name(item_name)
+        for item_name in vehicle_classes
+        if normalize_discord_name(item_name)
+    }
+    entries = []
+    seen = set()
+    for node in root.iter():
+        tag = str(getattr(node, "tag", "") or "")
+        if "}" in tag:
+            tag = tag.rsplit("}", 1)[-1]
+        if tag.lower() not in {"item", "type"}:
+            continue
+        name = str(node.get("name") or "").strip()
+        key = normalize_discord_name(name)
+        if key and key in vehicle_keys and key not in seen:
+            entries.append(name)
+            seen.add(key)
+    return entries
+
+
 def prepare_vehicle_cfgignorelist_reset_xml(original_text, vehicle_classes):
     cleanup_ok, cleanup_message, baseline_text = remove_vehicle_cfgignorelist_entries(original_text, vehicle_classes)
     if not cleanup_ok:
@@ -41486,6 +41513,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
         save_guild_configs_for_runtime(config)
 
         try:
+            vehicle_classes = vehicle_reset_cfgignorelist_classes(config)
             wait_ok, wait_message = await wait_for_nitrado_gameserver_online(config)
             workflow["server_online_wait"] = wait_message
             if not wait_ok:
@@ -41497,8 +41525,19 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                 backup_path,
             )
             if not backup_ok or original_text is None:
-                event["status"] = f"Could not download cfgignorelist restore backup: {backup_message}"
-                return False, event["status"]
+                live_ok, live_message, live_text = await asyncio.to_thread(
+                    download_text_file_from_nitrado,
+                    config,
+                    path,
+                )
+                if not live_ok or live_text is None:
+                    event["status"] = f"Could not download cfgignorelist backup or live file: {backup_message}; {live_message}"
+                    return False, event["status"]
+                cleanup_ok, cleanup_message, original_text = remove_vehicle_cfgignorelist_entries(live_text, vehicle_classes)
+                if not cleanup_ok:
+                    event["status"] = cleanup_message
+                    return False, event["status"]
+                backup_message = f"Backup unavailable; cleaned live file fallback used. {cleanup_message}"
 
             restore_ok, restore_message = await asyncio.to_thread(
                 upload_text_file_to_nitrado,
@@ -41509,6 +41548,51 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
             if not restore_ok:
                 event["status"] = f"Failed to restore original cfgignorelist.xml: {restore_message}"
                 return False, event["status"]
+
+            verify_ok, verify_message, verify_text = await asyncio.to_thread(
+                download_text_file_from_nitrado,
+                config,
+                path,
+            )
+            if not verify_ok or verify_text is None:
+                event["status"] = f"Original cfgignorelist upload finished, but verification download failed: {verify_message}"
+                return False, event["status"]
+
+            stale_entries = cfgignorelist_vehicle_entries(verify_text, vehicle_classes)
+            if stale_entries is None:
+                event["status"] = "Restored cfgignorelist.xml could not be parsed during vehicle-entry verification."
+                return False, event["status"]
+
+            cleanup_message = "No vehicle reset entries remained after restore."
+            if stale_entries:
+                cleanup_ok, cleanup_message, cleaned_text = remove_vehicle_cfgignorelist_entries(verify_text, vehicle_classes)
+                if not cleanup_ok:
+                    event["status"] = cleanup_message
+                    return False, event["status"]
+                cleanup_upload_ok, cleanup_upload_message = await asyncio.to_thread(
+                    upload_text_file_to_nitrado,
+                    config,
+                    path,
+                    cleaned_text or empty_cfgignorelist_xml(),
+                )
+                if not cleanup_upload_ok:
+                    event["status"] = f"Failed to remove stale vehicle entries from cfgignorelist.xml: {cleanup_upload_message}"
+                    return False, event["status"]
+
+                verify_ok, verify_message, verify_text = await asyncio.to_thread(
+                    download_text_file_from_nitrado,
+                    config,
+                    path,
+                )
+                if not verify_ok or verify_text is None:
+                    event["status"] = f"Stale vehicle entries were cleaned, but verification download failed: {verify_message}"
+                    return False, event["status"]
+                stale_entries = cfgignorelist_vehicle_entries(verify_text, vehicle_classes)
+                if stale_entries:
+                    preview = ", ".join(stale_entries[:8])
+                    event["status"] = f"cfgignorelist.xml still contains vehicle reset entries after cleanup: {preview}"
+                    return False, event["status"]
+                cleanup_message = f"{cleanup_message} Verification passed after cleanup."
 
             restart_ok, restart_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
             record = append_restart_history(
@@ -41540,6 +41624,7 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                     f"Restored: `{path}`\n"
                     f"Backup used: `{backup_path}`\n"
                     f"Server wait: `{wait_message}`\n"
+                    f"Verification: `{cleanup_message}`\n"
                     f"Restore restart: `{restart_message}`"
                 ),
                 0x2ECC71,
@@ -41649,6 +41734,46 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
             if not restore_ok:
                 event["status"] = f"Failed to restore original cfgignorelist.xml: {restore_message}"
                 return False, event["status"]
+
+            verify_ok, verify_message, verify_text = await asyncio.to_thread(
+                download_text_file_from_nitrado,
+                config,
+                path,
+            )
+            if not verify_ok or verify_text is None:
+                event["status"] = f"Original cfgignorelist upload finished, but verification download failed: {verify_message}"
+                return False, event["status"]
+            stale_entries = cfgignorelist_vehicle_entries(verify_text, vehicle_classes)
+            if stale_entries is None:
+                event["status"] = "Restored cfgignorelist.xml could not be parsed during vehicle-entry verification."
+                return False, event["status"]
+            if stale_entries:
+                cleanup_ok, cleanup_message, cleaned_text = remove_vehicle_cfgignorelist_entries(verify_text, vehicle_classes)
+                if not cleanup_ok:
+                    event["status"] = cleanup_message
+                    return False, event["status"]
+                cleanup_upload_ok, cleanup_upload_message = await asyncio.to_thread(
+                    upload_text_file_to_nitrado,
+                    config,
+                    path,
+                    cleaned_text or empty_cfgignorelist_xml(),
+                )
+                if not cleanup_upload_ok:
+                    event["status"] = f"Failed to remove stale vehicle entries from cfgignorelist.xml: {cleanup_upload_message}"
+                    return False, event["status"]
+                verify_ok, verify_message, verify_text = await asyncio.to_thread(
+                    download_text_file_from_nitrado,
+                    config,
+                    path,
+                )
+                if not verify_ok or verify_text is None:
+                    event["status"] = f"Stale vehicle entries were cleaned, but verification download failed: {verify_message}"
+                    return False, event["status"]
+                stale_entries = cfgignorelist_vehicle_entries(verify_text, vehicle_classes)
+                if stale_entries:
+                    preview = ", ".join(stale_entries[:8])
+                    event["status"] = f"cfgignorelist.xml still contains vehicle reset entries after cleanup: {preview}"
+                    return False, event["status"]
 
             workflow["stage"] = "start_after_cfgignorelist_restore"
             event["status"] = "Original cfgignorelist.xml restored; starting server"
@@ -41825,6 +41950,46 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
         if not restore_ok:
             event["status"] = f"Failed to restore original cfgignorelist.xml: {restore_message}"
             return False, event["status"]
+
+        verify_ok, verify_message, verify_text = await asyncio.to_thread(
+            download_text_file_from_nitrado,
+            config,
+            path,
+        )
+        if not verify_ok or verify_text is None:
+            event["status"] = f"Original cfgignorelist upload finished, but verification download failed: {verify_message}"
+            return False, event["status"]
+        stale_entries = cfgignorelist_vehicle_entries(verify_text, vehicle_classes)
+        if stale_entries is None:
+            event["status"] = "Restored cfgignorelist.xml could not be parsed during vehicle-entry verification."
+            return False, event["status"]
+        if stale_entries:
+            cleanup_ok, cleanup_message, cleaned_text = remove_vehicle_cfgignorelist_entries(verify_text, vehicle_classes)
+            if not cleanup_ok:
+                event["status"] = cleanup_message
+                return False, event["status"]
+            cleanup_upload_ok, cleanup_upload_message = await asyncio.to_thread(
+                upload_text_file_to_nitrado,
+                config,
+                path,
+                cleaned_text or empty_cfgignorelist_xml(),
+            )
+            if not cleanup_upload_ok:
+                event["status"] = f"Failed to remove stale vehicle entries from cfgignorelist.xml: {cleanup_upload_message}"
+                return False, event["status"]
+            verify_ok, verify_message, verify_text = await asyncio.to_thread(
+                download_text_file_from_nitrado,
+                config,
+                path,
+            )
+            if not verify_ok or verify_text is None:
+                event["status"] = f"Stale vehicle entries were cleaned, but verification download failed: {verify_message}"
+                return False, event["status"]
+            stale_entries = cfgignorelist_vehicle_entries(verify_text, vehicle_classes)
+            if stale_entries:
+                preview = ", ".join(stale_entries[:8])
+                event["status"] = f"cfgignorelist.xml still contains vehicle reset entries after cleanup: {preview}"
+                return False, event["status"]
         restored = True
 
         workflow["stage"] = "start_after_cfgignorelist_restore"
