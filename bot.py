@@ -915,9 +915,13 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "schedule_reminder_channel_id",
     "schedule_reminder_channel_key",
     "schedule_reminder_minutes",
+    "schedule_reminder_sent_markers",
     "schedule_reminders_enabled",
     "safe_zone_offenses",
+    "scenario_event_discord_notice_last_signature",
+    "scenario_event_discord_notice_last_ts",
     "scenario_event_discord_notices",
+    "scenario_event_discord_notice_recent_signatures",
     "scenario_events",
     "scenario_events_cleanup_completed_at",
     "scenario_events_cleanup_error",
@@ -26247,19 +26251,34 @@ def schedule_reminder_time_label(schedule, next_run):
     return local_time.strftime("%A %d %b %H:%M %Z").strip()
 
 
-def schedule_reminder_marker(schedule_key, next_run, minutes):
-    return f"{schedule_key}:{next_run.astimezone(UTC).isoformat()}:{int(minutes)}"
+def schedule_reminder_marker(guild_id, schedule_key, next_run, minutes):
+    return f"{guild_id}:{schedule_key}:{next_run.astimezone(UTC).isoformat()}:{int(minutes)}"
 
 
-def schedule_reminder_already_sent(schedule, marker):
+def schedule_reminder_config_markers(config):
+    markers = config.get("schedule_reminder_sent_markers")
+    if not isinstance(markers, list):
+        markers = []
+        config["schedule_reminder_sent_markers"] = markers
+    return markers
+
+
+def schedule_reminder_already_sent(config, schedule, marker):
+    config_markers = {str(item) for item in schedule_reminder_config_markers(config)}
     markers = schedule.get("reminder_markers")
     if not isinstance(markers, list):
         markers = []
         schedule["reminder_markers"] = markers
-    return marker in {str(item) for item in markers}
+    return marker in config_markers or marker in {str(item) for item in markers}
 
 
-def remember_schedule_reminder(schedule, marker, now_utc):
+def remember_schedule_reminder(config, schedule, marker, now_utc):
+    config_markers = schedule_reminder_config_markers(config)
+    if marker not in config_markers:
+        config_markers.append(marker)
+    del config_markers[:-80]
+    config["schedule_reminder_last_sent_at"] = now_utc.isoformat()
+
     markers = schedule.get("reminder_markers")
     if not isinstance(markers, list):
         markers = []
@@ -26324,8 +26343,8 @@ async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc
         for minute in reminder_minutes:
             if seconds_until > minute * 60:
                 continue
-            marker = schedule_reminder_marker(schedule_key, next_run, minute)
-            if schedule_reminder_already_sent(schedule, marker):
+            marker = schedule_reminder_marker(guild_id, schedule_key, next_run, minute)
+            if schedule_reminder_already_sent(config, schedule, marker):
                 continue
             embed = discord.Embed(
                 title=f"{title} - {minute} MINUTES",
@@ -26337,11 +26356,11 @@ async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc
                 color=color,
             )
             embed.set_thumbnail(url=BOT_IMAGE)
-            embed.set_footer(text="Wandering Bot Alpha - Schedule Reminder")
+            embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
             embed.timestamp = now_utc
             try:
                 await channel.send(embed=style_embed(embed))
-                remember_schedule_reminder(schedule, marker, now_utc)
+                remember_schedule_reminder(config, schedule, marker, now_utc)
                 sent_any = True
                 break
             except Exception as error:
@@ -39577,6 +39596,14 @@ def _scenario_notice_signature(success, notice):
     ])[:900]
 
 
+def scenario_notice_recent_signatures(config):
+    recent = config.get("scenario_event_discord_notice_recent_signatures")
+    if not isinstance(recent, dict):
+        recent = {}
+        config["scenario_event_discord_notice_recent_signatures"] = recent
+    return recent
+
+
 def queue_scenario_event_discord_notice(config, success, built=None, messages=None, events=None, source="Dashboard"):
     if not isinstance(config, dict):
         return False
@@ -39622,6 +39649,26 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         last_ts = 0.0
     if signature and signature == last_signature and (now_ts - last_ts) < SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS:
         return False
+    recent_signatures = scenario_notice_recent_signatures(config)
+    stale_keys = []
+    for recent_signature, recent_ts in recent_signatures.items():
+        try:
+            age = now_ts - float(recent_ts or 0.0)
+        except (TypeError, ValueError):
+            stale_keys.append(recent_signature)
+            continue
+        if age >= SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS:
+            stale_keys.append(recent_signature)
+    for stale_key in stale_keys:
+        recent_signatures.pop(stale_key, None)
+    if signature:
+        try:
+            recent_ts = float(recent_signatures.get(signature) or 0.0)
+        except (TypeError, ValueError):
+            recent_ts = 0.0
+        if (now_ts - recent_ts) < SCENARIO_EVENT_NOTICE_COOLDOWN_SECONDS:
+            return False
+        recent_signatures[signature] = now_ts
     config["scenario_event_discord_notice_last_signature"] = signature
     config["scenario_event_discord_notice_last_ts"] = now_ts
     notices.append(notice)
