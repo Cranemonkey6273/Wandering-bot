@@ -40855,6 +40855,62 @@ def build_vehicle_cfgignorelist_xml(original_text, vehicle_classes):
     return True, f"Prepared cfgignorelist.xml with {len(vehicle_classes)} vehicle class(es), adding {added}.", xml_text
 
 
+def remove_vehicle_cfgignorelist_entries(original_text, vehicle_classes):
+    source_text = original_text or empty_cfgignorelist_xml()
+    try:
+        root = ET.fromstring(source_text)
+    except ET.ParseError:
+        return False, "cfgignorelist.xml could not be parsed; refusing to back up a broken ignore list.", source_text
+
+    vehicle_keys = {
+        normalize_discord_name(item_name)
+        for item_name in vehicle_classes
+        if normalize_discord_name(item_name)
+    }
+    removed = 0
+
+    def local_tag_name(node):
+        tag = str(getattr(node, "tag", "") or "")
+        if "}" in tag:
+            tag = tag.rsplit("}", 1)[-1]
+        return tag.lower()
+
+    def prune(parent):
+        nonlocal removed
+        for child in list(parent):
+            child_name = normalize_discord_name(child.get("name") if hasattr(child, "get") else "")
+            if local_tag_name(child) in {"item", "type"} and child_name in vehicle_keys:
+                parent.remove(child)
+                removed += 1
+                continue
+            prune(child)
+
+    prune(root)
+    if not removed:
+        return True, "No stale vehicle entries were present in cfgignorelist.xml.", source_text
+
+    try:
+        ET.indent(root, space="    ")
+    except Exception:
+        pass
+
+    xml_body = ET.tostring(root, encoding="unicode")
+    xml_text = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + xml_body + "\n"
+    entry_word = "entry" if removed == 1 else "entries"
+    return True, f"Removed {removed} stale vehicle reset {entry_word} before creating the backup.", xml_text
+
+
+def prepare_vehicle_cfgignorelist_reset_xml(original_text, vehicle_classes):
+    cleanup_ok, cleanup_message, baseline_text = remove_vehicle_cfgignorelist_entries(original_text, vehicle_classes)
+    if not cleanup_ok:
+        return False, cleanup_message, original_text or empty_cfgignorelist_xml(), ""
+
+    ok, message, wipe_text = build_vehicle_cfgignorelist_xml(baseline_text, vehicle_classes)
+    if cleanup_message.startswith("Removed "):
+        message = f"{message} {cleanup_message}"
+    return ok, message, baseline_text, wipe_text
+
+
 def scheduled_vehicle_reset_preflight_seconds(config):
     try:
         minutes = int(config.get("vehicle_reset_preflight_minutes", 15) or 15)
@@ -41332,24 +41388,24 @@ async def run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, e
                 event["status"] = message
                 return False, message
 
+            ok, message, baseline_text, wipe_text = prepare_vehicle_cfgignorelist_reset_xml(original_text, vehicle_classes)
+            if not ok:
+                event["status"] = message
+                return False, message
+
             backup_path = cfgignorelist_vehicle_reset_backup_path(path)
             if backup_path:
                 backup_ok, backup_message = await asyncio.to_thread(
                     upload_text_file_to_nitrado,
                     config,
                     backup_path,
-                    original_text or empty_cfgignorelist_xml(),
+                    baseline_text or empty_cfgignorelist_xml(),
                 )
                 if not backup_ok:
                     event["status"] = f"Failed to save cfgignorelist restore backup: {backup_message}"
                     return False, event["status"]
             else:
                 backup_message = "No backup path could be resolved."
-
-            ok, message, wipe_text = build_vehicle_cfgignorelist_xml(original_text, vehicle_classes)
-            if not ok:
-                event["status"] = message
-                return False, message
 
             upload_ok, upload_message = await asyncio.to_thread(
                 upload_text_file_to_nitrado,
@@ -41505,14 +41561,140 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
         return await run_scheduled_cfgignorelist_vehicle_reset_workflow(guild_id, config, event)
 
     workflow = config.setdefault("vehicle_reset_cfgignorelist_workflow", {})
-    if workflow.get("running"):
-        return False, "cfgignorelist vehicle reset is already running for this guild."
-
     event_id = str(event.get("id") or "")
+    now = datetime.now(UTC)
+    stage = str(event.get("cfgignorelist_stage") or "").strip().lower()
+
+    if workflow.get("running"):
+        started_at = _parse_schedule_datetime(workflow.get("started_at"))
+        is_restore_recovery = stage in {"waiting_to_restore", "restore_original_cfgignorelist"}
+        is_stale = (
+            is_restore_recovery
+            and (
+                not started_at
+                or (now - started_at).total_seconds() >= 600
+            )
+        )
+        if not is_stale:
+            return False, "cfgignorelist vehicle reset is already running for this guild."
+        workflow["running"] = False
+        workflow["stale_running_cleared_at"] = now.isoformat()
+        workflow["stale_running_stage"] = stage
+        save_guild_configs_for_runtime(config)
+
+    if stage in {"waiting_to_restore", "restore_original_cfgignorelist"}:
+        restore_after = _parse_schedule_datetime(event.get("cfgignorelist_restore_after_utc"))
+        if stage == "waiting_to_restore" and restore_after and now < restore_after:
+            event["status"] = f"Vehicle-only cfgignorelist is active; original restore due at {format_reset_time(restore_after.isoformat())}."
+            save_guild_configs_for_runtime(config)
+            return True, event["status"]
+
+        path = str(event.get("cfgignorelist_path") or config.get("vehicle_reset_cfgignorelist_path") or "").strip()
+        backup_path = str(event.get("cfgignorelist_backup_path") or cfgignorelist_vehicle_reset_backup_path(path)).strip()
+        if not path:
+            event["status"] = "Cannot restore cfgignorelist because the live path is missing."
+            save_guild_configs_for_runtime(config)
+            return False, event["status"]
+
+        workflow.update({
+            "running": True,
+            "event_id": event_id,
+            "started_at": now.isoformat(),
+            "stage": "restore_original_cfgignorelist",
+            "last_path": path,
+            "backup_path": backup_path,
+        })
+        event["cfgignorelist_stage"] = "restore_original_cfgignorelist"
+        event["status"] = "Restoring original cfgignorelist.xml after the vehicle reset"
+        save_guild_configs_for_runtime(config)
+
+        try:
+            vehicle_classes = vehicle_reset_cfgignorelist_classes(config)
+            stop_ok, stop_message = await asyncio.to_thread(nitrado_gameserver_action, config, "stop")
+            workflow["restore_stop_message"] = stop_message
+            if not stop_ok:
+                workflow["restore_stop_warning"] = stop_message
+
+            backup_ok = False
+            backup_message = "No backup path was saved."
+            original_text = None
+            if backup_path:
+                backup_ok, backup_message, original_text = await asyncio.to_thread(
+                    download_text_file_from_nitrado,
+                    config,
+                    backup_path,
+                )
+
+            if not backup_ok or original_text is None:
+                live_ok, live_message, live_text = await asyncio.to_thread(
+                    download_text_file_from_nitrado,
+                    config,
+                    path,
+                )
+                if not live_ok:
+                    event["status"] = f"Could not download cfgignorelist backup or live file: {backup_message}; {live_message}"
+                    return False, event["status"]
+                cleanup_ok, cleanup_message, original_text = remove_vehicle_cfgignorelist_entries(live_text, vehicle_classes)
+                if not cleanup_ok:
+                    event["status"] = cleanup_message
+                    return False, event["status"]
+                backup_message = f"Backup unavailable; cleaned live file fallback used. {cleanup_message}"
+
+            restore_ok, restore_message = await asyncio.to_thread(
+                upload_text_file_to_nitrado,
+                config,
+                path,
+                original_text or empty_cfgignorelist_xml(),
+            )
+            if not restore_ok:
+                event["status"] = f"Failed to restore original cfgignorelist.xml: {restore_message}"
+                return False, event["status"]
+
+            workflow["stage"] = "start_after_cfgignorelist_restore"
+            event["status"] = "Original cfgignorelist.xml restored; starting server"
+            save_guild_configs_for_runtime(config)
+            if stop_ok:
+                start_ok, start_message = await asyncio.to_thread(nitrado_gameserver_action, config, "start")
+                if not start_ok:
+                    event["status"] = f"Original cfgignorelist restored, but start failed: {start_message}"
+                    return False, event["status"]
+            else:
+                start_ok, start_message = await asyncio.to_thread(nitrado_gameserver_action, config, "restart")
+                if not start_ok:
+                    event["status"] = f"Original cfgignorelist restored, but restart failed: {start_message}"
+                    return False, event["status"]
+
+            workflow["stage"] = "complete"
+            workflow["last_completed_at"] = datetime.now(UTC).isoformat()
+            event["cfgignorelist_stage"] = "complete"
+            event["status"] = "cfgignorelist vehicle-only reset complete; original ignore list restored"
+            mark_scenario_event_completed(config, event_id)
+            save_guild_configs_for_runtime(config)
+            await post_vehicle_reset_status(
+                guild_id,
+                config,
+                "Vehicle Reset Restored",
+                (
+                    "The vehicle reset cycle finished and the original cfgignorelist.xml is back in place.\n\n"
+                    f"Restored: `{path}`\n"
+                    f"Backup: `{backup_path or 'fallback cleanup'}`\n"
+                    f"Backup result: `{backup_message}`\n"
+                    f"Stop: `{stop_message}`\n"
+                    f"Start: `{start_message}`"
+                ),
+                0x2ECC71,
+            )
+            return True, event["status"]
+
+        finally:
+            workflow["running"] = False
+            workflow["finished_at"] = datetime.now(UTC).isoformat()
+            save_guild_configs_for_runtime(config)
+
     workflow.update({
         "running": True,
         "event_id": event_id,
-        "started_at": datetime.now(UTC).isoformat(),
+        "started_at": now.isoformat(),
         "stage": "download_cfgignorelist",
     })
     event["reset_method"] = "cfgignorelist"
@@ -41520,7 +41702,8 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
     save_guild_configs_for_runtime(config)
 
     path = ""
-    original_text = ""
+    baseline_text = ""
+    backup_path = ""
     restored = False
 
     try:
@@ -41538,13 +41721,44 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
             event["status"] = message
             return False, message
 
-        ok, message, wipe_text = build_vehicle_cfgignorelist_xml(original_text, vehicle_classes)
+        ok, message, baseline_text, wipe_text = prepare_vehicle_cfgignorelist_reset_xml(original_text, vehicle_classes)
         if not ok:
             event["status"] = message
             return False, message
 
+        backup_path = cfgignorelist_vehicle_reset_backup_path(path)
+        if backup_path:
+            workflow["stage"] = "upload_cfgignorelist_restore_backup"
+            event["status"] = "Saving clean cfgignorelist restore backup before vehicle reset"
+            save_guild_configs_for_runtime(config)
+            backup_ok, backup_message = await asyncio.to_thread(
+                upload_text_file_to_nitrado,
+                config,
+                backup_path,
+                baseline_text or empty_cfgignorelist_xml(),
+            )
+            if not backup_ok:
+                event["status"] = f"Failed to save cfgignorelist restore backup: {backup_message}"
+                return False, event["status"]
+        else:
+            backup_message = "No backup path could be resolved."
+
+        wipe_wait_seconds = max(30, int(config.get("vehicle_reset_wipe_wait_seconds", 120) or 120))
+        restore_wait_seconds = max(10, int(config.get("vehicle_reset_restore_wait_seconds", 30) or 30))
+        restore_after = datetime.now(UTC) + timedelta(seconds=wipe_wait_seconds + restore_wait_seconds)
+
         workflow["stage"] = "upload_vehicle_cfgignorelist"
         workflow["vehicle_class_count"] = len(vehicle_classes)
+        workflow["last_path"] = path
+        workflow["backup_path"] = backup_path
+        event.update({
+            "cfgignorelist_stage": "waiting_to_restore",
+            "cfgignorelist_path": path,
+            "cfgignorelist_backup_path": backup_path,
+            "cfgignorelist_vehicle_class_count": len(vehicle_classes),
+            "cfgignorelist_prepared_at": datetime.now(UTC).isoformat(),
+            "cfgignorelist_restore_after_utc": restore_after.isoformat(),
+        })
         event["status"] = message
         save_guild_configs_for_runtime(config)
         upload_ok, upload_message = await asyncio.to_thread(
@@ -41575,7 +41789,7 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
             event["status"] = restart_message
             return False, restart_message
 
-        await asyncio.sleep(max(30, int(config.get("vehicle_reset_wipe_wait_seconds", 120) or 120)))
+        await asyncio.sleep(wipe_wait_seconds)
 
         workflow["stage"] = "stop_for_cfgignorelist_restore"
         event["status"] = "Stopping server so the original cfgignorelist.xml can be restored"
@@ -41585,16 +41799,28 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
             event["status"] = stop_message
             return False, stop_message
 
-        await asyncio.sleep(max(10, int(config.get("vehicle_reset_restore_wait_seconds", 30) or 30)))
+        await asyncio.sleep(restore_wait_seconds)
 
         workflow["stage"] = "restore_original_cfgignorelist"
+        event["cfgignorelist_stage"] = "restore_original_cfgignorelist"
         event["status"] = "Restoring original cfgignorelist.xml"
         save_guild_configs_for_runtime(config)
+        if backup_path:
+            backup_ok, backup_message, downloaded_baseline = await asyncio.to_thread(
+                download_text_file_from_nitrado,
+                config,
+                backup_path,
+            )
+            if backup_ok and downloaded_baseline is not None:
+                baseline_text = downloaded_baseline
+            else:
+                workflow["backup_download_warning"] = backup_message
+
         restore_ok, restore_message = await asyncio.to_thread(
             upload_text_file_to_nitrado,
             config,
             path,
-            original_text or empty_cfgignorelist_xml(),
+            baseline_text or empty_cfgignorelist_xml(),
         )
         if not restore_ok:
             event["status"] = f"Failed to restore original cfgignorelist.xml: {restore_message}"
@@ -41612,14 +41838,15 @@ async def run_cfgignorelist_vehicle_reset_workflow(guild_id, config, event):
         workflow["stage"] = "complete"
         workflow["last_completed_at"] = datetime.now(UTC).isoformat()
         workflow["last_path"] = path
-        event["status"] = "cfgignorelist vehicle-only reset complete"
+        event["cfgignorelist_stage"] = "complete"
+        event["status"] = "cfgignorelist vehicle-only reset complete; original ignore list restored"
         mark_scenario_event_completed(config, event_id)
-        return True, "cfgignorelist vehicle-only reset complete."
+        return True, event["status"]
 
     finally:
-        if original_text and path and not restored:
+        if baseline_text and path and not restored:
             try:
-                await asyncio.to_thread(upload_text_file_to_nitrado, config, path, original_text)
+                await asyncio.to_thread(upload_text_file_to_nitrado, config, path, baseline_text)
                 workflow["restore_attempted_at"] = datetime.now(UTC).isoformat()
             except Exception as restore_error:
                 workflow["restore_error"] = str(restore_error)
