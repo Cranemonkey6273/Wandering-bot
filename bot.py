@@ -42254,6 +42254,24 @@ def queue_due_vehicle_reset_schedule(guild_id, config, now_utc):
     queue_at = next_run
     if method == "cfgignorelist":
         queue_at = next_run - timedelta(seconds=scheduled_vehicle_reset_preflight_seconds(config))
+
+        if now_utc >= next_run:
+            schedule["last_skipped_stale_target_at"] = now_utc.isoformat()
+            schedule["last_skipped_stale_target_utc"] = next_run.isoformat()
+            schedule["last_skip_reason"] = "missed cfgignorelist preflight window"
+            _advance_vehicle_reset_schedule(schedule, now_utc)
+            save_guild_configs_for_runtime(config)
+            return None
+
+        updated_at = _parse_schedule_datetime(schedule.get("updated_at"))
+        if updated_at and queue_at <= updated_at < next_run and now_utc >= queue_at:
+            schedule["last_skipped_recent_update_at"] = now_utc.isoformat()
+            schedule["last_skipped_recent_update_target_utc"] = next_run.isoformat()
+            schedule["last_skip_reason"] = "schedule was saved inside cfgignorelist preflight window"
+            _advance_vehicle_reset_schedule(schedule, now_utc)
+            save_guild_configs_for_runtime(config)
+            return None
+
     if now_utc < queue_at:
         return None
 
