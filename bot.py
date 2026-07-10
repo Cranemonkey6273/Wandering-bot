@@ -38118,7 +38118,11 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if record.get("use_eventgroup") or record.get("mapgroupproto_classes")
     ]
     cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
-    repair_static_helicrash_proto = allow_unowned_repairs and bool(mapgroupproto_records) and normalize_dayz_reference_map_key(ce_map_key) == "livonia"
+    repair_static_helicrash_proto = (
+        allow_unowned_repairs
+        and bool(mapgroupproto_records)
+        and normalize_dayz_reference_map_key(ce_map_key) in {"chernarus", "livonia", "sakhal"}
+    )
     repair_static_airplanecrate_proto = allow_unowned_repairs and any(
         event_definition_uses_loot_child(events_root, VANILLA_STATIC_AIRPLANECRATE_EVENT_NAME, class_name)
         for class_name in VANILLA_STATIC_AIRPLANECRATE_PROTO_REPAIR_CLASSES
@@ -38278,7 +38282,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             )
         if repaired_static_proto_classes:
             output["messages"].append(
-                "Restored vanilla Livonia StaticHeliCrash mapgroupproto group(s) from bundled DayZ reference: "
+                "Restored vanilla StaticHeliCrash mapgroupproto group(s) from bundled DayZ reference: "
                 + ", ".join(f"`{class_name}`" for class_name in repaired_static_proto_classes)
             )
         if repaired_airplanecrate_proto_classes:
@@ -38587,15 +38591,15 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 continue
             if max(safe_int(child.get("lootmax"), 0), safe_int(child.get("max"), 0)) > 0:
                 required_proto_names.add(child_type)
-    if normalize_dayz_reference_map_key(map_key) == "livonia" and mapgroupproto_uploading:
+    if normalize_dayz_reference_map_key(map_key) in {"chernarus", "livonia", "sakhal"} and mapgroupproto_uploading:
         heli_groups = mapgroupproto_groups_named(mapgroupproto_root, "Wreck_Mi8_Crashed")
         if len(heli_groups) != 1:
             messages.append(
-                "`mapgroupproto.xml` must contain exactly one `Wreck_Mi8_Crashed` group for Livonia StaticHeliCrash loot."
+                "`mapgroupproto.xml` must contain exactly one `Wreck_Mi8_Crashed` group for StaticHeliCrash loot."
             )
         elif mapgroupproto_static_helicrash_group_needs_repair(heli_groups[0], map_key, "Wreck_Mi8_Crashed"):
             messages.append(
-                "`Wreck_Mi8_Crashed` mapgroupproto group is missing the vanilla Livonia StaticHeliCrash loot container/points."
+                "`Wreck_Mi8_Crashed` mapgroupproto group is missing the vanilla StaticHeliCrash loot container/points."
             )
     limit_flag_checks = (
         ("usage", valid_usage_flags),

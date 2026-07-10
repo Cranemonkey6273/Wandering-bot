@@ -1250,6 +1250,72 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
+    def test_chernarus_airdrop_repairs_one_point_mi8_proto(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        proto_root = ET.Element("prototype")
+        crash_group = ET.SubElement(proto_root, "group", {"name": "Wreck_Mi8_Crashed", "lootmax": "80"})
+        ET.SubElement(crash_group, "usage", {"name": "Military"})
+        ET.SubElement(crash_group, "point", {"pos": "0 0 0", "range": "0.5", "height": "0.5"})
+        container = ET.SubElement(crash_group, "container", {"name": "lootfloor", "lootmax": "80"})
+        for category in ("weapons", "explosives", "tools", "clothes", "containers", "food"):
+            ET.SubElement(container, "category", {"name": category})
+        ET.SubElement(container, "point", {"pos": "0 0 0", "range": "0.5", "height": "0.5"})
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": (bot.xml_text_from_root(proto_root), f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    34,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=True,
+                    scene_type="helicopter_crash",
+                    loot_preset="military_high",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        self.assertTrue(built.get("mapgroupproto_text"))
+        proto_after = ET.fromstring(built["mapgroupproto_text"])
+        groups = proto_after.findall("./group[@name='Wreck_Mi8_Crashed']")
+        self.assertEqual(1, len(groups))
+        self.assertTrue(bot.mapgroupproto_group_matches_reference(groups[0], "chernarus", "Wreck_Mi8_Crashed"))
+        points = groups[0].findall("./container/point")
+        self.assertGreaterEqual(len(points), 20)
+        self.assertFalse(any(str(point.get("pos") or "").strip() == "0 0 0" for point in points))
+        self.assertTrue(
+            any("Restored vanilla StaticHeliCrash" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        self.assertTrue(ok, "\n".join(messages))
+
     def test_static_airplanecrate_missing_proto_is_restored_for_horde_upload(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
         live_events = (
