@@ -2203,6 +2203,31 @@ def adm_event_fingerprint(guild_id, event_type, line, event_time=None):
             clock = ""
     player = extract_player_name(line)
     coords = extract_adm_coords(line) or ""
+    if event_type == "suicide":
+        if event_time:
+            try:
+                ts = int(event_time.timestamp())
+                clock = str(ts - (ts % 60))
+            except Exception:
+                pass
+        if not clock:
+            match = _ADM_TIME_PREFIX_RE.match(str(line or ""))
+            if match:
+                seconds = (
+                    int(match.group(1)) * 3600
+                    + int(match.group(2)) * 60
+                    + int(match.group(3))
+                )
+                clock = str(seconds - (seconds % 60))
+        parts = [
+            str(guild_id),
+            "suicide",
+            clock,
+            normalize_discord_name(player),
+            str(coords).strip(),
+        ]
+        return hashlib.sha256("|".join(parts).encode("utf-8", errors="ignore")).hexdigest()
+
     compact_line = re.sub(r"\bid=[^) ]+", "id=", str(line or ""), flags=re.IGNORECASE)
     compact_line = re.sub(r"\s+", " ", compact_line).strip().lower()
     parts = [

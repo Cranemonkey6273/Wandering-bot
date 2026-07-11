@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 import sys
 import time
@@ -12,6 +13,24 @@ bot = import_bot_module()
 
 
 class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_suicide_fingerprint_collapses_emote_and_death_pair(self):
+        event_time = datetime(2026, 7, 11, 14, 33, 42, tzinfo=timezone.utc)
+        emote_line = (
+            '14:33:40 | Player "CraneMonkey6273" (id=abc pos=<13452.8, 6183.1, 6.1>) '
+            "performed emotesuicide"
+        )
+        death_line = (
+            '14:33:43 | Player "CraneMonkey6273" (id=abc pos=<13452.8, 6183.1, 6.1>) '
+            "committed suicide"
+        )
+
+        self.assertEqual(bot.classify_event(emote_line), "suicide")
+        self.assertEqual(bot.classify_event(death_line), "suicide")
+        self.assertEqual(
+            bot.adm_event_fingerprint(123, "suicide", emote_line, event_time=event_time),
+            bot.adm_event_fingerprint(123, "suicide", death_line, event_time=event_time),
+        )
+
     def test_playstation_adm_paths_prefer_dayzps_roots(self):
         paths = bot.nitrado_adm_search_paths({
             "nitrado_user": "ni123",
