@@ -28,7 +28,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from threading import Thread
-from typing import Any
+from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 import requests
@@ -523,6 +523,34 @@ PUBLIC_SEO_PAGES = {
             ("DayZ Nitrado tools", "Server status, restart controls, guarded XML workflows, and live event tools for Nitrado-hosted console servers."),
         ],
     },
+    "dayz-guides": {
+        "path": "/dayz-bot-guides",
+        "title": "DayZ Bot Guides for Killfeeds, Discord and Nitrado Servers - Wandering Bot",
+        "description": "Practical DayZ bot guides for console server owners setting up Discord killfeeds, ADM logs, Nitrado dashboards, raid alerts, heatmaps, airdrops, and server automation.",
+        "keywords": ["DayZ bot guides", "DayZ killfeed setup", "DayZ Discord bot guide", "DayZ ADM logs", "DayZ Nitrado dashboard", "DayZ console server tools"],
+        "eyebrow": "DayZ bot guides",
+        "headline": "Guides for running a cleaner DayZ console server",
+        "lead": "Use these Wandering Bot guides to understand DayZ killfeeds, ADM logs, Discord feed routing, Nitrado dashboard tools, raid alerts, heatmaps, event builders, and console-friendly server automation.",
+        "focus": "A public content hub for DayZ Xbox and PlayStation server owners searching for help with killfeeds, Discord bots, ADM logs, Nitrado tools, raid alerts, and server dashboards.",
+        "features": [
+            ("Killfeed setup", "Learn how DayZ ADM activity becomes readable Discord feeds for kills, deaths, connects, longshots, and staff logs."),
+            ("Nitrado workflows", "Understand the server details Wandering Bot needs and why dashboard access is safer than sharing full accounts."),
+            ("Server visibility", "See how raid alerts, heatmaps, radar pings, event trackers, and economy feeds help staff manage busy communities."),
+        ],
+        "faqs": [
+            ("Who are these DayZ bot guides for?", "They are written for DayZ Xbox and PlayStation server owners who want Discord feeds, dashboards, Nitrado tools, and cleaner admin workflows."),
+            ("Do these guides apply to PC DayZ servers?", "Some ideas apply broadly, but Wandering Bot is focused on console-style DayZ communities using Discord, Nitrado, and ADM logs."),
+            ("Do I need to install mods for these workflows?", "No. Wandering Bot is built around console-friendly server data, Discord routing, and dashboard tools rather than PC-only mods."),
+        ],
+        "search_intro": "Start with the guide that matches what you are setting up: killfeeds, ADM logs, Nitrado tools, raid alerts, heatmaps, airdrops, or a full DayZ console dashboard.",
+        "search_terms": [
+            ("DayZ bot guide", "Practical setup help for Discord automation and dashboard tools."),
+            ("DayZ killfeed setup", "How kill, death, longshot, and player activity feeds reach Discord."),
+            ("DayZ ADM logs", "What server logs show and how Wandering Bot turns them into readable events."),
+            ("DayZ Nitrado dashboard", "How owners manage server tools without handing every admin full access."),
+        ],
+        "guide_hub": True,
+    },
     "dayz-bot": {
         "path": "/dayz-bot",
         "title": "DayZ Bot for Discord and Console Servers - Wandering Bot",
@@ -736,6 +764,147 @@ PUBLIC_SEO_PAGES = {
             ("Can visitors read all reviews?", "Yes. Public reviews are shown on the reviews page so new server owners can see feedback before adding the bot."),
             ("Can dashboard users leave a review later?", "Yes. A dashboard review prompt can gently remind users after they have spent time using the tools."),
         ],
+    },
+}
+
+PUBLIC_SEO_GUIDES = {
+    "dayz-discord-killfeed-setup": {
+        "path": "/guides/dayz-discord-killfeed-setup",
+        "title": "How to Add a DayZ Killfeed to Discord - Wandering Bot Guide",
+        "description": "Learn how DayZ console server owners can add Discord killfeeds using ADM logs, feed routing, linked gamertags, and Wandering Bot dashboard tools.",
+        "eyebrow": "Killfeed setup guide",
+        "headline": "How to add a DayZ killfeed to Discord",
+        "lead": "A practical setup guide for DayZ Xbox and PlayStation communities that want kills, deaths, longshots, connects, disconnects, and staff feeds posted into Discord.",
+        "category": "Killfeed",
+        "reading_time": "5 min",
+        "keywords": ["DayZ killfeed setup", "DayZ Discord killfeed", "DayZ kill feed bot", "DayZ ADM logs", "DayZ console killfeed"],
+        "sections": [
+            ("What a DayZ killfeed needs", "A console killfeed needs a Discord server, the bot installed with channel permissions, the correct DayZ map and platform, Nitrado service details, and ADM logs enabled so player activity can be read."),
+            ("Why ADM logs matter", "ADM logs are the source for most console-friendly feed events. Wandering Bot reads those lines, classifies the event, then turns the raw log into a cleaner Discord embed with player names, weapons, locations, and map links where available."),
+            ("How channels should be routed", "Owners can keep one public killfeed, split staff feeds into private channels, or route different feeds such as longshots, disconnects, raids, zombie deaths, and online players into their own Discord channels."),
+            ("What to check after setup", "After setup, use dashboard feed routes and ADM status checks to confirm the bot can read the latest log and post into the selected channel. If a channel was moved or deleted, update the route instead of rebuilding the whole Discord."),
+        ],
+        "faqs": [
+            ("Can console DayZ servers have a killfeed?", "Yes. Wandering Bot is built around console-style ADM log workflows for Xbox and PlayStation communities."),
+            ("Can I choose the killfeed channel?", "Yes. Feed routing lets the owner choose the Discord channel for each feed."),
+            ("Do players need to link their gamertag?", "Linking helps the dashboard, economy, and member tools understand which Discord member belongs to which DayZ player."),
+        ],
+        "related": ["dayz-killfeed-bot", "dayz-xbox-playstation-killfeed", "dayz-bot"],
+    },
+    "dayz-adm-logs-explained": {
+        "path": "/guides/dayz-adm-logs-explained",
+        "title": "DayZ ADM Logs Explained for Console Server Owners - Wandering Bot",
+        "description": "A simple explanation of DayZ ADM logs, what they show, why killfeeds use them, and how Wandering Bot turns server activity into Discord feeds.",
+        "eyebrow": "ADM logs explained",
+        "headline": "DayZ ADM logs explained",
+        "lead": "Understand what ADM logs are, why they matter for console DayZ servers, and how they power killfeeds, online boards, heatmaps, audit feeds, and player activity tools.",
+        "category": "ADM logs",
+        "reading_time": "6 min",
+        "keywords": ["DayZ ADM logs", "DayZ server logs", "DayZ killfeed ADM", "DayZ console logs", "Nitrado ADM logs"],
+        "sections": [
+            ("What ADM logs are", "ADM logs are server activity logs that include useful events such as player connections, deaths, damage, positions, flag activity, building actions, and other server-side moments."),
+            ("Why Discord bots use them", "Console servers cannot rely on the same modded access that many PC servers use. ADM logs give a practical source of truth for Discord feeds, dashboard activity, and staff visibility."),
+            ("What Wandering Bot reads", "Wandering Bot looks for known event patterns, extracts names and coordinates where possible, deduplicates repeated log lines, and routes each event into the correct feed or dashboard record."),
+            ("What owners should watch", "If feeds stop, check that the latest ADM file is being pulled, the server profile points to the correct Nitrado service, and the feed route still points at the intended Discord channel."),
+        ],
+        "faqs": [
+            ("Are ADM logs the same as RPT logs?", "No. ADM logs are used for player activity. RPT logs are more useful for server startup, CE events, warnings, and live spawn tracking."),
+            ("Can ADM logs show exact player locations?", "Some activity lines include coordinates. Wandering Bot can turn those into map links and heatmap records."),
+            ("Why do duplicate events happen sometimes?", "Some DayZ actions can produce more than one related log line. Wandering Bot uses fingerprints and event-specific guards to reduce duplicate feed posts."),
+        ],
+        "related": ["dayz-bot", "dayz-killfeed-bot", "dayz-server-dashboard"],
+    },
+    "dayz-nitrado-dashboard": {
+        "path": "/guides/dayz-nitrado-dashboard",
+        "title": "DayZ Nitrado Dashboard Guide for Console Server Owners - Wandering Bot",
+        "description": "See how a DayZ Nitrado dashboard can help owners manage restart alerts, server profiles, feed routing, XML tools, events, and staff access.",
+        "eyebrow": "Nitrado dashboard guide",
+        "headline": "DayZ Nitrado dashboard guide",
+        "lead": "A guide for owners who want safer DayZ server management without giving every staff member full Nitrado account access.",
+        "category": "Nitrado",
+        "reading_time": "5 min",
+        "keywords": ["DayZ Nitrado dashboard", "DayZ Nitrado bot", "DayZ server dashboard", "DayZ console dashboard", "Nitrado Discord bot"],
+        "sections": [
+            ("What the dashboard is for", "The dashboard gives owners and trusted admins a web panel for common DayZ server tasks such as feed routes, restart schedules, event queues, XML tools, shop items, zones, and member actions."),
+            ("Why server profiles matter", "If one Discord runs more than one DayZ server, each server profile needs its own map, service ID, FTP details, feed routes, and ADM/RPT context so one server does not bleed into another."),
+            ("How staff access should work", "Owners can give dashboard access to trusted helpers without sharing the full Nitrado login. Feature access and plan tiers can limit what each server or customer can use."),
+            ("What should stay owner-only", "Sensitive actions such as Nitrado tokens, FTP credentials, destructive XML uploads, billing, and owner console settings should stay restricted to the owner workflow."),
+        ],
+        "faqs": [
+            ("Does Wandering Bot replace Nitrado?", "No. It works with Nitrado details you provide and gives a cleaner interface for selected workflows."),
+            ("Can one dashboard manage more than one server?", "Yes. Server profiles keep each DayZ server separate while still allowing a merged Discord community."),
+            ("Can staff use the dashboard without my Nitrado password?", "Yes. Owners can create dashboard access for selected tools without handing out the full Nitrado account."),
+        ],
+        "related": ["dayz-nitrado-server-tools", "dayz-server-dashboard", "dayz-bot"],
+    },
+    "dayz-raid-alerts-heatmaps": {
+        "path": "/guides/dayz-raid-alerts-heatmaps",
+        "title": "DayZ Raid Alerts and Heatmaps Guide - Wandering Bot",
+        "description": "Learn how DayZ raid alerts, radar zones, heatmaps, build feeds, and player activity feeds help Discord staff watch active console servers.",
+        "eyebrow": "Raid alerts and heatmaps",
+        "headline": "DayZ raid alerts and heatmaps guide",
+        "lead": "See how raid-style feeds, radar pings, build activity, heatmaps, and zone alerts help staff understand what is happening on a busy DayZ server.",
+        "category": "Raid alerts",
+        "reading_time": "4 min",
+        "keywords": ["DayZ raid alerts", "DayZ heatmaps", "DayZ radar pings", "DayZ build feed", "DayZ PvP zones"],
+        "sections": [
+            ("What raid alerts are", "Raid alerts are staff-facing messages based on activity such as structure damage, build events, placed items, flag changes, zone entries, and suspicious patterns around bases."),
+            ("How heatmaps help", "Heatmaps make repeated activity easier to scan. Instead of reading hundreds of feed messages, staff can see where PvP, zombie deaths, build actions, flags, and other events are clustering."),
+            ("How to split channels", "Public servers often keep killfeeds visible but route radar, raid, admin, disconnect, and member audit feeds into private staff areas. This keeps normal players informed without giving away staff-only intelligence."),
+            ("Why map/profile separation matters", "On merged Discords, Cherno and Livonia feeds must stay tied to their own server profile so heatmaps, map links, and raid alerts use the right map and channel routes."),
+        ],
+        "faqs": [
+            ("Can players see raid alerts?", "That depends on the Discord channel route. Most owners keep raid and radar alerts private for staff."),
+            ("Do heatmaps work for both Chernarus and Livonia?", "Yes, as long as each server profile has the correct map selected."),
+            ("Can I choose which feed types are active?", "Yes. Dashboard feed selection and routes let owners decide what posts and where it goes."),
+        ],
+        "related": ["dayz-raid-alerts-heatmaps", "dayz-server-dashboard", "dayz-killfeed-bot"],
+    },
+    "dayz-console-bot-features": {
+        "path": "/guides/dayz-console-bot-features",
+        "title": "Best DayZ Console Bot Features for Discord Communities - Wandering Bot",
+        "description": "A practical guide to the DayZ console bot features server owners usually need: killfeeds, dashboard tools, restart alerts, economy, shop, onboarding, and staff feeds.",
+        "eyebrow": "Console bot features",
+        "headline": "Best DayZ console bot features for Discord communities",
+        "lead": "A plain-English breakdown of the features that matter most when choosing a DayZ Discord bot for Xbox and PlayStation servers.",
+        "category": "Features",
+        "reading_time": "5 min",
+        "keywords": ["best DayZ bot", "DayZ console bot", "DayZ Discord bot features", "DayZ Xbox bot", "DayZ PlayStation bot"],
+        "sections": [
+            ("Clean feed routing", "A useful bot should let owners choose exactly where killfeeds, connects, disconnects, raids, flags, heatmaps, leaderboards, and staff logs post."),
+            ("Dashboard access", "A web dashboard is useful when staff need to manage tools without typing every command in Discord. It also helps owners keep server profiles, billing, and access clearer."),
+            ("Onboarding and gamertag links", "Merged communities need role-based onboarding so players can pick Cherno, Livonia, bot support, or multiple server roles before linking the right gamertag."),
+            ("Server operations", "Restart alerts, raid weekend schedules, vehicle reset controls, event queues, and safer XML workflows are the features that separate a simple feed bot from a server management tool."),
+        ],
+        "faqs": [
+            ("What makes a good DayZ Discord bot?", "Reliable feed routing, clear dashboard access, proper server separation, and useful staff tools matter more than a long list of commands."),
+            ("Should one Discord run multiple DayZ servers?", "It can work well if roles, channels, feed routes, and server profiles are separated properly."),
+            ("Is a dashboard better than commands only?", "For owners and staff, a dashboard is usually easier for recurring work such as feeds, billing, events, shop items, and server settings."),
+        ],
+        "related": ["dayz-bot", "dayz-console-discord-bot", "dayz-server-dashboard"],
+    },
+    "dayz-console-airdrops-events": {
+        "path": "/guides/dayz-console-airdrops-events",
+        "title": "DayZ Console Airdrops and Event Builder Guide - Wandering Bot",
+        "description": "Learn how DayZ console airdrops, crash scenes, hordes, animal packs, and event queues can be managed through a guarded Wandering Bot dashboard workflow.",
+        "eyebrow": "Airdrops and events",
+        "headline": "DayZ console airdrops and event builder guide",
+        "lead": "A guide for owners who want airdrops, crash events, hordes, animal packs, gas zones, and live event tracking without hand-building every XML snippet from scratch.",
+        "category": "Events",
+        "reading_time": "6 min",
+        "keywords": ["DayZ airdrop bot", "DayZ console airdrops", "DayZ event builder", "DayZ horde event", "DayZ CE XML events"],
+        "sections": [
+            ("What an event builder does", "An event builder turns owner choices like scene type, coordinates, loot style, radius, and lifetime into DayZ CE event data that can be validated and tracked."),
+            ("Why guarded uploads matter", "DayZ XML files are shared by the whole server economy. A good workflow should avoid overwriting unrelated events and should tell the owner exactly what changed."),
+            ("How live tracking fits in", "RPT-based event tracking can show what the server actually loaded after restart, including event definitions, warnings, and visible live spawns where the log provides them."),
+            ("What owners should review", "Before restarting, owners should check the event status, target mission folder, XML warnings, and whether the queued event is scoped to the intended server profile."),
+        ],
+        "faqs": [
+            ("Can console servers run airdrop-style events?", "Yes. Event-style workflows can be prepared for DayZ console servers through CE XML and restart-based loading."),
+            ("Should the bot overwrite whole XML files?", "No. The safer approach is to merge or remove only owned event records and guard against unrelated live file changes."),
+            ("Why does the server need a restart?", "DayZ CE event changes usually need a restart before the server loads the new definitions."),
+        ],
+        "related": ["dayz-console-airdrop-events", "dayz-nitrado-server-tools", "dayz-server-dashboard"],
     },
 }
 
@@ -1330,6 +1499,17 @@ PUBLIC_LANDING_TEMPLATE = """
     .pricing-card .button { width: 100%; align-self: end; }
     .pricing-pill { display: inline-flex; align-items: center; border: 1px solid rgba(236, 161, 64, .36); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .72rem; font-weight: 950; white-space: nowrap; }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
+    .guide-section, .article-section, .related-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .22); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.22); }
+    .guide-section header, .article-section header, .related-section header { max-width: 54rem; margin-bottom: .85rem; }
+    .guide-grid, .related-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+    .guide-card, .article-block, .related-card { min-width: 0; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: .85rem; background: rgba(10, 18, 16, .76); }
+    .guide-card { display: grid; gap: .55rem; text-decoration: none; }
+    .guide-card:hover, .related-card:hover { border-color: var(--line-warm); }
+    .guide-card strong, .article-block strong, .related-card strong { display: block; color: var(--text); overflow-wrap: anywhere; }
+    .guide-card small, .article-meta { color: var(--amber); font-weight: 950; text-transform: uppercase; }
+    .article-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; }
+    .article-block p { margin-bottom: 0; }
+    .related-card { display: grid; gap: .35rem; color: inherit; text-decoration: none; }
     .faq-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .2); }
     .faq-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; }
     .faq-item { border: 1px solid rgba(126, 204, 184, .18); border-radius: .45rem; background: rgba(10, 18, 16, .72); padding: .85rem; }
@@ -1350,7 +1530,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features, .proof-strip, .pricing-grid, .faq-grid, .keyword-list, .review-grid { grid-template-columns: 1fr; }
+      .hero, .band, .features, .proof-strip, .pricing-grid, .faq-grid, .keyword-list, .review-grid, .guide-grid, .article-grid, .related-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -1415,6 +1595,57 @@ PUBLIC_LANDING_TEMPLATE = """
         </div>
       </aside>
     </section>
+    {% if page.guide_hub %}
+    <section class="guide-section" id="guides" aria-label="DayZ bot guide hub">
+      <header>
+        <p class="eyebrow">Server Owner Guides</p>
+        <h2>DayZ bot guides for server owners</h2>
+        <p>Useful public guides built around the searches owners actually make: DayZ bot, DayZ killfeed setup, DayZ Discord bot, DayZ ADM logs, DayZ Nitrado dashboard, raid alerts, and console event tools.</p>
+      </header>
+      <div class="guide-grid">
+        {% for guide in guide_cards %}
+        <a class="guide-card" href="{{ guide.path }}">
+          <small>{{ guide.category }} - {{ guide.reading_time }}</small>
+          <strong>{{ guide.headline }}</strong>
+          <span>{{ guide.description }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% if page.guide_page %}
+    <section class="article-section" aria-label="{{ page.headline }}">
+      <header>
+        <p class="article-meta">{{ page.category }} - {{ page.reading_time }}</p>
+        <h2>{{ page.headline }}</h2>
+        <p>{{ page.lead }}</p>
+      </header>
+      <div class="article-grid">
+        {% for section_title, section_body in page.sections %}
+        <article class="article-block">
+          <strong>{{ section_title }}</strong>
+          <p>{{ section_body }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% if related_pages %}
+    <section class="related-section" aria-label="Related DayZ bot pages">
+      <header>
+        <p class="eyebrow">Related Pages</p>
+        <h2>Keep reading</h2>
+      </header>
+      <div class="related-grid">
+        {% for related in related_pages %}
+        <a class="related-card" href="{{ related.path }}">
+          <strong>{{ related.headline }}</strong>
+          <span>{{ related.description }}</span>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% endif %}
     {% if public_feed_previews %}
     <section class="feed-preview-section" aria-label="Live feed previews">
       <div class="feed-preview-head">
@@ -19832,6 +20063,7 @@ def public_page_url(path: str) -> str:
 def public_seo_nav_pages() -> list[dict[str, str]]:
     labels = {
         "home": "Overview",
+        "dayz-guides": "Guides",
         "dayz-bot": "DayZ Bot",
         "dayz-killfeed-bot": "Kill Feed",
         "dayz-console-discord-bot": "Discord Bot",
@@ -19849,12 +20081,60 @@ def public_seo_nav_pages() -> list[dict[str, str]]:
     return pages
 
 
-def public_landing_page(page_key: str = "home"):
-    base_page = PUBLIC_SEO_PAGES.get(page_key) or PUBLIC_SEO_PAGES["home"]
+def public_guide_cards() -> list[dict[str, str]]:
+    cards = []
+    for key, guide in PUBLIC_SEO_GUIDES.items():
+        cards.append({
+            "key": key,
+            "path": str(guide.get("path") or "/dayz-bot-guides"),
+            "title": str(guide.get("title") or ""),
+            "headline": str(guide.get("headline") or guide.get("title") or ""),
+            "description": str(guide.get("description") or ""),
+            "category": str(guide.get("category") or "Guide"),
+            "reading_time": str(guide.get("reading_time") or "4 min"),
+        })
+    return cards
+
+
+def public_related_pages(keys: Iterable[str]) -> list[dict[str, str]]:
+    related = []
+    for key in keys or []:
+        data = PUBLIC_SEO_PAGES.get(str(key))
+        if not data:
+            continue
+        related.append({
+            "path": str(data.get("path") or "/"),
+            "headline": str(data.get("headline") or data.get("title") or ""),
+            "description": str(data.get("description") or data.get("lead") or ""),
+        })
+    return related[:6]
+
+
+def public_landing_page(page_key: str = "home", guide_key: str = ""):
+    is_guide_page = bool(guide_key)
+    if is_guide_page:
+        base_page = PUBLIC_SEO_GUIDES.get(guide_key)
+        if not base_page:
+            return redirect("/dayz-bot-guides")
+    else:
+        base_page = PUBLIC_SEO_PAGES.get(page_key) or PUBLIC_SEO_PAGES["home"]
     page = dict(base_page)
     page["canonical_url"] = public_page_url(str(page.get("path") or "/"))
     page["image_url"] = public_page_url("/brand-character")
     page["faqs"] = list(page.get("faqs") or [])
+    page["features"] = list(page.get("features") or [])
+    if is_guide_page and not page["features"]:
+        page["features"] = [
+            (str(title), str(body)[:150])
+            for title, body in list(page.get("sections") or [])[:3]
+        ]
+    page["sections"] = [
+        (str(title).strip(), str(body).strip())
+        for title, body in (page.get("sections") or [])
+        if str(title).strip() and str(body).strip()
+    ]
+    page["guide_hub"] = bool(page.get("guide_hub"))
+    page["guide_page"] = is_guide_page
     page["keywords"] = [
         str(item).strip()
         for item in (page.get("keywords") or [])
@@ -19867,8 +20147,10 @@ def public_landing_page(page_key: str = "home"):
     ][:8]
     public_reviews = load_review_rows(public_only=True, limit=6)
     summary = review_summary(load_review_rows(public_only=True))
-    public_pricing_plans = public_billing_plans_for_homepage() if page_key == "home" else []
-    public_feed_previews = public_feed_preview_items() if page_key == "home" else []
+    public_pricing_plans = public_billing_plans_for_homepage() if page_key == "home" and not is_guide_page else []
+    public_feed_previews = public_feed_preview_items() if page_key == "home" and not is_guide_page else []
+    guide_cards = public_guide_cards()
+    related_pages = public_related_pages(page.get("related") or [])
     software_node = {
         "@type": "SoftwareApplication",
         "@id": f"{page['canonical_url']}#software",
@@ -19951,6 +20233,40 @@ def public_landing_page(page_key: str = "home"):
             },
         ],
     }
+    if page.get("guide_hub"):
+        structured_data["@graph"].append({
+            "@type": "CollectionPage",
+            "@id": f"{page['canonical_url']}#guides",
+            "name": page["title"],
+            "url": page["canonical_url"],
+            "description": page["description"],
+            "isPartOf": {"@id": public_page_url("/#website")},
+            "mainEntity": {
+                "@type": "ItemList",
+                "itemListElement": [
+                    {
+                        "@type": "ListItem",
+                        "position": index + 1,
+                        "name": guide["headline"],
+                        "url": public_page_url(guide["path"]),
+                    }
+                    for index, guide in enumerate(guide_cards)
+                ],
+            },
+        })
+    if page.get("guide_page"):
+        structured_data["@graph"].append({
+            "@type": "Article",
+            "@id": f"{page['canonical_url']}#article",
+            "headline": page["headline"],
+            "description": page["description"],
+            "articleSection": page.get("category") or "DayZ bot guide",
+            "keywords": ", ".join(page["keywords"]),
+            "image": page["image_url"],
+            "author": {"@id": public_page_url("/#organization")},
+            "publisher": {"@id": public_page_url("/#organization")},
+            "mainEntityOfPage": {"@id": f"{page['canonical_url']}#webpage"},
+        })
     return render_template_string(
         PUBLIC_LANDING_TEMPLATE,
         page=page,
@@ -19960,6 +20276,8 @@ def public_landing_page(page_key: str = "home"):
         review_summary=summary,
         public_pricing_plans=public_pricing_plans,
         public_feed_previews=public_feed_previews,
+        guide_cards=guide_cards,
+        related_pages=related_pages,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
     )
@@ -27131,6 +27449,20 @@ def public_dayz_bot():
     return public_landing_page("dayz-bot")
 
 
+@APP.get("/dayz-bot-guides")
+def public_dayz_bot_guides():
+    return public_landing_page("dayz-guides")
+
+
+@APP.get("/guides/<path:guide_slug>")
+def public_dayz_bot_guide(guide_slug: str):
+    requested_path = f"/guides/{str(guide_slug or '').strip('/')}"
+    for key, guide in PUBLIC_SEO_GUIDES.items():
+        if str(guide.get("path") or "") == requested_path:
+            return public_landing_page(guide_key=key)
+    return redirect("/dayz-bot-guides")
+
+
 @APP.get("/dayz-discord-bot")
 def public_dayz_discord_bot():
     return public_landing_page("dayz-console-discord-bot")
@@ -27201,6 +27533,11 @@ def sitemap_xml():
         priority = "1.0" if str(page_data.get("path") or "/") == "/" else "0.8"
         entries.append(
             f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>{priority}</priority></url>"
+        )
+    for guide_data in PUBLIC_SEO_GUIDES.values():
+        loc = html.escape(public_page_url(str(guide_data.get("path") or "/dayz-bot-guides")), quote=True)
+        entries.append(
+            f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>"
         )
     body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
