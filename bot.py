@@ -33889,6 +33889,25 @@ def is_wandering_scope_node(node):
     return False
 
 
+def wandering_allowed_removed_names_from_source_text(source_text):
+    allowed = set()
+    try:
+        root = parse_xml_root_preserving_comments(source_text)
+    except Exception:
+        return allowed
+    for node in list(root):
+        if is_xml_comment_node(node):
+            continue
+        if not is_wandering_scope_node(node):
+            continue
+        for attr in ("name", "path", "usable"):
+            value = str(node.get(attr) or "").strip()
+            if value:
+                allowed.add(value)
+                break
+    return allowed
+
+
 def ce_scope_node_key(node, fallback_index):
     for attr in ("name", "path", "usable"):
         value = str(node.get(attr) or "").strip()
@@ -34229,17 +34248,7 @@ def validate_console_ce_upload_scope(built):
             messages.append(baseline_message)
         if not baseline_ok:
             return False, messages
-        allowed_removed = set()
-        try:
-            source_root = parse_xml_root_preserving_comments(source_text)
-            allowed_removed = {
-                str(node.get("name") or node.get("path") or node.get("usable") or "").strip()
-                for node in list(source_root)
-                if str(node.get("name") or node.get("path") or node.get("usable") or "").strip()
-                if is_wandering_scope_node(node)
-            }
-        except Exception:
-            allowed_removed = set()
+        allowed_removed = wandering_allowed_removed_names_from_source_text(source_text)
         preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(
             built.get(path_keys.get(label, "")),
             source_text,
@@ -39231,11 +39240,26 @@ def restore_remote_ce_file_from_latest_backup(config, label, path, restore_text=
     return restore_remote_ce_file_from_text(config, label, path, backup_text, f"`{backup_path}`")
 
 
-def upload_protected_ce_file_to_nitrado(config, label, path, text_content, restore_text=None, prefer_ftp=False):
+def upload_protected_ce_file_to_nitrado(
+    config,
+    label,
+    path,
+    text_content,
+    restore_text=None,
+    prefer_ftp=False,
+    allowed_removed_names=None,
+):
     shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(path, restore_text, text_content)
     if not shrink_ok:
         return False, shrink_message
-    preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(path, restore_text, text_content)
+    if allowed_removed_names is None:
+        allowed_removed_names = wandering_allowed_removed_names_from_source_text(restore_text)
+    preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(
+        path,
+        restore_text,
+        text_content,
+        allowed_removed_names=allowed_removed_names,
+    )
     if not preserve_ok:
         return False, preserve_message
     if prefer_ftp:

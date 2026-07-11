@@ -303,6 +303,43 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("Restore attempted", message)
         self.assertEqual(["upload", "verify", "restore"], self.calls)
 
+    def test_ce_protected_upload_allows_stale_wanderingbot_event_cleanup(self):
+        existing = (
+            '<eventposdef>'
+            '<event name="AnimalBear"><pos x="1" z="2" a="0" /></event>'
+            '<event name="StaticWanderingBot_81_airdrop"><pos x="3" z="4" a="0" /></event>'
+            '<event name="StaticWanderingBot_82_airdrop"><pos x="5" z="6" a="0" /></event>'
+            '</eventposdef>'
+        )
+        upload_text = (
+            '<eventposdef>'
+            '<event name="AnimalBear"><pos x="1" z="2" a="0" /></event>'
+            '<event name="StaticWanderingBot_1_airdrop"><pos x="7" z="8" a="0" /></event>'
+            '</eventposdef>'
+        )
+
+        def upload(*_args):
+            self.calls.append("upload")
+            return True, "Uploaded successfully via Nitrado API."
+
+        def verify(*_args):
+            self.calls.append("verify")
+            return True, "`cfgeventspawns.xml` post-upload re-download matched uploaded content."
+
+        bot.upload_text_file_to_nitrado = upload
+        bot.verify_uploaded_protected_dayz_xml_text = verify
+
+        ok, message = bot.upload_protected_ce_file_to_nitrado(
+            {},
+            "cfgeventspawns.xml",
+            "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+            upload_text,
+            restore_text=existing,
+        )
+
+        self.assertTrue(ok, message)
+        self.assertEqual(["upload", "verify"], self.calls)
+
     def test_native_ce_upload_rolls_back_when_final_bundle_mismatches(self):
         original_build = bot.build_console_ce_event_files
         original_validate = bot.validate_console_ce_xml_bundle

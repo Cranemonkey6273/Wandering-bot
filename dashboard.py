@@ -2611,6 +2611,12 @@ PAGE_TEMPLATE = """
       color: #dbe8eb;
       text-decoration: none;
     }
+    .command-server-card .server-card-link {
+      display: grid;
+      gap: .55rem;
+      color: inherit;
+      text-decoration: none;
+    }
     .command-server-card:hover,
     .command-server-card.active {
       border-color: var(--orange-line);
@@ -9440,15 +9446,26 @@ PAGE_TEMPLATE = """
           <p class="tool-note">Switch between every server available to this dashboard login. The active card controls which server every page edits.</p>
           <div class="command-server-grid">
             {% for item in servers %}
-            <a class="command-server-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&guild_id={{ item.guild_id }}#linked-servers">
-              <strong>{{ item.guild_name }}</strong>
-              <small>{{ item.platform_label }} server on {{ item.map|capitalize }}.</small>
-              <div class="pills">
-                <span class="pill {{ 'ok' if item.active else 'bad' }}">{{ 'online config' if item.active else 'inactive' }}</span>
-                <span class="pill">{{ item.dashboard_access.plan_status or item.dashboard_access.tier or 'dashboard' }}</span>
-                <span class="pill">{{ item.channels|length }} channels</span>
-              </div>
-            </a>
+            <article class="command-server-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}">
+              <a class="server-card-link" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&guild_id={{ item.guild_id }}#linked-servers">
+                <strong>{{ item.guild_name }}</strong>
+                <small>{{ item.platform_label }} server on {{ item.map|capitalize }}.</small>
+                <div class="pills">
+                  <span class="pill {{ 'ok' if item.active else 'bad' }}">{{ 'online config' if item.active else 'inactive' }}</span>
+                  <span class="pill">{{ item.dashboard_access.plan_status or item.dashboard_access.tier or 'dashboard' }}</span>
+                  <span class="pill">{{ item.channels|length }} channels</span>
+                </div>
+              </a>
+              {% if mode != 'owner' and auth and item.guild_id != auth.guild_id %}
+              <form class="admin-form inline-action" method="post" action="/api/admin/unlink-server" data-route="/api/admin/unlink-server" data-confirm="Unlink {{ item.guild_name }} from this dashboard login? This does not delete server setup or touch live DayZ files.">
+                <input class="hidden-field" name="guild_id" value="{{ auth.guild_id }}">
+                <input class="hidden-field" name="linked_guild_id" value="{{ item.guild_id }}">
+                <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ auth.guild_id }}#linked-servers">
+                <button type="submit">Unlink</button>
+                <span class="result muted"></span>
+              </form>
+              {% endif %}
+            </article>
             {% else %}
             <div class="notification"><strong>No linked servers yet</strong><span>Link another dashboard ID/password above to make it appear here.</span></div>
             {% endfor %}
@@ -13127,6 +13144,7 @@ PAGE_TEMPLATE = """
       "/api/admin/server-profile",
       "/api/admin/nitrado-credentials",
       "/api/admin/link-server",
+      "/api/admin/unlink-server",
       "/api/owner/guild-action",
     ]);
     function shouldRefreshAfterSave(form) {
@@ -13142,7 +13160,8 @@ PAGE_TEMPLATE = """
         || form.closest("tr")
         || form.closest("li")
         || form.closest(".notification")
-        || form.closest(".owner-server-card");
+        || form.closest(".owner-server-card")
+        || form.closest(".command-server-card");
       if (!item) return false;
       item.remove();
       return true;
@@ -15508,6 +15527,7 @@ ADMIN_ROUTES = [
     "/api/admin/scenario-event-status",
     "/api/admin/economy-rule",
     "/api/admin/link-server",
+    "/api/admin/unlink-server",
     "/api/admin/server-profile",
     "/api/admin/nitrado-credentials",
     "/api/admin/temp-login",
@@ -20035,6 +20055,7 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "guild-action": "Owner guild action completed",
         "link-enforcement": "Link enforcement updated",
         "link-server": "Linked server settings updated",
+        "unlink-server": "Linked server removed",
         "leaderboard": "Leaderboard settings updated",
         "member-action": "Member moderation action queued",
         "member-onboarding": "Member onboarding gate saved",
@@ -29472,9 +29493,68 @@ def api_link_server():
         linked.append(target_guild_id)
     dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
     return dashboard_api_response(
         raw_payload,
         {"ok": True, "linked_guild_id": target_guild_id, "server": str(target_config.get("guild_name") or target_guild_id)},
+        "access",
+        "#linked-servers",
+    )
+
+
+@APP.post("/api/admin/unlink-server")
+def api_unlink_server():
+    auth = current_auth()
+    if not auth:
+        return jsonify({"ok": False, "error": "dashboard login required"}), 401
+    if auth.get("temporary_login_id"):
+        return jsonify({"ok": False, "error": "temporary dashboard logins cannot unlink servers"}), 403
+    if auth.get("kind") == "owner":
+        return dashboard_api_response(
+            request_payload() or {},
+            {"ok": True, "message": "owner access is global and does not use linked dashboard servers"},
+            "access",
+            "#linked-servers",
+        )
+    raw_payload = request_payload() or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    target_raw = payload.get("linked_guild_id") or payload.get("target_guild_id")
+    target_guild_id = normalize_guild_id(target_raw) if target_raw else ""
+    if not target_guild_id:
+        return jsonify({"ok": False, "error": "linked server is missing"}), 400
+    primary_guild_id = str(auth.get("guild_id") or "").strip()
+    if not primary_guild_id:
+        return jsonify({"ok": False, "error": "current dashboard login is missing"}), 400
+    if target_guild_id == primary_guild_id:
+        return jsonify({"ok": False, "error": "cannot unlink the dashboard you are logged into"}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
+    primary_config = guild_configs.get(primary_guild_id)
+    if not isinstance(primary_config, dict):
+        return jsonify({"ok": False, "error": "current dashboard config is missing"}), 404
+    dashboard = primary_config.setdefault("dashboard", {})
+    if not isinstance(dashboard, dict):
+        dashboard = {}
+        primary_config["dashboard"] = dashboard
+    linked = dashboard.get("linked_guild_ids", [])
+    if not isinstance(linked, list):
+        linked = []
+    before = [str(item).strip() for item in linked if str(item).strip()]
+    after = [item for item in before if normalize_guild_id(item) != target_guild_id]
+    dashboard["linked_guild_ids"] = after
+    dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {
+            "ok": True,
+            "unlinked_guild_id": target_guild_id,
+            "removed": len(after) != len(before),
+            "message": "linked dashboard removed; server setup was not deleted",
+        },
         "access",
         "#linked-servers",
     )
