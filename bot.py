@@ -34107,6 +34107,53 @@ def vanilla_animal_event_count_patch_is_safe(original_node, merged_node):
     return changed_allowed
 
 
+CONSOLE_CE_BASELINE_SOURCE_CHECKS = {
+    "events.xml": (("db", "events.xml"), "events", "event"),
+    "cfgeventspawns.xml": (("cfgeventspawns.xml",), "eventposdef", "event"),
+}
+
+
+def count_non_wandering_named_xml_records(text, expected_root, child_tag):
+    try:
+        root = parse_xml_root_preserving_comments(text)
+    except Exception:
+        return None
+    if str(root.tag or "") != str(expected_root or ""):
+        return None
+    count = 0
+    for node in root.findall(child_tag):
+        if not str(node.get("name") or "").strip():
+            continue
+        if is_wandering_scope_node(node):
+            continue
+        count += 1
+    return count
+
+
+def validate_console_ce_live_source_baseline(label, source_text, map_key):
+    check = CONSOLE_CE_BASELINE_SOURCE_CHECKS.get(str(label or ""))
+    if not check:
+        return True, ""
+    reference_parts, expected_root, child_tag = check
+    reference_text = load_dayz_reference_text(map_key, *reference_parts)
+    reference_count = count_non_wandering_named_xml_records(reference_text, expected_root, child_tag)
+    source_count = count_non_wandering_named_xml_records(source_text, expected_root, child_tag)
+    if reference_count is None or source_count is None or reference_count < 10:
+        return True, ""
+    if source_count >= 3:
+        return True, (
+            f"`{label}` live source baseline check passed with `{source_count}` non-WanderingBot "
+            f"<{child_tag} name=...> record(s)."
+        )
+    return False, (
+        f"`{label}` live source baseline check blocked upload: downloaded source only has `{source_count}` "
+        f"non-WanderingBot <{child_tag} name=...> record(s), but bundled `{map_key or 'selected map'}` "
+        f"reference has `{reference_count}`. This looks like an empty/truncated Nitrado read or an already-wiped "
+        "CE file, so Wandering Bot will not write over it. Restore the real live file or fix the configured "
+        "remote path, then retry the airdrop upload."
+    )
+
+
 def validate_console_ce_upload_scope(built):
     targets = [
         ("events.xml", "events_source_text", "events_text"),
@@ -34137,6 +34184,11 @@ def validate_console_ce_upload_scope(built):
         if source_key not in built:
             continue
         source_text = built.get(source_key, "")
+        baseline_ok, baseline_message = validate_console_ce_live_source_baseline(label, source_text, scope_map_key)
+        if baseline_message:
+            messages.append(baseline_message)
+        if not baseline_ok:
+            return False, messages
         allowed_removed = set()
         try:
             source_root = parse_xml_root_preserving_comments(source_text)

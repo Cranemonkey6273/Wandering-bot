@@ -1316,6 +1316,28 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
 
+    def test_upload_scope_blocks_empty_chernarus_eventspawns_source(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        built = {
+            "map_key": "chernarus",
+            "spawns_path": f"{base_path}/cfgeventspawns.xml",
+            "spawns_source_text": "<eventposdef></eventposdef>",
+            "spawns_text": (
+                "<eventposdef>"
+                '<event name="StaticWanderingBot_34_airdrop">'
+                '<pos x="5000" z="5000" a="0" />'
+                "</event>"
+                "</eventposdef>"
+            ),
+        }
+
+        ok, messages = bot.validate_console_ce_upload_scope(built)
+
+        self.assertFalse(ok)
+        rendered = "\n".join(messages)
+        self.assertIn("live source baseline check blocked upload", rendered)
+        self.assertIn("empty/truncated Nitrado read", rendered)
+
     def test_static_airplanecrate_missing_proto_is_restored_for_horde_upload(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
         live_events = (
