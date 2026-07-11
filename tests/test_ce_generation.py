@@ -1186,11 +1186,15 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
     def setUp(self):
         self.original_download = bot.download_console_ce_source
         self.original_download_text = bot.download_text_file_from_nitrado
+        self.original_upload_latest_backup = bot.upload_ce_latest_backup_to_nitrado
+        self.original_cleanup_backups = bot.cleanup_wanderingbot_backups_for_path
         self.guild_id = "999001"
 
     def tearDown(self):
         bot.download_console_ce_source = self.original_download
         bot.download_text_file_from_nitrado = self.original_download_text
+        bot.upload_ce_latest_backup_to_nitrado = self.original_upload_latest_backup
+        bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup_backups
         bot.guild_configs.pop(self.guild_id, None)
 
     def test_airdrop_upload_uses_existing_mi8_proto_as_context_only(self):
@@ -1337,6 +1341,98 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         rendered = "\n".join(messages)
         self.assertIn("live source baseline check blocked upload", rendered)
         self.assertIn("empty/truncated Nitrado read", rendered)
+
+    def test_build_recovers_empty_eventspawns_source_from_latest_backup(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        reference_events = bot.load_dayz_reference_text("chernarus", "db", "events.xml")
+        reference_spawns = bot.load_dayz_reference_text("chernarus", "cfgeventspawns.xml")
+        sources = {
+            "events_path": (reference_events, f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "") == f"{base_path}/cfgeventspawns.xml.wanderingbot-backup-latest":
+                return True, "backup source", reference_spawns
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    34,
+                    "airdrop",
+                    "WoodenCrate",
+                    visual_marker=False,
+                    loot_preset="military_high",
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        self.assertFalse(built.get("source_fallbacks"), built.get("source_fallbacks"))
+        self.assertEqual(reference_spawns, built.get("spawns_source_text"))
+        self.assertTrue(
+            any("recovered the merge source" in str(message) for message in built.get("messages", [])),
+            built.get("messages", []),
+        )
+        merged_spawns = ET.fromstring(built["spawns_text"])
+        non_wandering_spawns = [
+            node.get("name")
+            for node in merged_spawns.findall("event")
+            if not str(node.get("name") or "").startswith("StaticWanderingBot_")
+        ]
+        self.assertGreaterEqual(len(non_wandering_spawns), 10)
+        scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
+        self.assertTrue(scope_ok, "\n".join(scope_messages))
+
+        captured_backups = {}
+
+        def fake_download_for_backup(_config, remote_path):
+            path = str(remote_path or "")
+            if path == f"{base_path}/db/events.xml":
+                return True, "live events", reference_events
+            if path == f"{base_path}/cfgeventspawns.xml":
+                return True, "live spawns", "<eventposdef></eventposdef>"
+            return False, "missing", ""
+
+        def fake_upload_latest_backup(_config, label, backup_path, text_content):
+            captured_backups[label] = (backup_path, text_content)
+            return True, "backup stored"
+
+        def fake_cleanup_backups(_config, _path, keep_paths=None):
+            return [], []
+
+        bot.download_text_file_from_nitrado = fake_download_for_backup
+        bot.upload_ce_latest_backup_to_nitrado = fake_upload_latest_backup
+        bot.cleanup_wanderingbot_backups_for_path = fake_cleanup_backups
+
+        backup_ok, backup_messages = bot.backup_remote_ce_sources_before_upload(config, built)
+
+        self.assertTrue(backup_ok, "\n".join(backup_messages))
+        self.assertEqual(reference_spawns, captured_backups["cfgeventspawns.xml"][1])
+        self.assertTrue(
+            any("live backup source failed baseline" in str(message) for message in backup_messages),
+            backup_messages,
+        )
 
     def test_static_airplanecrate_missing_proto_is_restored_for_horde_upload(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"

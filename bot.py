@@ -34154,6 +34154,46 @@ def validate_console_ce_live_source_baseline(label, source_text, map_key):
     )
 
 
+def recover_console_ce_source_from_backup_if_gutted(
+    config,
+    label,
+    source_text,
+    resolved_path,
+    map_key,
+    force_backup=False,
+    source_issue="",
+):
+    if force_backup:
+        baseline_ok = False
+        baseline_message = str(source_issue or f"{label}: live source was not usable.").strip()
+    else:
+        baseline_ok, baseline_message = validate_console_ce_live_source_baseline(label, source_text, map_key)
+        if baseline_ok:
+            return source_text, "", None
+
+    backup_path = f"{canonical_remote_path(resolved_path)}.wanderingbot-backup-latest" if resolved_path else ""
+    if not backup_path:
+        return source_text, "", baseline_message
+
+    ok, backup_message, backup_text = download_text_file_from_nitrado(config, backup_path)
+    if ok and str(backup_text or "").strip():
+        backup_ok, backup_baseline_message = validate_console_ce_live_source_baseline(label, backup_text, map_key)
+        if backup_ok:
+            return backup_text, (
+                f"{label}: live source was not safe to use, so Wandering Bot recovered the merge source "
+                f"from `{backup_path}` before writing. Live issue: {baseline_message}"
+            ), None
+        return source_text, "", (
+            f"{label}: live source was not safe to use and backup `{backup_path}` also failed baseline. "
+            f"Live issue: {baseline_message} Backup issue: {backup_baseline_message}"
+        )
+
+    return source_text, "", (
+        f"{label}: live source was not safe to use and backup `{backup_path}` could not be downloaded. "
+        f"Live issue: {baseline_message} Backup download: {backup_message}"
+    )
+
+
 def validate_console_ce_upload_scope(built):
     targets = [
         ("events.xml", "events_source_text", "events_text"),
@@ -37720,12 +37760,37 @@ def patch_cfgeffectarea_gas_particle(value, mode):
 def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path=""):
     events_text, resolved_events_path, events_source = download_console_ce_source(config, guild_id, "events_path", events_path)
     spawns_text, resolved_spawns_path, spawns_source = download_console_ce_source(config, guild_id, "spawns_path", spawns_path)
+    ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
     source_fallbacks = []
-    for label, source in (("events.xml", events_source), ("cfgeventspawns.xml", spawns_source)):
-        if console_ce_source_is_fallback(source):
-            source_fallbacks.append(f"{label}: {source}")
-
     warnings = []
+    events_text, events_recovery_warning, events_recovery_blocker = recover_console_ce_source_from_backup_if_gutted(
+        config,
+        "events.xml",
+        events_text,
+        resolved_events_path,
+        ce_map_key,
+        force_backup=console_ce_source_is_fallback(events_source),
+        source_issue=f"events.xml: {events_source}" if console_ce_source_is_fallback(events_source) else "",
+    )
+    if events_recovery_blocker:
+        source_fallbacks.append(events_recovery_blocker)
+    elif events_recovery_warning:
+        warnings.append(events_recovery_warning)
+
+    spawns_text, spawns_recovery_warning, spawns_recovery_blocker = recover_console_ce_source_from_backup_if_gutted(
+        config,
+        "cfgeventspawns.xml",
+        spawns_text,
+        resolved_spawns_path,
+        ce_map_key,
+        force_backup=console_ce_source_is_fallback(spawns_source),
+        source_issue=f"cfgeventspawns.xml: {spawns_source}" if console_ce_source_is_fallback(spawns_source) else "",
+    )
+    if spawns_recovery_blocker:
+        source_fallbacks.append(spawns_recovery_blocker)
+    elif spawns_recovery_warning:
+        warnings.append(spawns_recovery_warning)
+
     events_root, events_parse_warning, events_parse_blocker = parse_console_ce_xml_source(
         config,
         "events.xml",
@@ -37813,7 +37878,6 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         removed_revamp_spawn_groups, removed_revamp_spawn_group_names = 0, []
         revamp_mapgroupproto_classes = []
         removed_stale_spawn_only, removed_stale_spawn_names = 0, []
-    ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
 
     records = []
     for event in native_ce_scenario_events(config):
@@ -38972,6 +39036,15 @@ def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content)
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
     restore_texts = built.setdefault("restore_texts", {})
+    backup_map_key = normalize_dayz_reference_map_key(
+        built.get("map_key")
+        or infer_map_key_from_ce_paths(
+            "",
+            built.get("events_path"),
+            built.get("spawns_path"),
+            built.get("mapgroupproto_path"),
+        )
+    )
     required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml", "zombie_territories.xml"}
     source_text_keys = {
         "events.xml": "events_source_text",
@@ -39069,6 +39142,39 @@ def backup_remote_ce_sources_before_upload(config, built):
                 return False, backup_messages + [f"Backup blocked: live `{label}` at `{path}` is not valid before upload: {source_message}"]
             backup_messages.append(f"`{label}` backup skipped: live source at `{path}` is not valid before upload: {source_message}")
             continue
+        baseline_ok, baseline_message = validate_console_ce_live_source_baseline(label, content, backup_map_key)
+        if not baseline_ok:
+            source_content, fallback_source_message = source_text_for_backup(label, path)
+            if source_content:
+                fallback_baseline_ok, fallback_baseline_message = validate_console_ce_live_source_baseline(
+                    label,
+                    source_content,
+                    backup_map_key,
+                )
+                if not fallback_baseline_ok:
+                    if label in required_backups:
+                        return False, backup_messages + [
+                            f"Backup blocked: live `{label}` at `{path}` failed baseline before upload: {baseline_message} "
+                            f"The in-memory source copy also failed baseline: {fallback_baseline_message}"
+                        ]
+                    backup_messages.append(
+                        f"`{label}` backup skipped: live source failed baseline before upload: {baseline_message} "
+                        f"The in-memory source copy also failed baseline: {fallback_baseline_message}"
+                    )
+                    continue
+                content = source_content
+                backup_messages.append(
+                    f"`{label}` live backup source failed baseline; {fallback_source_message} Baseline issue: {baseline_message}"
+                )
+            elif label in required_backups:
+                return False, backup_messages + [
+                    f"Backup blocked: live `{label}` at `{path}` failed baseline before upload: {baseline_message} {fallback_source_message}"
+                ]
+            else:
+                backup_messages.append(
+                    f"`{label}` backup skipped: live source failed baseline before upload: {baseline_message} {fallback_source_message}"
+                )
+                continue
         restore_texts[path] = content
         backup_path = f"{path}.wanderingbot-backup-latest"
         backup_ok, backup_message = upload_ce_latest_backup_to_nitrado(config, label, backup_path, content)
