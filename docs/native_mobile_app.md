@@ -7,6 +7,7 @@ Wandering Bot now has a native-app scaffold in `mobile/`.
 - Capacitor app shell for Android and iOS.
 - Native package ID: `com.dayzwanderingbot.app`.
 - Opens `https://dayzwanderingbot.com/app`.
+- Android deep links are registered for the app, login, admin, and owner dashboard URLs.
 - Keeps secrets and server actions on the backend.
 
 ## Why It Still Uses `/app`
@@ -27,6 +28,8 @@ The `/app` route is the secure mobile interface. The native app is the store-ins
 
 - Replace temporary icon with 1024x1024 production icon.
 - Add splash image.
+- Add Android release signing key and Play Store bundle signing.
+- Add `/.well-known/assetlinks.json` after the release signing certificate fingerprint exists, so Android can verify Wandering Bot links directly into the app.
 - Add privacy policy URL.
 - Add support URL.
 - Add screenshots for phone and tablet.

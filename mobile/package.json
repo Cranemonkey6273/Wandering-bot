@@ -11,6 +11,8 @@
     "add:ios": "npx cap add ios",
     "open:android": "npx cap open android",
     "open:ios": "npx cap open ios",
+    "build:android:debug": "cd android && gradlew.bat assembleDebug",
+    "build:android:release": "cd android && gradlew.bat bundleRelease",
     "assets": "npx capacitor-assets generate"
   },
   "dependencies": {
