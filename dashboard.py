@@ -474,6 +474,14 @@ DEFAULT_BOT_INVITE_URL = os.getenv(
     "https://discord.com/oauth2/authorize?client_id=1500819036026437662&permissions=8&integration_type=0&scope=bot+applications.commands",
 )
 SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "").strip()
+ANDROID_APP_ID = os.getenv("WANDERING_ANDROID_APP_ID", "com.dayzwanderingbot.app").strip() or "com.dayzwanderingbot.app"
+ANDROID_RELEASE_SHA256_FINGERPRINTS = (
+    os.getenv("WANDERING_ANDROID_SHA256_FINGERPRINTS")
+    or os.getenv("WANDERING_ANDROID_SHA256_FINGERPRINT")
+    or os.getenv("ANDROID_RELEASE_SHA256_FINGERPRINT")
+    or ""
+).strip()
+PUBLIC_SUPPORT_EMAIL = os.getenv("WANDERING_SUPPORT_EMAIL", "support@dayzwanderingbot.com").strip()
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
 AGENT_SIGNUPS_ENABLED = os.getenv("WANDERING_AGENT_SIGNUPS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
@@ -1566,6 +1574,9 @@ PUBLIC_LANDING_TEMPLATE = """
     .review-card strong { display: block; color: var(--text); margin-bottom: .25rem; overflow-wrap: anywhere; }
     .review-card blockquote { margin: .55rem 0 0; color: #d7e4dc; line-height: 1.5; overflow-wrap: anywhere; }
     .rating-text { color: var(--amber); font-weight: 950; }
+    .site-footer { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0 0; padding: 1rem 0; color: var(--muted); }
+    .site-footer a { color: var(--muted); font-weight: 850; text-decoration: none; }
+    .site-footer a:hover { color: var(--text); }
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
@@ -1807,6 +1818,12 @@ PUBLIC_LANDING_TEMPLATE = """
       </div>
     </section>
     {% endif %}
+    <footer class="site-footer" aria-label="Wandering Bot legal and support links">
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="/support">Support</a>
+      <a href="/manifest.webmanifest">App manifest</a>
+    </footer>
   </main>
 </body>
 </html>
@@ -1854,6 +1871,82 @@ PUBLIC_CHECKOUT_TEMPLATE = """
     <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
     <a class="button" href="/#pricing">Back to pricing</a>
   </main>
+</body>
+</html>
+"""
+
+PUBLIC_INFO_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} - Wandering Bot</title>
+  <meta name="description" content="{{ description }}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="{{ canonical_url }}">
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
+  <style>
+    :root { color-scheme: dark; --bg: #050806; --panel: rgba(10,18,16,.94); --line: rgba(126,204,184,.24); --text: #f2f7ef; --muted: #b9c8bf; --green: #8ee85f; --amber: #eca140; --teal: #35d4c2; --ink: #030605; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: linear-gradient(180deg, rgba(7,18,15,.96), var(--bg)); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    header, main, footer { width: min(900px, calc(100vw - 2rem)); margin: 0 auto; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; }
+    .mark { display: inline-flex; align-items: center; gap: .65rem; color: var(--text); text-decoration: none; font-weight: 950; }
+    .mark img { width: 2.75rem; height: 2.75rem; border-radius: .45rem; border: 1px solid var(--line); object-fit: cover; }
+    main { display: grid; gap: 1rem; padding: 1rem 0 2rem; }
+    .panel { border: 1px solid var(--line); border-radius: .55rem; padding: 1rem; background: var(--panel); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
+    .eyebrow { margin: 0 0 .45rem; color: var(--amber); font-weight: 950; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(2.1rem, 7vw, 4.2rem); line-height: .96; text-transform: uppercase; }
+    h2 { margin: 0 0 .45rem; font-size: 1rem; text-transform: uppercase; }
+    p, li { color: var(--muted); line-height: 1.58; }
+    a { color: var(--green); }
+    .actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: .8rem; }
+    .button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.55rem; border: 1px solid rgba(126,204,184,.36); border-radius: .45rem; padding: .65rem .85rem; color: var(--text); text-decoration: none; font-weight: 950; background: rgba(11,27,23,.86); }
+    .button.primary { border-color: rgba(142,232,95,.48); background: var(--green); color: var(--ink); }
+    footer { display: flex; flex-wrap: wrap; gap: .75rem; padding: 0 0 2rem; }
+    footer a { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="mark" href="/">
+      <img src="/brand-image" alt="Wandering Bot logo">
+      <span>Wandering Bot</span>
+    </a>
+    <a class="button" href="/login">Dashboard login</a>
+  </header>
+  <main>
+    <section class="panel">
+      <p class="eyebrow">{{ eyebrow }}</p>
+      <h1>{{ headline }}</h1>
+      <p>{{ lead }}</p>
+      <div class="actions">
+        {% for action in actions %}
+        <a class="button {{ 'primary' if action.primary else '' }}" href="{{ action.href }}">{{ action.label }}</a>
+        {% endfor %}
+      </div>
+    </section>
+    {% for section in sections %}
+    <section class="panel">
+      <h2>{{ section.title }}</h2>
+      {% for paragraph in section.body %}
+      <p>{{ paragraph }}</p>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </main>
+  <footer>
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a href="/support">Support</a>
+  </footer>
 </body>
 </html>
 """
@@ -20963,6 +21056,63 @@ def public_page_url(path: str) -> str:
     return f"{dashboard_public_origin()}{clean_path}"
 
 
+def normalize_android_sha256_fingerprint(value: str) -> str:
+    cleaned = re.sub(r"[^A-Fa-f0-9]", "", str(value or ""))
+    if len(cleaned) != 64:
+        return ""
+    return ":".join(cleaned[index:index + 2].upper() for index in range(0, 64, 2))
+
+
+def android_release_fingerprints(raw_value: str | None = None) -> list[str]:
+    raw = ANDROID_RELEASE_SHA256_FINGERPRINTS if raw_value is None else str(raw_value or "")
+    fingerprints: list[str] = []
+    for part in re.split(r"[\s,;]+", raw):
+        fingerprint = normalize_android_sha256_fingerprint(part)
+        if fingerprint and fingerprint not in fingerprints:
+            fingerprints.append(fingerprint)
+    return fingerprints
+
+
+def android_assetlinks_statements(fingerprints: list[str] | None = None) -> list[dict[str, Any]]:
+    resolved_fingerprints = fingerprints if fingerprints is not None else android_release_fingerprints()
+    if not resolved_fingerprints:
+        return []
+    return [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": ANDROID_APP_ID,
+                "sha256_cert_fingerprints": resolved_fingerprints,
+            },
+        }
+    ]
+
+
+def public_info_page(
+    path: str,
+    title: str,
+    eyebrow: str,
+    headline: str,
+    lead: str,
+    sections: list[dict[str, Any]],
+    actions: list[dict[str, Any]] | None = None,
+    description: str = "",
+):
+    return render_template_string(
+        PUBLIC_INFO_TEMPLATE,
+        title=title,
+        eyebrow=eyebrow,
+        headline=headline,
+        lead=lead,
+        sections=sections,
+        actions=actions or [],
+        description=description or lead,
+        canonical_url=public_page_url(path),
+        pwa_theme_color=PWA_THEME_COLOR,
+    )
+
+
 def public_seo_nav_pages() -> list[dict[str, str]]:
     labels = {
         "home": "Overview",
@@ -28580,6 +28730,131 @@ def public_reviews():
     return public_landing_page("reviews")
 
 
+@APP.get("/privacy")
+def public_privacy():
+    return public_info_page(
+        "/privacy",
+        "Privacy Policy",
+        "Privacy",
+        "Wandering Bot privacy policy",
+        "Wandering Bot is a DayZ server owner tool. The dashboard stores only the information needed to run Discord feeds, server controls, billing access, and support workflows.",
+        [
+            {
+                "title": "Information used by the service",
+                "body": [
+                    "Wandering Bot may store Discord server IDs, channel IDs, role IDs, linked gamertags, dashboard login records, server profile settings, feed routing choices, billing plan state, and support messages.",
+                    "Nitrado, FTP, Discord, and Stripe secret values are treated as server-side credentials. They are never placed inside the mobile app package.",
+                ],
+            },
+            {
+                "title": "How information is used",
+                "body": [
+                    "The data is used to route feeds, manage DayZ server dashboards, enforce dashboard access, process setup actions, support billing or manual access, and help server owners audit staff actions.",
+                    "The app and dashboard use the same backend permissions. Installing the mobile app does not bypass owner or server access checks.",
+                ],
+            },
+            {
+                "title": "Contact and deletion requests",
+                "body": [
+                    f"For privacy questions, support, or deletion requests, contact {PUBLIC_SUPPORT_EMAIL}. Server owners can also remove dashboard access and connected server data from the owner dashboard where available.",
+                ],
+            },
+        ],
+        actions=[
+            {"label": "Open dashboard", "href": "/login", "primary": True},
+            {"label": "Support", "href": "/support", "primary": False},
+        ],
+        description="Privacy policy for Wandering Bot, the DayZ Discord bot and dashboard for PC, PlayStation and Xbox server owners.",
+    )
+
+
+@APP.get("/terms")
+def public_terms():
+    return public_info_page(
+        "/terms",
+        "Terms",
+        "Terms",
+        "Wandering Bot terms of use",
+        "Wandering Bot is provided as a server-owner management tool for DayZ communities. Server owners are responsible for how they configure their own Discord, Nitrado, billing, and DayZ server files.",
+        [
+            {
+                "title": "Owner responsibility",
+                "body": [
+                    "Only connect servers and accounts you own or have permission to manage. Keep Nitrado, FTP, Discord, and Stripe credentials private and rotate them if you believe access has been shared incorrectly.",
+                    "Review destructive actions such as restarts, vehicle resets, XML uploads, bans, and billing access changes before saving them.",
+                ],
+            },
+            {
+                "title": "Service limits",
+                "body": [
+                    "Wandering Bot depends on Discord, Nitrado, Stripe, DayZ server logs, and hosting availability. External outages, permission changes, missing logs, or invalid server files can affect feeds and dashboard actions.",
+                    "The service is not affiliated with Bohemia Interactive, Discord, Nitrado, Stripe, Google, or Apple.",
+                ],
+            },
+            {
+                "title": "Support",
+                "body": [
+                    f"For account, setup, billing, or app support, use the support page or contact {PUBLIC_SUPPORT_EMAIL}.",
+                ],
+            },
+        ],
+        actions=[
+            {"label": "Support", "href": "/support", "primary": True},
+            {"label": "Privacy", "href": "/privacy", "primary": False},
+        ],
+        description="Terms for Wandering Bot, a DayZ Discord bot and server dashboard for PC, PlayStation and Xbox communities.",
+    )
+
+
+@APP.get("/support")
+def public_support():
+    support_actions = [{"label": "Open dashboard login", "href": "/login", "primary": True}]
+    if SUPPORT_DISCORD_URL:
+        support_actions.insert(0, {"label": "Join support Discord", "href": SUPPORT_DISCORD_URL, "primary": True})
+    return public_info_page(
+        "/support",
+        "Support",
+        "Support",
+        "Wandering Bot support",
+        "Get help with dashboard login, Discord setup, Nitrado connection, mobile app access, billing, feeds, restarts, events, and DayZ server tools.",
+        [
+            {
+                "title": "For server owners",
+                "body": [
+                    "Have your dashboard ID, Discord server name, DayZ map, platform, and the affected server profile ready before asking for help.",
+                    "For feed or event issues, include the exact channel, server profile, and the latest dashboard message or RPT warning if you have it.",
+                ],
+            },
+            {
+                "title": "For app support",
+                "body": [
+                    "The Android and iPhone app opens the same secure Wandering Bot dashboard. If you cannot log in, use the same dashboard ID and password that works on the website.",
+                    f"Support email: {PUBLIC_SUPPORT_EMAIL}",
+                ],
+            },
+        ],
+        actions=support_actions,
+        description="Support page for Wandering Bot dashboard, mobile app, Discord bot, Nitrado tools, and DayZ server-owner workflows.",
+    )
+
+
+@APP.get("/.well-known/assetlinks.json")
+def android_assetlinks_json():
+    statements = android_assetlinks_statements()
+    if not statements:
+        body = {
+            "error": "Android App Links are not configured yet.",
+            "required_env": "Set WANDERING_ANDROID_SHA256_FINGERPRINTS to the release certificate SHA-256 fingerprint.",
+            "package_name": ANDROID_APP_ID,
+        }
+        return Response(json.dumps(body, indent=2), status=503, mimetype="application/json")
+    return Response(
+        json.dumps(statements, indent=2),
+        mimetype="application/json",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
 @APP.get("/robots.txt")
 def robots_txt():
     body = "\n".join([
@@ -28610,6 +28885,11 @@ def sitemap_xml():
         loc = html.escape(public_page_url(str(guide_data.get("path") or "/dayz-bot-guides")), quote=True)
         entries.append(
             f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>"
+        )
+    for static_path in ("/privacy", "/terms", "/support"):
+        loc = html.escape(public_page_url(static_path), quote=True)
+        entries.append(
+            f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>"
         )
     body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"

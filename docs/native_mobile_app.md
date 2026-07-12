@@ -26,14 +26,16 @@ The `/app` route is the secure mobile interface. The native app is the store-ins
 
 ## Store Readiness Checklist
 
-- Replace temporary icon with 1024x1024 production icon.
-- Add splash image.
-- Add Android release signing key and Play Store bundle signing.
-- Add `/.well-known/assetlinks.json` after the release signing certificate fingerprint exists, so Android can verify Wandering Bot links directly into the app.
-- Add privacy policy URL.
-- Add support URL.
+- Production icon and splash assets are in `mobile/resources/` and generated into the Android project.
+- Android release signing variables are wired in `mobile/android/app/build.gradle`; create the private upload key outside the repo before release.
+- `/.well-known/assetlinks.json` is available, but it will only publish a valid Android App Links file after `WANDERING_ANDROID_SHA256_FINGERPRINTS` is set to the release/upload certificate SHA-256 fingerprint.
+- Privacy policy URL: `https://dayzwanderingbot.com/privacy`.
+- Support URL: `https://dayzwanderingbot.com/support`.
+- Terms URL: `https://dayzwanderingbot.com/terms`.
 - Add screenshots for phone and tablet.
 - Add native push notifications.
 - Add native file download/share support for preset XML/JSON files.
 - Add biometric unlock after the first dashboard login.
 - Add app review-safe wording: this is a server-owner management tool, not a gambling or paid loot service.
+
+Full Play Store prep notes are in `docs/play_store_readiness.md`.

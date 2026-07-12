@@ -52,7 +52,40 @@ Build a release bundle:
 npm run build:android:release
 ```
 
-The Play Store release bundle still needs a real signing key, privacy policy URL, support URL, screenshots, and final store listing text.
+For a signed release bundle, set these variables before the build:
+
+```powershell
+$env:WANDERING_ANDROID_KEYSTORE="C:\secure\wandering-bot-upload.jks"
+$env:WANDERING_ANDROID_KEYSTORE_PASSWORD="your-keystore-password"
+$env:WANDERING_ANDROID_KEY_ALIAS="wandering-bot-upload"
+$env:WANDERING_ANDROID_KEY_PASSWORD="your-key-password"
+```
+
+The release AAB is created at:
+
+```text
+mobile\android\app\build\outputs\bundle\release\app-release.aab
+```
+
+After the Play upload/release certificate exists, set its SHA-256 fingerprint on the website:
+
+```text
+WANDERING_ANDROID_SHA256_FINGERPRINTS=AA:BB:CC:...
+```
+
+That enables:
+
+```text
+https://dayzwanderingbot.com/.well-known/assetlinks.json
+```
+
+Store-ready public links now exist at:
+
+- `https://dayzwanderingbot.com/privacy`
+- `https://dayzwanderingbot.com/support`
+- `https://dayzwanderingbot.com/terms`
+
+The Play Store release still needs final screenshots and Play Console listing setup.
 
 ## iPhone / iPad
 

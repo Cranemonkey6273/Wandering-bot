@@ -75,6 +75,32 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_android_fingerprint_normalizer_accepts_plain_and_coloned_sha256(self):
+        raw = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+        expected = (
+            "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+            "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+        )
+
+        self.assertEqual(expected, dashboard.normalize_android_sha256_fingerprint(raw))
+        self.assertEqual(expected, dashboard.normalize_android_sha256_fingerprint(expected))
+        self.assertEqual("", dashboard.normalize_android_sha256_fingerprint("not-a-fingerprint"))
+
+    def test_android_assetlinks_statement_uses_app_id_and_fingerprints(self):
+        fingerprint = (
+            "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:"
+            "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+        )
+
+        statements = dashboard.android_assetlinks_statements([fingerprint])
+
+        self.assertEqual(1, len(statements))
+        statement = statements[0]
+        self.assertEqual(["delegate_permission/common.handle_all_urls"], statement["relation"])
+        self.assertEqual("android_app", statement["target"]["namespace"])
+        self.assertEqual("com.dayzwanderingbot.app", statement["target"]["package_name"])
+        self.assertEqual([fingerprint], statement["target"]["sha256_cert_fingerprints"])
+
     def test_dashboard_feature_allowed_uses_tier_when_features_missing(self):
         plans = list(dashboard.default_billing_plan_map().values())
         config = {"dashboard": {"enabled": True, "tier": "dashboard_ultimate", "plan_status": "lifetime"}}
