@@ -1,0 +1,44 @@
+{
+  "appId": "com.dayzwanderingbot.app",
+  "appName": "Wandering Bot",
+  "webDir": "web",
+  "server": {
+    "url": "https://dayzwanderingbot.com/app",
+    "cleartext": false,
+    "allowNavigation": [
+      "dayzwanderingbot.com",
+      "*.dayzwanderingbot.com",
+      "buy.stripe.com",
+      "checkout.stripe.com",
+      "discord.com",
+      "*.discord.com"
+    ]
+  },
+  "plugins": {
+    "App": {
+      "launchUrl": "https://dayzwanderingbot.com/app"
+    },
+    "Keyboard": {
+      "resize": "body"
+    },
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#020706",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#020706",
+      "overlaysWebView": false
+    }
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}

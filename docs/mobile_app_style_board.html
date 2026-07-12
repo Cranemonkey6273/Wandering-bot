@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wandering Bot Mobile App Style Board</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #050806;
+      --ink: #f3f7ef;
+      --muted: #adc2ba;
+      --line: rgba(126, 204, 184, .22);
+      --panel: #0b1412;
+      --accent: #35d4c2;
+      --amber: #eca140;
+      --green: #8ee85f;
+      --danger: #ff5f6d;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #050806;
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.55;
+    }
+    a { color: inherit; }
+    .wrap {
+      width: min(1320px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 48px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 24px;
+      align-items: center;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(11, 20, 18, .98), rgba(5, 8, 6, .94));
+    }
+    .hero img {
+      width: 112px;
+      max-width: 22vw;
+      height: auto;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 {
+      font-size: 2.1rem;
+      line-height: 1.05;
+      letter-spacing: 0;
+      text-transform: uppercase;
+      color: var(--amber);
+    }
+    h2 {
+      margin-top: 28px;
+      margin-bottom: 12px;
+      font-size: 1.35rem;
+      line-height: 1.15;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+    h3 {
+      font-size: 1rem;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    .eyebrow {
+      color: var(--green);
+      font-size: .78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .muted { color: var(--muted); }
+    .summary {
+      margin-top: 12px;
+      max-width: 72rem;
+      color: var(--muted);
+    }
+    .notice {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border: 1px solid rgba(236, 161, 64, .34);
+      border-radius: 8px;
+      background: rgba(236, 161, 64, .08);
+      color: #f8e2bd;
+    }
+    .layout-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .layout-card,
+    .style-card,
+    .palette-card,
+    .note-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(9, 16, 14, .94);
+    }
+    .layout-card {
+      padding: 15px;
+      min-height: 148px;
+    }
+    .layout-card strong {
+      display: block;
+      color: var(--ink);
+      margin-bottom: 6px;
+    }
+    .layout-card span { color: var(--muted); }
+    .styles {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .style-card {
+      padding: 16px;
+      overflow: hidden;
+    }
+    .style-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 3px 9px;
+      border: 1px solid rgba(142, 232, 95, .35);
+      border-radius: 999px;
+      color: var(--green);
+      font-size: .75rem;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .mock-row {
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+    .phone {
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 26px;
+      padding: 10px;
+      background: #030504;
+      box-shadow: 0 18px 42px rgba(0,0,0,.4);
+    }
+    .screen {
+      min-height: 468px;
+      border-radius: 18px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .09);
+      background: var(--mock-bg);
+      color: var(--mock-text);
+    }
+    .statusbar {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 14px 8px;
+      font-size: .72rem;
+      color: var(--mock-muted);
+    }
+    .app-top {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 8px 14px 12px;
+      border-bottom: 1px solid var(--mock-line);
+    }
+    .app-top img {
+      width: 34px;
+      height: 34px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--mock-line);
+    }
+    .app-title {
+      min-width: 0;
+      flex: 1;
+    }
+    .app-title strong {
+      display: block;
+      font-size: .92rem;
+      line-height: 1.05;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .app-title span {
+      display: block;
+      margin-top: 2px;
+      color: var(--mock-muted);
+      font-size: .72rem;
+    }
+    .screen-body {
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .server-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+    .pill-button {
+      min-height: 34px;
+      border: 1px solid var(--mock-line);
+      border-radius: 7px;
+      padding: 7px 8px;
+      background: var(--mock-panel);
+      color: var(--mock-text);
+      font-size: .72rem;
+      font-weight: 800;
+      text-align: center;
+    }
+    .pill-button.active {
+      border-color: var(--mock-accent);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+    }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .metric,
+    .feed-mini,
+    .action-panel {
+      border: 1px solid var(--mock-line);
+      border-radius: 8px;
+      background: var(--mock-panel);
+      padding: 10px;
+    }
+    .metric span {
+      display: block;
+      color: var(--mock-muted);
+      font-size: .66rem;
+      text-transform: uppercase;
+    }
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      color: var(--mock-hot);
+      font-size: 1.15rem;
+      line-height: 1;
+    }
+    .feed-mini h4,
+    .action-panel h4 {
+      margin: 0 0 7px;
+      font-size: .78rem;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+    .feed-mini img {
+      display: block;
+      width: 100%;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: #202124;
+    }
+    .feed-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .feed-line {
+      display: grid;
+      grid-template-columns: 8px minmax(0, 1fr) auto;
+      gap: 7px;
+      align-items: center;
+      color: var(--mock-muted);
+      font-size: .68rem;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--mock-accent);
+    }
+    .bottom-nav {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 4px;
+      margin: 0 10px 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--mock-line);
+    }
+    .bottom-nav span {
+      text-align: center;
+      color: var(--mock-muted);
+      font-size: .64rem;
+      font-weight: 800;
+    }
+    .rationale {
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+    .rationale p { color: var(--muted); }
+    .palette {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .swatch {
+      display: grid;
+      grid-template-columns: 28px auto;
+      gap: 7px;
+      align-items: center;
+      min-width: 150px;
+      color: var(--muted);
+      font-size: .78rem;
+    }
+    .swatch i {
+      display: block;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: var(--c);
+    }
+    .do-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .note-card {
+      padding: 15px;
+    }
+    .note-card ul {
+      margin: 10px 0 0;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+    .note-card li + li { margin-top: 6px; }
+
+    .command {
+      --mock-bg: #06100e;
+      --mock-panel: rgba(13, 29, 26, .94);
+      --mock-line: rgba(53, 212, 194, .23);
+      --mock-text: #f2f7ef;
+      --mock-muted: #a6c0b8;
+      --mock-accent: #35d4c2;
+      --mock-hot: #eca140;
+    }
+    .field {
+      --mock-bg: #090d0a;
+      --mock-panel: rgba(22, 31, 26, .98);
+      --mock-line: rgba(215, 181, 109, .24);
+      --mock-text: #f3f1e7;
+      --mock-muted: #b8c1ae;
+      --mock-accent: #88a887;
+      --mock-hot: #d7b56d;
+    }
+    .signal {
+      --mock-bg: #030607;
+      --mock-panel: rgba(10, 21, 24, .98);
+      --mock-line: rgba(25, 198, 214, .24);
+      --mock-text: #f5f7fa;
+      --mock-muted: #aabdc3;
+      --mock-accent: #19c6d6;
+      --mock-hot: #ff5b66;
+    }
+    .steel {
+      --mock-bg: #080b0c;
+      --mock-panel: rgba(22, 27, 29, .98);
+      --mock-line: rgba(142, 166, 173, .28);
+      --mock-text: #eef3f4;
+      --mock-muted: #aebdc1;
+      --mock-accent: #67e2a0;
+      --mock-hot: #f0a33a;
+    }
+    @media (max-width: 1120px) {
+      .styles,
+      .layout-grid,
+      .do-list { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .wrap { width: min(100% - 20px, 1320px); padding-top: 16px; }
+      .hero,
+      .mock-row { grid-template-columns: 1fr; }
+      .hero img { width: 86px; }
+      h1 { font-size: 1.55rem; }
+      .phone { width: min(100%, 260px); margin: 0 auto; }
+      .screen { min-height: 430px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Wandering Bot mobile app direction</p>
+        <h1>Style board and app layout choices</h1>
+        <p class="summary">The app should feel like a serious DayZ server control surface, not a marketing page. These are four usable visual directions for the dashboard, mobile app, and public site. The aim is cleaner, more adult, less noisy, and still recognisably Wandering Bot.</p>
+        <p class="notice"><strong>Recommendation:</strong> start with Command Center if you want to keep the current brand. Pick Field Tablet if you want it calmer and more premium. Signal Ops is best for a live-alert heavy product. Steel Console is strongest for billing, owners and business users.</p>
+      </div>
+      <img src="../wanderingbot_character.png" alt="Wandering Bot character">
+    </section>
+
+    <h2>Suggested App Pages</h2>
+    <section class="layout-grid">
+      <article class="layout-card"><strong>1. App Home</strong><span>Current server, server switcher, players online, Nitrado/ADM/FTP status, next restart, next raid window, urgent warnings.</span></article>
+      <article class="layout-card"><strong>2. Recent Feeds</strong><span>Killfeed, builds, flags, placed items, connections, damage, radar pings and pinned board previews filtered by Cherno, Livo or all servers.</span></article>
+      <article class="layout-card"><strong>3. Shop and Economy</strong><span>Quick edits for shop items, categories, prices, stock, player balances, wages, rewards and global economy settings.</span></article>
+      <article class="layout-card"><strong>4. Events</strong><span>Airdrops, animal drops, zombie hordes, live spawn tracker and restart-needed status. Keep risky XML actions behind confirmed backend forms.</span></article>
+      <article class="layout-card"><strong>5. Maps and Zones</strong><span>Heatmaps, radar zones, safe zones and PVP zones with a clear server picker before editing anything.</span></article>
+      <article class="layout-card"><strong>6. Preset Files</strong><span>Download ready-made vanilla, unlimited stamina, build-anywhere and boosted economy files in the correct format for phone upload or guarded backend apply.</span></article>
+      <article class="layout-card"><strong>7. Controls</strong><span>Restart schedules, vehicle reset schedules, raid weekend controls, base damage, container damage and server action audit state.</span></article>
+      <article class="layout-card"><strong>8. Members</strong><span>Ban, unban, warn, linked-gamertag lookup, access review, staff notes and role checks scoped to the selected server.</span></article>
+      <article class="layout-card"><strong>9. Billing and Access</strong><span>Plan, renewal, upgrade, customer portal, admin logins, temporary staff access and private/manual access grants.</span></article>
+      <article class="layout-card"><strong>10. Guide Library</strong><span>Beginner guide, download text, file definitions, helpful tools, events, animal/zombie spawns, loot in buildings, custom categories, tags and tiers.</span></article>
+    </section>
+
+    <h2>Visual Directions</h2>
+    <section class="styles">
+      <article class="style-card command">
+        <div class="style-head">
+          <div>
+            <p class="eyebrow">Option A</p>
+            <h3>Command Center</h3>
+          </div>
+          <span class="badge">Recommended</span>
+        </div>
+        <div class="mock-row">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>21:40</span><span>LTE 78%</span></div>
+              <div class="app-top"><img src="../wanderingbot.png" alt=""><div class="app-title"><strong>Wandering Bot</strong><span>Cherno active</span></div></div>
+              <div class="screen-body">
+                <div class="server-switch"><div class="pill-button active">Cherno</div><div class="pill-button">Livo</div></div>
+                <div class="metric-grid"><div class="metric"><span>Players</span><strong>12 / 60</strong></div><div class="metric"><span>Restart</span><strong>01:18</strong></div></div>
+                <div class="feed-mini"><h4>Latest feed</h4><img src="../public_feed_previews/connected.png" alt="Connected feed preview"></div>
+                <div class="action-panel"><h4>Next actions</h4><div class="feed-list"><div class="feed-line"><i class="dot"></i><span>Raid weekend starts Friday 21:00</span><strong>On</strong></div><div class="feed-line"><i class="dot"></i><span>Vehicle reset due 20 July</span><strong>Armed</strong></div></div></div>
+              </div>
+              <div class="bottom-nav"><span>Home</span><span>Feeds</span><span>Map</span><span>Billing</span></div>
+            </div>
+          </div>
+          <div class="rationale">
+            <p>Closest to the current dashboard, but cleaner. Dark green-black, amber status numbers, cyan action edges and fewer decorative extras. This keeps the brand while making the app feel more grown-up.</p>
+            <div class="palette">
+              <span class="swatch"><i style="--c:#050806"></i>#050806</span>
+              <span class="swatch"><i style="--c:#0b1412"></i>#0b1412</span>
+              <span class="swatch"><i style="--c:#35d4c2"></i>#35d4c2</span>
+              <span class="swatch"><i style="--c:#eca140"></i>#eca140</span>
+              <span class="swatch"><i style="--c:#8ee85f"></i>#8ee85f</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="style-card field">
+        <div class="style-head">
+          <div>
+            <p class="eyebrow">Option B</p>
+            <h3>Field Tablet</h3>
+          </div>
+          <span class="badge">Calmer</span>
+        </div>
+        <div class="mock-row">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>21:40</span><span>Wi-Fi 84%</span></div>
+              <div class="app-top"><img src="../wanderingbot.png" alt=""><div class="app-title"><strong>Server Ops</strong><span>Wandering Community</span></div></div>
+              <div class="screen-body">
+                <div class="server-switch"><div class="pill-button active">WAC Cherno</div><div class="pill-button">WAC Livo</div></div>
+                <div class="metric-grid"><div class="metric"><span>ADM</span><strong>Live</strong></div><div class="metric"><span>Feeds</span><strong>24</strong></div></div>
+                <div class="feed-mini"><h4>Activity</h4><img src="../public_feed_previews/building.png" alt="Building feed preview"></div>
+                <div class="action-panel"><h4>Server notes</h4><div class="feed-list"><div class="feed-line"><i class="dot"></i><span>Next raid alert queued</span><strong>20:30</strong></div><div class="feed-line"><i class="dot"></i><span>Heatmap mode</span><strong>PVP</strong></div></div></div>
+              </div>
+              <div class="bottom-nav"><span>Status</span><span>Feeds</span><span>Events</span><span>Presets</span></div>
+            </div>
+          </div>
+          <div class="rationale">
+            <p>Most adult and least gamey. It would suit paid customers who want the bot to feel reliable and professional. It is less loud, which helps when pages are dense.</p>
+            <div class="palette">
+              <span class="swatch"><i style="--c:#090d0a"></i>#090d0a</span>
+              <span class="swatch"><i style="--c:#161f1a"></i>#161f1a</span>
+              <span class="swatch"><i style="--c:#88a887"></i>#88a887</span>
+              <span class="swatch"><i style="--c:#d7b56d"></i>#d7b56d</span>
+              <span class="swatch"><i style="--c:#f3f1e7"></i>#f3f1e7</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="style-card signal">
+        <div class="style-head">
+          <div>
+            <p class="eyebrow">Option C</p>
+            <h3>Signal Ops</h3>
+          </div>
+          <span class="badge">Alerts</span>
+        </div>
+        <div class="mock-row">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>21:40</span><span>5G 91%</span></div>
+              <div class="app-top"><img src="../wanderingbot.png" alt=""><div class="app-title"><strong>Live Signals</strong><span>All servers</span></div></div>
+              <div class="screen-body">
+                <div class="server-switch"><div class="pill-button active">All</div><div class="pill-button">Critical</div></div>
+                <div class="metric-grid"><div class="metric"><span>Alerts</span><strong>7</strong></div><div class="metric"><span>Pings</span><strong>3</strong></div></div>
+                <div class="feed-mini"><h4>Priority feed</h4><img src="../public_feed_previews/radar-zone.png" alt="Radar feed preview"></div>
+                <div class="action-panel"><h4>Watch list</h4><div class="feed-list"><div class="feed-line"><i class="dot"></i><span>Radar zone triggered</span><strong>Now</strong></div><div class="feed-line"><i class="dot"></i><span>Server restart detected</span><strong>Seen</strong></div></div></div>
+              </div>
+              <div class="bottom-nav"><span>Pulse</span><span>Alerts</span><span>Map</span><span>Admin</span></div>
+            </div>
+          </div>
+          <div class="rationale">
+            <p>Best if the product pitch is live feeds, killfeeds and staff alerts. High contrast and fast to scan, but it needs restraint so it does not feel too sharp for billing or setup pages.</p>
+            <div class="palette">
+              <span class="swatch"><i style="--c:#030607"></i>#030607</span>
+              <span class="swatch"><i style="--c:#0a1518"></i>#0a1518</span>
+              <span class="swatch"><i style="--c:#19c6d6"></i>#19c6d6</span>
+              <span class="swatch"><i style="--c:#ff5b66"></i>#ff5b66</span>
+              <span class="swatch"><i style="--c:#f5f7fa"></i>#f5f7fa</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="style-card steel">
+        <div class="style-head">
+          <div>
+            <p class="eyebrow">Option D</p>
+            <h3>Steel Console</h3>
+          </div>
+          <span class="badge">Premium</span>
+        </div>
+        <div class="mock-row">
+          <div class="phone">
+            <div class="screen">
+              <div class="statusbar"><span>21:40</span><span>VPN 66%</span></div>
+              <div class="app-top"><img src="../wanderingbot.png" alt=""><div class="app-title"><strong>Owner Console</strong><span>Plan and access</span></div></div>
+              <div class="screen-body">
+                <div class="server-switch"><div class="pill-button active">Community</div><div class="pill-button">Customers</div></div>
+                <div class="metric-grid"><div class="metric"><span>Plan</span><strong>Pro</strong></div><div class="metric"><span>Admins</span><strong>4</strong></div></div>
+                <div class="feed-mini"><h4>Customer preview</h4><img src="../public_feed_previews/restart-log.png" alt="Restart log preview"></div>
+                <div class="action-panel"><h4>Billing controls</h4><div class="feed-list"><div class="feed-line"><i class="dot"></i><span>Customer portal ready</span><strong>Open</strong></div><div class="feed-line"><i class="dot"></i><span>Manual access grants</span><strong>Enabled</strong></div></div></div>
+              </div>
+              <div class="bottom-nav"><span>Home</span><span>Servers</span><span>Access</span><span>Billing</span></div>
+            </div>
+          </div>
+          <div class="rationale">
+            <p>Most SaaS-like. Strong if Wandering Bot becomes a paid product with subscriptions, invoices and customer access. It would make the owner console feel separate from the game dashboard.</p>
+            <div class="palette">
+              <span class="swatch"><i style="--c:#080b0c"></i>#080b0c</span>
+              <span class="swatch"><i style="--c:#161b1d"></i>#161b1d</span>
+              <span class="swatch"><i style="--c:#8ea6ad"></i>#8ea6ad</span>
+              <span class="swatch"><i style="--c:#67e2a0"></i>#67e2a0</span>
+              <span class="swatch"><i style="--c:#f0a33a"></i>#f0a33a</span>
+            </div>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <h2>Design Rules I Would Use</h2>
+    <section class="do-list">
+      <article class="note-card">
+        <h3>Keep</h3>
+        <ul>
+          <li>One obvious server picker on every tool that can affect Cherno, Livo or another customer server.</li>
+          <li>Small, dense dashboard cards for repeated use on phones.</li>
+          <li>Real feed previews and real feature names from the bot.</li>
+          <li>Separate owner console from customer server tools so billing does not feel mixed into gameplay settings.</li>
+          <li>Clear warning states before preset applies, restarts, vehicle resets and billing access changes.</li>
+        </ul>
+      </article>
+      <article class="note-card">
+        <h3>Avoid</h3>
+        <ul>
+          <li>Huge hero sections inside the actual dashboard app.</li>
+          <li>Too many emoji separators or decorative labels in controls.</li>
+          <li>Fake trust numbers once billing is live. Use real counters or say "sample" clearly.</li>
+          <li>Putting dangerous actions behind tiny icon-only controls.</li>
+          <li>Full arbitrary XML editing on mobile. Use tested preset downloads and guarded backend apply instead.</li>
+          <li>Any phone-side secret handling. Stripe secret keys, Nitrado tokens and Discord tokens stay backend-only.</li>
+        </ul>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
