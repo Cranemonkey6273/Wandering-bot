@@ -141,15 +141,7 @@ DASHBOARD_AIRDROP_LOCATION_PRESETS = {
 }
 DASHBOARD_MAP_LABELS = {
     "livonia": [],
-    "chernarus": [
-        {"name": "NWAF", "x": 4481, "z": 10355, "kind": "landmark"},
-        {"name": "Tisy", "x": 1612, "z": 14175, "kind": "landmark"},
-        {"name": "Vybor", "x": 4600, "z": 8400, "kind": "major"},
-        {"name": "Zelenogorsk", "x": 2520, "z": 5140, "kind": "major"},
-        {"name": "Cherno", "x": 6560, "z": 2520, "kind": "major"},
-        {"name": "Elektro", "x": 10480, "z": 2320, "kind": "major"},
-        {"name": "Berezino", "x": 12200, "z": 9500, "kind": "major"},
-    ],
+    "chernarus": [],
 }
 SCENARIO_LOOT_PRESETS = {
     "none": [],
@@ -472,6 +464,10 @@ OWNER_DASHBOARD_PASSWORD = os.getenv("WANDERING_OWNER_DASHBOARD_PASSWORD", "")
 OWNER_ADMIN_GUILD_IDS = os.getenv("WANDERING_OWNER_ADMIN_GUILD_IDS", "")
 DASHBOARD_COOKIE_SECRET = os.getenv("WANDERING_DASHBOARD_COOKIE_SECRET") or ADMIN_TOKEN or secrets.token_urlsafe(32)
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
+PWA_THEME_COLOR = os.getenv("WANDERING_PWA_THEME_COLOR", "#35d4c2")
+PWA_BACKGROUND_COLOR = os.getenv("WANDERING_PWA_BACKGROUND_COLOR", "#050806")
+PWA_APP_NAME = os.getenv("WANDERING_PWA_APP_NAME", "Wandering Bot Dashboard")
+PWA_SHORT_NAME = os.getenv("WANDERING_PWA_SHORT_NAME", "Wandering Bot")
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "").strip()
 DEFAULT_BOT_INVITE_URL = os.getenv(
     "BOT_INVITE_URL",
@@ -1292,6 +1288,12 @@ LOGIN_TEMPLATE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wandering Bot Dashboard Login</title>
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
   <style>
     :root { color-scheme: dark; --bg: #050806; --panel: #111710; --line: rgba(209,203,145,.24); --text: #f3ecd9; --muted: #c4bda7; --gold: #d5b45f; --olive: #8d963e; --red: #ed3853; }
     * { box-sizing: border-box; }
@@ -1303,6 +1305,9 @@ LOGIN_TEMPLATE = """
     form { display: grid; gap: .75rem; margin-top: 1rem; }
     label { display: grid; gap: .25rem; color: var(--muted); font-size: .9rem; }
     input { width: 100%; border: 1px solid var(--line); border-radius: .45rem; background: #080d09; color: var(--text); padding: .75rem .8rem; }
+    .password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: center; }
+    .password-row input { min-width: 0; }
+    .password-toggle { min-height: 2.75rem; padding: .55rem .75rem; border: 1px solid var(--line); background: #1b2417; color: var(--text); white-space: nowrap; }
     button { border: 0; border-radius: .45rem; background: var(--olive); color: #070a06; padding: .8rem; font-weight: 900; cursor: pointer; }
     .error { color: #ffd8df; background: rgba(237,56,83,.16); border: 1px solid rgba(237,56,83,.35); padding: .65rem; border-radius: .45rem; }
     code { color: var(--gold); }
@@ -1316,10 +1321,27 @@ LOGIN_TEMPLATE = """
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post" action="/login">
       <label>Dashboard ID <input name="dashboard_id" autocomplete="username" required></label>
-      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <label>Password
+        <span class="password-row">
+          <input id="dashboard-login-password" name="password" type="password" autocomplete="current-password" required>
+          <button class="password-toggle" type="button" data-password-toggle data-target="dashboard-login-password" aria-pressed="false">Show</button>
+        </span>
+      </label>
       <button type="submit">Open Dashboard</button>
     </form>
   </main>
+  <script>
+    document.querySelectorAll("[data-password-toggle]").forEach(function (button) {
+      var input = document.getElementById(button.getAttribute("data-target") || "");
+      if (!input) return;
+      button.addEventListener("click", function () {
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        button.textContent = show ? "Hide" : "Show";
+        button.setAttribute("aria-pressed", show ? "true" : "false");
+      });
+    });
+  </script>
 </body>
 </html>
 """
@@ -1335,6 +1357,12 @@ PUBLIC_LANDING_TEMPLATE = """
   {% if page.keywords %}<meta name="keywords" content="{{ page.keywords|join(', ') }}">{% endif %}
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="{{ page.canonical_url }}">
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Wandering Bot">
   <meta property="og:title" content="{{ page.title }}">
@@ -1503,6 +1531,13 @@ PUBLIC_LANDING_TEMPLATE = """
     .pricing-card .button { width: 100%; align-self: end; }
     .pricing-pill { display: inline-flex; align-items: center; border: 1px solid rgba(236, 161, 64, .36); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .72rem; font-weight: 950; white-space: nowrap; }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
+    .app-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
+    .app-section header { max-width: 54rem; margin-bottom: .85rem; }
+    .app-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
+    .app-card { min-width: 0; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: .85rem; background: rgba(0, 0, 0, .22); }
+    .app-card strong { display: block; color: var(--text); margin-bottom: .25rem; }
+    .app-card span { display: block; }
+    .app-note { margin-top: .8rem; padding: .8rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .45rem; background: rgba(236, 161, 64, .075); }
     .guide-section, .article-section, .related-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(0, 0, 0, .22); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.22); }
     .guide-section header, .article-section header, .related-section header { max-width: 54rem; margin-bottom: .85rem; }
     .guide-grid, .related-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
@@ -1534,7 +1569,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
-      .hero, .band, .features, .proof-strip, .pricing-grid, .faq-grid, .keyword-list, .review-grid, .guide-grid, .article-grid, .related-grid { grid-template-columns: 1fr; }
+      .hero, .band, .features, .app-grid, .proof-strip, .pricing-grid, .faq-grid, .keyword-list, .review-grid, .guide-grid, .article-grid, .related-grid { grid-template-columns: 1fr; }
       .hero { min-height: auto; align-items: start; padding-top: 1rem; }
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
@@ -1599,6 +1634,21 @@ PUBLIC_LANDING_TEMPLATE = """
         </div>
       </aside>
     </section>
+    {% if page.app_pitch %}
+    <section class="app-section" id="mobile-app" aria-label="Wandering Bot mobile dashboard">
+      <header>
+        <p class="eyebrow">Mobile App Ready</p>
+        <h2>Use the dashboard like an app first</h2>
+        <p>Wandering Bot now has the web-app base a native iPhone or Android app would need: mobile metadata, installable dashboard support, and backend-controlled actions. The mobile app should stay as a clean control surface while the bot and server tools continue running on the backend.</p>
+      </header>
+      <div class="app-grid">
+        <article class="app-card"><strong>Installable web dashboard</strong><span>Owners and admins can use the dashboard from phone browsers as a home-screen style app without changing how server actions are checked.</span></article>
+        <article class="app-card"><strong>Safe backend control</strong><span>Nitrado tokens, Stripe secret keys, XML uploads, restarts, billing access, and role checks stay on the Wandering Bot backend, never inside a phone app.</span></article>
+        <article class="app-card"><strong>Native app path</strong><span>The later iOS and Android app can call the same permission-checked backend API for live feeds, alerts, server status, customer access, and push notifications.</span></article>
+      </div>
+      <div class="app-note"><strong>Platform coverage</strong><span>Built for DayZ server owners working across PC, PlayStation and Xbox communities, with mobile access for owners and staff who need to check feeds or server status away from their desktop.</span></div>
+    </section>
+    {% endif %}
     {% if page.guide_hub %}
     <section class="guide-section" id="guides" aria-label="DayZ bot guide hub">
       <header>
@@ -1770,6 +1820,12 @@ PUBLIC_CHECKOUT_TEMPLATE = """
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ plan.name }} Checkout - Wandering Bot</title>
   <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
   <script async src="https://js.stripe.com/v3/buy-button.js"></script>
   <style>
     :root { color-scheme: dark; --bg: #050806; --panel: rgba(10,18,16,.94); --line: rgba(126,204,184,.24); --text: #f2f7ef; --muted: #b9c8bf; --green: #8ee85f; --amber: #eca140; --ink: #030605; }
@@ -1809,6 +1865,12 @@ AGENT_LOGIN_TEMPLATE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wandering Agent Login</title>
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
   <style>
     :root { color-scheme: dark; --bg: #02090c; --panel: #071418; --line: rgba(103,245,231,.2); --text: #ecfeff; --muted: #9fc3c8; --accent: #24efe1; --danger: #ff7a8a; }
     * { box-sizing: border-box; }
@@ -1866,6 +1928,301 @@ AGENT_LOGIN_TEMPLATE = """
 </html>
 """
 
+APP_DASHBOARD_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Wandering Bot App</title>
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
+  <style>
+    :root {
+      --bg: #020706;
+      --panel: #071211;
+      --panel2: #0b1b1b;
+      --line: rgba(65, 221, 204, .22);
+      --line2: rgba(255, 164, 58, .34);
+      --text: #f4fbf7;
+      --muted: #a8c7c2;
+      --green: #86f35d;
+      --teal: #36d6cc;
+      --gold: #ffa33a;
+      --red: #ff6476;
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100svh;
+      background:
+        radial-gradient(circle at top left, rgba(255,163,58,.14), transparent 30rem),
+        radial-gradient(circle at bottom right, rgba(54,214,204,.12), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      padding: env(safe-area-inset-top) 0 calc(5.8rem + env(safe-area-inset-bottom));
+    }
+    a { color: inherit; text-decoration: none; }
+    button, select {
+      font: inherit;
+      color: var(--text);
+      background: #051010;
+      border: 1px solid var(--line);
+      border-radius: .65rem;
+    }
+    button { padding: .72rem .9rem; font-weight: 900; cursor: pointer; }
+    select { width: 100%; padding: .72rem .8rem; }
+    .app-shell { width: min(76rem, 100%); margin: 0 auto; padding: .75rem; display: grid; gap: .8rem; }
+    .hero, .card, .metric, .feed-row, .action-card {
+      border: 1px solid var(--line);
+      background: linear-gradient(145deg, rgba(11,27,27,.96), rgba(4,12,12,.96));
+      box-shadow: 0 12px 40px rgba(0,0,0,.28);
+      border-radius: .85rem;
+    }
+    .hero { padding: 1rem; display: grid; gap: .85rem; border-top-color: var(--line2); }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: .8rem; }
+    .brand { display: flex; align-items: center; gap: .7rem; min-width: 0; }
+    .brand img { width: 3rem; height: 3rem; border-radius: .65rem; object-fit: cover; border: 1px solid var(--line); }
+    .brand h1, .brand p { margin: 0; }
+    .brand h1 { font-size: 1.15rem; line-height: 1.05; color: var(--gold); text-transform: uppercase; }
+    .brand p { color: var(--muted); font-size: .84rem; overflow-wrap: anywhere; }
+    .status-pill, .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.035);
+      border-radius: 999px;
+      padding: .28rem .55rem;
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 800;
+    }
+    .status-pill.ok { color: var(--green); border-color: rgba(134,243,93,.36); background: rgba(134,243,93,.08); }
+    .server-title { display: grid; gap: .18rem; }
+    .server-title strong { font-size: clamp(1.45rem, 8vw, 2.6rem); line-height: .95; letter-spacing: 0; }
+    .server-title span { color: var(--muted); font-size: .92rem; }
+    .server-form { display: grid; grid-template-columns: 1fr auto; gap: .55rem; }
+    .profile-strip, .pill-row { display: flex; flex-wrap: wrap; gap: .42rem; }
+    .profile-strip a { border-color: rgba(54,214,204,.28); }
+    .profile-strip a.active { color: var(--green); border-color: rgba(134,243,93,.48); background: rgba(134,243,93,.08); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; }
+    .metric { padding: .78rem; min-height: 6rem; display: grid; align-content: center; gap: .2rem; }
+    .metric span { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+    .metric strong { color: var(--gold); font-size: 1.75rem; line-height: 1; }
+    .metric small { color: var(--green); font-size: .78rem; }
+    .card { padding: .9rem; display: grid; gap: .7rem; }
+    .section-title { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; }
+    .section-title h2 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: .03em; }
+    .section-title a { color: var(--gold); font-weight: 900; font-size: .82rem; }
+    .feed-list { display: grid; gap: .55rem; }
+    .feed-row { padding: .72rem; border-radius: .65rem; display: grid; gap: .28rem; border-left: 3px solid var(--teal); }
+    .feed-row strong { font-size: .9rem; }
+    .feed-row p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.38; overflow-wrap: anywhere; }
+    .feed-meta { display: flex; justify-content: space-between; gap: .5rem; color: var(--gold); font-size: .74rem; font-weight: 800; }
+    .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; }
+    .action-card { padding: .78rem; display: grid; gap: .35rem; min-height: 6.8rem; }
+    .action-card strong { color: var(--text); }
+    .action-card span { color: var(--muted); font-size: .82rem; line-height: 1.35; }
+    .action-card b { color: var(--gold); font-size: .72rem; text-transform: uppercase; }
+    .control-list { display: grid; gap: .55rem; }
+    .control-row { border: 1px solid var(--line); border-radius: .65rem; padding: .68rem; display: grid; gap: .2rem; background: rgba(255,255,255,.025); }
+    .control-row strong { display: flex; justify-content: space-between; gap: .6rem; }
+    .control-row span { color: var(--muted); font-size: .82rem; }
+    .upgrade-card { border-color: rgba(255,163,58,.35); }
+    .cta {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 2.7rem;
+      border-radius: .65rem;
+      border: 1px solid rgba(255,163,58,.42);
+      background: linear-gradient(180deg, #ffad46, #dc8124);
+      color: #07100d;
+      font-weight: 950;
+      padding: .72rem .9rem;
+    }
+    .muted { color: var(--muted); line-height: 1.45; margin: 0; }
+    .bottom-nav {
+      position: fixed;
+      z-index: 20;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: .55rem .7rem calc(.55rem + env(safe-area-inset-bottom));
+      background: rgba(2,7,6,.92);
+      border-top: 1px solid var(--line);
+      backdrop-filter: blur(16px);
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: .35rem;
+    }
+    .bottom-nav a {
+      display: grid;
+      place-items: center;
+      gap: .12rem;
+      border: 1px solid transparent;
+      border-radius: .65rem;
+      padding: .48rem .2rem;
+      color: var(--muted);
+      font-size: .7rem;
+      font-weight: 850;
+    }
+    .bottom-nav a.active { color: var(--green); border-color: rgba(134,243,93,.28); background: rgba(134,243,93,.07); }
+    @media (min-width: 760px) {
+      body { padding-bottom: 1rem; }
+      .app-shell { padding: 1rem; }
+      .hero { grid-template-columns: 1.1fr .9fr; align-items: end; }
+      .topline { grid-column: 1 / -1; }
+      .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .bottom-nav { position: sticky; top: 0; bottom: auto; width: min(76rem, calc(100% - 2rem)); margin: .8rem auto 0; border: 1px solid var(--line); border-radius: .9rem; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <main class="app-shell">
+    <section class="hero">
+      <div class="topline">
+        <div class="brand">
+          <img src="/brand-image" alt="Wandering Bot">
+          <div>
+            <h1>Wandering Bot</h1>
+            <p>{{ auth.label or 'Dashboard app' }}</p>
+          </div>
+        </div>
+        <a class="status-pill ok" href="{{ dashboard_path }}?section=overview{{ dashboard_qs }}">Dashboard</a>
+      </div>
+      {% if server %}
+      <div class="server-title">
+        <strong>{{ server.dayz_name or server.guild_name }}</strong>
+        <span>{{ server.guild_name }} | {{ server.platform_label or server.platform }} | {{ server.map }}</span>
+        <div class="pill-row">
+          <span class="pill">{{ server.online|length }} online</span>
+          <span class="pill">{{ server.discord_member_count }} Discord</span>
+          <span class="pill">{{ selected_dayz_profile.name if selected_dayz_profile else 'Main server' }}</span>
+        </div>
+      </div>
+      <form class="server-form" method="get" action="/app">
+        <select name="guild_id" aria-label="Choose server">
+          {% for option in servers %}
+          <option value="{{ option.guild_id }}" {% if option.guild_id == server.guild_id %}selected{% endif %}>{{ option.guild_name }} - {{ option.map }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Open</button>
+      </form>
+      {% if server.dayz_profiles %}
+      <nav class="profile-strip" aria-label="DayZ server profiles">
+        {% for profile in server.dayz_profiles %}
+        <a class="pill {{ 'active' if profile.id == selected_dayz_profile_id else '' }}" href="/app?guild_id={{ server.guild_id|urlencode }}&server_profile_id={{ profile.id|urlencode }}">{{ profile.name }}</a>
+        {% endfor %}
+      </nav>
+      {% endif %}
+      {% else %}
+      <div class="server-title">
+        <strong>No server access</strong>
+        <span>This login does not currently have a dashboard server assigned.</span>
+      </div>
+      {% endif %}
+    </section>
+
+    {% if server %}
+    <section class="grid" aria-label="Server metrics">
+      <article class="metric"><span>Online</span><strong>{{ server.online|length }}</strong><small>survivors tracked</small></article>
+      <article class="metric"><span>Members</span><strong>{{ server.discord_member_count }}</strong><small>Discord community</small></article>
+      <article class="metric"><span>Shop Items</span><strong>{{ server.shop_item_count }}</strong><small>economy ready</small></article>
+      <article class="metric"><span>Zones</span><strong>{{ server.zones|length }}</strong><small>map controls</small></article>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <h2>Recent Feeds</h2>
+        <a href="{{ dashboard_path }}?section=live-feeds{{ dashboard_qs }}">Manage</a>
+      </div>
+      <div class="feed-list">
+        {% for row in server.dashboard_live_feed_rows[:6] %}
+        <article class="feed-row">
+          <div class="feed-meta"><span>{{ row.feed_label }}</span><span>{{ row.time_label or 'Live' }}</span></div>
+          <strong>{{ row.player }}</strong>
+          <p>{{ row.summary or row.raw_line or row.event_type or 'Feed event captured.' }}</p>
+        </article>
+        {% else %}
+        <p class="muted">No live feed rows are stored for this selected server yet. Once feed events arrive, this becomes the quick mobile view.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <h2>Quick Actions</h2>
+        <a href="{{ dashboard_path }}?section=overview{{ dashboard_qs }}">Full dashboard</a>
+      </div>
+      <div class="actions">
+        <a class="action-card" href="{{ dashboard_path }}?section=shop{{ dashboard_qs }}"><b>Economy</b><strong>Shop editor</strong><span>Edit items, prices, stock and categories from the existing dashboard tools.</span></a>
+        <a class="action-card" href="{{ dashboard_path }}?section=pve{{ dashboard_qs }}"><b>Events</b><strong>Airdrops and spawns</strong><span>Create or review dashboard event queues for the selected DayZ server.</span></a>
+        <a class="action-card" href="{{ dashboard_path }}?section=access&setup_tool=control{{ dashboard_qs }}"><b>Controls</b><strong>Restart schedules</strong><span>Open restart, raid damage and vehicle reset controls.</span></a>
+        <a class="action-card" href="{{ dashboard_path }}?section=zones{{ dashboard_qs }}"><b>Map</b><strong>Zones and radar</strong><span>Review safe zones, PVP zones, faction areas and radar pings.</span></a>
+        <a class="action-card" href="{{ dashboard_path }}?section=members{{ dashboard_qs }}"><b>Staff</b><strong>Members</strong><span>Open member records, linked players and moderation actions.</span></a>
+        <a class="action-card" href="{{ dashboard_path }}?section=presets{{ dashboard_qs }}"><b>Files</b><strong>Preset downloads</strong><span>Get ready-made gameplay, weather and boosted economy files for phone download.</span></a>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title">
+        <h2>Server Controls</h2>
+        <a href="{{ dashboard_path }}?section=access&setup_tool=control{{ dashboard_qs }}">Edit</a>
+      </div>
+      <div class="control-list">
+        <div class="control-row">
+          <strong>Restarts <span>{{ schedule_status.restart.status }}</span></strong>
+          <span>{{ schedule_status.restart.next_label }} | {{ schedule_status.restart.interval_label }}</span>
+        </div>
+        <div class="control-row">
+          <strong>Raid damage on <span>{{ schedule_status.damage_on.status }}</span></strong>
+          <span>{{ schedule_status.damage_on.target_label }} | writes {{ schedule_status.damage_on.write_label }}</span>
+        </div>
+        <div class="control-row">
+          <strong>Vehicle reset <span>{{ schedule_status.vehicle_reset.status }}</span></strong>
+          <span>{{ schedule_status.vehicle_reset.target_label }} | {{ schedule_status.vehicle_reset.method_label }}</span>
+        </div>
+      </div>
+    </section>
+
+    {% if customer_billing_plans %}
+    <section class="card upgrade-card">
+      <div class="section-title">
+        <h2>Upgrade</h2>
+        <a href="{{ dashboard_path }}?section=overview{{ dashboard_qs }}#dashboard-upgrade">Plans</a>
+      </div>
+      {% for plan in customer_billing_plans[:2] %}
+      <div class="control-row">
+        <strong>{{ plan.name }} <span>{{ plan.price_text }}</span></strong>
+        <span>{{ plan.description }}</span>
+        {% if plan.checkout_url and not plan.current %}<a class="cta" href="{{ plan.checkout_url }}"> {{ plan.upgrade_cta }} </a>{% endif %}
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+    {% endif %}
+  </main>
+
+  <nav class="bottom-nav" aria-label="App navigation">
+    <a class="active" href="/app{{ app_qs }}">Home</a>
+    <a href="{{ dashboard_path }}?section=live-feeds{{ dashboard_qs }}">Feeds</a>
+    <a href="{{ dashboard_path }}?section=shop{{ dashboard_qs }}">Shop</a>
+    <a href="{{ dashboard_path }}?section=access&setup_tool=control{{ dashboard_qs }}">Control</a>
+    <a href="{{ dashboard_path }}?section=help{{ dashboard_qs }}">Guides</a>
+  </nav>
+</body>
+</html>
+"""
+
 PAGE_TEMPLATE = """
 <!doctype html>
 <html lang="en">
@@ -1873,6 +2230,12 @@ PAGE_TEMPLATE = """
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wandering Bot Dashboard</title>
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
   {% if billing_has_stripe_buy_buttons %}
   <script async src="https://js.stripe.com/v3/buy-button.js"></script>
   {% endif %}
@@ -2309,6 +2672,7 @@ PAGE_TEMPLATE = """
           postJson("/api/admin/zone-action", {
             action: "delete",
             guild_id: firstValue(zoneDelete.getAttribute("data-guild-id"), zoneForm && zoneForm.elements.guild_id && zoneForm.elements.guild_id.value, "{{ server.guild_id if server else '' }}"),
+            server_profile_id: firstValue(zoneForm && zoneForm.elements.server_profile_id && zoneForm.elements.server_profile_id.value, "{{ selected_dayz_profile_id if selected_dayz_profile else '' }}"),
             zone_id: firstValue(zoneDelete.getAttribute("data-zone-id"), zone.id, zoneForm && zoneForm.elements.zone_id && zoneForm.elements.zone_id.value, ""),
             zone_type: firstValue(zoneDelete.getAttribute("data-zone-type"), zone.zone_type, zone.type, zoneForm && zoneForm.elements.zone_type && zoneForm.elements.zone_type.value, ""),
             name: name,
@@ -4393,6 +4757,7 @@ PAGE_TEMPLATE = """
       <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
       {% elif auth.kind == "owner" and mode == "owner" %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
+      <a href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       <a class="{{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
       <a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
@@ -4401,11 +4766,13 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
+      <a href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       {% if customer_billing_plans %}<a href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
-      {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
+      {% if section_allowed('presets') %}<a class="{{ 'active' if active_section == 'presets' else '' }}" href="/admin?section=presets{{ server_qs }}">Preset Files</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="{{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
@@ -4425,7 +4792,7 @@ PAGE_TEMPLATE = """
       {% else %}
       <a href="/admin?section=overview{{ server_qs }}#where-to-go">Common Tasks</a>
       {% if section_allowed('pve') %}<a href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}#pve-workshop">Create Event</a>{% endif %}
-      {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}#zones-list">Edit Zones</a>{% endif %}
+      {% if section_allowed('zones') %}<a href="/admin?section=zones{{ server_qs }}{{ profile_qs }}#zones-list">Edit Zones</a>{% endif %}
       {% if section_allowed('shop') or section_allowed('economy') %}<a href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}">Shop / Money</a>{% endif %}
       {% if section_allowed('server-control') %}<a href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}">Restart Server</a>{% endif %}
       {% endif %}
@@ -4517,6 +4884,7 @@ PAGE_TEMPLATE = """
     <section class="section-nav" aria-label="Dashboard sections">
       {% if auth.kind == "owner" and mode == "owner" %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
+      <a class="tab-link" href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       <a class="tab-link {{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
       <a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
@@ -4525,18 +4893,20 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
+      <a class="tab-link" href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       {% if customer_billing_plans %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
-      {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}">Zones & Radar</a>{% endif %}
+      {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
       {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}">Map & Heatmaps</a>{% endif %}
       {% if section_allowed('pve') %}<a class="tab-link {{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
+      {% if section_allowed('presets') %}<a class="tab-link {{ 'active' if active_section == 'presets' else '' }}" href="/admin?section=presets{{ server_qs }}">Preset Files</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
@@ -4550,6 +4920,7 @@ PAGE_TEMPLATE = """
         <select onchange="if (this.value) window.location.href = this.value;">
           {% if auth.kind == "owner" and mode == "owner" %}
           <option value="/owner?section=overview" {{ 'selected' if active_section == 'overview' else '' }}>Owner Home</option>
+          <option value="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</option>
           <option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Servers</option>
           <option value="/owner?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Server Access</option>
           <option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>
@@ -4558,18 +4929,20 @@ PAGE_TEMPLATE = """
           {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
+          <option value="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</option>
           {% if customer_billing_plans %}<option value="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</option>{% endif %}
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
           <option value="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'live-feeds' else '' }}>Live Feeds</option>
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
-          {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
+          {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
           {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Map & Heatmaps</option>{% endif %}
           {% if section_allowed('pve') %}<option value="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>Airdrops & Events</option>{% endif %}
           {% if section_allowed('economy') or section_allowed('shop') %}<option value="/admin?section={{ shop_economy_section }}{{ server_qs }}" {{ 'selected' if active_section in ['economy', 'shop'] else '' }}>Shop & Economy</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
+          {% if section_allowed('presets') %}<option value="/admin?section=presets{{ server_qs }}" {{ 'selected' if active_section == 'presets' else '' }}>Preset Files</option>{% endif %}
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           <option value="/admin?section=reviews{{ server_qs }}" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
@@ -4710,11 +5083,11 @@ PAGE_TEMPLATE = """
         <article class="command-card command-map-card">
           <div class="command-card-head">
             <h3>Map / Event Builder</h3>
-            <div class="command-mini-actions"><a href="/admin?section=zones{{ server_qs }}">Add Zone</a><a href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}">Event Mode</a></div>
+            <div class="command-mini-actions"><a href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Add Zone</a><a href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}">Event Mode</a></div>
           </div>
           <div class="command-map" {% if server %}style="--map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
             {% for zone in (server.zones if server else [])[:10] %}
-            <a class="command-zone-dot" href="/admin?section=zones{{ server_qs }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" style="--x: {{ zone.x_percent|default(50) }}; --y: {{ zone.y_percent|default(50) }}; --zone-colour: {{ zone.display_colour or zone.colour or '#26efe4' }};">
+            <a class="command-zone-dot" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" style="--x: {{ zone.x_percent|default(50) }}; --y: {{ zone.y_percent|default(50) }}; --zone-colour: {{ zone.display_colour or zone.colour or '#26efe4' }};">
               {{ loop.index }}<span>{{ zone.name }}</span>
             </a>
             {% endfor %}
@@ -4732,13 +5105,14 @@ PAGE_TEMPLATE = """
           <form class="command-zone-form" method="get" action="/admin">
             <input class="hidden-field" name="section" value="zones">
             {% if server %}<input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">{% endif %}
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
             <label>Zone type <select name="draft_type"><option value="radar">Radar ping zone</option><option value="safe">Safe zone</option><option value="pvp">PVP zone</option></select></label>
             <label>Shape <select name="draft_shape"><option value="circle">Circle</option><option value="polygon">Boundary</option></select></label>
             <label>Center X <input name="draft_x" value="{{ request.args.get('draft_x', '4210') }}"></label>
             <label>Center Z <input name="draft_z" value="{{ request.args.get('draft_z', '11580') }}"></label>
             <label>Radius (m) <input type="number" name="draft_radius" value="{{ request.args.get('draft_radius', '250') }}"></label>
             <label>Name <input name="draft_name" value="{{ request.args.get('draft_name', 'New radar zone') }}"></label>
-            <div class="toolbar"><a class="button" href="/admin?section=zones{{ server_qs }}">Cancel</a><button type="submit">Save Zone</button></div>
+            <div class="toolbar"><a class="button" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Cancel</a><button type="submit">Save Zone</button></div>
           </form>
         </article>
 
@@ -4769,8 +5143,9 @@ PAGE_TEMPLATE = """
         <a class="quick-guide-link" href="/admin?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks"><strong>Set up or change server</strong><span>Change map, platform, PVE/PVP mode, Nitrado details, dashboard logins and linked servers.</span></a>
         <a class="quick-guide-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
         <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
+        {% if section_allowed('presets') %}<a class="quick-guide-link" href="/admin?section=presets{{ server_qs }}"><strong>Download preset server files</strong><span>Grab vanilla, build-anywhere, stamina, weather and boosted loot files for phone or PC upload.</span></a>{% endif %}
         <a class="quick-guide-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Set up shop or money</strong><span>Add buyable items, build bundles, adjust wallets, set wages and choose the currency wording.</span></a>
-        <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
+        <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
         <a class="quick-guide-link" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}"><strong>Schedule raid weekend</strong><span>Use Admin Center controls for restarts, base damage and container damage schedules.</span></a>
         <a class="quick-guide-link" href="/admin?section=help{{ server_qs }}"><strong>Still not sure?</strong><span>Open Help & Guides for plain setup notes and dashboard walkthroughs.</span></a>
       </div>
@@ -4781,10 +5156,11 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=live-feeds{{ server_qs }}"><strong>Live Feeds</strong><span>Dashboard-only build, placed, raid and damage feed inbox.</span></a>
       <a class="category-link" href="/admin?section=access&setup_tool=discord{{ server_qs }}"><strong>Admin Center</strong><span>Servers, Discord setup, rules, moderation and server controls.</span></a>
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
-      <a class="category-link" href="/admin?section=zones{{ server_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
+      <a class="category-link" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
       <a class="category-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Shop & Economy</strong><span>Items, bundles, prices, wallets, wages and rewards.</span></a>
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
+      {% if section_allowed('presets') %}<a class="category-link" href="/admin?section=presets{{ server_qs }}"><strong>Preset Files</strong><span>Download ready-made gameplay, weather and loot economy files.</span></a>{% endif %}
       <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
       <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}"><strong>Airdrops & Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
@@ -6409,11 +6785,32 @@ PAGE_TEMPLATE = """
         </div>
         <span class="pill">{{ server.zones|length if server else 0 }} zones</span>
       </div>
+      {% if server and server.dayz_profiles %}
+      <article class="admin-panel full" id="zones-profile-picker">
+        <h3>Pick DayZ Server</h3>
+        <div class="command-server-grid">
+          {% for option in server.dayz_profiles %}
+          <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#zones-profile-picker">
+            <strong>{{ option.name }}</strong>
+            <span>{{ option.platform|default(server.platform_label)|default('Xbox') }} / {{ option.map|default('chernarus') }} / {{ option.style|default('hybrid') }}</span>
+            <span class="pill-row">
+              <em class="pill good">{{ 'enabled' if option.enabled else 'disabled' }}</em>
+              <em class="pill">{{ option.routed_count|default(0) }} routed</em>
+              <em class="pill">{{ option.available_count|default(0) }} available</em>
+            </span>
+            <small>Runtime: {{ option.runtime_id }}</small>
+          </a>
+          {% endfor %}
+        </div>
+      </article>
+      {% endif %}
       <div class="panel-grid">
         <article class="admin-panel full">
           <h3>Interactive Zone Builder</h3>
           <form class="admin-form zone-builder-form {% if edit_zone_key or draft_zone_active %}dashboard-edit-modal{% endif %}" method="post" action="/api/admin/zone" data-route="/api/admin/zone" id="zone-edit-form">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#zone-edit-form">
             <input class="hidden-field" name="zone_id" value="{{ edit_zone.id }}">
             <div class="server-lock full"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Zone name <input name="name" value="{{ edit_zone.name }}"></label>
@@ -6520,7 +6917,7 @@ PAGE_TEMPLATE = """
               {% if zone.shape != "boundary" %}
               <span class="zone-radius-ring {{ zone.zone_type }}" aria-hidden="true" style="--zone-colour: {{ zone.display_colour or zone.colour }}; --zone-radius: {{ zone.radius_percent }}%; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%;"></span>
               {% endif %}
-              <a class="zone-dot {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></a>
+              <a class="zone-dot {{ zone.zone_type }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" title="Edit {{ zone.name }}" aria-label="Edit {{ zone.name }}" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone='{{ zone|tojson|forceescape }}' data-zone-colour="{{ zone.display_colour or zone.colour }}" style="--zone-colour: {{ zone.display_colour or zone.colour }}; left: {{ zone.x_percent }}%; top: {{ zone.y_percent }}%; width: {{ zone.dot_size }}px; height: {{ zone.dot_size }}px;"><span>{{ loop.index }}</span><small>{{ zone.name }}</small></a>
               {% endfor %}
               <div class="zone-map-popover" data-zone-popover hidden></div>
             </div>
@@ -6529,7 +6926,7 @@ PAGE_TEMPLATE = """
             <div class="full zone-form-actions">
               <button type="submit" data-zone-save-button>{{ 'Save Zone Changes' if edit_zone.id else 'Save Zone' }}</button>
               <button type="button" data-zone-delete-current {% if not edit_zone.id %}disabled{% endif %}>Delete Selected Zone</button>
-              {% if edit_zone_key or draft_zone_active %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}#zones-list">Close</a>{% endif %}
+              {% if edit_zone_key or draft_zone_active %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#zones-list">Close</a>{% endif %}
               <span class="result muted">{% if draft_zone_active %}Draft from map click. Adjust anything here, then save the new zone.{% endif %}</span>
             </div>
           </form>
@@ -6550,11 +6947,12 @@ PAGE_TEMPLATE = """
                 <td>{{ zone.channel_label or channel_label(server.channels if server else [], zone.channel_key or zone.alert_channel_id or zone.report_channel_id, 'default') }}</td>
                 <td>
                   <div class="inline-action">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}&edit_zone={{ (zone.id or zone.name)|urlencode }}#zone-edit-form" data-zone-edit data-zone-key="{{ (zone.id or zone.name)|e }}" data-zone-colour="{{ zone.display_colour or zone.colour }}">Edit</a>
                   </div>
                   <form class="admin-form inline-action" method="post" action="/api/admin/zone-action" data-route="/api/admin/zone-action" data-confirm="Delete zone {{ zone.name }} from this server?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}#zones-list">
+                    <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+                    <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=zones&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#zones-list">
                     <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
                     <input class="hidden-field" name="zone_id" value="{{ zone.id }}">
                     <input class="hidden-field" name="zone_type" value="{{ zone.zone_type }}">
@@ -9213,6 +9611,65 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
 
+    {% if mode in ["admin", "owner"] and active_section == "presets" %}
+    <section class="section-panel" id="preset-files">
+      <div class="section-head">
+        <div>
+          <h2>Preset Server Files</h2>
+          <p class="tool-note">Download ready-made DayZ files for Chernarus, Livonia and Sakhal. These buttons only create files from bundled vanilla references; they do not upload or overwrite live server files.</p>
+        </div>
+      </div>
+      <div class="panel-grid">
+        <article class="admin-panel full">
+          <h3>How To Use</h3>
+          <div class="quick-guide-grid">
+            <div class="quick-guide-link"><strong>Pick the map first</strong><span>Chernarus, Livonia and Sakhal have separate mission folders and values. Download the file from the map you actually run.</span></div>
+            <div class="quick-guide-link"><strong>Upload to the target path</strong><span>The target path shows where that file belongs, such as cfggameplay.json, cfgweather.xml or db/types.xml.</span></div>
+            <div class="quick-guide-link"><strong>Keep your live backup</strong><span>Download your current live file before replacing it. Direct server apply will come later with diff, backup and rollback checks.</span></div>
+          </div>
+        </article>
+        {% for map in dayz_preset_maps %}
+        <article class="admin-panel full" id="preset-{{ map.key }}">
+          <div class="section-head">
+            <div>
+              <h3>{{ map.label }} Presets</h3>
+              <p class="tool-note">Mission folder: <code>{{ map.mission }}</code></p>
+            </div>
+            <span class="pill">{{ dayz_ce_file_version }}</span>
+          </div>
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Preset</th>
+                <th>Target file</th>
+                <th>What it does</th>
+                <th>Tags</th>
+                <th>Download</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for group in dayz_preset_groups %}
+              <tr>
+                <th colspan="5">{{ group.name }}</th>
+              </tr>
+              {% for preset in group.presets %}
+              <tr>
+                <td><strong>{{ preset.title }}</strong></td>
+                <td><code>{{ preset.target_path }}</code></td>
+                <td>{{ preset.summary }}</td>
+                <td>{% for tag in preset.tags %}<span class="pill">{{ tag }}</span>{% endfor %}</td>
+                <td><a class="button" href="/api/admin/preset-file/download?map={{ map.key }}&preset={{ preset.id }}{{ dashboard_qs }}">Download</a></td>
+              </tr>
+              {% endfor %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
     {% if mode in ["admin", "owner"] and active_section == "reviews" %}
     <section class="section-panel" id="reviews">
       <div class="section-head">
@@ -9355,6 +9812,27 @@ PAGE_TEMPLATE = """
             <li>RPT warnings are shown in the deployment message so admins can see missing files or bad classnames.</li>
           </ol>
         </article>
+      </div>
+      <div class="section-head">
+        <div>
+          <h2>DayZ File Guides</h2>
+          <p class="tool-note">Plain-language guide topics for owners learning DayZ server files, events and loot economy.</p>
+        </div>
+      </div>
+      <div class="quick-guide-grid">
+        <div class="category-link"><strong>Beginners guide</strong><span>What each main server file does and where it normally lives.</span></div>
+        <div class="category-link"><strong>Download text</strong><span>Copyable plain text for Nitrado paths, restart notes and safe upload steps.</span></div>
+        <div class="category-link"><strong>File definitions</strong><span>events.xml, cfgeventspawns.xml, cfgspawnabletypes.xml, types.xml and cfggameplay.json explained.</span></div>
+        <div class="category-link"><strong>Helpful tools</strong><span>Validators, JSON checkers, iZurvive, DayZ Editor and safe compare tools.</span></div>
+        <div class="category-link"><strong>Making events</strong><span>How CE events, spawn coordinates, restock, lifetime and restart loading fit together.</span></div>
+        <div class="category-link"><strong>Animal spawns</strong><span>Animal territories, event definitions and spawn presets without mixing them into loot files.</span></div>
+        <div class="category-link"><strong>Zombie spawns</strong><span>Territories, infected classes and why zombie files belong outside types.xml.</span></div>
+        <div class="category-link"><strong>Zombies and presets</strong><span>Useful infected presets, counts and common mistakes before uploading.</span></div>
+        <div class="category-link"><strong>Loot in buildings</strong><span>How mapgrouppos, mapgroupproto, categories, usage tags and loot points work together.</span></div>
+        <div class="category-link"><strong>Custom categories</strong><span>When to add a category, when not to, and why tags must exist in cfglimitsdefinition.xml.</span></div>
+        <div class="category-link"><strong>Using tags</strong><span>Usage flags, value tiers, shelves/floor tags and avoiding invalid custom usage names.</span></div>
+        <div class="category-link"><strong>Definitions</strong><span>Small glossary for nominal, min, lifetime, restock, quantmin, quantmax and cost.</span></div>
+        <div class="category-link"><strong>Tiers</strong><span>Chernarus Tier1-4, Livonia Tier1-3 and what that means for boosted loot presets.</span></div>
       </div>
     </section>
     {% endif %}
@@ -10441,6 +10919,7 @@ PAGE_TEMPLATE = """
           await postJson("/api/admin/zone-action", {
             action: "delete",
             guild_id: zoneDelete.dataset.guildId || form?.elements.guild_id?.value || "{{ server.guild_id if server else '' }}",
+            server_profile_id: form?.elements.server_profile_id?.value || "{{ selected_dayz_profile_id if selected_dayz_profile else '' }}",
             zone_id: zoneDelete.dataset.zoneId || zone.id || form?.elements.zone_id?.value || "",
             zone_type: zoneDelete.dataset.zoneType || zone.zone_type || zone.type || form?.elements.zone_type?.value || "",
             name,
@@ -15119,6 +15598,7 @@ PAGE_TEMPLATE = """
       const popover = map.querySelector("[data-zone-popover]");
       const zoneFields = {
         guildId: form.querySelector('[name="guild_id"]'),
+        serverProfileId: form.querySelector('[name="server_profile_id"]'),
         zoneId: form.querySelector('[name="zone_id"]'),
         name: form.querySelector('[name="name"]'),
         type: form.querySelector('[name="zone_type"]'),
@@ -15317,6 +15797,7 @@ PAGE_TEMPLATE = """
           applyZonePopoverFields();
           deleteZone({
             guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
+            server_profile_id: zoneFields.serverProfileId ? zoneFields.serverProfileId.value : "",
             zone_id: zone.id || (zoneFields.zoneId ? zoneFields.zoneId.value : ""),
             zone_type: zoneFields.type ? zoneFields.type.value : type,
             name: zoneFields.name ? zoneFields.name.value : zoneName,
@@ -15652,7 +16133,8 @@ PAGE_TEMPLATE = """
           if (!response.ok || body.ok === false) throw new Error(body.error || "Zone delete failed.");
           if (result) result.textContent = body.note || "Zone deleted.";
           const dashboardPath = window.location.pathname.startsWith("/owner") ? "/owner" : "/admin";
-          window.location.href = secureDashboardUrl(`${dashboardPath}?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}#zones-list`);
+          const profilePart = payload.server_profile_id ? `&server_profile_id=${encodeURIComponent(payload.server_profile_id)}` : "";
+          window.location.href = secureDashboardUrl(`${dashboardPath}?section=zones&guild_id=${encodeURIComponent(payload.guild_id)}${profilePart}#zones-list`);
         } catch (error) {
           if (result) result.textContent = error.message || "Zone delete failed.";
           if (button) {
@@ -15665,6 +16147,7 @@ PAGE_TEMPLATE = """
         deleteCurrentButton.addEventListener("click", async () => {
           const payload = {
             guild_id: zoneFields.guildId ? zoneFields.guildId.value : "",
+            server_profile_id: zoneFields.serverProfileId ? zoneFields.serverProfileId.value : "",
             zone_id: zoneFields.zoneId ? zoneFields.zoneId.value : "",
             zone_type: zoneFields.type ? zoneFields.type.value : "",
             name: zoneFields.name ? zoneFields.name.value : "",
@@ -15695,6 +16178,7 @@ PAGE_TEMPLATE = """
           const zone = zoneFromControl(deleteButton);
           await deleteZone({
             guild_id: deleteButton.dataset.guildId || (zoneFields.guildId ? zoneFields.guildId.value : ""),
+            server_profile_id: zoneFields.serverProfileId ? zoneFields.serverProfileId.value : "",
             zone_id: deleteButton.dataset.zoneId || zone.id || "",
             zone_type: deleteButton.dataset.zoneType || zone.zone_type || zone.type || "",
             name: deleteButton.dataset.zoneName || zone.name || "",
@@ -15746,6 +16230,7 @@ ADMIN_ROUTES = [
     "/api/admin/shop-bulk",
     "/api/admin/theme",
     "/api/admin/convert-dayz-xml",
+    "/api/admin/preset-file/download",
     "/api/admin/loot-tweak",
     "/api/admin/vanilla-types",
     "/api/admin/vanilla-types/download",
@@ -15792,6 +16277,7 @@ SECTION_FEATURES = {
     "pve": "pve_quests",
     "economy": "economy",
     "shop": "shop",
+    "presets": "xml_workshop",
     "xml-workshop": "xml_workshop",
     "dayz-converter": "xml_workshop",
     "loot-engine": "xml_workshop",
@@ -15846,6 +16332,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/wage": "wages",
     "/api/admin/wallet-adjustment": "economy",
     "/api/admin/convert-dayz-xml": "xml_workshop",
+    "/api/admin/preset-file/download": "xml_workshop",
     "/api/admin/vanilla-types": "xml_workshop",
     "/api/admin/vanilla-types/download": "xml_workshop",
     "/api/admin/loot-tweak": "xml_workshop",
@@ -15890,6 +16377,418 @@ def load_dayz_reference_text(map_key: Any, *parts: str) -> str:
         with open(path, "r", encoding="utf-8", errors="ignore") as source:
             return source.read()
     return ""
+
+
+DAYZ_PRESET_MAPS = [
+    {"key": "chernarus", "label": "Chernarus", "mission": DAYZ_REFERENCE_MAP_FOLDERS["chernarus"]},
+    {"key": "livonia", "label": "Livonia", "mission": DAYZ_REFERENCE_MAP_FOLDERS["livonia"]},
+    {"key": "sakhal", "label": "Sakhal", "mission": DAYZ_REFERENCE_MAP_FOLDERS["sakhal"]},
+]
+
+DAYZ_PRESET_FILES = [
+    {
+        "id": "cfggameplay_vanilla",
+        "group": "Gameplay",
+        "title": "Vanilla cfggameplay",
+        "target_path": "cfggameplay.json",
+        "summary": "Clean 1.29 reference gameplay file for the selected map.",
+        "tags": ["vanilla", "safe backup"],
+    },
+    {
+        "id": "cfggameplay_build_anywhere",
+        "group": "Gameplay",
+        "title": "Build anywhere",
+        "target_path": "cfggameplay.json",
+        "summary": "Build placement checks loosened while leaving damage and other gameplay values alone.",
+        "tags": ["build anywhere", "base building"],
+    },
+    {
+        "id": "cfggameplay_boosted_stamina",
+        "group": "Gameplay",
+        "title": "Boosted stamina",
+        "target_path": "cfggameplay.json",
+        "summary": "More forgiving stamina without making it fully unlimited.",
+        "tags": ["stamina", "boosted"],
+    },
+    {
+        "id": "cfggameplay_unlimited_stamina",
+        "group": "Gameplay",
+        "title": "Unlimited stamina",
+        "target_path": "cfggameplay.json",
+        "summary": "Common boosted-server stamina preset with no practical stamina drain.",
+        "tags": ["stamina", "unlimited"],
+    },
+    {
+        "id": "cfggameplay_full_boosted",
+        "group": "Gameplay",
+        "title": "Boosted server starter",
+        "target_path": "cfggameplay.json",
+        "summary": "Build anywhere, unlimited stamina and player map position enabled.",
+        "tags": ["starter", "build anywhere", "map"],
+    },
+    {
+        "id": "cfgweather_vanilla",
+        "group": "Weather",
+        "title": "Vanilla weather",
+        "target_path": "cfgweather.xml",
+        "summary": "Clean 1.29 reference weather file for the selected map.",
+        "tags": ["vanilla", "weather"],
+    },
+    {
+        "id": "cfgweather_clearer",
+        "group": "Weather",
+        "title": "Clearer weather",
+        "target_path": "cfgweather.xml",
+        "summary": "Less heavy rain and fog while keeping natural variation.",
+        "tags": ["less rain", "clearer"],
+    },
+    {
+        "id": "cfgweather_dry",
+        "group": "Weather",
+        "title": "Mostly dry weather",
+        "target_path": "cfgweather.xml",
+        "summary": "Very low rain chance for owners who want long dry sessions.",
+        "tags": ["dry", "low rain"],
+    },
+    {
+        "id": "types_vanilla",
+        "group": "Loot Economy",
+        "title": "Vanilla types",
+        "target_path": "db/types.xml",
+        "summary": "Clean vanilla types.xml for comparing or rebuilding a server economy.",
+        "tags": ["vanilla", "types.xml"],
+    },
+    {
+        "id": "types_boosted_light",
+        "group": "Loot Economy",
+        "title": "Light boosted loot",
+        "target_path": "db/types.xml",
+        "summary": "Small active-loot boost for owners who want slightly fuller towns without chaos.",
+        "tags": ["loot", "light"],
+    },
+    {
+        "id": "types_boosted_medium",
+        "group": "Loot Economy",
+        "title": "Medium boosted loot",
+        "target_path": "db/types.xml",
+        "summary": "Balanced boosted-server preset for food, ammo, weapons, tools and useful clothing.",
+        "tags": ["loot", "balanced"],
+    },
+    {
+        "id": "types_boosted_high",
+        "group": "Loot Economy",
+        "title": "High boosted loot",
+        "target_path": "db/types.xml",
+        "summary": "Heavier boost for busy or high-action community servers.",
+        "tags": ["loot", "high"],
+    },
+]
+
+DAYZ_PRESET_TYPES_MULTIPLIERS = {
+    "types_boosted_light": {
+        "Food & Drink": 1.15,
+        "Ammunition": 1.20,
+        "Weapons": 1.15,
+        "Military Clothing": 1.15,
+        "Tools": 1.15,
+        "Bags & Storage": 1.10,
+        "Medical": 1.10,
+        "Building": 1.10,
+    },
+    "types_boosted_medium": {
+        "Food & Drink": 1.30,
+        "Ammunition": 1.50,
+        "Weapons": 1.40,
+        "Military Clothing": 1.50,
+        "Tools": 1.25,
+        "Bags & Storage": 1.25,
+        "Medical": 1.20,
+        "Building": 1.25,
+    },
+    "types_boosted_high": {
+        "Food & Drink": 1.60,
+        "Ammunition": 2.00,
+        "Weapons": 1.80,
+        "Military Clothing": 1.80,
+        "Tools": 1.50,
+        "Bags & Storage": 1.50,
+        "Medical": 1.40,
+        "Building": 1.50,
+    },
+}
+
+
+def dayz_preset_definition(preset_id: Any) -> dict[str, Any]:
+    clean_id = str(preset_id or "").strip()
+    for preset in DAYZ_PRESET_FILES:
+        if preset["id"] == clean_id:
+            return preset
+    raise ValueError("Unknown preset file.")
+
+
+def load_dayz_reference_json(map_key: Any, *parts: str) -> dict[str, Any]:
+    text = load_dayz_reference_text(map_key, *parts)
+    if not text:
+        raise ValueError(f"No bundled reference file found for {normalize_dayz_reference_map_key(map_key)}.")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Bundled reference JSON failed validation: {error}") from error
+    if not isinstance(data, dict):
+        raise ValueError("Bundled reference JSON is not an object.")
+    return data
+
+
+def dayz_json_text(data: dict[str, Any]) -> str:
+    return json.dumps(data, indent=4, ensure_ascii=False) + "\n"
+
+
+def dayz_xml_text(root: ET.Element) -> str:
+    try:
+        ET.indent(root, space="    ")
+    except AttributeError:
+        pass
+    body = ET.tostring(root, encoding="unicode")
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + body + "\n"
+
+
+def set_cfggameplay_stamina(data: dict[str, Any], *, unlimited: bool) -> None:
+    player_data = data.setdefault("PlayerData", {})
+    if not isinstance(player_data, dict):
+        player_data = {}
+        data["PlayerData"] = player_data
+    stamina = player_data.setdefault("StaminaData", {})
+    if not isinstance(stamina, dict):
+        stamina = {}
+        player_data["StaminaData"] = stamina
+    if unlimited:
+        stamina.update({
+            "sprintStaminaModifierErc": 0.0,
+            "sprintStaminaModifierCro": 0.0,
+            "staminaWeightLimitThreshold": 100000.0,
+            "staminaMax": 100000.0,
+            "staminaKgToStaminaPercentPenalty": 0.0,
+            "staminaMinCap": 100.0,
+            "sprintSwimmingStaminaModifier": 0.0,
+            "sprintLadderStaminaModifier": 0.0,
+            "meleeStaminaModifier": 0.0,
+            "obstacleTraversalStaminaModifier": 0.0,
+            "holdBreathStaminaModifier": 0.0,
+        })
+    else:
+        stamina.update({
+            "sprintStaminaModifierErc": 0.45,
+            "sprintStaminaModifierCro": 0.45,
+            "staminaWeightLimitThreshold": 30000.0,
+            "staminaMax": 250.0,
+            "staminaKgToStaminaPercentPenalty": 0.35,
+            "staminaMinCap": 35.0,
+            "sprintSwimmingStaminaModifier": 0.55,
+            "sprintLadderStaminaModifier": 0.50,
+            "meleeStaminaModifier": 0.50,
+            "obstacleTraversalStaminaModifier": 0.50,
+            "holdBreathStaminaModifier": 0.50,
+        })
+
+
+def set_cfggameplay_build_anywhere(data: dict[str, Any]) -> None:
+    base_data = data.setdefault("BaseBuildingData", {})
+    if not isinstance(base_data, dict):
+        base_data = {}
+        data["BaseBuildingData"] = base_data
+    hologram = base_data.setdefault("HologramData", {})
+    if not isinstance(hologram, dict):
+        hologram = {}
+        base_data["HologramData"] = hologram
+    construction = base_data.setdefault("ConstructionData", {})
+    if not isinstance(construction, dict):
+        construction = {}
+        base_data["ConstructionData"] = construction
+    for key in (
+        "disableIsCollidingBBoxCheck",
+        "disableIsCollidingPlayerCheck",
+        "disableIsClippingRoofCheck",
+        "disableIsBaseViableCheck",
+        "disableIsCollidingGPlotCheck",
+        "disableIsCollidingAngleCheck",
+        "disableIsPlacementPermittedCheck",
+        "disableHeightPlacementCheck",
+        "disableIsUnderwaterCheck",
+        "disableIsInTerrainCheck",
+        "disableColdAreaBuildingCheck",
+    ):
+        hologram[key] = True
+    for key in ("disablePerformRoofCheck", "disableIsCollidingCheck", "disableDistanceCheck"):
+        construction[key] = True
+
+
+def set_cfggameplay_map_helpers(data: dict[str, Any]) -> None:
+    map_data = data.setdefault("MapData", {})
+    if not isinstance(map_data, dict):
+        map_data = {}
+        data["MapData"] = map_data
+    map_data["ignoreMapOwnership"] = True
+    map_data["ignoreNavItemsOwnership"] = True
+    map_data["displayPlayerPosition"] = True
+    map_data["displayNavInfo"] = True
+
+
+def set_weather_attrs(root: ET.Element, path: str, attrs: dict[str, Any]) -> None:
+    node = root.find(path)
+    if node is None:
+        return
+    for key, value in attrs.items():
+        node.set(key, str(value))
+
+
+def build_weather_preset(map_key: str, preset_id: str) -> str:
+    xml_text = load_dayz_reference_text(map_key, "cfgweather.xml")
+    if not xml_text:
+        raise ValueError(f"No bundled cfgweather.xml reference found for {map_key}.")
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(f"Bundled {map_key} cfgweather.xml failed validation: {error}") from error
+    if root.tag != "weather":
+        raise ValueError("Bundled cfgweather.xml is not a weather file.")
+    if preset_id == "cfgweather_vanilla":
+        return xml_text
+    root.set("reset", "0")
+    root.set("enable", "1")
+    if preset_id == "cfgweather_clearer":
+        set_weather_attrs(root, "overcast/current", {"actual": "0.25", "time": "120", "duration": "360"})
+        set_weather_attrs(root, "overcast/limits", {"min": "0.0", "max": "0.55"})
+        set_weather_attrs(root, "overcast/timelimits", {"min": "900", "max": "1800"})
+        set_weather_attrs(root, "overcast/changelimits", {"min": "0.0", "max": "0.35"})
+        set_weather_attrs(root, "fog/current", {"actual": "0.02", "time": "120", "duration": "300"})
+        set_weather_attrs(root, "fog/limits", {"min": "0.0", "max": "0.04"})
+        set_weather_attrs(root, "fog/changelimits", {"min": "0.0", "max": "0.15"})
+        set_weather_attrs(root, "rain/current", {"actual": "0.0", "time": "60", "duration": "120"})
+        set_weather_attrs(root, "rain/limits", {"min": "0.0", "max": "0.15"})
+        set_weather_attrs(root, "rain/timelimits", {"min": "900", "max": "1800"})
+        set_weather_attrs(root, "rain/changelimits", {"min": "0.0", "max": "0.15"})
+        set_weather_attrs(root, "rain/thresholds", {"min": "0.85", "max": "1.0", "end": "120"})
+        set_weather_attrs(root, "storm", {"density": "0.1", "threshold": "0.98", "timeout": "180"})
+    elif preset_id == "cfgweather_dry":
+        set_weather_attrs(root, "overcast/current", {"actual": "0.15", "time": "120", "duration": "600"})
+        set_weather_attrs(root, "overcast/limits", {"min": "0.0", "max": "0.35"})
+        set_weather_attrs(root, "overcast/changelimits", {"min": "0.0", "max": "0.20"})
+        set_weather_attrs(root, "fog/current", {"actual": "0.0", "time": "120", "duration": "300"})
+        set_weather_attrs(root, "fog/limits", {"min": "0.0", "max": "0.03"})
+        set_weather_attrs(root, "fog/changelimits", {"min": "0.0", "max": "0.05"})
+        set_weather_attrs(root, "rain/current", {"actual": "0.0", "time": "60", "duration": "120"})
+        set_weather_attrs(root, "rain/limits", {"min": "0.0", "max": "0.02"})
+        set_weather_attrs(root, "rain/timelimits", {"min": "1800", "max": "3600"})
+        set_weather_attrs(root, "rain/changelimits", {"min": "0.0", "max": "0.02"})
+        set_weather_attrs(root, "rain/thresholds", {"min": "0.98", "max": "1.0", "end": "120"})
+        set_weather_attrs(root, "storm", {"density": "0.0", "threshold": "1.0", "timeout": "300"})
+    return dayz_xml_text(root)
+
+
+def dayz_preset_type_bucket(type_node: ET.Element) -> str:
+    name = str(type_node.attrib.get("name") or "").lower()
+    if re.search(r"(grenade|explosive|mine|claymore|detonator|plasticexplosive|remote)", name):
+        return "Weapons"
+    return types_node_bucket(type_node)
+
+
+def scale_dayz_type_number(type_node: ET.Element, tag: str, multiplier: float) -> bool:
+    child = type_node.find(tag)
+    if child is None:
+        return False
+    value = safe_int(child.text, 0)
+    if value <= 0:
+        return False
+    new_value = max(value, int((value * multiplier) + 0.5))
+    if new_value == value:
+        return False
+    child.text = str(new_value)
+    return True
+
+
+def build_types_preset(map_key: str, preset_id: str) -> str:
+    xml_text = load_dayz_reference_text(map_key, "db", "types.xml")
+    if not xml_text:
+        raise ValueError(f"No bundled types.xml reference found for {map_key}.")
+    if preset_id == "types_vanilla":
+        return xml_text
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as error:
+        raise ValueError(f"Bundled {map_key} types.xml failed validation: {error}") from error
+    if root.tag != "types":
+        raise ValueError("Bundled types.xml is not a types file.")
+    multipliers = DAYZ_PRESET_TYPES_MULTIPLIERS.get(preset_id)
+    if not multipliers:
+        raise ValueError("Unknown boosted types preset.")
+    for type_node in root.findall(".//type"):
+        bucket = dayz_preset_type_bucket(type_node)
+        multiplier = float(multipliers.get(bucket, 1.0))
+        if multiplier <= 1.0:
+            continue
+        changed_nominal = scale_dayz_type_number(type_node, "nominal", multiplier)
+        changed_min = scale_dayz_type_number(type_node, "min", multiplier)
+        if changed_nominal or changed_min:
+            nominal = types_node_number(type_node, "nominal")
+            minimum = types_node_number(type_node, "min")
+            if nominal > 0 and minimum > nominal:
+                min_node = type_node.find("min")
+                if min_node is not None:
+                    min_node.text = str(nominal)
+    return dayz_xml_text(root)
+
+
+def build_dayz_preset_file(map_key: Any, preset_id: Any) -> dict[str, Any]:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    preset = dayz_preset_definition(preset_id)
+    clean_preset_id = str(preset["id"])
+    target_path = str(preset["target_path"])
+    if target_path == "cfggameplay.json":
+        data = load_dayz_reference_json(clean_map, "cfggameplay.json")
+        if clean_preset_id == "cfggameplay_build_anywhere":
+            set_cfggameplay_build_anywhere(data)
+        elif clean_preset_id == "cfggameplay_boosted_stamina":
+            set_cfggameplay_stamina(data, unlimited=False)
+        elif clean_preset_id == "cfggameplay_unlimited_stamina":
+            set_cfggameplay_stamina(data, unlimited=True)
+        elif clean_preset_id == "cfggameplay_full_boosted":
+            set_cfggameplay_build_anywhere(data)
+            set_cfggameplay_stamina(data, unlimited=True)
+            set_cfggameplay_map_helpers(data)
+        elif clean_preset_id != "cfggameplay_vanilla":
+            raise ValueError("Preset does not build a gameplay file.")
+        content = dayz_json_text(data)
+        mimetype = "application/json"
+        extension = "json"
+    elif target_path == "cfgweather.xml":
+        content = build_weather_preset(clean_map, clean_preset_id)
+        mimetype = "application/xml"
+        extension = "xml"
+    elif target_path == "db/types.xml":
+        content = build_types_preset(clean_map, clean_preset_id)
+        mimetype = "application/xml"
+        extension = "xml"
+    else:
+        raise ValueError("Unsupported preset file target.")
+    return {
+        "ok": True,
+        "success": True,
+        "map": clean_map,
+        "mission": DAYZ_REFERENCE_MAP_FOLDERS[clean_map],
+        "preset": preset,
+        "content": content,
+        "mimetype": mimetype,
+        "download_name": f"{clean_map}_{clean_preset_id}_{DAYZ_CE_FILE_VERSION}.{extension}",
+        "target_path": target_path,
+        "dayz_version": DAYZ_CE_FILE_VERSION,
+    }
+
+
+def dashboard_dayz_preset_groups() -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for preset in DAYZ_PRESET_FILES:
+        groups.setdefault(str(preset.get("group") or "Files"), []).append(preset)
+    return [{"name": name, "presets": presets} for name, presets in groups.items()]
 
 
 TYPE_EDITOR_COMPARE_BUCKETS = [
@@ -20038,7 +20937,7 @@ def current_auth() -> dict[str, Any] | None:
 
 
 def login_page(error: str = ""):
-    return render_template_string(LOGIN_TEMPLATE, error=error)
+    return render_template_string(LOGIN_TEMPLATE, error=error, pwa_theme_color=PWA_THEME_COLOR)
 
 
 def dashboard_bot_invite_url() -> str:
@@ -20139,6 +21038,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
     ]
     page["guide_hub"] = bool(page.get("guide_hub"))
     page["guide_page"] = is_guide_page
+    page["app_pitch"] = bool(page_key == "home" and not is_guide_page)
     page["keywords"] = [
         str(item).strip()
         for item in (page.get("keywords") or [])
@@ -20284,6 +21184,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
         related_pages=related_pages,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
+        pwa_theme_color=PWA_THEME_COLOR,
     )
 
 
@@ -20293,6 +21194,7 @@ def agent_login_page(error: str = ""):
         error=error,
         signup_enabled=AGENT_SIGNUPS_ENABLED,
         signup_credits=AGENT_SIGNUP_CREDITS,
+        pwa_theme_color=PWA_THEME_COLOR,
     )
 
 
@@ -25131,6 +26033,7 @@ COMMAND_SECTION_META = {
     "pve": {"kicker": "Live Ops", "title": "Airdrops & Events", "body": "Queue, upload and track airdrops, hordes, animal packs, vehicles and CE XML event scenes."},
     "economy": {"kicker": "Trading", "title": "Shop & Economy", "body": "Choose plain shop, bundle, wallet, wage and reward tasks for the selected server."},
     "shop": {"kicker": "Trading", "title": "Shop Item Editor", "body": "Edit prices, bundles, stock behaviour and shop item visibility for the selected server."},
+    "presets": {"kicker": "Files", "title": "Preset Files", "body": "Download ready-made gameplay, weather and boosted economy files for Chernarus, Livonia and Sakhal."},
     "xml-workshop": {"kicker": "Files", "title": "XML & Loadouts", "body": "Generate console-safe XML packages for loot, events, containers, vehicles and loadouts."},
     "reviews": {"kicker": "Feedback", "title": "Reviews", "body": "Read public Wandering Bot feedback and leave a dashboard review from this server."},
     "dayz-converter": {"kicker": "Maps", "title": "Map Converter", "body": "Convert editor and map data into server-ready XML structures."},
@@ -26617,7 +27520,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "live-feeds", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "live-feeds", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "presets", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if active_section == "visual-loadout":
@@ -26738,6 +27641,32 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server["map"] = profile_map
         selected_server["map_key"] = map_key_for(profile_map)
         selected_server["map_size"] = map_size_for(profile_map)
+        state = dict(state)
+        server_rows = list(state.get("servers") or [])
+        if server_rows:
+            server_rows[0] = selected_server
+            state["servers"] = server_rows
+    if (
+        isinstance(selected_server, dict)
+        and selected_dayz_profile
+        and active_section == "zones"
+    ):
+        profile_config = selected_dayz_profile.get("config") if isinstance(selected_dayz_profile.get("config"), dict) else {}
+        profile_channels = selected_dayz_profile.get("channels") if isinstance(selected_dayz_profile.get("channels"), list) else []
+        profile_map = str(selected_dayz_profile.get("map") or profile_config.get("server_map") or profile_config.get("map") or selected_server.get("map") or "chernarus")
+        profile_factions = selected_server.get("factions") if isinstance(selected_server.get("factions"), dict) else {}
+        selected_server = dict(selected_server)
+        selected_server["config"] = profile_config
+        selected_server["channels"] = profile_channels
+        selected_server["safe_zones"] = redact(profile_config.get("safe_zones") if isinstance(profile_config.get("safe_zones"), list) else [])
+        selected_server["zones"] = redact(normalized_zones(profile_config, profile_map, profile_factions, profile_channels))
+        selected_server["guild_name"] = f"{selected_server.get('guild_name') or 'Server'} - {selected_dayz_profile.get('name') or selected_dayz_profile_id}"
+        selected_server["dayz_name"] = str(selected_dayz_profile.get("name") or selected_dayz_profile_id or selected_server.get("dayz_name") or "")
+        selected_server["map"] = profile_map
+        selected_server["map_key"] = map_key_for(profile_map)
+        selected_server["map_size"] = map_size_for(profile_map)
+        selected_server["map_labels"] = redact(dashboard_map_labels(profile_map))
+        selected_server["map_image_available"] = map_image_available_for(profile_map)
         state = dict(state)
         server_rows = list(state.get("servers") or [])
         if server_rows:
@@ -26941,6 +27870,7 @@ def page(mode: str, auth: dict[str, Any]):
         dashboard_theme=dashboard_theme,
         dashboard_version=DASHBOARD_VERSION,
         dayz_ce_file_version=DAYZ_CE_FILE_VERSION,
+        pwa_theme_color=PWA_THEME_COLOR,
         section_allowed=section_allowed,
         channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
@@ -27012,6 +27942,8 @@ def page(mode: str, auth: dict[str, Any]):
         billing_plans=billing_plans,
         customer_billing_plans=customer_billing_plans,
         billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
+        dayz_preset_maps=DAYZ_PRESET_MAPS,
+        dayz_preset_groups=dashboard_dayz_preset_groups(),
         dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
         custom_feed_types=CUSTOM_FEED_TYPES,
         agent_accounts=agent_account_rows() if auth.get("kind") == "owner" and active_section == "ai-agent" else [],
@@ -27083,6 +28015,83 @@ def delete_dashboard_admin_record(section: str, guild_id: Any, item_id: Any) -> 
         save_store("dashboard_admin", data)
         return True
     return False
+
+
+def dashboard_app_selected_state(auth: dict[str, Any]) -> dict[str, Any]:
+    focused_guild_id = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
+    selected_state_guild_id = focused_guild_id
+    if not selected_state_guild_id and auth.get("kind") != "owner":
+        selected_state_guild_id = normalize_guild_id(str(auth.get("guild_id") or ""))
+    state = load_dashboard_state("live-feeds", selected_state_guild_id)
+    state = filter_state_for_auth(state, auth, "admin")
+    if focused_guild_id:
+        state = dict(state)
+        focused = [server for server in state.get("servers", []) if str(server.get("guild_id")) == focused_guild_id]
+        others = [server for server in state.get("servers", []) if str(server.get("guild_id")) != focused_guild_id]
+        if focused:
+            state["servers"] = focused + others
+    selected_server = state.get("servers", [None])[0] if state.get("servers") else {}
+    selected_dayz_profile_id = normalize_server_profile_id(request.args.get("server_profile_id"), "")
+    selected_dayz_profile: dict[str, Any] = {}
+    if isinstance(selected_server, dict):
+        dayz_profiles = selected_server.get("dayz_profiles")
+        if isinstance(dayz_profiles, list) and dayz_profiles:
+            matched_profile = next(
+                (
+                    profile
+                    for profile in dayz_profiles
+                    if isinstance(profile, dict)
+                    and str(profile.get("id") or "") == selected_dayz_profile_id
+                ),
+                None,
+            )
+            if not isinstance(matched_profile, dict):
+                matched_profile = next((profile for profile in dayz_profiles if isinstance(profile, dict)), {})
+            if isinstance(matched_profile, dict):
+                selected_dayz_profile = matched_profile
+                selected_dayz_profile_id = str(matched_profile.get("id") or "")
+                profile_config = matched_profile.get("server_control_config")
+                if not isinstance(profile_config, dict):
+                    profile_config = matched_profile.get("config") if isinstance(matched_profile.get("config"), dict) else {}
+                profile_channels = matched_profile.get("server_control_channels")
+                if not isinstance(profile_channels, list):
+                    profile_channels = matched_profile.get("channels") if isinstance(matched_profile.get("channels"), list) else selected_server.get("channels", [])
+                profile_map = str(matched_profile.get("map") or profile_config.get("server_map") or profile_config.get("map") or selected_server.get("map") or "chernarus")
+                selected_server = dict(selected_server)
+                selected_server["selected_dayz_profile_id"] = selected_dayz_profile_id
+                selected_server["selected_dayz_profile"] = selected_dayz_profile
+                selected_server["dayz_name"] = str(matched_profile.get("name") or selected_dayz_profile_id or selected_server.get("dayz_name") or "")
+                selected_server["map"] = profile_map
+                selected_server["map_key"] = map_key_for(profile_map)
+                selected_server["map_size"] = map_size_for(profile_map)
+                selected_server["config"] = profile_config
+                selected_server["channels"] = profile_channels
+                selected_server["dashboard_live_feed_rows"] = matched_profile.get("dashboard_live_feed_rows") if isinstance(matched_profile.get("dashboard_live_feed_rows"), list) else []
+                selected_server["dashboard_live_feed_total"] = safe_int(matched_profile.get("dashboard_live_feed_total"), 0)
+                state = dict(state)
+                server_rows = list(state.get("servers") or [])
+                if server_rows:
+                    server_rows[0] = selected_server
+                    state["servers"] = server_rows
+    selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
+    selected_access = selected_server.get("dashboard_access", {}) if isinstance(selected_server, dict) and isinstance(selected_server.get("dashboard_access"), dict) else {}
+    server_query = {}
+    if isinstance(selected_server, dict) and selected_server.get("guild_id"):
+        server_query["guild_id"] = str(selected_server.get("guild_id"))
+    if selected_dayz_profile_id:
+        server_query["server_profile_id"] = selected_dayz_profile_id
+    app_qs = f"?{urllib.parse.urlencode(server_query)}" if server_query else ""
+    dashboard_qs = "".join(f"&{key}={urllib.parse.quote(str(value))}" for key, value in server_query.items())
+    return {
+        "state": state,
+        "server": selected_server if isinstance(selected_server, dict) else {},
+        "selected_dayz_profile": selected_dayz_profile,
+        "selected_dayz_profile_id": selected_dayz_profile_id,
+        "selected_config": selected_config if isinstance(selected_config, dict) else {},
+        "selected_access": selected_access,
+        "app_qs": app_qs,
+        "dashboard_qs": dashboard_qs,
+    }
 
 
 def parse_embed_fields(lines: Any) -> list[dict[str, Any]]:
@@ -27169,6 +28178,50 @@ def brand_character():
     return ("", 404)
 
 
+@APP.get("/manifest.webmanifest")
+def pwa_manifest():
+    manifest = {
+        "id": "/",
+        "name": PWA_APP_NAME,
+        "short_name": PWA_SHORT_NAME,
+        "description": "Wandering Bot dashboard for DayZ PC, PlayStation and Xbox server owners.",
+        "start_url": "/app?source=pwa",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": PWA_BACKGROUND_COLOR,
+        "theme_color": PWA_THEME_COLOR,
+        "orientation": "portrait-primary",
+        "icons": [
+            {
+                "src": "/brand-image",
+                "sizes": "192x192 512x512",
+                "type": "image/png",
+                "purpose": "any maskable",
+            }
+        ],
+        "shortcuts": [
+            {
+                "name": "Open App",
+                "short_name": "App",
+                "url": "/app?source=pwa_shortcut",
+            },
+            {
+                "name": "Open Dashboard",
+                "short_name": "Dashboard",
+                "url": "/admin?source=pwa_shortcut",
+            },
+            {
+                "name": "Plans and Billing",
+                "short_name": "Plans",
+                "url": "/#pricing",
+            },
+        ],
+    }
+    response = jsonify(manifest)
+    response.mimetype = "application/manifest+json"
+    return response
+
+
 @APP.get("/feed-preview/<filename>")
 def feed_preview_image(filename: str):
     safe_name = os.path.basename(str(filename or ""))
@@ -27242,9 +28295,16 @@ def zone_draft_from_image_click(mode: str):
     if auth.get("kind") == "owner" and allowed_guild_ids and requested_guild_id not in allowed_guild_ids:
         requested_guild_id = allowed_guild_ids[0]
     guild_configs = load_store("guild_configs", {})
+    profile_id = normalize_server_profile_id(request.args.get("server_profile_id"), "")
     config = guild_configs.get(requested_guild_id) if isinstance(guild_configs, dict) else {}
     if not isinstance(config, dict):
         config = {}
+    if isinstance(guild_configs, dict) and profile_id:
+        target_config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, requested_guild_id, profile_id)
+        if target_error or target_config is None:
+            profile_id = ""
+        else:
+            config = target_config
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
     has_native_click = any(key in request.args for key in ("zone_click.x", "zone_click.y", "zone_click_x", "zone_click_y"))
     has_click = has_native_click or any(key in request.args for key in ("map_pointer_x", "map_pointer_y", "map_percent_x", "map_percent_y"))
@@ -27326,6 +28386,7 @@ def zone_draft_from_image_click(mode: str):
         {
             "section": "zones",
             "guild_id": requested_guild_id,
+            "server_profile_id": profile_id,
             "draft_x": zone_x,
             "draft_z": zone_z,
             "draft_type": zone_type,
@@ -27362,9 +28423,16 @@ def airdrop_draft_from_image_click(mode: str):
     if auth.get("kind") == "owner" and allowed_guild_ids and requested_guild_id not in allowed_guild_ids:
         requested_guild_id = allowed_guild_ids[0]
     guild_configs = load_store("guild_configs", {})
+    profile_id = normalize_server_profile_id(request.args.get("server_profile_id"), "")
     config = guild_configs.get(requested_guild_id) if isinstance(guild_configs, dict) else {}
     if not isinstance(config, dict):
         config = {}
+    if isinstance(guild_configs, dict) and profile_id:
+        target_config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, requested_guild_id, profile_id)
+        if target_error or target_config is None:
+            profile_id = ""
+        else:
+            config = target_config
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
     zoom = max(1.0, min(3.0, safe_float(request.args.get("airdrop_map_zoom"), 1.0)))
     action = str(request.args.get("airdrop_map_action") or "").strip().lower()
@@ -27435,7 +28503,7 @@ def public_checkout(plan_id: str):
         return redirect(payment_url)
     if not (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")):
         return redirect("/#pricing")
-    return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan)
+    return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan, pwa_theme_color=PWA_THEME_COLOR)
 
 
 @APP.get("/dayz-kill-feed-bot")
@@ -27556,6 +28624,39 @@ def admin():
     if error:
         return error
     return page("admin", auth)
+
+
+@APP.get("/app")
+def mobile_app():
+    auth = current_auth()
+    if not auth:
+        if current_agent_account_auth():
+            return redirect("/agent?section=ai-agent")
+        return redirect("/login")
+    payload = dashboard_app_selected_state(auth)
+    selected_config = payload["selected_config"]
+    selected_access = payload["selected_access"]
+    restart_status = dashboard_restart_status(selected_config)
+    schedule_status = dashboard_live_schedule_status(selected_config)
+    customer_billing_plans = dashboard_customer_billing_plans(selected_access) if auth.get("kind") != "owner" else []
+    return render_template_string(
+        APP_DASHBOARD_TEMPLATE,
+        auth=auth,
+        pwa_theme_color=PWA_THEME_COLOR,
+        dashboard_path="/admin",
+        summary=payload["state"].get("summary", {}),
+        servers=payload["state"].get("servers", []),
+        server=payload["server"],
+        selected_dayz_profile=payload["selected_dayz_profile"],
+        selected_dayz_profile_id=payload["selected_dayz_profile_id"],
+        app_qs=payload["app_qs"],
+        dashboard_qs=payload["dashboard_qs"],
+        restart_status=restart_status,
+        schedule_status=schedule_status,
+        customer_billing_plans=customer_billing_plans,
+        dayz_preset_groups=dashboard_dayz_preset_groups(),
+        generated_clock=local_dashboard_clock(),
+    )
 
 
 @APP.get("/owner")
@@ -28544,6 +29645,29 @@ def api_admin_vanilla_types_download():
     filename = urllib.parse.quote(str(result.get("download_name") or "types.xml"))
     response.headers["Content-Disposition"] = f"attachment; filename={filename}"
     response.headers["X-DayZ-Map"] = str(result.get("map") or "")
+    response.headers["X-DayZ-CE-Version"] = str(result.get("dayz_version") or "")
+    return response
+
+
+@APP.get("/api/admin/preset-file/download")
+def api_admin_preset_file_download():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = payload or {}
+    requested_map = request.args.get("map") or payload.get("map")
+    requested_preset = request.args.get("preset") or payload.get("preset")
+    try:
+        result = build_dayz_preset_file(requested_map, requested_preset)
+    except ValueError as error:
+        status = 500 if "failed validation" in str(error) else 404
+        return jsonify({"ok": False, "success": False, "error": str(error)}), status
+    response = Response(str(result.get("content") or ""), mimetype=str(result.get("mimetype") or "text/plain"))
+    filename = urllib.parse.quote(str(result.get("download_name") or "dayz_preset.txt"))
+    response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+    response.headers["X-DayZ-Map"] = str(result.get("map") or "")
+    response.headers["X-DayZ-Mission"] = str(result.get("mission") or "")
+    response.headers["X-DayZ-Target-Path"] = str(result.get("target_path") or "")
     response.headers["X-DayZ-CE-Version"] = str(result.get("dayz_version") or "")
     return response
 
@@ -30276,7 +31400,10 @@ def api_zone():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or config is None:
+        return jsonify({"ok": False, "error": target_error or "DayZ server profile was not found."}), 404
     map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
     x = max(0, min(map_size, safe_int(payload.get("x"))))
     z_value = next((value for value in (payload.get("z"), payload.get("y")) if value not in (None, "")), 0)
@@ -30393,7 +31520,10 @@ def api_zone_action():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         return jsonify({"ok": False, "error": "guild config store is unavailable"}), 500
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or config is None:
+        return jsonify({"ok": False, "error": target_error or "DayZ server profile was not found."}), 404
     list_names = ["radar_zones", "safe_zones", "zones"]
     if zone_type == "radar":
         list_names = ["radar_zones", "safe_zones", "zones"]
