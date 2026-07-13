@@ -26,6 +26,14 @@ WANDERING_SUPPORT_EMAIL=support@dayzwanderingbot.com
 https://dayzwanderingbot.com/.well-known/assetlinks.json
 ```
 
+The Android Play build opens:
+
+```text
+https://dayzwanderingbot.com/app?source=native_android
+```
+
+That source flag hides Stripe checkout and upgrade buttons inside the native app. Keep plan purchases on the website unless Google Play Billing is added later.
+
 ## iPhone
 
 1. iOS builds need macOS, Xcode and an Apple Developer account.

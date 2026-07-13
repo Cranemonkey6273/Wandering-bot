@@ -3,21 +3,19 @@
   "appName": "Wandering Bot",
   "webDir": "web",
   "server": {
-    "url": "https://dayzwanderingbot.com/app",
+    "url": "https://dayzwanderingbot.com/app?source=native_android",
     "cleartext": false,
     "allowNavigation": [
       "dayzwanderingbot.com",
       "www.dayzwanderingbot.com",
       "*.dayzwanderingbot.com",
-      "buy.stripe.com",
-      "checkout.stripe.com",
       "discord.com",
       "*.discord.com"
     ]
   },
   "plugins": {
     "App": {
-      "launchUrl": "https://dayzwanderingbot.com/app"
+      "launchUrl": "https://dayzwanderingbot.com/app?source=native_android"
     },
     "Keyboard": {
       "resize": "body"

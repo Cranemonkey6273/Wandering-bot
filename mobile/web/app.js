@@ -1,4 +1,4 @@
-const target = "https://dayzwanderingbot.com/app?source=native";
+const target = "https://dayzwanderingbot.com/app?source=native_android";
 
 window.addEventListener("load", () => {
   const link = document.getElementById("open-app");

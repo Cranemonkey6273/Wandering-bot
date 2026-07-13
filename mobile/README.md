@@ -6,12 +6,13 @@ It uses Capacitor so the installed app can run on Android and iOS while still lo
 
 `https://dayzwanderingbot.com/app`
 
-That is intentional. Nitrado tokens, Stripe secrets, Discord bot credentials, restart controls, XML writes, and billing checks must stay on the server. The phone app is the native shell and the server remains the source of truth.
+That is intentional. Nitrado tokens, Stripe secrets, Discord bot credentials, restart controls, XML writes, and billing checks must stay on the server. The phone app is the native shell and the server remains the source of truth. Stripe checkout links are not exposed inside the Android Play build.
 
 ## What Links
 
 - The installed app opens `https://dayzwanderingbot.com/app`.
-- The app allows Wandering Bot dashboard pages, Stripe Checkout, Discord, and Wandering Bot subdomains.
+- The app allows Wandering Bot dashboard pages, Discord, and Wandering Bot subdomains. Stripe checkout stays outside the Android Play app.
+- The Android Play build opens `https://dayzwanderingbot.com/app?source=native_android` so checkout buttons stay hidden inside the native app.
 - Android deep links are registered for `wanderingbot://`, `/app`, `/login`, `/admin`, and `/owner`.
 - Full verified Android App Links still need a release signing certificate and `/.well-known/assetlinks.json` on the website before Play Store release.
 

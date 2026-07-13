@@ -483,6 +483,7 @@ ANDROID_RELEASE_SHA256_FINGERPRINTS = (
     or ""
 ).strip()
 PUBLIC_SUPPORT_EMAIL = os.getenv("WANDERING_SUPPORT_EMAIL", "support@dayzwanderingbot.com").strip()
+NATIVE_APP_SOURCE_VALUES = {"native", "native_android", "native_ios", "android_app", "ios_app"}
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
 AGENT_SIGNUPS_ENABLED = os.getenv("WANDERING_AGENT_SIGNUPS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
@@ -21080,6 +21081,15 @@ def public_page_url(path: str) -> str:
     return f"{dashboard_public_origin()}{clean_path}"
 
 
+def native_app_source() -> str:
+    source = str(request.args.get("source") or request.args.get("app_source") or "").strip().lower()
+    return source if source in NATIVE_APP_SOURCE_VALUES else ""
+
+
+def is_native_app_request() -> bool:
+    return bool(native_app_source())
+
+
 def normalize_android_sha256_fingerprint(value: str) -> str:
     cleaned = re.sub(r"[^A-Fa-f0-9]", "", str(value or ""))
     if len(cleaned) != 64:
@@ -28053,7 +28063,8 @@ def page(mode: str, auth: dict[str, Any]):
         "guild_id": normalize_guild_id(selected_review_guild_id),
     }
     billing_plans = dashboard_billing_plans()
-    customer_billing_plans = dashboard_customer_billing_plans(selected_access) if mode != "owner" and auth.get("kind") != "agent_account" else []
+    native_app_mode = is_native_app_request()
+    customer_billing_plans = [] if native_app_mode or mode == "owner" or auth.get("kind") == "agent_account" else dashboard_customer_billing_plans(selected_access)
     billing_has_stripe_buy_buttons = False
     return render_template_string(
         PAGE_TEMPLATE,
@@ -28137,6 +28148,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
         billing_plans=billing_plans,
         customer_billing_plans=customer_billing_plans,
+        native_app_mode=native_app_mode,
         billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
         dayz_preset_maps=DAYZ_PRESET_MAPS,
         dayz_preset_map=dayz_preset_map,
@@ -28273,6 +28285,9 @@ def dashboard_app_selected_state(auth: dict[str, Any]) -> dict[str, Any]:
     selected_config = selected_server.get("config", {}) if isinstance(selected_server, dict) else {}
     selected_access = selected_server.get("dashboard_access", {}) if isinstance(selected_server, dict) and isinstance(selected_server.get("dashboard_access"), dict) else {}
     server_query = {}
+    source = native_app_source()
+    if source:
+        server_query["source"] = source
     if isinstance(selected_server, dict) and selected_server.get("guild_id"):
         server_query["guild_id"] = str(selected_server.get("guild_id"))
     if selected_dayz_profile_id:
@@ -28974,7 +28989,8 @@ def mobile_app():
     selected_access = payload["selected_access"]
     restart_status = dashboard_restart_status(selected_config)
     schedule_status = dashboard_live_schedule_status(selected_config)
-    customer_billing_plans = dashboard_customer_billing_plans(selected_access) if auth.get("kind") != "owner" else []
+    native_app_mode = is_native_app_request()
+    customer_billing_plans = [] if native_app_mode or auth.get("kind") == "owner" else dashboard_customer_billing_plans(selected_access)
     return render_template_string(
         APP_DASHBOARD_TEMPLATE,
         auth=auth,
@@ -28989,6 +29005,7 @@ def mobile_app():
         dashboard_qs=payload["dashboard_qs"],
         restart_status=restart_status,
         schedule_status=schedule_status,
+        native_app_mode=native_app_mode,
         customer_billing_plans=customer_billing_plans,
         dayz_preset_groups=dashboard_dayz_preset_groups(),
         generated_clock=local_dashboard_clock(),
