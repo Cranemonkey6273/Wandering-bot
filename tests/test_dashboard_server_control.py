@@ -75,6 +75,36 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_mobile_app_welcome_explains_install_setup_and_password_reset(self):
+        template = dashboard.APP_WELCOME_TEMPLATE
+
+        self.assertIn("Add Wandering Bot to Discord", template)
+        self.assertIn("/setup", template)
+        self.assertIn("/dashboardcredentials reset:true", template)
+        self.assertIn('name="return_to"', template)
+        self.assertIn('name="app_source"', template)
+        self.assertNotIn("existing password can be displayed", template.lower())
+
+    def test_signed_out_mobile_app_uses_app_welcome_instead_of_website_login(self):
+        with (
+            patch.object(dashboard, "current_auth", return_value=None),
+            patch.object(dashboard, "current_agent_account_auth", return_value=None),
+            patch.object(dashboard, "mobile_app_welcome", return_value="app-welcome") as welcome,
+        ):
+            response = dashboard.mobile_app()
+
+        self.assertEqual("app-welcome", response)
+        welcome.assert_called_once_with()
+
+    def test_safe_dashboard_return_allows_app_but_rejects_external_targets(self):
+        self.assertEqual("/app", dashboard.safe_dashboard_return("/app", "/login"))
+        self.assertEqual(
+            "/app?source=native_android",
+            dashboard.safe_dashboard_return("/app?source=native_android", "/login"),
+        )
+        self.assertEqual("/login", dashboard.safe_dashboard_return("https://example.com/app", "/login"))
+        self.assertEqual("/login", dashboard.safe_dashboard_return("/application", "/login"))
+
     def test_android_fingerprint_normalizer_accepts_plain_and_coloned_sha256(self):
         raw = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
         expected = (

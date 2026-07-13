@@ -1356,6 +1356,150 @@ LOGIN_TEMPLATE = """
 </html>
 """
 
+APP_WELCOME_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Wandering Bot</title>
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #020706;
+      --panel: #071311;
+      --panel-strong: #0b1b18;
+      --line: rgba(71, 210, 190, .25);
+      --warm-line: rgba(255, 164, 58, .36);
+      --text: #f3faf6;
+      --muted: #abc5bd;
+      --green: #8aec62;
+      --teal: #42d2c0;
+      --amber: #ffa33a;
+      --red: #ff7181;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      margin: 0;
+      min-height: 100svh;
+      color: var(--text);
+      background: linear-gradient(180deg, #07100c 0, var(--bg) 48%);
+      padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+    }
+    a { color: inherit; text-decoration: none; }
+    button, input { font: inherit; }
+    .shell { width: min(52rem, 100%); min-height: 100svh; margin: 0 auto; padding: 1rem; display: grid; align-content: center; gap: .85rem; }
+    .intro, .login, .steps {
+      border: 1px solid var(--line);
+      border-radius: .75rem;
+      background: linear-gradient(145deg, rgba(11, 27, 24, .98), rgba(4, 12, 10, .98));
+      box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, .32);
+    }
+    .intro { padding: 1.1rem; border-top-color: var(--warm-line); display: grid; gap: 1rem; }
+    .brand { display: flex; align-items: center; gap: .75rem; }
+    .brand img { width: 3.4rem; height: 3.4rem; border-radius: .6rem; border: 1px solid var(--line); object-fit: cover; }
+    .brand h1 { margin: 0; color: var(--amber); font-size: 1.25rem; text-transform: uppercase; letter-spacing: 0; }
+    .brand p { margin: .15rem 0 0; color: var(--muted); font-size: .86rem; }
+    .intro h2 { margin: 0; font-size: clamp(1.8rem, 9vw, 3.3rem); line-height: .96; letter-spacing: 0; }
+    .intro-copy { margin: 0; color: var(--muted); line-height: 1.5; }
+    .primary, .secondary, .submit {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 3rem;
+      padding: .75rem 1rem;
+      border-radius: .55rem;
+      font-weight: 950;
+      cursor: pointer;
+    }
+    .primary, .submit { border: 1px solid var(--amber); background: var(--amber); color: #07100d; }
+    .secondary { border: 1px solid var(--line); background: rgba(255, 255, 255, .035); color: var(--text); }
+    .steps { padding: 1rem; display: grid; gap: .7rem; }
+    .steps h2, .login h2 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0; }
+    .step { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .65rem; align-items: start; }
+    .step-number { display: grid; place-items: center; width: 2rem; height: 2rem; border: 1px solid var(--line); border-radius: 50%; color: var(--teal); font-weight: 950; }
+    .step strong { display: block; margin: .05rem 0 .16rem; }
+    .step p, .help { margin: 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+    code { color: var(--amber); font-weight: 850; overflow-wrap: anywhere; }
+    .login { padding: 1rem; display: grid; gap: .75rem; }
+    form { display: grid; gap: .7rem; }
+    label { display: grid; gap: .3rem; color: var(--muted); font-size: .85rem; font-weight: 750; }
+    input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: .5rem; background: #030a08; color: var(--text); padding: .78rem; }
+    .password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; }
+    .password-toggle { border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); color: var(--text); padding: 0 .85rem; font-weight: 850; }
+    .error { padding: .7rem; border: 1px solid rgba(255, 113, 129, .42); border-radius: .5rem; color: #ffdce1; background: rgba(255, 113, 129, .12); }
+    .security { padding-top: .7rem; border-top: 1px solid var(--line); }
+    .support { color: var(--teal); font-weight: 800; }
+    @media (min-width: 700px) {
+      .shell { grid-template-columns: minmax(0, 1.08fr) minmax(18rem, .92fr); }
+      .intro { grid-row: span 2; align-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="intro">
+      <div class="brand">
+        <img src="/brand-image" alt="Wandering Bot">
+        <div><h1>Wandering Bot</h1><p>DayZ server control for Discord</p></div>
+      </div>
+      <h2>Connect your server from the app</h2>
+      <p class="intro-copy">Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.</p>
+      <a class="primary" href="{{ bot_invite_url }}" target="_blank" rel="external noopener">Add Wandering Bot to Discord</a>
+    </section>
+
+    <section class="steps" aria-labelledby="setup-heading">
+      <h2 id="setup-heading">First-time setup</h2>
+      <div class="step"><span class="step-number">1</span><div><strong>Add the bot</strong><p>Choose the Discord server you administer and approve the requested permissions.</p></div></div>
+      <div class="step"><span class="step-number">2</span><div><strong>Run setup in Discord</strong><p>Use <code>/setup</code>. Wandering Bot replies privately with the dashboard ID and one-time password.</p></div></div>
+      <div class="step"><span class="step-number">3</span><div><strong>Return here to sign in</strong><p>Save the one-time password, then enter both credentials below.</p></div></div>
+    </section>
+
+    <section class="login" aria-labelledby="login-heading">
+      <h2 id="login-heading">Server login</h2>
+      {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+      <form method="post" action="/login">
+        <input type="hidden" name="return_to" value="{{ return_to }}">
+        <input type="hidden" name="app_source" value="{{ app_source }}">
+        <label>Dashboard ID <input name="dashboard_id" autocomplete="username" required></label>
+        <label>Password
+          <span class="password-row">
+            <input id="app-login-password" name="password" type="password" autocomplete="current-password" required>
+            <button class="password-toggle" type="button" data-password-toggle data-target="app-login-password" aria-pressed="false">Show</button>
+          </span>
+        </label>
+        <button class="submit" type="submit">Open App</button>
+      </form>
+      <div class="security">
+        <p class="help"><strong>Forgotten password?</strong> A Discord administrator can run <code>/dashboardcredentials reset:true</code>. For security, an existing password cannot be displayed again.</p>
+      </div>
+      <a class="support" href="mailto:{{ support_email }}">Contact support</a>
+    </section>
+  </main>
+  <script>
+    document.querySelectorAll("[data-password-toggle]").forEach(function (button) {
+      var input = document.getElementById(button.getAttribute("data-target") || "");
+      if (!input) return;
+      button.addEventListener("click", function () {
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        button.textContent = show ? "Hide" : "Show";
+        button.setAttribute("aria-pressed", show ? "true" : "false");
+      });
+    });
+  </script>
+</body>
+</html>
+"""
+
 PUBLIC_LANDING_TEMPLATE = """
 <!doctype html>
 <html lang="en">
@@ -21058,6 +21202,28 @@ def login_page(error: str = ""):
     return render_template_string(LOGIN_TEMPLATE, error=error, pwa_theme_color=PWA_THEME_COLOR)
 
 
+def mobile_app_welcome(error: str = ""):
+    source = str(
+        request.args.get("source")
+        or request.args.get("app_source")
+        or request.form.get("app_source")
+        or ""
+    ).strip().lower()
+    if source not in NATIVE_APP_SOURCE_VALUES:
+        source = ""
+    query = urllib.parse.urlencode({"source": source}) if source else ""
+    return_to = f"/app?{query}" if query else "/app"
+    return render_template_string(
+        APP_WELCOME_TEMPLATE,
+        error=error,
+        pwa_theme_color=PWA_THEME_COLOR,
+        bot_invite_url=dashboard_bot_invite_url(),
+        support_email=PUBLIC_SUPPORT_EMAIL,
+        app_source=source,
+        return_to=return_to,
+    )
+
+
 def dashboard_bot_invite_url() -> str:
     if DISCORD_CLIENT_ID:
         return (
@@ -21676,7 +21842,13 @@ def wants_json_response() -> bool:
 
 def safe_dashboard_return(value: Any, fallback: str = "/admin?section=pve") -> str:
     target = str(value or "").strip()
-    if not (target.startswith("/admin") or target.startswith("/owner")):
+    allowed = (
+        target.startswith("/admin")
+        or target.startswith("/owner")
+        or target == "/app"
+        or target.startswith("/app?")
+    )
+    if not allowed:
         return fallback
     if "\n" in target or "\r" in target:
         return fallback
@@ -28983,7 +29155,7 @@ def mobile_app():
     if not auth:
         if current_agent_account_auth():
             return redirect("/agent?section=ai-agent")
-        return redirect("/login")
+        return mobile_app_welcome()
     payload = dashboard_app_selected_state(auth)
     selected_config = payload["selected_config"]
     selected_access = payload["selected_access"]
@@ -29031,9 +29203,11 @@ def login_get():
 def login_post():
     dashboard_id = str(request.form.get("dashboard_id") or "").strip()
     password = str(request.form.get("password") or "")
+    return_to = safe_dashboard_return(request.form.get("return_to"), "")
+    app_return = return_to if return_to == "/app" or return_to.startswith("/app?") else ""
 
     if verify_owner_login(dashboard_id, password):
-        response = make_response(redirect("/owner"))
+        response = make_response(redirect(app_return or "/owner"))
         response.set_cookie(
             "dashboard_session",
             make_owner_session_cookie(),
@@ -29046,13 +29220,16 @@ def login_post():
 
     login_match = find_dashboard_login_by_id(dashboard_id)
     if not login_match:
-        return login_page("Dashboard ID or password is incorrect."), 401
+        error = "Dashboard ID or password is incorrect."
+        return (mobile_app_welcome(error), 401) if app_return else (login_page(error), 401)
     guild_id, config, credentials, login_kind, temp_login_id = login_match
     if not dashboard_admin_login_enabled(config):
-        return login_page("Dashboard access is currently disabled for this server."), 403
+        error = "Dashboard access is currently disabled for this server."
+        return (mobile_app_welcome(error), 403) if app_return else (login_page(error), 403)
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
-        return login_page("Dashboard ID or password is incorrect."), 401
-    response = make_response(redirect("/admin"))
+        error = "Dashboard ID or password is incorrect."
+        return (mobile_app_welcome(error), 401) if app_return else (login_page(error), 401)
+    response = make_response(redirect(app_return or "/admin"))
     session_cookie = (
         make_temp_session_cookie(guild_id, temp_login_id, credentials)
         if login_kind == "temporary" and temp_login_id
