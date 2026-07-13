@@ -3,5 +3,5 @@
     <string name="app_name">Wandering Bot</string>
     <string name="title_activity_main">Wandering Bot</string>
     <string name="package_name">com.dayzwanderingbot.app</string>
-    <string name="custom_url_scheme">com.dayzwanderingbot.app</string>
+    <string name="custom_url_scheme">wanderingbot</string>
 </resources>

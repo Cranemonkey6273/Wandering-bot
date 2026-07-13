@@ -475,6 +475,7 @@ DEFAULT_BOT_INVITE_URL = os.getenv(
 )
 SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "").strip()
 ANDROID_APP_ID = os.getenv("WANDERING_ANDROID_APP_ID", "com.dayzwanderingbot.app").strip() or "com.dayzwanderingbot.app"
+IOS_APP_ID = os.getenv("WANDERING_IOS_APP_ID", "").strip()
 ANDROID_RELEASE_SHA256_FINGERPRINTS = (
     os.getenv("WANDERING_ANDROID_SHA256_FINGERPRINTS")
     or os.getenv("WANDERING_ANDROID_SHA256_FINGERPRINT")
@@ -21112,6 +21113,23 @@ def android_assetlinks_statements(fingerprints: list[str] | None = None) -> list
     ]
 
 
+def apple_app_site_association() -> dict[str, Any]:
+    details: list[dict[str, Any]] = []
+    if IOS_APP_ID:
+        details.append(
+            {
+                "appIDs": [IOS_APP_ID],
+                "components": [
+                    {"/": "/app*", "comment": "Open the Wandering Bot mobile app."},
+                    {"/": "/login*", "comment": "Open Wandering Bot login in the app."},
+                    {"/": "/admin*", "comment": "Open Wandering Bot dashboard in the app."},
+                    {"/": "/owner*", "comment": "Open Wandering Bot owner console in the app."},
+                ],
+            }
+        )
+    return {"applinks": {"details": details}}
+
+
 def public_info_page(
     path: str,
     title: str,
@@ -28879,6 +28897,15 @@ def android_assetlinks_json():
         return Response(json.dumps(body, indent=2), status=503, mimetype="application/json")
     return Response(
         json.dumps(statements, indent=2),
+        mimetype="application/json",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@APP.get("/.well-known/apple-app-site-association")
+def apple_app_site_association_json():
+    return Response(
+        json.dumps(apple_app_site_association(), indent=2),
         mimetype="application/json",
         headers={"Cache-Control": "public, max-age=300"},
     )

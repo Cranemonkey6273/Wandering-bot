@@ -8,11 +8,48 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main>
-    <img src="./icon.png" alt="Wandering Bot">
-    <h1>Wandering Bot</h1>
-    <p>Opening the secure mobile dashboard app.</p>
-    <a id="open-app" href="https://dayzwanderingbot.com/app?source=native_fallback">Open App</a>
+  <main class="shell">
+    <section class="hero-card" aria-labelledby="app-title">
+      <img class="app-icon" src="./icon.png" alt="Wandering Bot">
+      <p class="eyebrow">Native server owner app</p>
+      <h1 id="app-title">Wandering Bot</h1>
+      <p class="lead">Secure mobile access for DayZ feeds, shop tools, restart schedules, vehicle resets, zones, members and server controls.</p>
+
+      <div class="connection" aria-live="polite">
+        <span id="connection-dot" class="connection-dot" aria-hidden="true"></span>
+        <span id="connection-label">Checking connection</span>
+      </div>
+
+      <div class="actions">
+        <a id="open-app" class="primary-action" href="https://dayzwanderingbot.com/app?source=native_fallback">Open dashboard</a>
+        <button id="retry-button" class="secondary-action" type="button">Retry</button>
+      </div>
+    </section>
+
+    <section class="feature-grid" aria-label="Mobile app features">
+      <article>
+        <span>Feeds</span>
+        <strong>Live ADM activity</strong>
+      </article>
+      <article>
+        <span>Shop</span>
+        <strong>Economy edits</strong>
+      </article>
+      <article>
+        <span>Control</span>
+        <strong>Restarts and raids</strong>
+      </article>
+      <article>
+        <span>Files</span>
+        <strong>Preset downloads</strong>
+      </article>
+    </section>
+
+    <footer>
+      <a href="https://dayzwanderingbot.com/support?source=native_fallback">Support</a>
+      <a href="https://dayzwanderingbot.com/privacy?source=native_fallback">Privacy</a>
+      <a href="https://dayzwanderingbot.com/terms?source=native_fallback">Terms</a>
+    </footer>
   </main>
   <script src="./app.js"></script>
 </body>

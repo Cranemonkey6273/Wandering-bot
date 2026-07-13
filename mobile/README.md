@@ -87,6 +87,12 @@ Store-ready public links now exist at:
 
 The Play Store release still needs final screenshots and Play Console listing setup.
 
+Detailed release steps live in:
+
+```text
+mobile\STORE_CHECKLIST.md
+```
+
 ## iPhone / iPad
 
 iOS builds require macOS, Xcode, and an Apple Developer account.
@@ -102,6 +108,12 @@ npm run open:ios
 ```
 
 Use Xcode to set signing, bundle ID, app icon, capabilities, and TestFlight/App Store upload.
+
+For iPhone universal links, set this website variable after Apple gives you the Team ID:
+
+```text
+WANDERING_IOS_APP_ID=TEAMID.com.dayzwanderingbot.app
+```
 
 ## App ID
 
