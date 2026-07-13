@@ -4648,9 +4648,18 @@ PAGE_TEMPLATE = """
     .quick-guide-link span { display: block; line-height: 1.35; }
     .quick-guide-link:hover,
     .quick-guide-link:focus-visible { border-color: var(--accent); color: var(--text); transform: translateY(-1px); outline: none; }
+    .preset-map-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; margin-top: .8rem; }
+    .preset-map-choice { display: block; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line)); border-radius: .5rem; padding: .85rem .9rem; background: rgba(4, 12, 14, .9); color: var(--muted); text-decoration: none; min-width: 0; }
+    .preset-map-choice strong { display: block; color: var(--text); margin-bottom: .2rem; }
+    .preset-map-choice span { display: block; overflow-wrap: anywhere; font-size: .88rem; }
+    .preset-map-choice.active { border-color: var(--gold); background: linear-gradient(145deg, rgba(213, 180, 95, .16), rgba(4, 12, 14, .96)); color: var(--text); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
+    .preset-table th:last-child,
+    .preset-table td:last-child { width: 8rem; text-align: right; }
+    .preset-tags { display: flex; flex-wrap: wrap; gap: .25rem; }
+    .preset-download { min-width: 7.5rem; white-space: nowrap; }
     .hidden-field { display: none; }
     @media (max-width: 980px) {
-      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .types-start-grid, .types-map-card-grid, .types-editor-appbar, .types-editor-filters, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
+      .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .preset-map-picker, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .types-start-grid, .types-map-card-grid, .types-editor-appbar, .types-editor-filters, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
       .types-search-wrap, .types-map-actions { grid-template-columns: 1fr; }
       .types-search-wrap { justify-content: stretch; }
       .types-search-wrap input { min-width: 0; width: 100%; }
@@ -9721,16 +9730,31 @@ PAGE_TEMPLATE = """
             <div class="quick-guide-link"><strong>Keep your live backup</strong><span>Download your current live file before replacing it. Direct server apply will come later with diff, backup and rollback checks.</span></div>
           </div>
         </article>
-        {% for map in dayz_preset_maps %}
-        <article class="admin-panel full" id="preset-{{ map.key }}">
+        <article class="admin-panel full">
           <div class="section-head">
             <div>
-              <h3>{{ map.label }} Presets</h3>
-              <p class="tool-note">Mission folder: <code>{{ map.mission }}</code></p>
+              <h3>Choose Map</h3>
+              <p class="tool-note">Only the selected map's preset files are shown below.</p>
+            </div>
+          </div>
+          <div class="preset-map-picker">
+            {% for map_item in dayz_preset_maps %}
+            <a class="preset-map-choice {{ 'active' if map_item.key == dayz_preset_map.key else '' }}" href="{{ dashboard_path }}?section=presets{{ server_qs }}{{ auth_qs }}&preset_map={{ map_item.key }}#preset-files">
+              <strong>{{ map_item.label }}</strong>
+              <span>{{ map_item.mission }}</span>
+            </a>
+            {% endfor %}
+          </div>
+        </article>
+        <article class="admin-panel full" id="preset-{{ dayz_preset_map.key }}">
+          <div class="section-head">
+            <div>
+              <h3>{{ dayz_preset_map.label }} Presets</h3>
+              <p class="tool-note">Mission folder: <code>{{ dayz_preset_map.mission }}</code></p>
             </div>
             <span class="pill">{{ dayz_ce_file_version }}</span>
           </div>
-          <table class="admin-table">
+          <table class="admin-table preset-table">
             <thead>
               <tr>
                 <th>Preset</th>
@@ -9750,15 +9774,14 @@ PAGE_TEMPLATE = """
                 <td><strong>{{ preset.title }}</strong></td>
                 <td><code>{{ preset.target_path }}</code></td>
                 <td>{{ preset.summary }}</td>
-                <td>{% for tag in preset.tags %}<span class="pill">{{ tag }}</span>{% endfor %}</td>
-                <td><a class="button" href="/api/admin/preset-file/download?map={{ map.key }}&preset={{ preset.id }}{{ dashboard_qs }}">Download</a></td>
+                <td><div class="preset-tags">{% for tag in preset.tags %}<span class="pill">{{ tag }}</span>{% endfor %}</div></td>
+                <td><a class="button preset-download" href="/api/admin/preset-file/download?map={{ dayz_preset_map.key }}&preset={{ preset.id }}{{ dashboard_qs }}">Download</a></td>
               </tr>
               {% endfor %}
               {% endfor %}
             </tbody>
           </table>
         </article>
-        {% endfor %}
       </div>
     </section>
     {% endif %}
@@ -27893,6 +27916,11 @@ def page(mode: str, auth: dict[str, Any]):
             }
     ce_defaults = dashboard_default_ce_paths(selected_config if isinstance(selected_config, dict) else {})
     server_map = str(selected_config.get("server_map") or selected_config.get("map") or "chernarus") if isinstance(selected_config, dict) else "chernarus"
+    dayz_preset_map_key = normalize_dayz_reference_map_key(request.args.get("preset_map") or server_map)
+    dayz_preset_map = next(
+        (item for item in DAYZ_PRESET_MAPS if item.get("key") == dayz_preset_map_key),
+        DAYZ_PRESET_MAPS[0],
+    )
     airdrop_location_presets = dashboard_airdrop_location_presets(server_map)
     picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
     picker_groups = cached_xml_picker_groups(picker_source_items)
@@ -28093,6 +28121,7 @@ def page(mode: str, auth: dict[str, Any]):
         customer_billing_plans=customer_billing_plans,
         billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
         dayz_preset_maps=DAYZ_PRESET_MAPS,
+        dayz_preset_map=dayz_preset_map,
         dayz_preset_groups=dashboard_dayz_preset_groups(),
         dashboard_feature_labels=DASHBOARD_FEATURE_LABELS,
         custom_feed_types=CUSTOM_FEED_TYPES,

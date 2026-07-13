@@ -14853,15 +14853,7 @@ ZONE_POINTS_BY_MAP = {
 
 MAP_LABELS_BY_MAP = {
     "livonia": [],
-    "chernarus": [
-        ("NWAF", 4481, 10355, "landmark"),
-        ("Tisy", 1612, 14175, "landmark"),
-        ("Vybor", 4600, 8400, "major"),
-        ("Zelenogorsk", 2520, 5140, "major"),
-        ("Cherno", 6560, 2520, "major"),
-        ("Elektro", 10480, 2320, "major"),
-        ("Berezino", 12200, 9500, "major"),
-    ],
+    "chernarus": [],
 }
 
 
@@ -25671,7 +25663,7 @@ async def restartserver(ctx, server: str = ""):
 
     embed = discord.Embed(
         title="🔄 SERVER RESTART REQUESTED",
-        description=f"Live restart request sent to `{guild_display_name(guild_id)}`.",
+        description=f"Checking delivery XML before restarting `{guild_display_name(guild_id)}`.",
         color=0xE67E22
     )
 
@@ -25683,7 +25675,40 @@ async def restartserver(ctx, server: str = ""):
 
     print("SERVER RESTART REQUESTED")
 
+    delivery_upload_note = ""
+    delivery_upload_failed_for_paid_items = False
+    try:
+        normal_scenario_events = bridge_scenario_events(config)
+        delivery_scenario_events = delivery_bridge_scenario_events(config)
+        console_ce_enabled = console_ce_event_config(config).get("enabled")
+        has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
+        if has_delivery_work or (normal_scenario_events and not console_ce_enabled) or (delivery_scenario_events and console_ce_enabled):
+            upload_success, _xml_output_path = await asyncio.to_thread(
+                write_and_upload_delivery_xml,
+                guild_id,
+                config,
+                datetime.now(UTC),
+                delivery_scenario_events if console_ce_enabled else None,
+                not console_ce_enabled,
+            )
+            delivery_upload_note = f" Pre-restart delivery XML upload: {'ok' if upload_success else 'failed'}."
+            delivery_upload_failed_for_paid_items = bool(has_delivery_work and not upload_success)
+            print(f"MANUAL PRE-RESTART DELIVERY XML UPLOAD {guild_id}: {upload_success}")
+    except Exception as upload_error:
+        delivery_upload_note = f" Pre-restart delivery XML upload failed: {upload_error}"
+        delivery_upload_failed_for_paid_items = bool(queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id))
+        print(f"MANUAL PRE-RESTART DELIVERY XML UPLOAD ERROR {guild_id}: {upload_error}")
+
+    if delivery_upload_failed_for_paid_items:
+        await ctx.send(
+            "Restart cancelled because paid delivery XML could not be uploaded. "
+            "The order is still queued, so retry the restart after the upload issue is fixed."
+        )
+        return
+
     ok, message = await asyncio.to_thread(nitrado_restart_server_now, config)
+    if delivery_upload_note:
+        message = f"{message}{delivery_upload_note}"
     print(f"RESTART STATUS: ok={ok} {message}")
     record = append_restart_history(
         guild_id,
@@ -26283,7 +26308,15 @@ SCHEDULE_REMINDER_RUNTIME_MARKER_TTL_SECONDS = 3 * 24 * 60 * 60
 def schedule_reminder_marker(guild_id, schedule_key, next_run, minutes, channel_id="", server_label=""):
     server_key = normalize_discord_name(server_label) or normalize_discord_name(guild_id)
     channel_key = str(channel_id or "").strip()
-    return f"{channel_key}:{server_key}:{schedule_key}:{next_run.astimezone(UTC).isoformat()}:{int(minutes)}"
+    run_key = next_run.astimezone(UTC).replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    return f"{channel_key}:{server_key}:{schedule_key}:{run_key}:{int(minutes)}"
+
+
+def schedule_reminder_window_marker(guild_id, schedule_key, next_run, minutes, server_label=""):
+    server_key = normalize_discord_name(server_label) or normalize_discord_name(guild_id)
+    runtime_key = normalize_discord_name(guild_id)
+    run_key = next_run.astimezone(UTC).replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    return f"{runtime_key}:{server_key}:{schedule_key}:{run_key}:{int(minutes)}"
 
 
 def schedule_reminder_runtime_already_sent(marker, now_utc):
@@ -26306,6 +26339,31 @@ def remember_schedule_reminder_runtime(marker, now_utc):
     SCHEDULE_REMINDER_RUNTIME_MARKERS[marker] = now_utc.timestamp()
 
 
+async def schedule_reminder_recent_channel_duplicate(channel, title, minute, server_label, when_label, now_utc):
+    if not channel or not hasattr(channel, "history"):
+        return False
+    try:
+        after_time = now_utc - timedelta(minutes=max(20, int(minute) + 10))
+    except Exception:
+        after_time = now_utc - timedelta(minutes=90)
+    expected_title = f"{title} - {int(minute)} MINUTES"
+    expected_server = f"**Server:** {server_label}"
+    expected_when = f"**When:** {when_label}"
+    try:
+        async for message in channel.history(limit=35, after=after_time):
+            author = getattr(message, "author", None)
+            if getattr(author, "id", None) != getattr(bot.user, "id", None):
+                continue
+            for embed in getattr(message, "embeds", []) or []:
+                embed_title = str(getattr(embed, "title", "") or "")
+                description = str(getattr(embed, "description", "") or "")
+                if embed_title == expected_title and expected_server in description and expected_when in description:
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 def schedule_reminder_config_markers(config):
     markers = config.get("schedule_reminder_sent_markers")
     if not isinstance(markers, list):
@@ -26314,16 +26372,25 @@ def schedule_reminder_config_markers(config):
     return markers
 
 
-def schedule_reminder_already_sent(config, schedule, marker):
+def schedule_reminder_already_sent(config, schedule, marker, window_marker=""):
     config_markers = {str(item) for item in schedule_reminder_config_markers(config)}
     markers = schedule.get("reminder_markers")
     if not isinstance(markers, list):
         markers = []
         schedule["reminder_markers"] = markers
-    return marker in config_markers or marker in {str(item) for item in markers}
+    windows = schedule.get("reminder_windows")
+    if not isinstance(windows, list):
+        windows = []
+        schedule["reminder_windows"] = windows
+    return (
+        marker in config_markers
+        or marker in {str(item) for item in markers}
+        or bool(window_marker and window_marker in {str(item) for item in windows})
+        or bool(window_marker and str(schedule.get("last_reminder_window") or "") == window_marker)
+    )
 
 
-def remember_schedule_reminder(config, schedule, marker, now_utc):
+def remember_schedule_reminder(config, schedule, marker, now_utc, window_marker=""):
     config_markers = schedule_reminder_config_markers(config)
     if marker not in config_markers:
         config_markers.append(marker)
@@ -26338,6 +26405,17 @@ def remember_schedule_reminder(config, schedule, marker, now_utc):
         markers.append(marker)
     del markers[:-20]
     schedule["last_reminder_at"] = now_utc.isoformat()
+    schedule["last_reminder_marker"] = marker
+
+    if window_marker:
+        windows = schedule.get("reminder_windows")
+        if not isinstance(windows, list):
+            windows = []
+            schedule["reminder_windows"] = windows
+        if window_marker not in windows:
+            windows.append(window_marker)
+        del windows[:-20]
+        schedule["last_reminder_window"] = window_marker
 
 
 async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc):
@@ -26403,13 +26481,31 @@ async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc
                 getattr(channel, "id", ""),
                 server_label,
             )
-            if schedule_reminder_runtime_already_sent(marker, now_utc) or schedule_reminder_already_sent(config, schedule, marker):
+            window_marker = schedule_reminder_window_marker(
+                guild_id,
+                schedule_key,
+                next_run,
+                minute,
+                server_label,
+            )
+            if (
+                schedule_reminder_runtime_already_sent(marker, now_utc)
+                or schedule_reminder_runtime_already_sent(window_marker, now_utc)
+                or schedule_reminder_already_sent(config, schedule, marker, window_marker)
+            ):
                 continue
+            when_label = schedule_reminder_time_label(schedule, next_run)
+            if await schedule_reminder_recent_channel_duplicate(channel, title, minute, server_label, when_label, now_utc):
+                remember_schedule_reminder_runtime(marker, now_utc)
+                remember_schedule_reminder_runtime(window_marker, now_utc)
+                remember_schedule_reminder(config, schedule, marker, now_utc, window_marker)
+                sent_any = True
+                break
             embed = discord.Embed(
                 title=f"{title} - {minute} MINUTES",
                 description=(
                     f"**Server:** {server_label}\n"
-                    f"**When:** {schedule_reminder_time_label(schedule, next_run)}\n\n"
+                    f"**When:** {when_label}\n\n"
                     f"{body}"
                 ),
                 color=color,
@@ -26420,7 +26516,8 @@ async def maybe_send_server_control_schedule_reminders(guild_id, config, now_utc
             try:
                 await channel.send(embed=style_embed(embed))
                 remember_schedule_reminder_runtime(marker, now_utc)
-                remember_schedule_reminder(config, schedule, marker, now_utc)
+                remember_schedule_reminder_runtime(window_marker, now_utc)
+                remember_schedule_reminder(config, schedule, marker, now_utc, window_marker)
                 sent_any = True
                 break
             except Exception as error:
@@ -31914,8 +32011,33 @@ def resolve_purchase_item(guild_id, requested_name):
     return None, None, "That item is not in this server's shop. Use the `/buy` item dropdown/search."
 
 
+def interaction_server_profile_value(interaction: discord.Interaction):
+    namespace = getattr(interaction, "namespace", None)
+    if namespace is not None:
+        value = str(getattr(namespace, "server", "") or "").strip()
+        if value:
+            return value
+
+    data = getattr(interaction, "data", None) or {}
+    for option in data.get("options", []) or []:
+        if isinstance(option, dict) and option.get("name") == "server":
+            value = str(option.get("value") or "").strip()
+            if value:
+                return value
+    return ""
+
+
 async def purchase_item_autocomplete(interaction: discord.Interaction, current: str):
-    guild_id = str(interaction.guild.id) if interaction.guild else None
+    server = interaction_server_profile_value(interaction)
+    guild_id, _config, _target_error = runtime_config_for_command_context(
+        getattr(interaction, "guild", None),
+        channel=getattr(interaction, "channel", None),
+        member=getattr(interaction, "user", None),
+        server_profile_id=server,
+        require_profile=False,
+    )
+    if not guild_id:
+        guild_id = str(interaction.guild.id) if interaction.guild else None
     search = str(current or "").strip().lower()
     choices = []
     for item_name, data, category, is_bundle in purchase_catalog_for_guild(guild_id):
@@ -31934,8 +32056,11 @@ async def purchase_item_autocomplete(interaction: discord.Interaction, current: 
 def queue_entry_for_guild(entry, guild_id):
     if not isinstance(entry, dict):
         return False
+    target_guild_id = str(guild_id or "").strip()
     entry_guild_id = str(entry.get("guild_id") or "").strip()
-    return not entry_guild_id or entry_guild_id == str(guild_id)
+    if entry_guild_id:
+        return entry_guild_id == target_guild_id
+    return SERVER_PROFILE_SEPARATOR not in target_guild_id
 
 
 def queue_entries_for_guild(entries, guild_id):
@@ -42669,13 +42794,23 @@ async def wallet(ctx):
 
 
 @bot.command()
-async def shop(ctx):
-    guild_id = str(ctx.guild.id) if ctx.guild else None
+async def shop(ctx, server: str = ""):
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+    server_label = dayz_server_display_name(guild_id, config)
     items = purchase_catalog_for_guild(guild_id)
 
     if not items:
 
-        await ctx.send("Shop is currently empty.")
+        await ctx.send(f"{server_label} shop is currently empty.")
         return
 
     lines = []
@@ -42688,7 +42823,10 @@ async def shop(ctx):
 
     embed = discord.Embed(
         title="🛒 BLACK MARKET SHOP",
-        description="Items are grouped by server shop category. Use `/buy` and pick an item from the search/dropdown to order for next restart delivery.",
+        description=(
+            f"Server: **{server_label}**\n"
+            "Items are grouped by server shop category. Use `/buy` and pick an item from the search/dropdown to order for next restart delivery."
+        ),
         color=0x9B59B6
     )
 
@@ -42724,7 +42862,7 @@ async def shop(ctx):
         field_count += 1
 
     if not embed.fields:
-        embed.description = "Shop is currently empty or all items are disabled."
+        embed.description = f"{server_label} shop is currently empty or all items are disabled."
 
     embed.set_thumbnail(url=BOT_IMAGE)
 
@@ -42736,10 +42874,23 @@ async def shop(ctx):
 
 
 @bot.command()
-async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
+async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1, server: str = ""):
 
     user_id = str(ctx.author.id)
-    guild_id = str(ctx.guild.id)
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+    guild_id = str(guild_id)
+    economy_guild_id = discord_guild_id_for_runtime_id(guild_id)
+    _discord_guild_id, order_profile_id = split_server_runtime_id(guild_id)
+    server_label = dayz_server_display_name(guild_id, config)
     x_value = parse_dayz_map_number(x)
     y_value = parse_dayz_map_number(y)
     quantity = max(1, min(99, safe_int(quantity, 1)))
@@ -42783,7 +42934,7 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
             await ctx.send("That item is restricted to a specific Discord role.")
             return
 
-    wallet = guild_wallet(guild_id, user_id, str(ctx.author))
+    wallet = guild_wallet(economy_guild_id, user_id, str(ctx.author))
 
     item_daily_limit = int(item_config.get("daily_limit", 0) or 0)
     if item_daily_limit > 0 and wallet["daily_transactions"] + quantity > item_daily_limit:
@@ -42796,7 +42947,7 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
 
     if wallet_balance(wallet) < price:
 
-        await ctx.send(f"Not enough {guild_economy_currency(guild_id)}. Total cost is {format_currency(price, guild_id)}.")
+        await ctx.send(f"Not enough {guild_economy_currency(economy_guild_id)}. Total cost is {format_currency(price, economy_guild_id)}.")
         return
 
     wallet_debit(wallet, price, "cash")
@@ -42811,6 +42962,8 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
                 for _ in range(row["quantity"]):
                     delivery_queue.append({
                         "guild_id": guild_id,
+                        "server_profile_id": order_profile_id,
+                        "server_label": server_label,
                         "delivery_type": "bundle_item",
                         "bundle_id": current_bundle_id,
                         "bundle_name": item_name,
@@ -42827,6 +42980,8 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
         for _ in range(quantity):
             delivery_queue.append({
                 "guild_id": guild_id,
+                "server_profile_id": order_profile_id,
+                "server_label": server_label,
                 "delivery_type": "item",
                 "spawn_ready": False,
                 "player": str(ctx.author),
@@ -42864,8 +43019,14 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
     )
 
     embed.add_field(
+        name="Server",
+        value=server_label,
+        inline=True
+    )
+
+    embed.add_field(
         name="💰 Cost",
-        value=format_currency(price, guild_id),
+        value=format_currency(price, economy_guild_id),
         inline=True
     )
 
@@ -42891,21 +43052,18 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
 
     # ================= PURCHASE LOG =================
 
-    guild_id = str(ctx.guild.id)
-
-    config = guild_configs.get(guild_id, {})
-
     await send_money_feed(
         ctx.guild,
         config,
         "BLACK MARKET PURCHASE",
-        f"{ctx.author.mention} spent **{format_currency(price, guild_id)}** on **{quantity}x {item_name}**.",
+        f"{ctx.author.mention} spent **{format_currency(price, economy_guild_id)}** on **{quantity}x {item_name}**.",
         [
             {"name": "Survivor", "value": ctx.author.mention, "inline": True},
             {"name": "Item", "value": item_name, "inline": True},
             {"name": "Quantity", "value": str(quantity), "inline": True},
-            {"name": "Unit Price", "value": format_currency(unit_price, guild_id), "inline": True},
-            {"name": "Cost", "value": format_currency(price, guild_id), "inline": True},
+            {"name": "Server", "value": server_label, "inline": True},
+            {"name": "Unit Price", "value": format_currency(unit_price, economy_guild_id), "inline": True},
+            {"name": "Cost", "value": format_currency(price, economy_guild_id), "inline": True},
             {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
             {"name": "Delivery Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
         ],
@@ -42943,8 +43101,14 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1):
         )
 
         log_embed.add_field(
+            name="Server",
+            value=server_label,
+            inline=True
+        )
+
+        log_embed.add_field(
             name="💰 Price",
-            value=format_currency(price, guild_id),
+            value=format_currency(price, economy_guild_id),
             inline=True
         )
 
@@ -49968,7 +50132,9 @@ async def slash_collectincome(interaction: discord.Interaction):
         ephemeral=True,
     )
 @bot.tree.command(name="shop", description="Show shop")
-async def slash_shop(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "shop")
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+@app_commands.autocomplete(server=server_profile_autocomplete)
+async def slash_shop(interaction: discord.Interaction, server: str = ""): await run_legacy_as_slash(interaction, "shop", server=server)
 
 @extra_tools_group.command(name="setadminrole", description="Set primary admin role")
 @app_commands.default_permissions(administrator=True)
@@ -52998,9 +53164,15 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
 
 
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
-@app_commands.describe(item_name="Item", x="Map X", y="Map Y", quantity="How many to buy")
-@app_commands.autocomplete(item_name=purchase_item_autocomplete)
-async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str, quantity: int = 1): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y, quantity=quantity)
+@app_commands.describe(
+    item_name="Item",
+    x="Map X",
+    y="Map Y",
+    quantity="How many to buy",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
+)
+@app_commands.autocomplete(item_name=purchase_item_autocomplete, server=server_profile_autocomplete)
+async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str, quantity: int = 1, server: str = ""): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y, quantity=quantity, server=server)
 def auto_fetch_types_xml_from_server(config, guild_id):
     """Try every standard Nitrado console & PC types.xml path and return
     (success, message, local_temp_path) on the first hit.
