@@ -83,6 +83,9 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("/dashboardcredentials reset:true", template)
         self.assertIn('name="return_to"', template)
         self.assertIn('name="app_source"', template)
+        self.assertIn("color-scheme: light", template)
+        self.assertIn("--bg: #eef3ef", template)
+        self.assertNotIn("color-scheme: dark", template)
         self.assertNotIn("existing password can be displayed", template.lower())
 
     def test_signed_out_mobile_app_uses_app_welcome_instead_of_website_login(self):
@@ -108,6 +111,7 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_mobile_app_view_normalizer_limits_routes_to_finished_views(self):
         self.assertEqual("home", dashboard.normalize_mobile_app_view(None))
         self.assertEqual("feeds", dashboard.normalize_mobile_app_view(" FEEDS "))
+        self.assertEqual("events", dashboard.normalize_mobile_app_view("events"))
         self.assertEqual("economy", dashboard.normalize_mobile_app_view("economy"))
         self.assertEqual("control", dashboard.normalize_mobile_app_view("control"))
         self.assertEqual("help", dashboard.normalize_mobile_app_view("help"))
@@ -116,9 +120,16 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
         template = dashboard.APP_DASHBOARD_TEMPLATE
 
-        for label in ("Home", "Feeds", "Economy", "Control", "Help"):
+        for label in ("Home", "Feeds", "Events", "Economy", "Control"):
             self.assertIn(f">{label}</a>", template)
         self.assertIn("DayZ field guide", template)
+        self.assertIn("Airdrop builder", template)
+        self.assertIn("Live from latest RPT", template)
+        self.assertIn('action="/api/admin/scenario-event"', template)
+        self.assertIn('action="/api/admin/scenario-event-action"', template)
+        self.assertIn('name="server_profile_id"', template)
+        self.assertIn('name="saved_location"', template)
+        self.assertIn('name="spawn_preset"', template)
         self.assertIn("types.xml", template)
         self.assertIn("events.xml", template)
         self.assertIn("cfgspawnabletypes.xml", template)
@@ -129,6 +140,30 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertNotIn('/admin?section=', template)
         self.assertNotIn("Player Loadout", template)
         self.assertNotIn("XML Workshop", template)
+
+    def test_mobile_scenario_tracker_rows_are_profile_scoped_and_newest_first(self):
+        tracker = {
+            "guild:livo": {
+                "events": [
+                    {"id": "older", "type": "Wolf", "x": 1, "z": 2, "first_seen_ts": 100, "last_seen_ts": 110},
+                    {
+                        "id": "newer",
+                        "type": "ContaminatedArea_Dynamic",
+                        "x": 3,
+                        "z": 4,
+                        "first_seen_ts": 180,
+                        "last_seen_ts": 195,
+                    },
+                ]
+            }
+        }
+
+        rows = dashboard.mobile_scenario_tracker_rows(tracker, "guild:livo", now_ts=200)
+
+        self.assertEqual(["newer", "older"], [row["id"] for row in rows])
+        self.assertEqual("just now", rows[0]["last_seen_label"])
+        self.assertEqual(3, rows[0]["x"])
+        self.assertEqual([], dashboard.mobile_scenario_tracker_rows(tracker, "guild:cherno", now_ts=200))
 
     def test_android_fingerprint_normalizer_accepts_plain_and_coloned_sha256(self):
         raw = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"

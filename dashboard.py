@@ -1371,18 +1371,18 @@ APP_WELCOME_TEMPLATE = """
   <link rel="apple-touch-icon" href="/brand-image">
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #020706;
-      --panel: #071311;
-      --panel-strong: #0b1b18;
-      --line: rgba(71, 210, 190, .25);
-      --warm-line: rgba(255, 164, 58, .36);
-      --text: #f3faf6;
-      --muted: #abc5bd;
-      --green: #8aec62;
-      --teal: #42d2c0;
-      --amber: #ffa33a;
-      --red: #ff7181;
+      color-scheme: light;
+      --bg: #eef3ef;
+      --panel: #ffffff;
+      --panel-strong: #e3ece7;
+      --line: #c9d8d0;
+      --warm-line: #e7b17d;
+      --text: #17211d;
+      --muted: #607067;
+      --green: #327b42;
+      --teal: #167b7c;
+      --amber: #d86f21;
+      --red: #b33f4d;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
@@ -1391,7 +1391,7 @@ APP_WELCOME_TEMPLATE = """
       margin: 0;
       min-height: 100svh;
       color: var(--text);
-      background: linear-gradient(180deg, #07100c 0, var(--bg) 48%);
+      background: var(--bg);
       padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
     }
     a { color: inherit; text-decoration: none; }
@@ -1400,8 +1400,8 @@ APP_WELCOME_TEMPLATE = """
     .intro, .login, .steps {
       border: 1px solid var(--line);
       border-radius: .75rem;
-      background: linear-gradient(145deg, rgba(11, 27, 24, .98), rgba(4, 12, 10, .98));
-      box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, .32);
+      background: var(--panel);
+      box-shadow: 0 .45rem 1.4rem rgba(29, 58, 44, .09);
     }
     .intro { padding: 1.1rem; border-top-color: var(--warm-line); display: grid; gap: 1rem; }
     .brand { display: flex; align-items: center; gap: .75rem; }
@@ -1420,8 +1420,8 @@ APP_WELCOME_TEMPLATE = """
       font-weight: 950;
       cursor: pointer;
     }
-    .primary, .submit { border: 1px solid var(--amber); background: var(--amber); color: #07100d; }
-    .secondary { border: 1px solid var(--line); background: rgba(255, 255, 255, .035); color: var(--text); }
+    .primary, .submit { border: 1px solid var(--amber); background: var(--amber); color: #fff; }
+    .secondary { border: 1px solid var(--line); background: var(--panel); color: var(--text); }
     .steps { padding: 1rem; display: grid; gap: .7rem; }
     .steps h2, .login h2 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0; }
     .step { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .65rem; align-items: start; }
@@ -1432,10 +1432,10 @@ APP_WELCOME_TEMPLATE = """
     .login { padding: 1rem; display: grid; gap: .75rem; }
     form { display: grid; gap: .7rem; }
     label { display: grid; gap: .3rem; color: var(--muted); font-size: .85rem; font-weight: 750; }
-    input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: .5rem; background: #030a08; color: var(--text); padding: .78rem; }
+    input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: .5rem; background: #fff; color: var(--text); padding: .78rem; }
     .password-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; }
     .password-toggle { border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); color: var(--text); padding: 0 .85rem; font-weight: 850; }
-    .error { padding: .7rem; border: 1px solid rgba(255, 113, 129, .42); border-radius: .5rem; color: #ffdce1; background: rgba(255, 113, 129, .12); }
+    .error { padding: .7rem; border: 1px solid #ddb3bb; border-radius: .5rem; color: #7d2633; background: #fff0f2; }
     .security { padding-top: .7rem; border-top: 1px solid var(--line); }
     .support { color: var(--teal); font-weight: 800; }
     @media (min-width: 700px) {
@@ -2602,6 +2602,15 @@ APP_DASHBOARD_TEMPLATE = """
     .status-row strong { display: flex; justify-content: space-between; gap: .55rem; color: var(--forest-dark); font-size: .84rem; }
     .status-row strong span { color: var(--orange); }
     .status-row > span { color: var(--muted); font-size: .75rem; line-height: 1.4; }
+    .event-ok { border-left: .25rem solid var(--green); }
+    .event-warn { border-left: .25rem solid var(--orange); }
+    .event-bad { border-left: .25rem solid var(--red); }
+    .event-info { border-left: .25rem solid var(--teal); }
+    .event-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .35rem; }
+    .event-actions form { margin: 0; }
+    .event-actions button { min-height: 2.2rem; padding: .45rem .68rem; font-size: .74rem; }
+    .coordinate-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+    .target-banner { border: 1px solid #b9d9bf; border-left: .25rem solid var(--green); border-radius: .45rem; background: #edf8ef; padding: .7rem; color: #285b34; font-size: .8rem; line-height: 1.45; }
     .info {
       position: relative;
       justify-self: end;
@@ -2689,7 +2698,7 @@ APP_DASHBOARD_TEMPLATE = """
       body { padding-bottom: 1rem; }
       .app-shell { padding: 1rem; }
       .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-      .tool-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .tool-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .bottom-nav { position: sticky; top: 0; bottom: auto; width: min(54rem, calc(100% - 2rem)); margin: .7rem auto 0; border: 1px solid var(--line); border-radius: .5rem; }
     }
   </style>
@@ -2742,6 +2751,7 @@ APP_DASHBOARD_TEMPLATE = """
       <div class="section-head"><h2>Mobile tools</h2><details class="info"><summary aria-label="About mobile tools">i</summary><div>These are the mobile areas currently ready to use. Desktop-only builders are deliberately not shown here.</div></details></div>
       <div class="tool-grid">
         <a class="tool-row" href="{{ app_urls.feeds }}"><b>Live</b><strong>Server feeds</strong><span>Review recent ADM activity for the selected DayZ server.</span></a>
+        <a class="tool-row" href="{{ app_urls.events }}"><b>Events</b><strong>Airdrop builder</strong><span>Create guarded airdrops and confirm live spawns from the RPT tracker.</span></a>
         <a class="tool-row" href="{{ app_urls.economy }}"><b>Economy</b><strong>Shop control</strong><span>Search items and change prices, limits or availability.</span></a>
         <a class="tool-row" href="{{ app_urls.control }}"><b>Operations</b><strong>Server control</strong><span>Manage restarts, raid damage and vehicle resets.</span></a>
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
@@ -2767,6 +2777,101 @@ APP_DASHBOARD_TEMPLATE = """
         {% else %}<p class="muted">No live feed rows are stored for this profile yet.</p>{% endfor %}
       </div>
     </section>
+
+    {% elif server and app_view == 'events' %}
+    {% set scenario_events = server.scenario_events if server.scenario_events else [] %}
+    {% set scenario_summary = server.scenario_summary if server.scenario_summary else {} %}
+    {% set scenario_tracker = server.scenario_tracker if server.scenario_tracker else {} %}
+    <section class="page-intro"><h2>Airdrops and live events</h2><p>Create an airdrop for {{ server.dayz_name or server.guild_name }}, then check the RPT tracker after the required restart.</p></section>
+    {% if event_access_allowed %}
+    <section class="target-banner"><strong>Selected DayZ server:</strong> {{ server.dayz_name or server.guild_name }} | {{ server.map }}. Every action on this page is submitted with profile <code>{{ selected_dayz_profile_id or 'default' }}</code>.</section>
+    <section class="metrics" aria-label="Event summary">
+      <article class="metric"><span>Configured</span><strong>{{ scenario_events|length }}</strong><small>dashboard events</small></article>
+      <article class="metric"><span>Uploaded</span><strong>{{ scenario_summary.uploaded|default(0) }}</strong><small>restart may be required</small></article>
+      <article class="metric"><span>Pending</span><strong>{{ scenario_summary.pending|default(0) }}</strong><small>worker queue</small></article>
+      <article class="metric"><span>Live RPT</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><small>currently tracked</small></article>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Create an airdrop</h2><details class="info"><summary aria-label="About airdrop uploads">i</summary><div>The app uses the same guarded CE merge as the dashboard. It will not replace the complete events.xml or cfgeventspawns.xml. Uploaded events need one DayZ restart before the RPT tracker can confirm them.</div></details></div>
+      <details class="editor" open>
+        <summary>Use a saved map location</summary>
+        <div class="editor-body">
+          <form class="form-grid" method="post" action="/api/admin/scenario-event">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="return_to" value="{{ app_urls.events }}">
+            <input type="hidden" name="event_type" value="airdrop"><input type="hidden" name="timing_preset" value="vanilla_mi8"><input type="hidden" name="visual_marker" value="true"><input type="hidden" name="radius" value="100"><input type="hidden" name="guard_radius" value="35">
+            <label class="full">Event name<input name="name" required maxlength="80" placeholder="Friday military airdrop"></label>
+            <label class="full">Map location<select name="saved_location" required><option value="">Choose a location</option>{% for location in airdrop_location_presets %}<option value="{{ location.name }}">{{ location.name }} ({{ location.x }}, {{ location.z }})</option>{% endfor %}</select></label>
+            <label>Loot preset<select name="spawn_preset">{% for preset in airdrop_spawn_presets %}<option value="{{ preset.id }}">{{ preset.label }}</option>{% endfor %}</select></label>
+            <label>Scene<select name="scene_type"><option value="helicopter_crash">Mi-8 crash</option><option value="compact_crater">Compact crash site</option><option value="convoy_wreck">Convoy wreck</option></select></label>
+            <label>Runs<select name="permanent"><option value="false">Next restart only</option><option value="true">Every restart</option></select></label>
+            <label>Infected guards<select name="guard_class">{% for class_name, label in scenario_guard_options %}<option value="{{ class_name }}">{{ label }}</option>{% endfor %}</select></label>
+            <label>Guard count<input name="guard_count" type="number" min="0" max="80" value="0"></label>
+            <label>Loot amount<select name="loot_count_range"><option value="10-20">Balanced (10-20)</option><option value="1-10">Light (1-10)</option><option value="20-30">Boosted (20-30)</option><option value="30-40">Heavy (30-40)</option><option value="40-60">Very heavy (40-60)</option></select></label>
+            <label class="confirm"><input type="checkbox" required name="confirmed_profile" value="true"><span>I checked the selected DayZ server and map location.</span></label>
+            <button class="full" type="submit">Create and upload airdrop</button>
+          </form>
+        </div>
+      </details>
+      <details class="editor">
+        <summary>Use exact coordinates</summary>
+        <div class="editor-body">
+          <form class="form-grid" method="post" action="/api/admin/scenario-event">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="return_to" value="{{ app_urls.events }}">
+            <input type="hidden" name="event_type" value="airdrop"><input type="hidden" name="timing_preset" value="vanilla_mi8"><input type="hidden" name="visual_marker" value="true"><input type="hidden" name="radius" value="100"><input type="hidden" name="guard_radius" value="35">
+            <label class="full">Event name<input name="name" required maxlength="80" placeholder="Custom military airdrop"></label>
+            <label>X coordinate<input name="x" required type="number" min="0" max="{{ server.map_size or 15360 }}"></label>
+            <label>Z coordinate<input name="z" required type="number" min="0" max="{{ server.map_size or 15360 }}"></label>
+            <label>Loot preset<select name="spawn_preset">{% for preset in airdrop_spawn_presets %}<option value="{{ preset.id }}">{{ preset.label }}</option>{% endfor %}</select></label>
+            <label>Scene<select name="scene_type"><option value="helicopter_crash">Mi-8 crash</option><option value="compact_crater">Compact crash site</option><option value="convoy_wreck">Convoy wreck</option></select></label>
+            <label>Runs<select name="permanent"><option value="false">Next restart only</option><option value="true">Every restart</option></select></label>
+            <label>Infected guards<select name="guard_class">{% for class_name, label in scenario_guard_options %}<option value="{{ class_name }}">{{ label }}</option>{% endfor %}</select></label>
+            <label>Guard count<input name="guard_count" type="number" min="0" max="80" value="0"></label>
+            <label>Loot amount<select name="loot_count_range"><option value="10-20">Balanced (10-20)</option><option value="1-10">Light (1-10)</option><option value="20-30">Boosted (20-30)</option><option value="30-40">Heavy (30-40)</option><option value="40-60">Very heavy (40-60)</option></select></label>
+            <label class="confirm"><input type="checkbox" required name="confirmed_profile" value="true"><span>I checked the selected DayZ server and exact coordinates.</span></label>
+            <button class="full" type="submit">Create and upload airdrop</button>
+          </form>
+        </div>
+      </details>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Configured events</h2><span>{{ scenario_events|length }} total</span></div>
+      <div class="status-list">
+        {% for event in scenario_events %}
+        {% set display = event.status_display if event.status_display else {} %}
+        <article class="status-row event-{{ display.state|default('info') }}">
+          <strong><span>{{ event.name or event.event_type|replace('_', ' ')|title }}</span><span>#{{ event.id }}</span></strong>
+          <span>{{ event.event_type|replace('_', ' ')|title }} | {{ event.location or 'Custom location' }} | {{ event.x }}, {{ event.z }}</span>
+          <span><b>{{ display.title|default(event.status or 'Queued') }}</b>{% if display.brief %} - {{ display.brief }}{% endif %}</span>
+          <div class="event-actions">
+            <form method="post" action="/api/admin/scenario-event-action"><input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="event_id" value="{{ event.id }}"><input type="hidden" name="action" value="upload"><input type="hidden" name="return_to" value="{{ app_urls.events }}"><button type="submit">Retry upload</button></form>
+          </div>
+          <details>
+            <summary>Manage or remove event</summary>
+            {% if event.enabled %}<form class="form-stack" method="post" action="/api/admin/scenario-event-action">
+              <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="event_id" value="{{ event.id }}"><input type="hidden" name="action" value="pause"><input type="hidden" name="return_to" value="{{ app_urls.events }}">
+              <label class="confirm"><input type="checkbox" required><span>Pause this event. If already uploaded, guarded XML removal will be queued.</span></label>
+              <button class="secondary" type="submit">Pause event</button>
+            </form>{% endif %}
+            <form class="form-stack" method="post" action="/api/admin/scenario-event-action">
+              <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="event_id" value="{{ event.id }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="return_to" value="{{ app_urls.events }}">
+              <label class="confirm"><input type="checkbox" required><span>Remove this event from the selected server. If already uploaded, guarded XML cleanup will be queued.</span></label>
+              <button class="danger" type="submit">Delete event</button>
+            </form>
+          </details>
+        </article>
+        {% else %}<p class="muted">No dashboard events are configured for this selected DayZ server.</p>{% endfor %}
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Live from latest RPT</h2><details class="info"><summary aria-label="About live event tracking">i</summary><div>These are spawns parsed from the selected server's latest RPT. A queued or uploaded dashboard event is not considered live until DayZ reports it after restart.</div></details></div>
+      <div class="status-list">
+        {% for event in app_live_events %}<article class="status-row event-ok"><strong><span>{{ event.type }}</span><span>{{ event.last_seen_label }}</span></strong><span>Coordinates {{ event.x }}, {{ event.z }} | first seen {{ event.first_seen_label }}</span></article>
+        {% else %}<p class="muted">No active event spawns are currently tracked in the latest RPT for this DayZ server.</p>{% endfor %}
+      </div>
+    </section>
+    {% else %}
+    <section class="section"><div class="section-head"><h2>Event tools locked</h2></div><p>This server's current plan does not include airdrop and event management. Change its plan before creating or managing events.</p></section>
+    {% endif %}
 
     {% elif server and app_view == 'economy' %}
     <section class="page-intro"><h2>Shop and economy</h2><p>Fast item management for the Discord shop. Changes stay scoped to {{ server.guild_name }}.</p></section>
@@ -2919,9 +3024,9 @@ APP_DASHBOARD_TEMPLATE = """
   <nav class="bottom-nav" aria-label="App navigation">
     <a class="{{ 'active' if app_view == 'home' else '' }}" href="{{ app_urls.home }}">Home</a>
     <a class="{{ 'active' if app_view == 'feeds' else '' }}" href="{{ app_urls.feeds }}">Feeds</a>
+    <a class="{{ 'active' if app_view == 'events' else '' }}" href="{{ app_urls.events }}">Events</a>
     <a class="{{ 'active' if app_view == 'economy' else '' }}" href="{{ app_urls.economy }}">Economy</a>
     <a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>
-    <a class="{{ 'active' if app_view == 'help' else '' }}" href="{{ app_urls.help }}">Help</a>
   </nav>
 </body>
 </html>
@@ -28063,6 +28168,54 @@ def scenario_tracker_summary(tracker_store: Any, guild_id: str) -> dict[str, Any
     }
 
 
+def mobile_relative_time_label(value: Any, now_ts: float | None = None) -> str:
+    timestamp = safe_float(value, 0.0)
+    if timestamp <= 0:
+        return "unknown"
+    current = safe_float(now_ts, datetime.now(UTC).timestamp()) if now_ts is not None else datetime.now(UTC).timestamp()
+    seconds = max(0, int(current - timestamp))
+    if seconds < 60:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min ago"
+    hours = minutes // 60
+    if hours < 48:
+        return f"{hours} hr ago"
+    return f"{hours // 24} days ago"
+
+
+def mobile_scenario_tracker_rows(
+    tracker_store: Any,
+    runtime_id: str,
+    limit: int = 30,
+    now_ts: float | None = None,
+) -> list[dict[str, Any]]:
+    state = tracker_store.get(str(runtime_id), {}) if isinstance(tracker_store, dict) else {}
+    events = state.get("events", []) if isinstance(state, dict) else []
+    if not isinstance(events, list):
+        return []
+    current = now_ts if now_ts is not None else datetime.now(UTC).timestamp()
+    rows = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        first_seen = safe_float(event.get("first_seen_ts"), 0.0)
+        last_seen = safe_float(event.get("last_seen_ts"), first_seen)
+        rows.append({
+            "id": compact_scenario_text(event.get("id") or "", 100),
+            "type": compact_scenario_text(event.get("type") or "DayZ event", 80),
+            "x": safe_int(event.get("x"), 0),
+            "z": safe_int(event.get("z"), 0),
+            "first_seen_label": mobile_relative_time_label(first_seen, current),
+            "last_seen_label": mobile_relative_time_label(last_seen, current),
+            "first_seen_ts": first_seen,
+            "last_seen_ts": last_seen,
+        })
+    rows.sort(key=lambda row: safe_float(row.get("last_seen_ts"), 0.0), reverse=True)
+    return rows[: max(1, min(100, safe_int(limit, 30)))]
+
+
 def owner_notifications(servers: list[dict[str, Any]], delivery_queue: Any, dashboard_admin: Any) -> list[dict[str, str]]:
     notes = []
     for server in servers:
@@ -28866,6 +29019,7 @@ def delete_dashboard_admin_record(section: str, guild_id: Any, item_id: Any) -> 
 MOBILE_APP_VIEW_SECTIONS = {
     "home": "live-feeds",
     "feeds": "live-feeds",
+    "events": "pve",
     "economy": "shop",
     "control": "access",
     "help": "presets",
@@ -29676,6 +29830,23 @@ def mobile_app():
         "livonia": "Livonia",
         "sakhal": "Sakhal",
     }.get(preset_map_key, "Chernarus")
+    selected_profile = payload["selected_dayz_profile"]
+    selected_profile_id = payload["selected_dayz_profile_id"]
+    selected_guild_id = str(server.get("guild_id") or "") if isinstance(server, dict) else ""
+    profile_runtime_id = str(selected_profile.get("runtime_id") or "") if isinstance(selected_profile, dict) else ""
+    if not profile_runtime_id:
+        profile_runtime_id = (
+            dashboard_server_profile_runtime_id(selected_guild_id, selected_profile_id)
+            if selected_profile_id
+            else selected_guild_id
+        )
+    tracker_store = load_store("rpt_event_tracker", {}) if payload["app_view"] == "events" else {}
+    airdrop_preset_ids = ("military_crate", "wooden_crate", "medical_crate", "building_crate", "food_crate")
+    event_access_allowed = auth.get("kind") == "owner" or (
+        dashboard_access_feature_allowed(selected_access, "pve_quests")
+        if selected_access
+        else dashboard_feature_allowed(selected_config, "pve_quests")
+    )
     return render_template_string(
         APP_DASHBOARD_TEMPLATE,
         auth=auth,
@@ -29683,8 +29854,8 @@ def mobile_app():
         summary=payload["state"].get("summary", {}),
         servers=payload["state"].get("servers", []),
         server=server,
-        selected_dayz_profile=payload["selected_dayz_profile"],
-        selected_dayz_profile_id=payload["selected_dayz_profile_id"],
+        selected_dayz_profile=selected_profile,
+        selected_dayz_profile_id=selected_profile_id,
         selected_config=selected_config,
         selected_access=selected_access,
         app_view=payload["app_view"],
@@ -29700,6 +29871,14 @@ def mobile_app():
         preset_map_key=preset_map_key,
         preset_map_label=preset_map_label,
         dayz_preset_groups=dashboard_dayz_preset_groups(),
+        airdrop_location_presets=dashboard_airdrop_location_presets(server.get("map") if isinstance(server, dict) else "chernarus"),
+        airdrop_spawn_presets=[
+            {"id": preset_id, "label": str(SCENARIO_SPAWN_PRESETS[preset_id].get("label") or preset_id)}
+            for preset_id in airdrop_preset_ids
+        ],
+        scenario_guard_options=SCENARIO_GUARD_CLASS_OPTIONS,
+        app_live_events=mobile_scenario_tracker_rows(tracker_store, profile_runtime_id),
+        event_access_allowed=event_access_allowed,
         generated_clock=local_dashboard_clock(),
     )
 
