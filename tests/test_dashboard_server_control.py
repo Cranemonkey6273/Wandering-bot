@@ -5,6 +5,7 @@ import importlib.util
 import os
 import sys
 import types
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 from tests._bot_loader import _install_runtime_dependency_stubs
@@ -133,6 +134,13 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("types.xml", template)
         self.assertIn("events.xml", template)
         self.assertIn("cfgspawnabletypes.xml", template)
+        self.assertIn("Build anywhere: learn the settings", template)
+        self.assertIn("Stamina: boosted or unlimited", template)
+        preset_titles = {str(item.get("title") or "") for item in dashboard.DAYZ_PRESET_FILES}
+        self.assertIn("Complete pristine vehicles", preset_titles)
+        self.assertIn("Builder trucks with supplies", preset_titles)
+        self.assertIn("{% if group.name != 'Gameplay' %}", template)
+        self.assertIn("cannot set the exact fuel-tank or radiator-water level", template)
         self.assertIn("mapgroupproto", template)
         self.assertIn("mapgrouppos", template)
         self.assertIn('name="vehicle_reset_schedule_enabled"', template)
@@ -140,6 +148,39 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertNotIn('/admin?section=', template)
         self.assertNotIn("Player Loadout", template)
         self.assertNotIn("XML Workshop", template)
+
+    def test_vehicle_presets_are_map_specific_complete_and_preserve_unrelated_records(self):
+        for map_key in ("chernarus", "livonia", "sakhal"):
+            result = dashboard.build_dayz_preset_file(map_key, "spawnabletypes_complete_vehicles")
+            root = ET.fromstring(result["content"])
+            self.assertEqual("cfgspawnabletypes.xml", result["target_path"])
+            self.assertIsNotNone(root.find("./type[@name='Barrel_Blue']/hoarder"))
+            vehicle = root.find("./type[@name='OffroadHatchback']")
+            self.assertIsNotNone(vehicle)
+            self.assertEqual("0.0", vehicle.find("damage").get("min"))
+            self.assertEqual("0.0", vehicle.find("damage").get("max"))
+            for attachments in vehicle.findall("attachments"):
+                self.assertEqual("1.00", attachments.get("chance"))
+                for item in attachments.findall("item"):
+                    self.assertEqual("1.00", item.get("chance"))
+
+    def test_builder_truck_preset_adds_supplies_only_to_covered_trucks(self):
+        result = dashboard.build_dayz_preset_file("chernarus", "spawnabletypes_builder_trucks")
+        root = ET.fromstring(result["content"])
+        truck = root.find("./type[@name='Truck_01_Covered']")
+        truck_items = [item.get("name") for item in truck.findall("./cargo/item")]
+        for expected in (
+            "WoodenLog",
+            "WoodenPlank",
+            "MetalPlate",
+            "WoodenCrate",
+            "Barrel_Green",
+            "CanisterGasoline",
+            "Canteen",
+        ):
+            self.assertIn(expected, truck_items)
+        car = root.find("./type[@name='OffroadHatchback']")
+        self.assertEqual([], car.findall("./cargo"))
 
     def test_mobile_scenario_tracker_rows_are_profile_scoped_and_newest_first(self):
         tracker = {

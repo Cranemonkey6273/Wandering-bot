@@ -2663,6 +2663,12 @@ APP_DASHBOARD_TEMPLATE = """
     .guide-body { color: var(--muted); font-size: .82rem; line-height: 1.52; }
     .guide-body p:last-child { margin-bottom: 0; }
     .guide-body code { color: var(--forest-dark); background: var(--surface-alt); border-radius: .25rem; padding: .08rem .2rem; overflow-wrap: anywhere; }
+    .learn-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; margin: .65rem 0; }
+    .learn-step { border: 1px solid var(--line); border-radius: .4rem; background: var(--surface-alt); padding: .6rem; }
+    .learn-step b { display: grid; place-items: center; width: 1.45rem; height: 1.45rem; margin-bottom: .35rem; border-radius: 50%; background: var(--forest); color: #fff; }
+    .learn-step strong { display: block; color: var(--forest-dark); font-size: .78rem; }
+    .learn-step span { display: block; margin-top: .2rem; color: var(--muted); font-size: .7rem; line-height: 1.35; }
+    .guide-code { margin: .55rem 0 0; padding: .65rem; border: 1px solid var(--line); border-radius: .4rem; background: #17231d; color: #eff8f1; font: 700 .7rem/1.48 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .form-stack { display: grid; gap: .65rem; }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
     .full { grid-column: 1 / -1; }
@@ -2694,6 +2700,9 @@ APP_DASHBOARD_TEMPLATE = """
     }
     .bottom-nav a { min-width: 0; padding: .5rem .1rem; border-radius: .4rem; color: var(--muted); text-align: center; font-size: .68rem; font-weight: 850; }
     .bottom-nav a.active { background: var(--forest); color: #fff; }
+    @media (max-width: 430px) {
+      .learn-flow { grid-template-columns: 1fr; }
+    }
     @media (min-width: 700px) {
       body { padding-bottom: 1rem; }
       .app-shell { padding: 1rem; }
@@ -2994,9 +3003,45 @@ APP_DASHBOARD_TEMPLATE = """
       <div class="section-head"><h2>Learn the files</h2><details class="info"><summary aria-label="About the field guide">i</summary><div>This area teaches what files do. It does not directly overwrite live server XML.</div></details></div>
       <div class="guide-list">
         <details class="guide-row" open><summary>Safe editing checklist</summary><div class="guide-body"><p>1. Stop and identify the map and mission folder. 2. Download the current live file. 3. Keep one clean backup outside FTP. 4. Edit the complete file, not a loose snippet. 5. Validate XML or JSON. 6. Upload to the exact path. 7. Restart only when the file requires it. 8. Check the newest RPT for errors.</p></div></details>
+        <details class="guide-row"><summary>Build anywhere: learn the settings</summary><div class="guide-body"><p>Build anywhere is controlled by <code>cfggameplay.json</code>. Enable that file in <code>serverDZ.cfg</code>, edit a downloaded copy, then upload the complete JSON file to the mission root.</p><div class="learn-flow"><div class="learn-step"><b>1</b><strong>Enable</strong><span>Set enableCfgGameplayFile in serverDZ.cfg.</span></div><div class="learn-step"><b>2</b><strong>Edit</strong><span>Change the HologramData and ConstructionData checks.</span></div><div class="learn-step"><b>3</b><strong>Validate</strong><span>Check the full JSON, upload it, then restart once.</span></div></div><pre class="guide-code">serverDZ.cfg
+enableCfgGameplayFile = 1;
+
+cfggameplay.json
+BaseBuildingData.HologramData
+  disableIsCollidingBBoxCheck = true
+  disableIsCollidingPlayerCheck = true
+  disableIsClippingRoofCheck = true
+  disableIsBaseViableCheck = true
+  disableIsCollidingGPlotCheck = true
+  disableIsCollidingAngleCheck = true
+  disableIsPlacementPermittedCheck = true
+  disableHeightPlacementCheck = true
+  disableIsUnderwaterCheck = true
+  disableIsInTerrainCheck = true
+  disableColdAreaBuildingCheck = true
+
+BaseBuildingData.ConstructionData
+  disablePerformRoofCheck = true
+  disableIsCollidingCheck = true
+  disableDistanceCheck = true</pre><p>Only change the checks you understand. Keeping a check <code>false</code> keeps that protection active.</p></div></details>
+        <details class="guide-row"><summary>Stamina: boosted or unlimited</summary><div class="guide-body"><p>Stamina is under <code>PlayerData.StaminaData</code> in <code>cfggameplay.json</code>. A boosted setup is usually easier to balance than unlimited stamina.</p><div class="learn-flow"><div class="learn-step"><b>1</b><strong>Choose</strong><span>Decide whether you want boosted or effectively unlimited stamina.</span></div><div class="learn-step"><b>2</b><strong>Change</strong><span>Edit only the StaminaData values in your live copy.</span></div><div class="learn-step"><b>3</b><strong>Test</strong><span>Restart and test sprinting, ladders, swimming and heavy loads.</span></div></div><pre class="guide-code">Balanced boosted example
+sprintStaminaModifierErc = 0.45
+sprintStaminaModifierCro = 0.45
+staminaWeightLimitThreshold = 30000.0
+staminaMax = 250.0
+staminaKgToStaminaPercentPenalty = 0.35
+staminaMinCap = 35.0
+
+Effectively unlimited example
+sprintStaminaModifierErc = 0.0
+sprintStaminaModifierCro = 0.0
+staminaWeightLimitThreshold = 100000.0
+staminaMax = 100000.0
+staminaKgToStaminaPercentPenalty = 0.0
+staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back after testing.</p></div></details>
         <details class="guide-row"><summary>types.xml: loot quantity and lifetime</summary><div class="guide-body"><p><code>nominal</code> is the target number in the economy, <code>min</code> is the refill threshold, <code>lifetime</code> controls cleanup time, and <code>restock</code> controls refill delay. Flags decide whether stored, hoarded or player-carried items count. Usage and value tags decide valid locations and tiers.</p><p>Do not replace a full <code>types.xml</code> with a small list of edited items. Merge the changed <code>&lt;type&gt;</code> records into the complete live file.</p></div></details>
         <details class="guide-row"><summary>events.xml and cfgeventspawns.xml</summary><div class="guide-body"><p><code>events.xml</code> defines how an event behaves. <code>cfgeventspawns.xml</code> provides its positions. Event names must match exactly. Vehicle, animal, infected and static event definitions have different required fields.</p><p>Before uploading, compare the existing event names so unrelated vanilla or custom records are never removed.</p></div></details>
-        <details class="guide-row"><summary>cfgspawnabletypes.xml: attachments and cargo</summary><div class="guide-body"><p>This file controls presets, attachments and cargo for spawned entities. It does not set the total world quantity by itself. Every referenced classname must exist and be valid for the current DayZ build.</p></div></details>
+        <details class="guide-row"><summary>cfgspawnabletypes.xml: attachments and cargo</summary><div class="guide-body"><p>This file controls presets, attachments and cargo for spawned entities. It does not set the total world quantity by itself. Every referenced classname must exist and be valid for the current DayZ build.</p><p>The complete-vehicle preset makes vehicle bodies and parts pristine and gives every configured attachment a 100 percent chance. The builder-truck preset also adds logs, planks, metal, crates, a barrel, tools, fuel cans and drinking-water containers to covered trucks.</p><p><strong>DayZ limitation:</strong> this file cannot set the exact fuel-tank or radiator-water level inside a vehicle. Fuel and water are supplied as cargo so players can fill them in game.</p></div></details>
         <details class="guide-row"><summary>mapgroupproto vs mapgrouppos</summary><div class="guide-body"><p><code>mapgroupproto.xml</code> describes loot points inside supported buildings. <code>mapgrouppos.xml</code> places building groups on the map. A file beginning with <code>&lt;prototype&gt;</code> belongs to proto; a file beginning with <code>&lt;map&gt;</code> is placement data.</p></div></details>
         <details class="guide-row"><summary>Vehicle reset safety</summary><div class="guide-body"><p>A vehicle-only <code>cfgignorelist.xml</code> reset is a staged two-restart operation. Vehicle classes are added only shortly before the target restart, the server restarts, the original ignore list is restored, and the server restarts once more. Non-vehicle entries must never be left behind.</p></div></details>
         <details class="guide-row"><summary>How to read an RPT after restart</summary><div class="guide-body"><p>Use the newest RPT from the restart you just performed. Search for parsing errors, unknown classnames, missing event definitions and the exact file named in the warning. An old RPT can describe an issue that is already fixed.</p></div></details>
@@ -3006,6 +3051,7 @@ APP_DASHBOARD_TEMPLATE = """
       <div class="section-head"><h2>Safe preset downloads</h2><span>{{ preset_map_label }}</span></div>
       <p class="muted">These create downloadable reference files only. They do not upload to your server. Compare them with your live file before use.</p>
       {% for group in dayz_preset_groups %}
+      {% if group.name != 'Gameplay' %}
       <details class="guide-row">
         <summary>{{ group.name }}</summary>
         <div class="editor-body">
@@ -3014,6 +3060,7 @@ APP_DASHBOARD_TEMPLATE = """
           {% endfor %}
         </div>
       </details>
+      {% endif %}
       {% endfor %}
     </section>
     {% elif not server %}
@@ -17314,6 +17361,52 @@ DAYZ_PRESET_FILES = [
         "summary": "Heavier boost for busy or high-action community servers.",
         "tags": ["loot", "high"],
     },
+    {
+        "id": "spawnabletypes_complete_vehicles",
+        "group": "Vehicles",
+        "title": "Complete pristine vehicles",
+        "target_path": "cfgspawnabletypes.xml",
+        "summary": "Map-specific complete vehicles with pristine bodies, parts and guaranteed configured attachments.",
+        "tags": ["vehicles", "complete", "pristine"],
+    },
+    {
+        "id": "spawnabletypes_builder_trucks",
+        "group": "Vehicles",
+        "title": "Builder trucks with supplies",
+        "target_path": "cfgspawnabletypes.xml",
+        "summary": "Complete pristine vehicles plus covered trucks carrying building materials, storage, tools, fuel cans and drinking water.",
+        "tags": ["vehicles", "builder truck", "cargo"],
+    },
+]
+
+DAYZ_VEHICLE_COMPONENT_NAMES = {
+    "boat_01_propeller",
+    "carbattery",
+    "carradiator",
+    "glowplug",
+    "sparkplug",
+    "truckbattery",
+}
+
+DAYZ_BUILDER_TRUCK_CARGO = [
+    ("WoodenLog", 4),
+    ("WoodenPlank", 20),
+    ("MetalPlate", 6),
+    ("NailBox", 4),
+    ("MetalWire", 2),
+    ("BarbedWire", 2),
+    ("Hammer", 2),
+    ("Hatchet", 2),
+    ("Handsaw", 2),
+    ("Shovel", 2),
+    ("Pliers", 2),
+    ("SledgeHammer", 1),
+    ("CombinationLock4", 2),
+    ("WoodenCrate", 2),
+    ("Barrel_Green", 1),
+    ("CanisterGasoline", 2),
+    ("WaterBottle", 2),
+    ("Canteen", 2),
 ]
 
 DAYZ_PRESET_TYPES_MULTIPLIERS = {
@@ -17570,6 +17663,97 @@ def build_types_preset(map_key: str, preset_id: str) -> str:
     return dayz_xml_text(root)
 
 
+def spawnabletype_is_vehicle(type_node: ET.Element) -> bool:
+    for item in type_node.findall("./attachments/item"):
+        item_name = str(item.get("name") or "").strip().lower()
+        if "wheel" in item_name or item_name in DAYZ_VEHICLE_COMPONENT_NAMES:
+            return True
+    return False
+
+
+def set_spawnabletype_pristine(type_node: ET.Element) -> None:
+    damage = type_node.find("damage")
+    if damage is None:
+        damage = ET.Element("damage")
+        type_node.insert(0, damage)
+    damage.set("min", "0.0")
+    damage.set("max", "0.0")
+
+
+def build_spawnabletypes_vehicle_preset(map_key: str, preset_id: str) -> str:
+    xml_text = load_dayz_reference_text(map_key, "cfgspawnabletypes.xml")
+    if not xml_text:
+        raise ValueError(f"No bundled cfgspawnabletypes.xml reference found for {map_key}.")
+    # Some reference bundles contain invalid text inside comments. Comments are
+    # not CE records, so omit them only from the generated download copy.
+    parse_text = re.sub(r"<!--.*?-->", "", xml_text, flags=re.DOTALL)
+    try:
+        root = ET.fromstring(parse_text)
+    except ET.ParseError as error:
+        raise ValueError(f"Bundled {map_key} cfgspawnabletypes.xml failed validation: {error}") from error
+    if root.tag != "spawnabletypes":
+        raise ValueError("Bundled cfgspawnabletypes.xml is not a spawnabletypes file.")
+    if preset_id not in {"spawnabletypes_complete_vehicles", "spawnabletypes_builder_trucks"}:
+        raise ValueError("Unknown vehicle spawnabletypes preset.")
+
+    type_nodes = root.findall("./type")
+    types_by_name = {
+        str(node.get("name") or "").strip().lower(): node
+        for node in type_nodes
+        if str(node.get("name") or "").strip()
+    }
+    vehicle_nodes = [node for node in type_nodes if spawnabletype_is_vehicle(node)]
+    if not vehicle_nodes:
+        raise ValueError(f"Bundled {map_key} cfgspawnabletypes.xml has no vehicle records.")
+
+    part_names: set[str] = set()
+    for vehicle_node in vehicle_nodes:
+        set_spawnabletype_pristine(vehicle_node)
+        for attachments in vehicle_node.findall("./attachments"):
+            attachments.set("chance", "1.00")
+            for item in attachments.findall("./item"):
+                item.set("chance", "1.00")
+                part_name = str(item.get("name") or "").strip()
+                if part_name:
+                    part_names.add(part_name)
+
+    for part_name in sorted(part_names, key=str.lower):
+        part_node = types_by_name.get(part_name.lower())
+        if part_node is None:
+            part_node = ET.SubElement(root, "type", {"name": part_name})
+            types_by_name[part_name.lower()] = part_node
+        set_spawnabletype_pristine(part_node)
+
+    if preset_id == "spawnabletypes_builder_trucks":
+        types_xml = load_dayz_reference_text(map_key, "db", "types.xml")
+        try:
+            types_root = ET.fromstring(types_xml)
+        except ET.ParseError as error:
+            raise ValueError(f"Bundled {map_key} types.xml failed validation: {error}") from error
+        valid_cargo_names = {
+            str(node.get("name") or "").strip().lower(): str(node.get("name") or "").strip()
+            for node in types_root.findall("./type")
+            if str(node.get("name") or "").strip()
+        }
+        builder_cargo = [
+            (valid_cargo_names[name.lower()], count)
+            for name, count in DAYZ_BUILDER_TRUCK_CARGO
+            if name.lower() in valid_cargo_names
+        ]
+        for vehicle_node in vehicle_nodes:
+            vehicle_name = str(vehicle_node.get("name") or "").strip().lower()
+            if not vehicle_name.startswith("truck_01_covered"):
+                continue
+            for cargo in list(vehicle_node.findall("./cargo")):
+                vehicle_node.remove(cargo)
+            for item_name, count in builder_cargo:
+                for _ in range(count):
+                    cargo = ET.SubElement(vehicle_node, "cargo", {"chance": "1.00"})
+                    ET.SubElement(cargo, "item", {"name": item_name, "chance": "1.00"})
+
+    return dayz_xml_text(root)
+
+
 def build_dayz_preset_file(map_key: Any, preset_id: Any) -> dict[str, Any]:
     clean_map = normalize_dayz_reference_map_key(map_key)
     preset = dayz_preset_definition(preset_id)
@@ -17598,6 +17782,10 @@ def build_dayz_preset_file(map_key: Any, preset_id: Any) -> dict[str, Any]:
         extension = "xml"
     elif target_path == "db/types.xml":
         content = build_types_preset(clean_map, clean_preset_id)
+        mimetype = "application/xml"
+        extension = "xml"
+    elif target_path == "cfgspawnabletypes.xml":
+        content = build_spawnabletypes_vehicle_preset(clean_map, clean_preset_id)
         mimetype = "application/xml"
         extension = "xml"
     else:
