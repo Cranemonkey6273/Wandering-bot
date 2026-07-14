@@ -105,6 +105,31 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("/login", dashboard.safe_dashboard_return("https://example.com/app", "/login"))
         self.assertEqual("/login", dashboard.safe_dashboard_return("/application", "/login"))
 
+    def test_mobile_app_view_normalizer_limits_routes_to_finished_views(self):
+        self.assertEqual("home", dashboard.normalize_mobile_app_view(None))
+        self.assertEqual("feeds", dashboard.normalize_mobile_app_view(" FEEDS "))
+        self.assertEqual("economy", dashboard.normalize_mobile_app_view("economy"))
+        self.assertEqual("control", dashboard.normalize_mobile_app_view("control"))
+        self.assertEqual("help", dashboard.normalize_mobile_app_view("help"))
+        self.assertEqual("home", dashboard.normalize_mobile_app_view("xml-workshop"))
+
+    def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
+        template = dashboard.APP_DASHBOARD_TEMPLATE
+
+        for label in ("Home", "Feeds", "Economy", "Control", "Help"):
+            self.assertIn(f">{label}</a>", template)
+        self.assertIn("DayZ field guide", template)
+        self.assertIn("types.xml", template)
+        self.assertIn("events.xml", template)
+        self.assertIn("cfgspawnabletypes.xml", template)
+        self.assertIn("mapgroupproto", template)
+        self.assertIn("mapgrouppos", template)
+        self.assertIn('name="vehicle_reset_schedule_enabled"', template)
+        self.assertNotIn('href="{{ dashboard_path }}', template)
+        self.assertNotIn('/admin?section=', template)
+        self.assertNotIn("Player Loadout", template)
+        self.assertNotIn("XML Workshop", template)
+
     def test_android_fingerprint_normalizer_accepts_plain_and_coloned_sha256(self):
         raw = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
         expected = (

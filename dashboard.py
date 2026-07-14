@@ -2167,7 +2167,7 @@ AGENT_LOGIN_TEMPLATE = """
 </html>
 """
 
-APP_DASHBOARD_TEMPLATE = """
+LEGACY_APP_DASHBOARD_TEMPLATE = """
 <!doctype html>
 <html lang="en">
 <head>
@@ -2457,6 +2457,471 @@ APP_DASHBOARD_TEMPLATE = """
     <a href="{{ dashboard_path }}?section=shop{{ dashboard_qs }}">Shop</a>
     <a href="{{ dashboard_path }}?section=access&setup_tool=control{{ dashboard_qs }}">Control</a>
     <a href="{{ dashboard_path }}?section=help{{ dashboard_qs }}">Guides</a>
+  </nav>
+</body>
+</html>
+"""
+
+APP_DASHBOARD_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Wandering Bot - {{ app_view|title }}</title>
+  <meta name="theme-color" content="#eef3ef">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Wandering Bot">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
+  <style>
+    :root {
+      --page: #eef3ef;
+      --surface: #ffffff;
+      --surface-alt: #e3ece7;
+      --ink: #17211d;
+      --muted: #607067;
+      --line: #c9d8d0;
+      --forest: #225b46;
+      --forest-dark: #173f31;
+      --teal: #167b7c;
+      --orange: #d86f21;
+      --orange-soft: #fff0e4;
+      --green: #327b42;
+      --red: #b33f4d;
+      --shadow: 0 .45rem 1.4rem rgba(29, 58, 44, .09);
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--page); }
+    body {
+      margin: 0;
+      min-height: 100svh;
+      background: var(--page);
+      color: var(--ink);
+      padding: env(safe-area-inset-top) 0 calc(5.2rem + env(safe-area-inset-bottom));
+    }
+    a { color: inherit; text-decoration: none; }
+    button, input, select { font: inherit; }
+    button, .button {
+      min-height: 2.75rem;
+      border: 1px solid var(--forest);
+      border-radius: .45rem;
+      background: var(--forest);
+      color: #fff;
+      padding: .65rem .85rem;
+      font-weight: 850;
+      cursor: pointer;
+    }
+    button.secondary, .button.secondary { background: var(--surface); color: var(--forest); }
+    button.danger { border-color: var(--red); background: var(--red); }
+    input, select {
+      width: 100%;
+      min-height: 2.75rem;
+      border: 1px solid var(--line);
+      border-radius: .4rem;
+      background: #fff;
+      color: var(--ink);
+      padding: .62rem .7rem;
+    }
+    input[type="checkbox"] { width: 1.15rem; min-height: 1.15rem; accent-color: var(--forest); }
+    label { display: grid; gap: .3rem; color: var(--muted); font-size: .82rem; font-weight: 700; }
+    small { line-height: 1.4; }
+    .app-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .7rem;
+      padding: .65rem .8rem;
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: .62rem; min-width: 0; }
+    .brand img { width: 2.6rem; height: 2.6rem; object-fit: cover; border-radius: .45rem; border: 1px solid var(--line); }
+    .brand strong, .brand span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .brand strong { color: var(--forest-dark); font-size: .92rem; text-transform: uppercase; }
+    .brand span { color: var(--muted); font-size: .72rem; }
+    .header-actions { display: flex; align-items: center; gap: .4rem; }
+    .header-actions a { color: var(--forest); font-size: .76rem; font-weight: 850; padding: .45rem; }
+    .app-shell { width: min(54rem, 100%); margin: 0 auto; padding: .75rem; display: grid; gap: .8rem; }
+    .server-context, .section, .metric, .feed-row, .tool-row, .guide-row, .status-row {
+      border: 1px solid var(--line);
+      border-radius: .5rem;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .server-context { padding: .85rem; display: grid; gap: .7rem; border-top: .25rem solid var(--orange); }
+    .server-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .65rem; }
+    .server-heading h1 { margin: 0; color: var(--forest-dark); font-size: 1.25rem; line-height: 1.08; letter-spacing: 0; }
+    .server-heading p { margin: .25rem 0 0; color: var(--muted); font-size: .78rem; }
+    .status-pill, .tag {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface-alt);
+      color: var(--forest-dark);
+      padding: .25rem .52rem;
+      font-size: .7rem;
+      font-weight: 800;
+    }
+    .status-pill { flex: 0 0 auto; color: var(--green); border-color: #b9d9bf; background: #edf8ef; }
+    .server-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; }
+    .profile-strip { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .1rem; }
+    .profile-strip a { flex: 0 0 auto; }
+    .profile-strip a.active { color: #fff; border-color: var(--teal); background: var(--teal); }
+    .page-intro { display: grid; gap: .3rem; padding: .2rem .1rem; }
+    .page-intro h2 { margin: 0; color: var(--forest-dark); font-size: 1.45rem; }
+    .page-intro p { margin: 0; color: var(--muted); line-height: 1.45; font-size: .88rem; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+    .metric { padding: .75rem; min-height: 5.6rem; display: grid; align-content: center; gap: .18rem; box-shadow: none; }
+    .metric span { color: var(--muted); font-size: .68rem; text-transform: uppercase; font-weight: 800; }
+    .metric strong { color: var(--orange); font-size: 1.55rem; line-height: 1; }
+    .metric small { color: var(--forest); font-size: .72rem; }
+    .section { padding: .85rem; display: grid; gap: .7rem; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: .65rem; }
+    .section-head h2, .section-head h3 { margin: 0; color: var(--forest-dark); font-size: 1rem; }
+    .section-head > span { color: var(--muted); font-size: .72rem; }
+    .muted { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+    .tool-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+    .tool-row { min-height: 6.7rem; padding: .72rem; display: grid; align-content: start; gap: .25rem; box-shadow: none; border-left: .25rem solid var(--teal); }
+    .tool-row b { color: var(--orange); font-size: .68rem; text-transform: uppercase; }
+    .tool-row strong { color: var(--forest-dark); font-size: .92rem; }
+    .tool-row span { color: var(--muted); font-size: .77rem; line-height: 1.35; }
+    .feed-list, .status-list, .guide-list, .item-list { display: grid; gap: .52rem; }
+    .feed-row { padding: .7rem; display: grid; gap: .25rem; box-shadow: none; border-left: .25rem solid var(--teal); }
+    .feed-meta { display: flex; justify-content: space-between; gap: .6rem; color: var(--orange); font-size: .68rem; font-weight: 850; }
+    .feed-row strong { font-size: .88rem; }
+    .feed-row p { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.4; overflow-wrap: anywhere; }
+    .status-row { padding: .68rem; display: grid; gap: .22rem; box-shadow: none; }
+    .status-row strong { display: flex; justify-content: space-between; gap: .55rem; color: var(--forest-dark); font-size: .84rem; }
+    .status-row strong span { color: var(--orange); }
+    .status-row > span { color: var(--muted); font-size: .75rem; line-height: 1.4; }
+    .info {
+      position: relative;
+      justify-self: end;
+    }
+    .info > summary {
+      display: grid;
+      place-items: center;
+      width: 1.55rem;
+      height: 1.55rem;
+      border: 1px solid var(--teal);
+      border-radius: 50%;
+      color: var(--teal);
+      background: #fff;
+      font-weight: 900;
+      cursor: pointer;
+      list-style: none;
+    }
+    .info > summary::-webkit-details-marker { display: none; }
+    .info[open] > div {
+      position: absolute;
+      right: 0;
+      z-index: 10;
+      width: min(18rem, calc(100vw - 2rem));
+      margin-top: .35rem;
+      padding: .7rem;
+      border: 1px solid var(--line);
+      border-radius: .45rem;
+      background: var(--forest-dark);
+      color: #fff;
+      box-shadow: var(--shadow);
+      font-size: .76rem;
+      line-height: 1.45;
+    }
+    .editor, .guide-row, .item-row {
+      border: 1px solid var(--line);
+      border-radius: .45rem;
+      background: var(--surface);
+    }
+    .editor > summary, .guide-row > summary, .item-row > summary {
+      list-style: none;
+      cursor: pointer;
+      padding: .75rem;
+      color: var(--forest-dark);
+      font-weight: 850;
+    }
+    .editor > summary::-webkit-details-marker, .guide-row > summary::-webkit-details-marker, .item-row > summary::-webkit-details-marker { display: none; }
+    .editor > summary::after, .guide-row > summary::after, .item-row > summary::after { content: "+"; float: right; color: var(--orange); }
+    .editor[open] > summary::after, .guide-row[open] > summary::after, .item-row[open] > summary::after { content: "-"; }
+    .editor-body, .guide-body { border-top: 1px solid var(--line); padding: .75rem; }
+    .guide-body { color: var(--muted); font-size: .82rem; line-height: 1.52; }
+    .guide-body p:last-child { margin-bottom: 0; }
+    .guide-body code { color: var(--forest-dark); background: var(--surface-alt); border-radius: .25rem; padding: .08rem .2rem; overflow-wrap: anywhere; }
+    .form-stack { display: grid; gap: .65rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; }
+    .full { grid-column: 1 / -1; }
+    .confirm { display: flex; grid-column: 1 / -1; align-items: flex-start; gap: .5rem; color: var(--ink); }
+    .confirm input { margin-top: .15rem; flex: 0 0 auto; }
+    .notice { border-left: .25rem solid var(--orange); background: var(--orange-soft); padding: .7rem; color: #71401d; font-size: .8rem; line-height: 1.45; }
+    .safe-notice { border-left-color: var(--green); background: #edf8ef; color: #285b34; }
+    .item-row { box-shadow: none; }
+    .item-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; }
+    .item-summary span { color: var(--muted); font-size: .76rem; }
+    .item-summary b { color: var(--orange); }
+    .preset-row { display: grid; gap: .42rem; border-top: 1px solid var(--line); padding: .7rem 0; }
+    .preset-row:first-child { border-top: 0; }
+    .preset-row strong { color: var(--forest-dark); }
+    .preset-row span { color: var(--muted); font-size: .78rem; line-height: 1.4; }
+    .preset-row .button { justify-self: start; display: inline-flex; align-items: center; }
+    .bottom-nav {
+      position: fixed;
+      z-index: 30;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: .2rem;
+      padding: .42rem .5rem calc(.42rem + env(safe-area-inset-bottom));
+      background: rgba(255, 255, 255, .98);
+      border-top: 1px solid var(--line);
+    }
+    .bottom-nav a { min-width: 0; padding: .5rem .1rem; border-radius: .4rem; color: var(--muted); text-align: center; font-size: .68rem; font-weight: 850; }
+    .bottom-nav a.active { background: var(--forest); color: #fff; }
+    @media (min-width: 700px) {
+      body { padding-bottom: 1rem; }
+      .app-shell { padding: 1rem; }
+      .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .tool-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .bottom-nav { position: sticky; top: 0; bottom: auto; width: min(54rem, calc(100% - 2rem)); margin: .7rem auto 0; border: 1px solid var(--line); border-radius: .5rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <img src="/brand-image" alt="Wandering Bot">
+      <div><strong>Wandering Bot</strong><span>{{ app_view|title }} command hub</span></div>
+    </div>
+    <div class="header-actions"><a href="/logout?return_to={{ app_urls.home|urlencode }}">Log out</a></div>
+  </header>
+
+  <main class="app-shell">
+    <section class="server-context">
+      {% if server %}
+      <div class="server-heading">
+        <div><h1>{{ server.dayz_name or server.guild_name }}</h1><p>{{ server.platform_label or server.platform }} | {{ server.map }} | {{ server.guild_name }}</p></div>
+        <span class="status-pill">Connected</span>
+      </div>
+      <form class="server-form" method="get" action="/app">
+        <input type="hidden" name="view" value="{{ app_view }}">
+        {% if app_source %}<input type="hidden" name="source" value="{{ app_source }}">{% endif %}
+        <select name="guild_id" aria-label="Choose Discord server">
+          {% for option in servers %}<option value="{{ option.guild_id }}" {% if option.guild_id == server.guild_id %}selected{% endif %}>{{ option.guild_name }} - {{ option.map }}</option>{% endfor %}
+        </select>
+        <button type="submit">Open</button>
+      </form>
+      {% if server.dayz_profiles %}
+      <nav class="profile-strip" aria-label="Choose DayZ server">
+        {% for profile in server.dayz_profiles %}
+        <a class="tag {{ 'active' if profile.id == selected_dayz_profile_id else '' }}" href="/app?view={{ app_view|urlencode }}&guild_id={{ server.guild_id|urlencode }}&server_profile_id={{ profile.id|urlencode }}{% if app_source %}&source={{ app_source|urlencode }}{% endif %}">{{ profile.name }}</a>
+        {% endfor %}
+      </nav>
+      {% endif %}
+      {% else %}
+      <div class="server-heading"><div><h1>No server access</h1><p>This login has no dashboard server assigned.</p></div></div>
+      {% endif %}
+    </section>
+
+    {% if server and app_view == 'home' %}
+    <section class="page-intro"><h2>Command centre</h2><p>A focused mobile overview. Full desktop-only builders stay out of the app.</p></section>
+    <section class="metrics" aria-label="Server summary">
+      <article class="metric"><span>Online</span><strong>{{ server.online|length }}</strong><small>survivors tracked</small></article>
+      <article class="metric"><span>Discord</span><strong>{{ server.discord_member_count }}</strong><small>community members</small></article>
+      <article class="metric"><span>Shop</span><strong>{{ server.shop_item_count }}</strong><small>catalogue items</small></article>
+      <article class="metric"><span>Zones</span><strong>{{ server.zones|length }}</strong><small>configured areas</small></article>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Mobile tools</h2><details class="info"><summary aria-label="About mobile tools">i</summary><div>These are the mobile areas currently ready to use. Desktop-only builders are deliberately not shown here.</div></details></div>
+      <div class="tool-grid">
+        <a class="tool-row" href="{{ app_urls.feeds }}"><b>Live</b><strong>Server feeds</strong><span>Review recent ADM activity for the selected DayZ server.</span></a>
+        <a class="tool-row" href="{{ app_urls.economy }}"><b>Economy</b><strong>Shop control</strong><span>Search items and change prices, limits or availability.</span></a>
+        <a class="tool-row" href="{{ app_urls.control }}"><b>Operations</b><strong>Server control</strong><span>Manage restarts, raid damage and vehicle resets.</span></a>
+        <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Recent activity</h2><span>{{ server.dashboard_live_feed_total }} stored</span></div>
+      <div class="feed-list">
+        {% for row in server.dashboard_live_feed_rows[:4] %}
+        <article class="feed-row"><div class="feed-meta"><span>{{ row.feed_label }}</span><span>{{ row.time_label or 'Live' }}</span></div><strong>{{ row.player }}</strong><p>{{ row.summary or row.raw_line or row.event_type or 'Feed event captured.' }}</p></article>
+        {% else %}<p class="muted">No recent feed events are stored for this selected DayZ server.</p>{% endfor %}
+      </div>
+    </section>
+    <section class="notice safe-notice"><strong>New owner?</strong> Open Help before editing DayZ files. It explains what each file controls, where it belongs and when a restart is required.</section>
+
+    {% elif server and app_view == 'feeds' %}
+    <section class="page-intro"><h2>Live server feeds</h2><p>Recent events for {{ server.dayz_name or server.guild_name }} only.</p></section>
+    <section class="section">
+      <div class="section-head"><h2>Activity stream</h2><details class="info"><summary aria-label="About feed data">i</summary><div>These rows are read from the bot's stored ADM feed for the selected profile. Switching Cherno or Livo changes the runtime source.</div></details></div>
+      <div class="feed-list">
+        {% for row in server.dashboard_live_feed_rows %}
+        <article class="feed-row"><div class="feed-meta"><span>{{ row.feed_label }}</span><span>{{ row.time_label or 'Live' }}</span></div><strong>{{ row.player }}</strong><p>{{ row.summary or row.raw_line or row.event_type or 'Feed event captured.' }}</p></article>
+        {% else %}<p class="muted">No live feed rows are stored for this profile yet.</p>{% endfor %}
+      </div>
+    </section>
+
+    {% elif server and app_view == 'economy' %}
+    <section class="page-intro"><h2>Shop and economy</h2><p>Fast item management for the Discord shop. Changes stay scoped to {{ server.guild_name }}.</p></section>
+    <section class="section">
+      <div class="section-head"><h2>Find an item</h2><details class="info"><summary aria-label="About shop changes">i</summary><div>Price is the Discord economy cost. Daily limit is per player; use 0 for no daily cap. This does not edit DayZ types.xml.</div></details></div>
+      <form class="server-form" method="get" action="/app">
+        <input type="hidden" name="view" value="economy"><input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}">{% if app_source %}<input type="hidden" name="source" value="{{ app_source }}">{% endif %}
+        <input name="q" value="{{ shop_query }}" placeholder="Search item or category" aria-label="Search shop items"><button type="submit">Search</button>
+      </form>
+      <p class="muted">Showing {{ app_shop_items|length }} of {{ shop_items_total }} catalogue items.</p>
+    </section>
+    <section class="section">
+      <details class="editor">
+        <summary>Add or update an item</summary>
+        <div class="editor-body">
+          <form class="form-grid" method="post" action="/api/admin/shop-item">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="return_to" value="{{ app_urls.economy }}">
+            <label class="full">DayZ classname<input name="item_name" required placeholder="NailBox"></label>
+            <label>Price<input name="price" type="number" min="0" value="100"></label>
+            <label>Daily limit<input name="daily_limit" type="number" min="0" value="0"></label>
+            <label>Category<input name="category" value="General"></label>
+            <label>Available<select name="enabled"><option value="true">On</option><option value="false">Off</option></select></label>
+            <button class="full" type="submit">Save item</button>
+          </form>
+        </div>
+      </details>
+      <div class="item-list">
+        {% for item in app_shop_items %}
+        <details class="item-row">
+          <summary><span class="item-summary"><span><strong>{{ item.name }}</strong><br><span>{{ item.category }} | {{ 'On' if item.enabled else 'Off' }}</span></span><b>{{ item.price }}</b></span></summary>
+          <div class="editor-body">
+            <form class="form-grid" method="post" action="/api/admin/shop-item">
+              <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="return_to" value="{{ app_urls.economy }}"><input type="hidden" name="item_name" value="{{ item.name }}">
+              <label>Price<input name="price" type="number" min="0" value="{{ item.price }}"></label>
+              <label>Daily limit<input name="daily_limit" type="number" min="0" value="{{ item.daily_limit or 0 }}"></label>
+              <label>Category<input name="category" value="{{ item.category }}"></label>
+              <label>Available<select name="enabled"><option value="true" {% if item.enabled %}selected{% endif %}>On</option><option value="false" {% if not item.enabled %}selected{% endif %}>Off</option></select></label>
+              <button class="full" type="submit">Save {{ item.name }}</button>
+            </form>
+          </div>
+        </details>
+        {% else %}<p class="muted">No shop items matched that search.</p>{% endfor %}
+      </div>
+    </section>
+
+    {% elif server and app_view == 'control' %}
+    {% set restart_on = selected_config.get('restart_schedule_enabled') == true and selected_config.get('restart_schedule_confirmed') == true %}
+    {% set vehicle = selected_config.get('vehicle_reset_schedule', {}) %}
+    {% set vehicle_on = selected_config.get('vehicle_reset_schedule_enabled') == true or vehicle.get('enabled') == true %}
+    <section class="page-intro"><h2>Server control</h2><p>Operational controls for {{ server.dayz_name or server.guild_name }}. Check the selected profile before saving.</p></section>
+    <section class="section">
+      <div class="section-head"><h2>Current state</h2><details class="info"><summary aria-label="About server controls">i</summary><div>Schedules and damage settings are profile-scoped. A direct restart sends only the Nitrado restart command; scheduled changes may stage files before a restart.</div></details></div>
+      <div class="status-list">
+        <div class="status-row"><strong>Restart schedule <span>{{ schedule_status.restart.status }}</span></strong><span>{{ schedule_status.restart.next_label }} | {{ schedule_status.restart.interval_label }}</span></div>
+        <div class="status-row"><strong>Raid damage start <span>{{ schedule_status.damage_on.status }}</span></strong><span>{{ schedule_status.damage_on.target_label }}</span></div>
+        <div class="status-row"><strong>Raid damage end <span>{{ schedule_status.damage_off.status }}</span></strong><span>{{ schedule_status.damage_off.target_label }}</span></div>
+        <div class="status-row"><strong>Vehicle reset <span>{{ schedule_status.vehicle_reset.status }}</span></strong><span>{{ schedule_status.vehicle_reset.target_label }} | {{ schedule_status.vehicle_reset.method_label }}</span></div>
+      </div>
+    </section>
+    <section class="section">
+      <details class="editor">
+        <summary>Restart schedule</summary>
+        <div class="editor-body">
+          <form class="form-grid" method="post" action="/api/admin/server-control">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="return_to" value="{{ app_urls.control }}">
+            <label>Schedule<select name="restart_schedule_enabled"><option value="true" {% if restart_on %}selected{% endif %}>On</option><option value="false" {% if not restart_on %}selected{% endif %}>Off</option></select></label>
+            <label>Every hours<input name="restart_interval_hours" type="number" min="1" max="24" value="{{ selected_config.get('restart_interval_hours', 4) }}"></label>
+            <label>Start hour local<input name="restart_start_hour" type="number" min="0" max="23" value="{{ selected_config.get('restart_start_hour', 0) }}"></label>
+            <label>Timezone<input name="server_timezone" value="{{ selected_config.get('restart_timezone') or selected_config.get('server_timezone') or 'Europe/Dublin' }}"></label>
+            <label class="full">Warning minutes<input name="restart_warning_minutes" value="{{ selected_config.get('restart_warning_minutes', [30,15,10,5,1])|join(',') }}"><small>Comma separated, for example 30,15,5,1.</small></label>
+            <button class="full" type="submit">Save restart schedule</button>
+          </form>
+        </div>
+      </details>
+      <details class="editor">
+        <summary>Base and container damage</summary>
+        <div class="editor-body">
+          <div class="notice">On allows damage. Off stages DayZ protection settings; DayZ applies them after the required restart.</div>
+          <form class="form-grid" method="post" action="/api/admin/server-control">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="return_to" value="{{ app_urls.control }}">
+            <label>Base damage<select name="base_damage_state"><option value="on" {% if selected_config.get('base_damage_state', 'on') != 'off' %}selected{% endif %}>On</option><option value="off" {% if selected_config.get('base_damage_state') == 'off' %}selected{% endif %}>Off</option></select></label>
+            <label>Container damage<select name="container_damage_state"><option value="on" {% if selected_config.get('container_damage_state', 'on') != 'off' %}selected{% endif %}>On</option><option value="off" {% if selected_config.get('container_damage_state') == 'off' %}selected{% endif %}>Off</option></select></label>
+            <button class="full" type="submit">Save damage state</button>
+          </form>
+        </div>
+      </details>
+      <details class="editor">
+        <summary>Vehicle reset schedule</summary>
+        <div class="editor-body">
+          <div class="notice">The default vehicle-only reset stages vehicle classes shortly before the target restart, waits for the server to return, restores the original ignore list, then performs the required restore restart.</div>
+          <form class="form-grid" method="post" action="/api/admin/server-control">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="return_to" value="{{ app_urls.control }}"><input type="hidden" name="vehicle_reset_method" value="cfgignorelist">
+            <label>Schedule<select name="vehicle_reset_schedule_enabled"><option value="true" {% if vehicle_on %}selected{% endif %}>On</option><option value="false" {% if not vehicle_on %}selected{% endif %}>Off</option></select></label>
+            <label>Reset day<select name="vehicle_reset_day_of_week"><option value="">Choose day</option>{% for day in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}<option value="{{ day|lower }}" {% if (vehicle.get('day_of_week') or selected_config.get('vehicle_reset_day_of_week')) == day|lower %}selected{% endif %}>{{ day }}</option>{% endfor %}</select></label>
+            <label>Reset time<input name="vehicle_reset_time" type="time" value="{{ vehicle.get('time') or selected_config.get('vehicle_reset_time') or '04:00' }}"></label>
+            <label>Timezone<input name="vehicle_reset_timezone" value="{{ vehicle.get('timezone') or selected_config.get('vehicle_reset_timezone') or 'Europe/Dublin' }}"></label>
+            <label>Repeat every<input name="vehicle_reset_interval_value" type="number" min="1" max="999" value="{{ vehicle.get('interval_value') or selected_config.get('vehicle_reset_interval_value') or 7 }}"></label>
+            <label>Unit<select name="vehicle_reset_interval_unit">{% for unit in ['days','weeks','months'] %}<option value="{{ unit }}" {% if (vehicle.get('interval_unit') or selected_config.get('vehicle_reset_interval_unit') or 'days') == unit %}selected{% endif %}>{{ unit|title }}</option>{% endfor %}</select></label>
+            <label class="full">Exact first date, optional<input name="vehicle_reset_first_date" type="date" value="{{ vehicle.get('first_date') or selected_config.get('vehicle_reset_first_date') or '' }}"></label>
+            <button class="full" type="submit">Save vehicle reset</button>
+          </form>
+        </div>
+      </details>
+      <details class="editor">
+        <summary>Restart server now</summary>
+        <div class="editor-body">
+          <form class="form-stack" method="post" action="/api/admin/server-control">
+            <input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="return_to" value="{{ app_urls.control }}"><input type="hidden" name="server_action" value="restart">
+            <label class="confirm"><input type="checkbox" required name="confirmed" value="true"><span>I checked the selected DayZ profile and want to restart it now.</span></label>
+            <button class="danger" type="submit">Restart selected server</button>
+          </form>
+        </div>
+      </details>
+    </section>
+
+    {% elif server and app_view == 'help' %}
+    <section class="page-intro"><h2>DayZ field guide</h2><p>Practical explanations for new server owners, written around safe file handling.</p></section>
+    <section class="notice safe-notice"><strong>Golden rule:</strong> download the current live file first, edit a copy, validate the complete file, and only then upload it to the exact mission path.</section>
+    <section class="section">
+      <div class="section-head"><h2>Learn the files</h2><details class="info"><summary aria-label="About the field guide">i</summary><div>This area teaches what files do. It does not directly overwrite live server XML.</div></details></div>
+      <div class="guide-list">
+        <details class="guide-row" open><summary>Safe editing checklist</summary><div class="guide-body"><p>1. Stop and identify the map and mission folder. 2. Download the current live file. 3. Keep one clean backup outside FTP. 4. Edit the complete file, not a loose snippet. 5. Validate XML or JSON. 6. Upload to the exact path. 7. Restart only when the file requires it. 8. Check the newest RPT for errors.</p></div></details>
+        <details class="guide-row"><summary>types.xml: loot quantity and lifetime</summary><div class="guide-body"><p><code>nominal</code> is the target number in the economy, <code>min</code> is the refill threshold, <code>lifetime</code> controls cleanup time, and <code>restock</code> controls refill delay. Flags decide whether stored, hoarded or player-carried items count. Usage and value tags decide valid locations and tiers.</p><p>Do not replace a full <code>types.xml</code> with a small list of edited items. Merge the changed <code>&lt;type&gt;</code> records into the complete live file.</p></div></details>
+        <details class="guide-row"><summary>events.xml and cfgeventspawns.xml</summary><div class="guide-body"><p><code>events.xml</code> defines how an event behaves. <code>cfgeventspawns.xml</code> provides its positions. Event names must match exactly. Vehicle, animal, infected and static event definitions have different required fields.</p><p>Before uploading, compare the existing event names so unrelated vanilla or custom records are never removed.</p></div></details>
+        <details class="guide-row"><summary>cfgspawnabletypes.xml: attachments and cargo</summary><div class="guide-body"><p>This file controls presets, attachments and cargo for spawned entities. It does not set the total world quantity by itself. Every referenced classname must exist and be valid for the current DayZ build.</p></div></details>
+        <details class="guide-row"><summary>mapgroupproto vs mapgrouppos</summary><div class="guide-body"><p><code>mapgroupproto.xml</code> describes loot points inside supported buildings. <code>mapgrouppos.xml</code> places building groups on the map. A file beginning with <code>&lt;prototype&gt;</code> belongs to proto; a file beginning with <code>&lt;map&gt;</code> is placement data.</p></div></details>
+        <details class="guide-row"><summary>Vehicle reset safety</summary><div class="guide-body"><p>A vehicle-only <code>cfgignorelist.xml</code> reset is a staged two-restart operation. Vehicle classes are added only shortly before the target restart, the server restarts, the original ignore list is restored, and the server restarts once more. Non-vehicle entries must never be left behind.</p></div></details>
+        <details class="guide-row"><summary>How to read an RPT after restart</summary><div class="guide-body"><p>Use the newest RPT from the restart you just performed. Search for parsing errors, unknown classnames, missing event definitions and the exact file named in the warning. An old RPT can describe an issue that is already fixed.</p></div></details>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Safe preset downloads</h2><span>{{ preset_map_label }}</span></div>
+      <p class="muted">These create downloadable reference files only. They do not upload to your server. Compare them with your live file before use.</p>
+      {% for group in dayz_preset_groups %}
+      <details class="guide-row">
+        <summary>{{ group.name }}</summary>
+        <div class="editor-body">
+          {% for preset in group.presets %}
+          <div class="preset-row"><strong>{{ preset.title }}</strong><span>{{ preset.summary }} Target: {{ preset.target_path }}</span><a class="button secondary" href="/api/admin/preset-file/download?map={{ preset_map_key|urlencode }}&preset={{ preset.id|urlencode }}&guild_id={{ server.guild_id|urlencode }}">Download</a></div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </section>
+    {% elif not server %}
+    <section class="notice">This login currently has no server assigned. Ask the server owner to check dashboard access.</section>
+    {% endif %}
+  </main>
+
+  <nav class="bottom-nav" aria-label="App navigation">
+    <a class="{{ 'active' if app_view == 'home' else '' }}" href="{{ app_urls.home }}">Home</a>
+    <a class="{{ 'active' if app_view == 'feeds' else '' }}" href="{{ app_urls.feeds }}">Feeds</a>
+    <a class="{{ 'active' if app_view == 'economy' else '' }}" href="{{ app_urls.economy }}">Economy</a>
+    <a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>
+    <a class="{{ 'active' if app_view == 'help' else '' }}" href="{{ app_urls.help }}">Help</a>
   </nav>
 </body>
 </html>
@@ -28398,12 +28863,27 @@ def delete_dashboard_admin_record(section: str, guild_id: Any, item_id: Any) -> 
     return False
 
 
+MOBILE_APP_VIEW_SECTIONS = {
+    "home": "live-feeds",
+    "feeds": "live-feeds",
+    "economy": "shop",
+    "control": "access",
+    "help": "presets",
+}
+
+
+def normalize_mobile_app_view(value: Any) -> str:
+    view = str(value or "home").strip().lower()
+    return view if view in MOBILE_APP_VIEW_SECTIONS else "home"
+
+
 def dashboard_app_selected_state(auth: dict[str, Any]) -> dict[str, Any]:
+    app_view = normalize_mobile_app_view(request.args.get("view"))
     focused_guild_id = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
     selected_state_guild_id = focused_guild_id
     if not selected_state_guild_id and auth.get("kind") != "owner":
         selected_state_guild_id = normalize_guild_id(str(auth.get("guild_id") or ""))
-    state = load_dashboard_state("live-feeds", selected_state_guild_id)
+    state = load_dashboard_state(MOBILE_APP_VIEW_SECTIONS[app_view], selected_state_guild_id)
     state = filter_state_for_auth(state, auth, "admin")
     if focused_guild_id:
         state = dict(state)
@@ -28464,9 +28944,18 @@ def dashboard_app_selected_state(auth: dict[str, Any]) -> dict[str, Any]:
         server_query["guild_id"] = str(selected_server.get("guild_id"))
     if selected_dayz_profile_id:
         server_query["server_profile_id"] = selected_dayz_profile_id
-    app_qs = f"?{urllib.parse.urlencode(server_query)}" if server_query else ""
+    app_urls = {}
+    for view_name in MOBILE_APP_VIEW_SECTIONS:
+        view_query = dict(server_query)
+        view_query["view"] = view_name
+        app_urls[view_name] = f"/app?{urllib.parse.urlencode(view_query)}"
+    current_query = dict(server_query)
+    current_query["view"] = app_view
+    app_qs = f"?{urllib.parse.urlencode(current_query)}"
     dashboard_qs = "".join(f"&{key}={urllib.parse.quote(str(value))}" for key, value in server_query.items())
     return {
+        "app_view": app_view,
+        "app_urls": app_urls,
         "state": state,
         "server": selected_server if isinstance(selected_server, dict) else {},
         "selected_dayz_profile": selected_dayz_profile,
@@ -29162,23 +29651,54 @@ def mobile_app():
     restart_status = dashboard_restart_status(selected_config)
     schedule_status = dashboard_live_schedule_status(selected_config)
     native_app_mode = is_native_app_request()
-    customer_billing_plans = [] if native_app_mode or auth.get("kind") == "owner" else dashboard_customer_billing_plans(selected_access)
+    server = payload["server"]
+    shop_query = str(request.args.get("q") or "").strip()
+    shop_rows = server.get("shop_items", []) if isinstance(server, dict) else []
+    if not isinstance(shop_rows, list):
+        shop_rows = []
+    shop_rows = [
+        item
+        for item in shop_rows
+        if isinstance(item, dict) and str(item.get("type") or "item").strip().lower() != "bundle"
+    ]
+    shop_items_total = len(shop_rows)
+    if shop_query:
+        needle = shop_query.lower()
+        shop_rows = [
+            item
+            for item in shop_rows
+            if needle in str(item.get("name") or "").lower()
+            or needle in str(item.get("category") or "").lower()
+        ]
+    preset_map_key = map_key_for(server.get("map") if isinstance(server, dict) else "chernarus")
+    preset_map_label = {
+        "chernarus": "Chernarus",
+        "livonia": "Livonia",
+        "sakhal": "Sakhal",
+    }.get(preset_map_key, "Chernarus")
     return render_template_string(
         APP_DASHBOARD_TEMPLATE,
         auth=auth,
         pwa_theme_color=PWA_THEME_COLOR,
-        dashboard_path="/admin",
         summary=payload["state"].get("summary", {}),
         servers=payload["state"].get("servers", []),
-        server=payload["server"],
+        server=server,
         selected_dayz_profile=payload["selected_dayz_profile"],
         selected_dayz_profile_id=payload["selected_dayz_profile_id"],
+        selected_config=selected_config,
+        selected_access=selected_access,
+        app_view=payload["app_view"],
+        app_urls=payload["app_urls"],
+        app_source=native_app_source(),
         app_qs=payload["app_qs"],
-        dashboard_qs=payload["dashboard_qs"],
         restart_status=restart_status,
         schedule_status=schedule_status,
         native_app_mode=native_app_mode,
-        customer_billing_plans=customer_billing_plans,
+        app_shop_items=shop_rows[:60],
+        shop_items_total=shop_items_total,
+        shop_query=shop_query,
+        preset_map_key=preset_map_key,
+        preset_map_label=preset_map_label,
         dayz_preset_groups=dashboard_dayz_preset_groups(),
         generated_clock=local_dashboard_clock(),
     )
@@ -29248,7 +29768,8 @@ def login_post():
 
 @APP.get("/logout")
 def logout():
-    response = make_response(redirect("/login"))
+    return_to = safe_dashboard_return(request.args.get("return_to"), "/login")
+    response = make_response(redirect(return_to))
     response.delete_cookie("dashboard_session")
     return response
 
