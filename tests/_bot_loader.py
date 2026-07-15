@@ -59,6 +59,12 @@ class _FakeEmbed(_FakeBase):
         return self
 
 
+class _FakeHTTPException(Exception):
+    def __init__(self, message="HTTP error", *, status=500):
+        super().__init__(message)
+        self.status = status
+
+
 class _FakeTree:
     command = staticmethod(_decorator)
     context_menu = staticmethod(_decorator)
@@ -137,6 +143,7 @@ def _install_discord_stubs():
     discord.SelectOption = _FakeBase
     discord.Forbidden = type("Forbidden", (Exception,), {})
     discord.NotFound = type("NotFound", (Exception,), {})
+    discord.HTTPException = _FakeHTTPException
     discord.Color = _FakeEnum()
     discord.Colour = discord.Color
     discord.ButtonStyle = _FakeEnum()

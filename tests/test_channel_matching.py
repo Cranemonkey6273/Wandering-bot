@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import asyncio
+import inspect
 import unittest
 from unittest import mock
 
@@ -65,10 +66,26 @@ class FakeEmbed:
 class FakeSendChannel:
     def __init__(self):
         self.sent = []
+        self.id = 123
+        self.name = "test-feed"
 
     async def send(self, **kwargs):
         self.sent.append(kwargs)
         return type("SentMessage", (), {"id": 123})()
+
+
+class FlakySendChannel(FakeSendChannel):
+    def __init__(self, failures=1, status=503):
+        super().__init__()
+        self.failures = failures
+        self.status = status
+        self.attempts = 0
+
+    async def send(self, **kwargs):
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise bot.discord.HTTPException("temporary Discord failure", status=self.status)
+        return await super().send(**kwargs)
 
 
 class FakeGuild:
@@ -125,6 +142,93 @@ class ChannelMatchingTests(unittest.TestCase):
         asyncio.run(bot.send_feed_embed("guild-1", "disconnects", channel, embed, context="disconnect"))
 
         self.assertEqual(bot.POWERED_BY_FOOTER_TEXT, channel.sent[0]["embed"].footer.text)
+
+    def test_send_feed_embed_retries_transient_discord_failure(self):
+        channel = FlakySendChannel(failures=1, status=503)
+
+        async def run():
+            with mock.patch.object(bot.asyncio, "sleep", new_callable=mock.AsyncMock):
+                return await bot.send_feed_embed(
+                    "guild-1",
+                    "connections",
+                    channel,
+                    FakeEmbed(),
+                    context="connect",
+                )
+
+        message = asyncio.run(run())
+
+        self.assertIsNotNone(message)
+        self.assertEqual(2, channel.attempts)
+        self.assertEqual(1, len(channel.sent))
+
+    def test_send_feed_embed_does_not_retry_permanent_discord_http_failure(self):
+        channel = FlakySendChannel(failures=3, status=400)
+
+        async def run():
+            with mock.patch.object(bot.asyncio, "sleep", new_callable=mock.AsyncMock) as sleep:
+                message = await bot.send_feed_embed(
+                    "guild-1",
+                    "connections",
+                    channel,
+                    FakeEmbed(),
+                    context="connect",
+                )
+                sleep.assert_not_awaited()
+                return message
+
+        self.assertIsNone(asyncio.run(run()))
+        self.assertEqual(1, channel.attempts)
+
+    def test_core_presence_feed_survives_optional_dashboard_failure(self):
+        guild_id = "guild-presence"
+        channel = FakeSendChannel()
+        bot.ensure_guild_runtime(guild_id)
+        bot.online_players[guild_id] = {"PaleSr8"}
+
+        async def run():
+            with mock.patch.object(
+                bot,
+                "upsert_online_dashboard_message",
+                new=mock.AsyncMock(side_effect=RuntimeError("optional dashboard failure")),
+            ):
+                return await bot.send_core_adm_presence_feed(
+                    guild_id,
+                    {},
+                    "connect",
+                    "PaleSr8",
+                    bot.datetime.now(bot.UTC),
+                    channel,
+                )
+
+        self.assertTrue(asyncio.run(run()))
+        self.assertEqual(1, len(channel.sent))
+
+    def test_parse_adm_delivers_presence_before_optional_processing(self):
+        source = inspect.getsource(bot.parse_adm)
+        presence_index = source.index("presence_sent = await send_core_adm_presence_feed")
+
+        self.assertLess(presence_index, source.index('print(f"EVENT:', presence_index))
+        self.assertLess(presence_index, source.index("schedule_link_enforcement_check", presence_index))
+        self.assertLess(presence_index, source.index("note_player_alive", presence_index))
+
+    def test_failed_adm_delivery_can_be_removed_from_both_dedupe_caches(self):
+        guild_id = "guild-retry"
+        line_hash = "line-hash"
+        fingerprint = "event-fingerprint"
+        bot.ensure_guild_runtime(guild_id)
+        bot.processed_lines[guild_id][line_hash] = None
+        bot.processed_adm_events[guild_id][fingerprint] = None
+
+        with mock.patch.object(bot, "save_processed_adm_lines"), mock.patch.object(
+            bot,
+            "save_processed_adm_events",
+        ):
+            self.assertTrue(bot.forget_processed_line(guild_id, line_hash))
+            self.assertTrue(bot.forget_processed_adm_event(guild_id, fingerprint))
+
+        self.assertNotIn(line_hash, bot.processed_lines[guild_id])
+        self.assertNotIn(fingerprint, bot.processed_adm_events[guild_id])
 
     def test_nitrado_ban_feed_matches_decorated_renamed_original(self):
         channel = FakeChannel("nitrado-ban", 100)

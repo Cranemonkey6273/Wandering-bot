@@ -7670,42 +7670,84 @@ def live_leaderboard_channel_route(config):
     return "", None
 
 
+def _discord_send_is_retryable(error):
+    status = getattr(error, "status", None)
+    if status is None:
+        return True
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        return True
+    return status == 429 or status >= 500
+
+
 async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False, context="", **send_kwargs):
     if not channel:
         return None
-    try:
-        payload = style_embed(embed) if style else embed
-        normalize_embed_footer(payload)
-        return await channel.send(embed=payload, **send_kwargs)
-    except discord.Forbidden as err:
-        if _feed_route_should_log(guild_id, channel_key, "missing_access", seconds=60):
-            channel_id = getattr(channel, "id", "unknown")
-            channel_name = getattr(channel, "name", channel_id)
-            detail = f" during {context}" if context else ""
-            print(
-                f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
-                f"missing Discord access{detail}; skipped feed post: {err}"
-            )
-        return None
-    except discord.NotFound as err:
-        if _feed_route_should_log(guild_id, channel_key, "not_found", seconds=60):
-            channel_id = getattr(channel, "id", "unknown")
-            channel_name = getattr(channel, "name", channel_id)
-            print(
-                f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
-                f"could not be found; skipped feed post: {err}"
-            )
-        return None
-    except discord.HTTPException as err:
-        if _feed_route_should_log(guild_id, channel_key, "http_error", seconds=60):
-            channel_id = getattr(channel, "id", "unknown")
-            channel_name = getattr(channel, "name", channel_id)
-            detail = f" during {context}" if context else ""
-            print(
-                f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
-                f"Discord send failed{detail}; skipped feed post: {err}"
-            )
-        return None
+    payload = style_embed(embed) if style else embed
+    normalize_embed_footer(payload)
+    retry_delays = (1.0, 3.0)
+    total_attempts = len(retry_delays) + 1
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            return await channel.send(embed=payload, **send_kwargs)
+        except discord.Forbidden as err:
+            if _feed_route_should_log(guild_id, channel_key, "missing_access", seconds=60):
+                channel_id = getattr(channel, "id", "unknown")
+                channel_name = getattr(channel, "name", channel_id)
+                detail = f" during {context}" if context else ""
+                print(
+                    f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                    f"missing Discord access{detail}; skipped feed post: {err}"
+                )
+            return None
+        except discord.NotFound as err:
+            if _feed_route_should_log(guild_id, channel_key, "not_found", seconds=60):
+                channel_id = getattr(channel, "id", "unknown")
+                channel_name = getattr(channel, "name", channel_id)
+                print(
+                    f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                    f"could not be found; skipped feed post: {err}"
+                )
+            return None
+        except discord.HTTPException as err:
+            should_retry = _discord_send_is_retryable(err) and attempt < total_attempts
+            if should_retry:
+                if _feed_route_should_log(guild_id, channel_key, f"http_retry_{attempt}", seconds=60):
+                    channel_id = getattr(channel, "id", "unknown")
+                    channel_name = getattr(channel, "name", channel_id)
+                    detail = f" during {context}" if context else ""
+                    print(
+                        f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                        f"Discord send failed{detail}; retrying ({attempt}/{total_attempts}): {err}"
+                    )
+                await asyncio.sleep(retry_delays[attempt - 1])
+                continue
+            if _feed_route_should_log(guild_id, channel_key, "http_error", seconds=60):
+                channel_id = getattr(channel, "id", "unknown")
+                channel_name = getattr(channel, "name", channel_id)
+                detail = f" during {context}" if context else ""
+                print(
+                    f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                    f"Discord send failed{detail} after {attempt} attempt(s); skipped feed post: {err}"
+                )
+            return None
+        except (asyncio.TimeoutError, OSError) as err:
+            if attempt < total_attempts:
+                await asyncio.sleep(retry_delays[attempt - 1])
+                continue
+            if _feed_route_should_log(guild_id, channel_key, "network_error", seconds=60):
+                channel_id = getattr(channel, "id", "unknown")
+                channel_name = getattr(channel, "name", channel_id)
+                detail = f" during {context}" if context else ""
+                print(
+                    f"[FEED ROUTE] {guild_id} #{channel_name} ({channel_id}) "
+                    f"network send failed{detail} after {attempt} attempts; skipped feed post: {err}"
+                )
+            return None
+
+    return None
 
 
 def set_channel_key_disabled(config, key, disabled=True):
@@ -13313,6 +13355,15 @@ def remember_processed_line(guild_id, line_hash):
     save_processed_adm_lines()
 
 
+def forget_processed_line(guild_id, line_hash):
+    ensure_guild_runtime(guild_id)
+    existed = line_hash in processed_lines[guild_id]
+    processed_lines[guild_id].pop(line_hash, None)
+    if existed:
+        save_processed_adm_lines()
+    return existed
+
+
 def remember_processed_adm_event(guild_id, fingerprint):
     ensure_guild_runtime(guild_id)
     cache = processed_adm_events[guild_id]
@@ -13323,6 +13374,15 @@ def remember_processed_adm_event(guild_id, fingerprint):
     while len(cache) > PROCESSED_ADM_EVENT_CACHE_LIMIT:
         cache.popitem(last=False)
     save_processed_adm_events()
+
+
+def forget_processed_adm_event(guild_id, fingerprint):
+    ensure_guild_runtime(guild_id)
+    existed = fingerprint in processed_adm_events[guild_id]
+    processed_adm_events[guild_id].pop(fingerprint, None)
+    if existed:
+        save_processed_adm_events()
+    return existed
 
 
 def is_processed_adm_event(guild_id, fingerprint):
@@ -18451,6 +18511,98 @@ def create_feed_embed(title, color, player=None, details=None, weapon=None, coor
 
     return style_embed(embed)
 
+
+async def send_core_adm_presence_feed(
+    guild_id,
+    config,
+    event_type,
+    player_name,
+    event_time,
+    channel,
+    *,
+    coords=None,
+    session_started=None,
+):
+    if not channel:
+        return True
+
+    if event_type == "connect":
+        embed = discord.Embed(
+            title="🟢🎮 SURVIVOR CONNECTED",
+            description=f"**{player_name}** just spawned in. Watch your six.",
+            color=0x2ECC71,
+        )
+        embed.add_field(name="👤 Survivor", value=f"**{player_name}**", inline=True)
+        embed.add_field(name="📡 Status", value="🟢 Online", inline=True)
+        channel_key = "connections"
+        context = "connect"
+        dashboard_reason = f"{player_name} joined"
+    else:
+        embed = discord.Embed(
+            title="🔴📴 SURVIVOR DISCONNECTED",
+            description=f"**{player_name}** is logging off. Stay alert — log-out doesn't mean safe.",
+            color=0xE74C3C,
+        )
+        embed.add_field(name="👤 Survivor", value=f"**{player_name}**", inline=True)
+        channel_key = "disconnects"
+        context = "disconnect"
+        dashboard_reason = f"{player_name} left"
+
+    embed.add_field(
+        name="👥 Players Online",
+        value=f"**{len(online_players[guild_id])}**",
+        inline=True,
+    )
+
+    if event_type == "disconnect":
+        started_at = _as_utc_datetime(session_started)
+        if started_at:
+            duration = max(0, int(((event_time or datetime.now(UTC)) - started_at).total_seconds()))
+            if duration >= 60:
+                embed.add_field(name="⏱️ Session Length", value=format_duration(duration), inline=True)
+
+        try:
+            spree_entry = (alive_streaks.get(str(guild_id)) or {}).get(player_name) or {}
+            current_spree = int(spree_entry.get("current_spree", 0) or 0)
+            best_spree = int(spree_entry.get("best_spree", 0) or 0)
+            if current_spree >= 1 or best_spree >= 3:
+                embed.add_field(
+                    name="🔫 Kill Spree",
+                    value=f"This life: **{current_spree}** • Personal best: **{best_spree}**",
+                    inline=True,
+                )
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+        if coords:
+            map_link = build_izurvive_link(coords, guild_id)
+            if map_link:
+                embed.add_field(
+                    name="📍 Last Known Location",
+                    value=f"[🔵 Open Map](<{map_link}>)",
+                    inline=False,
+                )
+
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
+    embed.timestamp = event_time or datetime.now(UTC)
+
+    message = await send_feed_embed(
+        guild_id,
+        channel_key,
+        channel,
+        embed,
+        context=context,
+    )
+    if message is None:
+        return False
+
+    try:
+        await upsert_online_dashboard_message(guild_id, config, dashboard_reason)
+    except Exception as dashboard_error:
+        print(f"[ONLINE BOARD] update failed after {event_type} for {player_name}: {dashboard_error}")
+    return True
+
 # =========================================================
 # ADM PARSER
 # =========================================================
@@ -18550,6 +18702,11 @@ async def parse_adm(guild_id, config):
         if event_type in {"connect", "disconnect"} and is_online_state_event_before_latest_restart(guild_id, config, event_time):
             continue
 
+        state_player_name = extract_player_name(line) if event_type in {"connect", "disconnect"} else ""
+        session_started = None
+        if event_type == "disconnect" and state_player_name and state_player_name != "Unknown":
+            session_started = player_online_times[guild_id].get(state_player_name)
+
         changed_online, state_event_type, state_player_name = remember_online_state_from_adm_line(
             guild_id,
             line,
@@ -18560,6 +18717,27 @@ async def parse_adm(guild_id, config):
             online_state_changed = True
             if state_player_name:
                 online_state_reason = f"{state_player_name} {'joined' if state_event_type == 'connect' else 'left'}"
+
+        if event_type in {"connect", "disconnect"} and state_player_name and state_player_name != "Unknown":
+            presence_channel = connect_channel if event_type == "connect" else disconnect_channel
+            presence_sent = await send_core_adm_presence_feed(
+                guild_id,
+                config,
+                event_type,
+                state_player_name,
+                event_time,
+                presence_channel,
+                coords=extract_adm_coords(line),
+                session_started=session_started,
+            )
+            if not presence_sent:
+                forget_processed_line(guild_id, line_hash)
+                forget_processed_adm_event(guild_id, event_fingerprint)
+                print(
+                    f"[ADM DELIVERY] {guild_id} {event_type} for {state_player_name} "
+                    "will retry on the next ADM scan"
+                )
+                continue
 
         if event_type == "kill":
             kill_details = extract_pvp_kill_details(line)
@@ -18610,20 +18788,11 @@ async def parse_adm(guild_id, config):
         # ================= CONNECT =================
 
         if event_type == "connect":
-
-            player_match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            player_name = (
-                player_match.group(1)
-                if player_match else "Unknown"
-            )
-
-            online_players[guild_id].add(player_name)
-            player_online_times[guild_id][player_name] = datetime.now(UTC)
-            schedule_link_enforcement_check(guild_id, player_name)
+            player_name = state_player_name or extract_player_name(line)
+            try:
+                schedule_link_enforcement_check(guild_id, player_name)
+            except Exception as enforcement_error:
+                print(f"[LINK ENFORCEMENT] schedule failed for {player_name}: {enforcement_error}")
 
             # 👋 Welcome embed for any gamertag we've never seen before.
             # Posts in the connect channel right under the connect feed.
@@ -18693,7 +18862,11 @@ async def parse_adm(guild_id, config):
                         print(f"[SQUAD INBOUND] post failed: {squad_err}")
 
             # Survival-streak: mark player alive today + announce milestones
-            streak_entry = note_player_alive(guild_id, player_name, event_time=event_time)
+            try:
+                streak_entry = note_player_alive(guild_id, player_name, event_time=event_time)
+            except Exception as streak_error:
+                print(f"[STREAK] update failed for {player_name}: {streak_error}")
+                streak_entry = None
             if streak_entry:
                 milestone = get_streak_milestone(int(streak_entry.get("current_days", 0) or 0))
                 if milestone and should_announce_survival_milestone(streak_entry, milestone, event_time=event_time):
@@ -18713,142 +18886,13 @@ async def parse_adm(guild_id, config):
                         except Exception as milestone_err:
                             print(f"[STREAK] milestone post failed: {milestone_err}")
 
-            embed = discord.Embed(
-                title="🟢🎮 SURVIVOR CONNECTED",
-                description=f"**{player_name}** just spawned in. Watch your six.",
-                color=0x2ECC71
-            )
-
-            embed.add_field(
-                name="👤 Survivor",
-                value=f"**{player_name}**",
-                inline=True
-            )
-            embed.add_field(
-                name="📡 Status",
-                value="🟢 Online",
-                inline=True,
-            )
-            online_count = len(online_players[guild_id])
-            embed.add_field(
-                name="👥 Players Online",
-                value=f"**{online_count}**",
-                inline=True,
-            )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            embed.set_footer(
-                text="Wandering Bot Alpha • 🎮 Live Connection Feed"
-            )
-
-            embed.timestamp = event_time
-
-            if connect_channel:
-                await send_feed_embed(guild_id, "connections", connect_channel, embed, context="connect")
-
-            await upsert_online_dashboard_message(guild_id, config, f"{player_name} joined")
-
             # Welcome channel messaging for in-game connects removed.
             # Welcome messages are only for Discord member joins.
 
         # ================= DISCONNECT =================
 
         elif event_type == "disconnect":
-
-            player_match = re.search(
-                r'Player "([^"]+)"',
-                line
-            )
-
-            player_name = (
-                player_match.group(1)
-                if player_match else "Unknown"
-            )
-
-            coords_match = re.search(
-                r'pos=<([^>]+)>',
-                line
-            )
-
-            coords = (
-                coords_match.group(1)
-                if coords_match else None
-            )
-
-            # ─── 💀 Session recap on disconnect ───────────────────
-            session_started = player_online_times[guild_id].get(player_name)
-
-            if player_name in online_players[guild_id]:
-                online_players[guild_id].remove(player_name)
-
-            if player_name in player_online_times[guild_id]:
-                del player_online_times[guild_id][player_name]
-
-            embed = discord.Embed(
-                title="🔴📴 SURVIVOR DISCONNECTED",
-                description=f"**{player_name}** is logging off. Stay alert — log-out doesn't mean safe.",
-                color=0xE74C3C
-            )
-
-            embed.add_field(
-                name="👤 Survivor",
-                value=f"**{player_name}**",
-                inline=True
-            )
-            online_count = len(online_players[guild_id])
-            embed.add_field(
-                name="👥 Players Online",
-                value=f"**{online_count}**",
-                inline=True,
-            )
-
-            if session_started:
-                try:
-                    duration = int((datetime.now(UTC) - session_started).total_seconds())
-                    if duration >= 60:
-                        embed.add_field(
-                            name="⏱️ Session Length",
-                            value=format_duration(duration),
-                            inline=True,
-                        )
-                except Exception:
-                    pass
-            # Show player's current alive-streak summary if non-trivial
-            spree_entry = (alive_streaks.get(str(guild_id)) or {}).get(player_name) or {}
-            current_spree = int(spree_entry.get("current_spree", 0) or 0)
-            best_spree = int(spree_entry.get("best_spree", 0) or 0)
-            if current_spree >= 1 or best_spree >= 3:
-                embed.add_field(
-                    name="🔫 Kill Spree",
-                    value=f"This life: **{current_spree}** • Personal best: **{best_spree}**",
-                    inline=True,
-                )
-
-            if coords:
-
-                map_link = build_izurvive_link(coords, guild_id)
-
-                if map_link:
-
-                    embed.add_field(
-                        name="📍 Last Known Location",
-                        value=f"[🔵 Open Map](<{map_link}>)",
-                        inline=False
-                    )
-
-            embed.set_thumbnail(url=BOT_IMAGE)
-
-            embed.set_footer(
-                text="Wandering Bot Alpha • Disconnect Feed"
-            )
-
-            embed.timestamp = event_time
-
-            if disconnect_channel:
-                await send_feed_embed(guild_id, "disconnects", disconnect_channel, embed, context="disconnect")
-
-            await upsert_online_dashboard_message(guild_id, config, f"{player_name} left")
+            continue
 
         # ================= BUILD =================
 
