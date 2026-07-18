@@ -76,6 +76,50 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
+        base_config = {
+            "server_map": "chernarus",
+            "radar_zones": [
+                {"id": "nwaf", "name": "North West Airfield", "x": 7500, "z": 7500},
+            ],
+        }
+        profile_config = {"server_map": "chernarus"}
+
+        copied = dashboard.dashboard_copy_legacy_zones_to_profile_if_needed(
+            base_config,
+            profile_config,
+            "chernarus",
+        )
+        copied_again = dashboard.dashboard_copy_legacy_zones_to_profile_if_needed(
+            base_config,
+            profile_config,
+            "chernarus",
+        )
+
+        self.assertTrue(copied)
+        self.assertFalse(copied_again)
+        self.assertEqual("North West Airfield", profile_config["radar_zones"][0]["name"])
+        self.assertEqual("North West Airfield", base_config["radar_zones"][0]["name"])
+        self.assertIn("legacy_zones_restored_at", profile_config)
+
+    def test_legacy_zones_are_not_copied_to_different_map_profile(self):
+        base_config = {
+            "server_map": "chernarus",
+            "radar_zones": [
+                {"id": "nwaf", "name": "North West Airfield", "x": 7500, "z": 7500},
+            ],
+        }
+        profile_config = {"server_map": "livonia"}
+
+        copied = dashboard.dashboard_copy_legacy_zones_to_profile_if_needed(
+            base_config,
+            profile_config,
+            "livonia",
+        )
+
+        self.assertFalse(copied)
+        self.assertNotIn("radar_zones", profile_config)
+
     def test_mobile_app_welcome_explains_install_setup_and_password_reset(self):
         template = dashboard.APP_WELCOME_TEMPLATE
 
@@ -278,6 +322,65 @@ class DashboardServerControlTests(unittest.TestCase):
         with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
             self.assertTrue(dashboard.dashboard_feature_allowed(config, "pve_quests"))
             self.assertTrue(dashboard.dashboard_feature_allowed(config, "ai_agent"))
+
+    def test_manual_feature_checkboxes_override_owner_tier(self):
+        config = {
+            "dashboard": {
+                "enabled": True,
+                "tier": "owner",
+                "plan_status": "lifetime",
+                "feature_mode": "manual",
+                "features": {
+                    "leaderboards": True,
+                    "economy": True,
+                    "heatmaps": True,
+                    "safe_zones": False,
+                    "ai_agent": False,
+                },
+            }
+        }
+
+        self.assertTrue(dashboard.dashboard_feature_allowed(config, "heatmaps"))
+        self.assertFalse(dashboard.dashboard_feature_allowed(config, "safe_zones"))
+        self.assertFalse(dashboard.dashboard_feature_allowed(config, "ai_agent"))
+
+    def test_guild_access_save_records_manual_checkbox_mode(self):
+        saved = {}
+        payload = {
+            "guild_id": "1149812840564277350",
+            "enabled": "true",
+            "plan_preset": "",
+            "tier": "owner",
+            "plan_status": "lifetime",
+            "features_present": "true",
+            "feature_leaderboards": "on",
+            "feature_economy": "on",
+            "feature_heatmaps": "on",
+            "feature_pve_quests": "on",
+            "feature_server_rules": "on",
+        }
+
+        def fake_save(name, data):
+            saved[name] = data
+
+        with (
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "request_payload", return_value=payload),
+            patch.object(dashboard, "load_store", return_value={}),
+            patch.object(dashboard, "save_store", side_effect=fake_save),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _payload, body, *_args: body),
+        ):
+            response = dashboard.api_guild_access()
+
+        access = saved["guild_configs"]["1149812840564277350"]["dashboard"]
+        self.assertTrue(response["ok"])
+        self.assertEqual("manual", access["feature_mode"])
+        self.assertEqual("owner", access["tier"])
+        self.assertEqual("lifetime", access["plan_status"])
+        self.assertTrue(access["features"]["heatmaps"])
+        self.assertFalse(access["features"]["safe_zones"])
+        self.assertTrue(dashboard.dashboard_feature_allowed({"dashboard": access}, "heatmaps"))
+        self.assertFalse(dashboard.dashboard_feature_allowed({"dashboard": access}, "safe_zones"))
 
     def test_manual_channel_id_accepts_channel_mentions_and_wins_over_dropdown(self):
         channel_id, manual, error = dashboard.dashboard_channel_id_from_payload({

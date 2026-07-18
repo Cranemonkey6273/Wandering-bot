@@ -4578,6 +4578,29 @@ ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS = {
     "livo": ("livo", "livonia"),
     "bot": ("bot", "support"),
 }
+ONBOARDING_CHOICE_WELCOME_SAFE_TOKENS = ("welcome", "support", "help", "start")
+ONBOARDING_CHOICE_WELCOME_UNSAFE_TOKENS = (
+    "admin",
+    "audit",
+    "build",
+    "connect",
+    "damage",
+    "disconnect",
+    "event",
+    "feed",
+    "flag",
+    "heatmap",
+    "kill",
+    "leaderboard",
+    "log",
+    "pvp",
+    "radar",
+    "raid",
+    "rpt",
+    "spawn",
+    "suicide",
+    "zombie",
+)
 
 
 def member_onboarding_settings(config):
@@ -4654,6 +4677,25 @@ def resolve_onboarding_channel(guild, config, settings, prefix, fallback_key="we
     if configured_id:
         return guild.get_channel(int(configured_id))
     return None
+
+
+def is_safe_onboarding_choice_welcome_channel(channel):
+    name_key = normalize_discord_name(getattr(channel, "name", ""))
+    if not name_key:
+        return False
+    if any(token in name_key for token in ONBOARDING_CHOICE_WELCOME_UNSAFE_TOKENS):
+        return False
+    return any(token in name_key for token in ONBOARDING_CHOICE_WELCOME_SAFE_TOKENS)
+
+
+def is_matching_onboarding_choice_welcome_channel(channel, choice_key):
+    if not is_safe_onboarding_choice_welcome_channel(channel):
+        return False
+    tokens = ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS.get(str(choice_key or "").strip().lower(), ())
+    if not tokens:
+        return False
+    name_key = normalize_discord_name(getattr(channel, "name", ""))
+    return any(token in name_key for token in tokens)
 
 
 def resolve_onboarding_role(guild, role_id):
@@ -4891,12 +4933,11 @@ async def onboarding_member_from_payload(guild, payload):
 
 
 def find_onboarding_choice_welcome_channel(guild, choice_key):
-    tokens = ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS.get(str(choice_key or "").strip().lower(), ())
-    if not tokens:
+    choice_key = str(choice_key or "").strip().lower()
+    if choice_key not in ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS:
         return None
     for channel in getattr(guild, "text_channels", []) or []:
-        name_key = normalize_discord_name(getattr(channel, "name", ""))
-        if "welcome" in name_key and any(token in name_key for token in tokens):
+        if is_matching_onboarding_choice_welcome_channel(channel, choice_key):
             return channel
     return None
 
@@ -4907,7 +4948,13 @@ def resolve_onboarding_choice_welcome_channel(guild, config, settings, choice):
         return None
     channel = resolve_onboarding_channel(guild, config, settings, f"choice_{choice_key}_welcome", "")
     if channel:
-        return channel
+        if is_safe_onboarding_choice_welcome_channel(channel):
+            return channel
+        print(
+            "[ONBOARDING] refusing configured "
+            f"{choice_key} welcome channel #{getattr(channel, 'name', channel)}; "
+            "channel name looks like a feed/event/log channel"
+        )
     return find_onboarding_choice_welcome_channel(guild, choice_key)
 
 

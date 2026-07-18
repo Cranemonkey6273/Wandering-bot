@@ -280,6 +280,42 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertIn("✅", rules_message.added_reactions)
         self.assertEqual(["🔴", "🔵", "🤖"], choice_message.added_reactions)
 
+    def test_onboarding_choice_welcome_refuses_feed_or_event_channel(self):
+        event_channel = FakeFetchChannel("LiVo-eVeNt-sPAWNs", 30, [])
+        guild = FakeOnboardingGuild([event_channel])
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_livo_welcome_channel_id": "30",
+            }
+        }
+        settings = bot.member_onboarding_settings(config)
+
+        channel = bot.resolve_onboarding_choice_welcome_channel(
+            guild,
+            config,
+            settings,
+            {"key": "livo", "label": "Livo"},
+        )
+
+        self.assertIsNone(channel)
+
+    def test_onboarding_choice_welcome_finds_matching_safe_channel(self):
+        event_channel = FakeFetchChannel("LiVo-eVeNt-sPAWNs", 30, [])
+        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
+        guild = FakeOnboardingGuild([event_channel, welcome_channel])
+        config = {"member_onboarding": {"enabled": True}}
+        settings = bot.member_onboarding_settings(config)
+
+        channel = bot.resolve_onboarding_choice_welcome_channel(
+            guild,
+            config,
+            settings,
+            {"key": "livo", "label": "Livo"},
+        )
+
+        self.assertIs(channel, welcome_channel)
+
     def test_failed_adm_delivery_can_be_removed_from_both_dedupe_caches(self):
         guild_id = "guild-retry"
         line_hash = "line-hash"

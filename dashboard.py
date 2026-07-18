@@ -19298,9 +19298,11 @@ def dashboard_plan_features_for_access(access: Any) -> dict[str, bool]:
 
 def dashboard_effective_features(access: Any) -> dict[str, bool]:
     access = access if isinstance(access, dict) else {}
+    stored = access.get("features") if isinstance(access.get("features"), dict) else {}
+    if str(access.get("feature_mode") or "").strip().lower() == "manual" and stored:
+        return {key: safe_bool(stored.get(key), False) for key in DASHBOARD_FEATURE_KEYS}
     effective = {key: False for key in DASHBOARD_FEATURE_KEYS}
     effective.update(dashboard_plan_features_for_access(access))
-    stored = access.get("features") if isinstance(access.get("features"), dict) else {}
     for key in DASHBOARD_FEATURE_KEYS:
         if key in stored:
             effective[key] = safe_bool(stored.get(key), False)
@@ -28250,6 +28252,47 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
     return normalized
 
 
+ZONE_LIST_KEYS = ("zones", "safe_zones", "radar_zones")
+
+
+def dashboard_zone_record_count(config: Any) -> int:
+    if not isinstance(config, dict):
+        return 0
+    total = 0
+    for key in ZONE_LIST_KEYS:
+        records = config.get(key)
+        if isinstance(records, list):
+            total += len([record for record in records if isinstance(record, dict)])
+    return total
+
+
+def dashboard_copy_legacy_zones_to_profile_if_needed(base_config: Any, profile_config: Any, profile_map: Any) -> bool:
+    if not isinstance(base_config, dict) or not isinstance(profile_config, dict):
+        return False
+    if profile_config.get("legacy_zones_restored_at"):
+        return False
+    if dashboard_zone_record_count(profile_config):
+        return False
+    if not dashboard_zone_record_count(base_config):
+        return False
+
+    base_map = str(base_config.get("server_map") or base_config.get("map") or "chernarus")
+    if map_key_for(base_map) != map_key_for(str(profile_map or base_map)):
+        return False
+
+    copied = False
+    for key in ZONE_LIST_KEYS:
+        records = base_config.get(key)
+        if isinstance(records, list) and records:
+            profile_config[key] = copy.deepcopy(records)
+            copied = True
+    if not copied:
+        return False
+    profile_config["legacy_zones_restored_at"] = datetime.now(UTC).isoformat()
+    profile_config["legacy_zones_restored_from"] = "guild"
+    return True
+
+
 def heatmap_summary(heatmap: Any, guild_id: str) -> dict[str, Any]:
     raw = guild_block(heatmap, guild_id, {}) if isinstance(heatmap, dict) else {}
     if not isinstance(raw, dict):
@@ -28833,6 +28876,24 @@ def page(mode: str, auth: dict[str, Any]):
         profile_config = selected_dayz_profile.get("config") if isinstance(selected_dayz_profile.get("config"), dict) else {}
         profile_channels = selected_dayz_profile.get("channels") if isinstance(selected_dayz_profile.get("channels"), list) else []
         profile_map = str(selected_dayz_profile.get("map") or profile_config.get("server_map") or profile_config.get("map") or selected_server.get("map") or "chernarus")
+        guild_id_for_zones = normalize_guild_id(selected_server.get("guild_id") or "")
+        if guild_id_for_zones and selected_dayz_profile_id:
+            guild_configs_for_zones = load_store("guild_configs", {})
+            if isinstance(guild_configs_for_zones, dict):
+                live_base_config = guild_configs_for_zones.get(guild_id_for_zones)
+                live_profiles = dashboard_server_profile_store(live_base_config)
+                live_profile_config = live_profiles.get(selected_dayz_profile_id) if isinstance(live_profiles, dict) else None
+                if isinstance(live_base_config, dict) and isinstance(live_profile_config, dict):
+                    live_profile_map = str(
+                        live_profile_config.get("server_map")
+                        or live_profile_config.get("map")
+                        or profile_map
+                    )
+                    if dashboard_copy_legacy_zones_to_profile_if_needed(live_base_config, live_profile_config, live_profile_map):
+                        live_base_config["updated_at"] = datetime.now(UTC).isoformat()
+                        save_store("guild_configs", guild_configs_for_zones)
+                        sync_runtime_store("guild_configs", guild_configs_for_zones)
+                        profile_config = live_profile_config
         profile_factions = selected_server.get("factions") if isinstance(selected_server.get("factions"), dict) else {}
         selected_server = dict(selected_server)
         selected_server["config"] = profile_config
@@ -34662,8 +34723,10 @@ def api_guild_access():
     access["allowed_role_ids"] = [str(item) for item in role_ids if item]
     access["allowed_user_ids"] = [str(item) for item in user_ids if item]
     if selected_plan:
+        access["feature_mode"] = "preset"
         access["features"] = {key: safe_bool((selected_plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
     else:
+        access["feature_mode"] = "manual"
         fallback_features = access.get("features") if isinstance(access.get("features"), dict) else {}
         if not fallback_features:
             fallback_features = tier_plan.get("features") if isinstance(tier_plan.get("features"), dict) else {}
