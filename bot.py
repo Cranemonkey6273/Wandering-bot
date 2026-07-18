@@ -20565,6 +20565,23 @@ def dashboard_audit_channel_label(guild, config, value):
     return "Unknown channel" if text.isdigit() else text.replace("_", " ").title()
 
 
+def dashboard_audit_event_config(event, guild):
+    base_config = guild_configs.get(str(getattr(guild, "id", "")), {})
+    if not isinstance(base_config, dict):
+        return {}
+    payload = event.get("payload") if isinstance(event, dict) else {}
+    if not isinstance(payload, dict):
+        return base_config
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), default="")
+    profiles = base_config.get("server_profiles")
+    profile = profiles.get(profile_id) if profile_id and isinstance(profiles, dict) else None
+    if not isinstance(profile, dict):
+        return base_config
+    merged = dict(base_config)
+    merged.update(profile)
+    return merged
+
+
 def dashboard_audit_detail_label(key):
     text = str(key or "").strip()
     replacements = {
@@ -20652,6 +20669,7 @@ def format_dashboard_audit_details(payload, guild=None, config=None):
         "guild_id",
         "server_id",
         "discord_guild_id",
+        "radius_slider",
     }
     config = config if isinstance(config, dict) else {}
     lines = []
@@ -21132,7 +21150,7 @@ MONEY_DASHBOARD_ROUTES = {
 
 
 def build_dashboard_audit_embed(event, guild):
-    config = guild_configs.get(str(getattr(guild, "id", "")), {})
+    config = dashboard_audit_event_config(event, guild)
     title = discord.utils.escape_mentions(str(event.get("title") or "Dashboard change confirmed"))
     summary = discord.utils.escape_mentions(format_dashboard_audit_summary_text(event.get("summary")))
     created_ts = dashboard_audit_timestamp(event.get("created_at"))

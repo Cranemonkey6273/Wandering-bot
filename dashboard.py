@@ -7698,7 +7698,8 @@ PAGE_TEMPLATE = """
             <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="3000" step="10" value="{{ edit_zone.radius }}" data-zone-radius-slider></label>
             <label>Ping / report channel
               <select name="channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if (edit_zone.channel_key and (channel.value == edit_zone.channel_key or channel.id == edit_zone.channel_key)) or (not edit_zone.id and not edit_zone.channel_key and (channel.key == 'radar' or channel.key == 'pvp_intel')) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                <option value="" {% if not edit_zone.channel_key %}selected{% endif %}>No ping / report channel</option>
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if edit_zone.channel_key and (channel.value == edit_zone.channel_key or channel.id == edit_zone.channel_key) %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Ping role
@@ -32888,7 +32889,8 @@ def api_zone():
     z_value = next((value for value in (payload.get("z"), payload.get("y")) if value not in (None, "")), 0)
     z = max(0, min(map_size, safe_int(z_value)))
     y = z
-    radius = max(1, safe_int(payload.get("radius"), 250))
+    radius_value = next((value for value in (payload.get("radius_slider"), payload.get("radius")) if value not in (None, "")), 250)
+    radius = max(10, min(map_size, safe_int(radius_value, 250)))
     shape = str(payload.get("shape") or "circle").strip().lower()
     if shape not in {"circle", "boundary"}:
         return jsonify({"ok": False, "error": "shape must be circle or boundary"}), 400
@@ -32972,6 +32974,32 @@ def api_zone():
     if not replaced:
         target.append(radar_record)
     save_store("guild_configs", guild_configs)
+    audit_payload = {
+        "guild_id": guild_id,
+        "server_profile_id": profile_id,
+        "name": name,
+        "zone_type": zone_type,
+        "shape": shape,
+        "x": x,
+        "y": y,
+        "radius": radius,
+        "enabled": radar_record.get("enabled"),
+    }
+    if channel_id:
+        audit_payload["channel_id"] = channel_id
+    elif channel_key:
+        audit_payload["channel_key"] = channel_key
+    if role_id:
+        audit_payload["role_id"] = role_id
+    if faction_name:
+        audit_payload["faction_name"] = faction_name
+    if ignored_gamertags:
+        audit_payload["ignored_gamertags"] = ignored_gamertags
+    if zone_type in {"safe", "pvp", "action"}:
+        audit_payload["action"] = radar_record.get("action")
+        audit_payload["ban_type"] = radar_record.get("ban_type")
+        audit_payload["ban_duration_minutes"] = radar_record.get("ban_duration_minutes")
+    g.dashboard_audit_payload = audit_payload
     return dashboard_api_response(
         raw_payload,
         {"ok": True, "zone": radar_record, "note": "Saved zone for this server."},
