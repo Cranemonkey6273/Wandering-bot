@@ -27,6 +27,7 @@ class FakeMember:
         self.id = member_id
         self.bot = False
         self.guild = None
+        self.mention = f"<@{member_id}>"
         self.top_role = self.roles[-1] if self.roles else FakeRole("@everyone", 0)
         self.added_roles = []
         self.removed_roles = []
@@ -131,6 +132,7 @@ class FakeOnboardingGuild:
         self.roles = {int(role.id): role for role in (roles or [])}
         self.member = member
         self.id = 1234
+        self.owner_id = 1
         self.me = FakeMember([FakeRole("Bot", 999999)], member_id=999)
         self.me.guild = self
 
@@ -404,6 +406,77 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual([livo_role], member.removed_roles)
         self.assertFalse(bot.member_has_role_id(member, "102"))
+
+    def test_onboarding_rules_acceptance_reports_role_hierarchy_failure(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        member = FakeMember([], member_id=555)
+        next_channel = FakeFetchChannel("pick-server", 20, [])
+        audit_channel = FakeFetchChannel("dashboard-audit", 99, [])
+        guild = FakeOnboardingGuild(
+            [next_channel, audit_channel],
+            roles=[rules_role],
+            member=member,
+        )
+        guild.me.top_role = FakeRole("Bot", 50)
+        member.guild = guild
+        config = {
+            "channels": {"dashboard_audit": "99"},
+            "member_onboarding": {
+                "enabled": True,
+                "rules_role_id": "101",
+                "next_channel_id": "20",
+            },
+        }
+
+        handled = asyncio.run(bot.apply_member_onboarding_rules_acceptance(guild, config, member))
+
+        self.assertTrue(handled)
+        self.assertFalse(bot.member_has_role_id(member, "101"))
+        self.assertEqual(1, len(audit_channel.sent))
+        self.assertEqual(0, len(next_channel.sent))
+
+    def test_onboarding_choice_add_reports_role_hierarchy_failure_without_welcome(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        member = FakeMember([rules_role], member_id=555)
+        choice_channel = FakeFetchChannel("pick-server", 20, [])
+        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
+        audit_channel = FakeFetchChannel("dashboard-audit", 99, [])
+        guild = FakeOnboardingGuild(
+            [choice_channel, welcome_channel, audit_channel],
+            roles=[rules_role, livo_role],
+            member=member,
+        )
+        guild.me.top_role = FakeRole("Bot", 101)
+        member.guild = guild
+        config = {
+            "channels": {"dashboard_audit": "99"},
+            "member_onboarding": {
+                "enabled": True,
+                "choice_channel_id": "20",
+                "choice_message_id": "222",
+                "choice_require_rules": True,
+                "rules_role_id": "101",
+                "choice_livo_emoji": "ðŸ”µ",
+                "choice_livo_role_id": "102",
+                "choice_livo_welcome_channel_id": "31",
+                "choice_livo_welcome_message": "Welcome to Livo.",
+            },
+        }
+
+        handled = asyncio.run(
+            bot.apply_member_onboarding_server_choice(
+                guild,
+                config,
+                FakeReactionPayload(emoji="ðŸ”µ"),
+                remove=False,
+            )
+        )
+
+        self.assertTrue(handled)
+        self.assertFalse(bot.member_has_role_id(member, "102"))
+        self.assertEqual(1, len(audit_channel.sent))
+        self.assertEqual(0, len(welcome_channel.sent))
 
     def test_onboarding_rules_remove_strips_dependent_roles(self):
         rules_role = FakeRole("Rule Abider", 101)

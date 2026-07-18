@@ -4712,23 +4712,47 @@ def member_has_role_id(member, role_id):
     return any(str(getattr(role, "id", "")) == wanted for role in getattr(member, "roles", []) or [])
 
 
+def onboarding_role_label(guild, role_id):
+    role = resolve_onboarding_role(guild, role_id)
+    if role:
+        return f"@{getattr(role, 'name', role_id)} (`{getattr(role, 'id', role_id)}`)"
+    text = str(role_id or "").strip()
+    return f"`{text or 'not configured'}`"
+
+
+def onboarding_role_assignment_problem(member, role_id, *, action="add"):
+    role_id_text = str(role_id or "").strip()
+    if not role_id_text:
+        return "No role is configured for this onboarding step."
+    role = resolve_onboarding_role(member.guild, role_id_text)
+    if not role:
+        return f"The configured role ID `{role_id_text}` no longer exists in this Discord."
+    if getattr(role, "managed", False):
+        return f"`@{getattr(role, 'name', role_id_text)}` is a Discord integration/bot-managed role and cannot be assigned manually."
+    bot_member = getattr(member.guild, "me", None)
+    bot_top_role = getattr(bot_member, "top_role", None)
+    if bot_member and getattr(role, "position", 0) >= getattr(bot_top_role, "position", 0):
+        return f"Move the Wandering Bot role above `@{getattr(role, 'name', role_id_text)}` in Discord role settings."
+    if bot_member and getattr(getattr(member, "top_role", None), "position", 0) >= getattr(bot_top_role, "position", 0):
+        owner_id = getattr(member.guild, "owner_id", None)
+        if owner_id and str(owner_id) == str(getattr(member, "id", "")):
+            return "Discord does not allow bots to edit the server owner's roles. Test onboarding with a normal non-owner account."
+        return "The member's highest role is above or equal to the Wandering Bot role, so Discord blocks the role update."
+    if action == "remove" and not member_has_role_id(member, role_id_text):
+        return ""
+    return ""
+
+
 async def add_onboarding_role(member, role_id, reason):
     role = resolve_onboarding_role(member.guild, role_id)
-    if not role or member_has_role_id(member, role_id):
+    if member_has_role_id(member, role_id):
         return False
-    if getattr(role, "managed", False):
-        print(f"[ONBOARDING] cannot add managed role {getattr(role, 'name', role_id)} ({role_id}) to {member}")
+    problem = onboarding_role_assignment_problem(member, role_id, action="add")
+    if problem:
+        print(f"[ONBOARDING] cannot add role {role_id} to {member}: {problem}")
         return False
-    bot_member = getattr(member.guild, "me", None)
-    try:
-        if bot_member and getattr(role, "position", 0) >= getattr(getattr(bot_member, "top_role", None), "position", 0):
-            print(f"[ONBOARDING] cannot add role {getattr(role, 'name', role_id)} ({role_id}); bot role is not above it")
-            return False
-        if bot_member and getattr(getattr(member, "top_role", None), "position", 0) >= getattr(getattr(bot_member, "top_role", None), "position", 0):
-            print(f"[ONBOARDING] cannot edit {member}; member top role is not below the bot role")
-            return False
-    except Exception:
-        pass
+    if not role:
+        return False
     try:
         await member.add_roles(role, reason=reason)
         return True
@@ -4741,11 +4765,49 @@ async def remove_onboarding_role(member, role_id, reason):
     role = resolve_onboarding_role(member.guild, role_id)
     if not role or not member_has_role_id(member, role_id):
         return False
+    problem = onboarding_role_assignment_problem(member, role_id, action="remove")
+    if problem:
+        print(f"[ONBOARDING] cannot remove role {role_id} from {member}: {problem}")
+        return False
     try:
         await member.remove_roles(role, reason=reason)
         return True
     except Exception as error:
         print(f"[ONBOARDING] failed to remove role {role_id} from {member}: {error}")
+        return False
+
+
+async def send_onboarding_role_issue_notice(guild, config, member, role_id, action_label):
+    problem = onboarding_role_assignment_problem(member, role_id, action="add")
+    if not problem:
+        problem = "Discord rejected the role update. Check the bot has Manage Roles and the bot role is above this role."
+    print(f"[ONBOARDING] {action_label} failed for {member}: {problem}")
+    channel = resolve_feed_channel(str(getattr(guild, "id", "")), config, "dashboard_audit")
+    if not channel:
+        return False
+    embed = discord.Embed(
+        title="ONBOARDING ROLE NOT APPLIED",
+        description=f"{member.mention}\nThe bot saw the onboarding reaction, but Discord did not allow the role update.",
+        color=0xE67E22,
+    )
+    embed.add_field(name="Step", value=str(action_label or "Onboarding role"), inline=False)
+    embed.add_field(name="Role", value=onboarding_role_label(guild, role_id), inline=False)
+    embed.add_field(name="Why", value=discord_safe_content(problem, 900), inline=False)
+    embed.add_field(
+        name="Fix",
+        value="Move the Wandering Bot role above every onboarding role, then test with a normal non-owner account.",
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot - Member Onboarding")
+    try:
+        await channel.send(
+            embed=style_embed(embed),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+        return True
+    except Exception as error:
+        print(f"[ONBOARDING] role issue notice failed for {member}: {error}")
         return False
 
 
@@ -4925,12 +4987,25 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return False
-    await add_onboarding_role(member, settings.get("rules_role_id"), "Wandering Bot rules accepted")
+    rules_role_id = settings.get("rules_role_id")
+    had_rules_role = member_has_role_id(member, rules_role_id)
+    rules_role_added = await add_onboarding_role(member, rules_role_id, "Wandering Bot rules accepted")
+    if rules_role_id and not (had_rules_role or rules_role_added or member_has_role_id(member, rules_role_id)):
+        await send_onboarding_role_issue_notice(guild, config, member, rules_role_id, "Rules role")
+        return True
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules accepted")
     linked_data = linked_players.get(str(member.id), {}) if isinstance(linked_players.get(str(member.id)), dict) else {}
     linked_data = linked_player_data_for_guild(linked_data, getattr(guild, "id", ""))
     if linked_player_primary_gamertag(linked_data):
-        await add_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot gamertag already linked when rules were accepted")
+        linked_role_id = settings.get("linked_role_id")
+        had_linked_role = member_has_role_id(member, linked_role_id)
+        linked_role_added = await add_onboarding_role(
+            member,
+            linked_role_id,
+            "Wandering Bot gamertag already linked when rules were accepted",
+        )
+        if linked_role_id and not (had_linked_role or linked_role_added or member_has_role_id(member, linked_role_id)):
+            await send_onboarding_role_issue_notice(guild, config, member, linked_role_id, "Linked gamer role")
     channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
     if channel:
         embed = discord.Embed(
@@ -4939,7 +5014,7 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
             color=0x2ECC71,
         )
         embed.set_thumbnail(url=BOT_IMAGE)
-        embed.set_footer(text="Wandering Bot Alpha - Member Onboarding")
+        embed.set_footer(text="Wandering Bot - Member Onboarding")
         try:
             await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
         except Exception as error:
@@ -4979,7 +5054,7 @@ async def apply_member_onboarding_link_role(guild, config, member):
                 color=0x00D1B2,
             )
             embed.set_thumbnail(url=BOT_IMAGE)
-            embed.set_footer(text="Wandering Bot Alpha - Member Onboarding")
+            embed.set_footer(text="Wandering Bot - Member Onboarding")
             try:
                 await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
             except Exception as error:
@@ -5110,11 +5185,22 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
             if str(other.get("role_id") or "") != str(choice.get("role_id") or ""):
                 await remove_onboarding_role(member, other.get("role_id"), "Wandering Bot onboarding single server choice")
 
-    await add_onboarding_role(
+    choice_role_id = choice.get("role_id")
+    had_choice_role = member_has_role_id(member, choice_role_id)
+    choice_role_added = await add_onboarding_role(
         member,
-        choice.get("role_id"),
+        choice_role_id,
         f"Wandering Bot onboarding choice: {choice.get('label')}",
     )
+    if choice_role_id and not (had_choice_role or choice_role_added or member_has_role_id(member, choice_role_id)):
+        await send_onboarding_role_issue_notice(
+            guild,
+            config,
+            member,
+            choice_role_id,
+            f"{choice.get('label') or choice.get('key') or 'Server choice'} role",
+        )
+        return True
     await send_member_onboarding_choice_welcome(guild, config, settings, member, choice)
     return True
 
