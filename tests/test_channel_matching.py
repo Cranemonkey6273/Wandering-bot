@@ -405,6 +405,59 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual([livo_role], member.removed_roles)
         self.assertFalse(bot.member_has_role_id(member, "102"))
 
+    def test_onboarding_rules_remove_strips_dependent_roles(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        linked_role = FakeRole("Linked Player", 104)
+        pending_role = FakeRole("Pending", 105)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        member = FakeMember([rules_role, linked_role, livo_role], member_id=555)
+        guild = FakeOnboardingGuild(
+            [FakeFetchChannel("rules", 10, [])],
+            roles=[rules_role, linked_role, pending_role, livo_role],
+            member=member,
+        )
+        member.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "rules_role_id": "101",
+                "linked_role_id": "104",
+                "pending_role_id": "105",
+                "choice_require_rules": True,
+                "choice_livo_role_id": "102",
+                "require_rules_before_linked_role": True,
+            }
+        }
+
+        handled = asyncio.run(bot.remove_member_onboarding_rules_acceptance(guild, config, member))
+
+        self.assertTrue(handled)
+        self.assertFalse(bot.member_has_role_id(member, "101"))
+        self.assertFalse(bot.member_has_role_id(member, "102"))
+        self.assertFalse(bot.member_has_role_id(member, "104"))
+        self.assertTrue(bot.member_has_role_id(member, "105"))
+
+    def test_rules_reaction_match_allows_variation_selector(self):
+        guild = FakeOnboardingGuild([FakeFetchChannel("rules", 10, [])])
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "rules_channel_id": "10",
+                "rules_message_id": "111",
+                "reaction_emoji": "\u2705",
+            }
+        }
+        settings = bot.member_onboarding_settings(config)
+
+        self.assertTrue(
+            bot.payload_matches_onboarding_rules_reaction(
+                guild,
+                config,
+                settings,
+                FakeReactionPayload(message_id=111, channel_id=10, emoji="\u2705\ufe0f"),
+            )
+        )
+
     def test_onboarding_choice_add_posts_to_configured_welcome_channel(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)

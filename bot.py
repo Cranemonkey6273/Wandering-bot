@@ -4947,6 +4947,21 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
     return True
 
 
+async def remove_member_onboarding_rules_acceptance(guild, config, member):
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return False
+    await remove_onboarding_role(member, settings.get("rules_role_id"), "Wandering Bot rules reaction removed")
+    if settings.get("pending_role_id"):
+        await add_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules reaction removed")
+    if settings.get("require_rules_before_linked_role"):
+        await remove_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot rules reaction removed")
+    if settings.get("choice_require_rules", True):
+        for choice in onboarding_server_choice_entries(settings):
+            await remove_onboarding_role(member, choice.get("role_id"), "Wandering Bot rules reaction removed")
+    return True
+
+
 async def apply_member_onboarding_link_role(guild, config, member):
     settings = member_onboarding_settings(config)
     if not settings["enabled"] or not settings.get("linked_role_id"):
@@ -4982,6 +4997,16 @@ async def onboarding_member_from_payload(guild, payload):
     if getattr(member, "bot", False):
         return None
     return member
+
+
+def payload_matches_onboarding_rules_reaction(guild, config, settings, payload):
+    rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    if not rules_channel or int(payload.channel_id) != int(rules_channel.id):
+        return False
+    rules_message_id = str(settings.get("rules_message_id") or "").strip()
+    if not rules_message_id or str(payload.message_id) != rules_message_id:
+        return False
+    return onboarding_emojis_match(payload.emoji, settings.get("reaction_emoji"))
 
 
 def find_onboarding_choice_welcome_channel(guild, choice_key):
@@ -21407,15 +21432,7 @@ async def on_raw_reaction_add(payload):
     handled_choice = await apply_member_onboarding_server_choice(guild, config, payload, remove=False)
     if handled_choice:
         return
-    rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
-    if not rules_channel or int(payload.channel_id) != int(rules_channel.id):
-        return
-    rules_message_id = str(settings.get("rules_message_id") or "").strip()
-    if not rules_message_id:
-        return
-    if str(payload.message_id) != rules_message_id:
-        return
-    if str(payload.emoji) != settings.get("reaction_emoji"):
+    if not payload_matches_onboarding_rules_reaction(guild, config, settings, payload):
         return
     member = await onboarding_member_from_payload(guild, payload)
     if not member:
@@ -21434,7 +21451,18 @@ async def on_raw_reaction_remove(payload):
         return
     guild_id = str(guild.id)
     config = guild_configs.get(guild_id, {})
-    await apply_member_onboarding_server_choice(guild, config, payload, remove=True)
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return
+    handled_choice = await apply_member_onboarding_server_choice(guild, config, payload, remove=True)
+    if handled_choice:
+        return
+    if not payload_matches_onboarding_rules_reaction(guild, config, settings, payload):
+        return
+    member = await onboarding_member_from_payload(guild, payload)
+    if not member:
+        return
+    await remove_member_onboarding_rules_acceptance(guild, config, member)
 
 
 WANDERING_MASTER_GUILD_ID = os.environ.get("WANDERING_MASTER_GUILD_ID", "").strip()
