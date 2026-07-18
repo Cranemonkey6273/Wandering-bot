@@ -74,6 +74,38 @@ class FakeSendChannel:
         return type("SentMessage", (), {"id": 123})()
 
 
+class FakeReactionMessage:
+    def __init__(self, message_id):
+        self.id = int(message_id)
+        self.reactions = []
+        self.embeds = []
+        self.content = "Configured onboarding message"
+        self.jump_url = f"https://discord.test/messages/{message_id}"
+        self.added_reactions = []
+
+    async def add_reaction(self, emoji):
+        self.added_reactions.append(str(emoji))
+
+
+class FakeFetchChannel:
+    def __init__(self, name, channel_id, messages):
+        self.name = name
+        self.id = int(channel_id)
+        self._messages = {int(message.id): message for message in messages}
+
+    async def fetch_message(self, message_id):
+        return self._messages[int(message_id)]
+
+
+class FakeOnboardingGuild:
+    def __init__(self, channels):
+        self.channels = {int(channel.id): channel for channel in channels}
+        self.text_channels = list(channels)
+
+    def get_channel(self, channel_id):
+        return self.channels.get(int(channel_id))
+
+
 class FlakySendChannel(FakeSendChannel):
     def __init__(self, failures=1, status=503):
         super().__init__()
@@ -211,6 +243,42 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertLess(presence_index, source.index('print(f"EVENT:', presence_index))
         self.assertLess(presence_index, source.index("schedule_link_enforcement_check", presence_index))
         self.assertLess(presence_index, source.index("note_player_alive", presence_index))
+
+    def test_adm_parse_tail_window_is_configurable_above_old_limit(self):
+        self.assertGreaterEqual(bot.adm_parse_tail_line_count(), 2000)
+        with mock.patch.dict(os.environ, {"WANDERING_ADM_PARSE_TAIL_LINES": "500"}, clear=False):
+            self.assertEqual(500, bot.adm_parse_tail_line_count())
+        with mock.patch.dict(os.environ, {"WANDERING_ADM_PARSE_TAIL_LINES": "10"}, clear=False):
+            self.assertEqual(250, bot.adm_parse_tail_line_count())
+
+    def test_onboarding_repair_adds_rules_and_choice_reactions(self):
+        rules_message = FakeReactionMessage(111)
+        choice_message = FakeReactionMessage(222)
+        rules_channel = FakeFetchChannel("rules", 10, [rules_message])
+        choice_channel = FakeFetchChannel("pick-server", 20, [choice_message])
+        guild = FakeOnboardingGuild([rules_channel, choice_channel])
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "rules_channel_id": "10",
+                "rules_message_id": "111",
+                "reaction_emoji": "✅",
+                "choice_channel_id": "20",
+                "choice_message_id": "222",
+                "choice_cherno_emoji": "🔴",
+                "choice_cherno_role_id": "101",
+                "choice_livo_emoji": "🔵",
+                "choice_livo_role_id": "102",
+                "choice_bot_emoji": "🤖",
+                "choice_bot_role_id": "103",
+            },
+        }
+
+        repaired = asyncio.run(bot.repair_member_onboarding_reactions_for_guild(guild, config))
+
+        self.assertTrue(repaired)
+        self.assertIn("✅", rules_message.added_reactions)
+        self.assertEqual(["🔴", "🔵", "🤖"], choice_message.added_reactions)
 
     def test_failed_adm_delivery_can_be_removed_from_both_dedupe_caches(self):
         guild_id = "guild-retry"
@@ -478,6 +546,19 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertTrue(bot.category_matches_bot_spec(category, "radar_pings"))
 
+    def test_clean_default_channel_names_match(self):
+        self.assertEqual("kiLLFeeD💀", bot.DEFAULT_CHANNEL_NAMES["killfeed"])
+        self.assertEqual("LeADeRBoARD📊", bot.DEFAULT_CHANNEL_NAMES["leaderboards"])
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("kiLLFeeD💀", 501), "killfeed"))
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("LeADeRBoARD📊", 502), "leaderboards"))
+
+    def test_clean_defaults_do_not_add_server_prefixes(self):
+        livo_config = {"server_map": "livonia", "profile_name": "Wandering Around Livo"}
+        cherno_config = {"server_map": "chernarus", "profile_name": "Wandering Around Cherno"}
+
+        self.assertEqual("FLAg-FeeD🚩", bot.default_channel_name_for_config("flag_feed", livo_config))
+        self.assertEqual("FLAg-FeeD🚩", bot.default_channel_name_for_config("flag_feed", cherno_config))
+
     def test_livo_trader_category_matches_plain_owner_category(self):
         category = FakeCategory("Livo Trader")
 
@@ -499,7 +580,7 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
 
     def test_rpt_admin_is_routeable_private_staff_channel(self):
-        self.assertEqual("server-spawns", bot.DEFAULT_CHANNEL_NAMES["rpt_admin"])
+        self.assertEqual("eVeNt-sPAWNs📍", bot.DEFAULT_CHANNEL_NAMES["rpt_admin"])
         self.assertIn("rpt_admin", bot.PRIVATE_FEED_CHANNEL_KEYS)
         self.assertIn("rpt_admin", bot.CHANNEL_RESTORE_PACKS["staff"])
         self.assertEqual("staff_ops", bot.BOT_CHANNEL_CATEGORY_BY_KEY["rpt_admin"])

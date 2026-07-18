@@ -442,6 +442,83 @@ DEFAULT_CHANNEL_NAMES = {
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
 
+DEFAULT_CHANNEL_NAMES.update({
+    "killfeed": "kiLLFeeD💀",
+    "raids": "RAiDs🚨",
+    "building": "BUiLD-FeeD🔨",
+    "connections": "CoNNeCteD🟢",
+    "disconnects": "DisCoNNeCteD🔴",
+    "zombie_feed": "ZoMBie-FeeD🧟",
+    "unconscious_feed": "UNCoN-FeeD😴",
+    "cuts_feed": "CUTs-FeeD💊",
+    "suicide_feed": "sUiCiDe-FeeD🪦",
+    "flag_feed": "FLAg-FeeD🚩",
+    "placed_feed": "PLACeD-FeeD📦",
+    "pvp_intel": "PVP-iNTeL⚔️",
+    "radar": "RADAR-PiNGs🗼",
+    "online": "oNLiNe-PLAYeRs🎮",
+    "leaderboards": "LeADeRBoARD📊",
+    "heatmap": "HeAtMAP🗺️",
+    "longshots": "LoNgHots🎯",
+    "restart_alerts": "ResTARt-ALeRts⏰",
+    "restart_logs": "ResTARt-LoGs📋",
+    "rpt_admin": "eVeNt-sPAWNs📍",
+    "bot_updates": "BoT-UPDATeS📢",
+    "welcome": "WeLCome👋",
+    "public_shame": "WANDERiNG-JUsTiCe📣",
+    "linked_players": "LiNKeD-PLAYeRs🔗",
+    "link_audit": "LiNK-AUDiT🔗",
+    "member_leaves": "FARe-THee-WeLL👋",
+    "moderation_logs": "MoD-WAtCH🛡️",
+    "general_chat": "SuRViVoR-CHAt💬",
+    "ai_chat": "SuRViVoR-Ai🧠",
+    "clips_channel": "DAYZ-CLiPs🎬",
+    "factions_chat": "FACtioN-CHAt🏴",
+    "faction_list": "FACtioN-LiSt🧭",
+    "faction_tickets": "FACtioN-TiCKeTs🎫",
+    "faction_staff": "FACtioN-STaFF🛡️",
+    "help_channel": "HeLP-DeSK❔",
+    "economy": "BLAcK-MARKeT💰",
+    "money_feed": "MoNeY-FeeD💰",
+    "swear_jar_feed": "SWeAR-JAR🤬",
+    "admin_logs": "ADMiN-LoGs📋",
+    "nitrado_ban_logs": "NiTRADo-BANs🔴",
+    "dashboard_audit": "DASHBoARD-AUDiT🧾",
+    "cheat_checks": "CHeAT-CHeCKs🕵️",
+    "command_logs": "CoMMAND-LoGs📜",
+    "purchase_logs": "PURCHASe-LoGs💳",
+    "vehicle_rentals": "VeHiCLe-ReNTALs🚗",
+    "rental_logs": "ReNTAL-LoGs📒",
+    "pve_quests": "PVE-QUeSTs🧭",
+    "pve_hunting": "PVE-HUNTiNG🦌",
+    "pve_collection": "PVE-CoLLeCTioN🎒",
+    "pve_fishing": "PVE-FiSHiNG🎣",
+    "pve_crafting": "PVE-CRAFTiNG🛠️",
+    "pve_expeditions": "PVE-ExPeDiTioNs🗺️",
+    "pve_info": "PVE-iNFo📘",
+    "pve_help": "PVE-HeLP❔",
+    "pve_heatmap": "PVE-HeAtMAP🗺️",
+    "pve_rewards_public": "PVE-ReWARDs🎁",
+    "pve_rewards_private": "PVE-ReWARD-LoGs🔒",
+    "quest_workshop": "QUeST-WoRKSHoP🛠️",
+    "livo_trader_help": "TRADeR-HeLP📘",
+    "livo_trader_log": "TRADeR-LoG📒",
+    "livo_trader_transactions": "TRANSACTioNs💳",
+    "livo_trader_balance": "BALANCe-FeeD💰",
+    "company_announcements": "CoMPANY-ANNoUNCeMeNTs📢",
+})
+
+
+def default_channel_name_for_config(key, config=None):
+    return DEFAULT_CHANNEL_NAMES.get(key, key)
+
+
+def default_channel_name_variants(key):
+    name = DEFAULT_CHANNEL_NAMES.get(key, "")
+    variants = [key, name]
+    variants.extend(CHANNEL_ALIASES.get(key, []))
+    return [variant for variant in variants if str(variant or "").strip()]
+
 PVE_THEMED_QUEST_KINDS = {
     "pve_hunting": "Hunting",
     "pve_collection": "Collection",
@@ -2392,10 +2469,7 @@ async def ensure_cheat_check_channel(guild, config, force=False):
         if role.permissions.administrator or role.name in config.get("admin_roles", DEFAULT_ADMIN_ROLES):
             overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
-    category_name = "🕵️🚫┃PRIVATE CHEAT CHECK┃🚫🕵️"
-    category = discord.utils.get(guild.categories, name=category_name)
-    if not category:
-        category = await guild.create_category(category_name, overwrites=overwrites)
+    category = await ensure_bot_category(guild, "cheat_checks")
 
     channel = await guild.create_text_channel(
         DEFAULT_CHANNEL_NAMES["cheat_checks"],
@@ -2758,10 +2832,7 @@ async def ensure_public_shame_channel(guild, config, force=False):
     if not force:
         return None
 
-    category_name = "🚫📣┃WANDERING JUSTICE┃📣🚫"
-    category = discord.utils.get(guild.categories, name=category_name)
-    if not category:
-        category = await guild.create_category(category_name)
+    category = await ensure_bot_category(guild, "public_shame")
 
     channel = await guild.create_text_channel(
         DEFAULT_CHANNEL_NAMES["public_shame"],
@@ -7386,6 +7457,24 @@ CATEGORY_REPAIR_SPECS = [
 ]
 
 
+CATEGORY_REPAIR_SPECS = [
+    ("wandering_hq", "WANDERiNG HQ", ["wanderinghq", "wanderingbot", "wanderingbotalpha"]),
+    ("live_feeds", "LiVE SeRVeR FeeDs", ["liveserverfeeds", "livefeeds", "killfeed", "serverfeeds"]),
+    ("server_info", "SeRVeR iNFo", ["serverinfo", "info", "leaderboards", "dashboard"]),
+    ("radar_pings", "RADAR PiNGs", ["radarpings", "radars", "radar", "radaralerts", "admradar", "admradarpings", "zoning", "zonepings"]),
+    ("survivor_comms", "SURViVoR CoMMs", ["survivorcomms", "survivorchat", "generalchat", "community"]),
+    ("staff_ops", "STaFF OPs", ["staffops", "staff", "admin", "adminlogs"]),
+    ("economy", "ECoNoMY", ["economy", "blackmarket", "shop"]),
+    ("livo_trader", "TRADeR", ["livotrader", "livoniatrader", "livoniaeconomy", "trader", "tradercash", "cigarettecurrency"]),
+    ("factions", "FACtioNs", ["factions", "faction"]),
+    ("support", "HeLP & SUPPoRT", ["helpsupport", "helpdesk", "support"]),
+    ("pve", "PVE ExPeDiTioNs", ["pve", "pvemissions", "pveexpeditions", "quests", "hunting", "collection", "fishing"]),
+    ("bot_updates", "BoT NeWs & UPDATeS", ["botnews", "botupdates", "updates"]),
+    ("cheat_checks", "PRiVATe CHeAT CHeCK", ["privatecheatcheck", "cheatchecks", "pccheatcheck"]),
+    ("public_shame", "WANDERiNG JUsTiCe", ["wanderingjustice", "wanderinginshame", "publicshame"]),
+]
+
+
 BOT_CHANNEL_CATEGORY_BY_KEY = {
     "killfeed": "live_feeds",
     "raids": "live_feeds",
@@ -7492,13 +7581,11 @@ def channel_matches_bot_default_name(channel, key):
     wanted = normalize_discord_name(getattr(channel, "name", ""))
     if not wanted:
         return False
-    names = [key, DEFAULT_CHANNEL_NAMES.get(key, "")]
-    names.extend(CHANNEL_ALIASES.get(key, []))
-    return any(wanted == normalize_discord_name(name) for name in names if str(name or "").strip())
+    return any(wanted == normalize_discord_name(name) for name in default_channel_name_variants(key))
 
 
 def channel_matches_preferred_default_name(channel, key):
-    desired = DEFAULT_CHANNEL_NAMES.get(key)
+    desired = default_channel_name_for_config(key)
     return bool(desired) and normalize_discord_name(getattr(channel, "name", "")) == normalize_discord_name(desired)
 
 
@@ -7557,8 +7644,8 @@ def default_channel_key_for_name(name):
     if not normalized:
         return None
 
-    for key, desired_name in DEFAULT_CHANNEL_NAMES.items():
-        if normalized == normalize_discord_name(desired_name):
+    for key in DEFAULT_CHANNEL_NAMES:
+        if any(normalized == normalize_discord_name(candidate) for candidate in default_channel_name_variants(key)):
             return key
 
     return None
@@ -8131,7 +8218,7 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
         if not channel_key_allowed_for_server_mode(key, config):
             continue
 
-        name = DEFAULT_CHANNEL_NAMES.get(key)
+        name = default_channel_name_for_config(key, config)
         if not name:
             continue
 
@@ -8186,7 +8273,7 @@ async def ensure_pve_channels(guild, config, force=False, create_missing=False):
     pve_category = await ensure_bot_category(guild, "pve") if can_create else None
 
     async def ensure_channel(key):
-        name = DEFAULT_CHANNEL_NAMES[key]
+        name = default_channel_name_for_config(key, config)
         if is_channel_key_disabled(config, key) and not force:
             return None
 
@@ -14508,7 +14595,7 @@ async def get_or_create_rpt_admin_channel(guild, config):
             overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True, embed_links=True)
     try:
         ch = await guild.create_text_channel(
-            "🔧-server-spawns",
+            default_channel_name_for_config("rpt_admin", config),
             overwrites=overwrites,
             topic="Live RPT event tracker — auto-updated each server restart.",
         )
@@ -15680,15 +15767,20 @@ async def on_guild_join(guild):
         await announce_slash_sync_status(guild, synced_commands)
         return
 
-    category = await guild.create_category("🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
-    live_category = await guild.create_category("🟥🟧🟨┃LIVE SERVER FEEDS┃🟨🟧🟥")
-    info_category = await guild.create_category("🟦🟩🟦┃SERVER INFO┃🟦🟩🟦")
-    community_category = await guild.create_category("🟪🟩🟪┃SURVIVOR COMMS┃🟪🟩🟪")
-    staff_category = await guild.create_category("🛡️🟥🛡️┃STAFF OPS┃🛡️🟥🛡️")
-    economy_category = await guild.create_category("💰🟨💰┃ECONOMY┃💰🟨💰")
-    faction_category = await guild.create_category("🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
-    support_category = await guild.create_category("❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
-    radar_category = await guild.create_category("📡🟧📡┃RADAR PINGS┃📡🟧📡")
+    join_config = {"guild_name": guild.name, "server_map": "chernarus"}
+
+    def clean_name(key):
+        return default_channel_name_for_config(key, join_config)
+
+    category = await ensure_bot_category(guild, "wandering_hq")
+    live_category = await ensure_bot_category(guild, "live_feeds")
+    info_category = await ensure_bot_category(guild, "server_info")
+    community_category = await ensure_bot_category(guild, "survivor_comms")
+    staff_category = await ensure_bot_category(guild, "staff_ops")
+    economy_category = await ensure_bot_category(guild, "economy")
+    faction_category = await ensure_bot_category(guild, "factions")
+    support_category = await ensure_bot_category(guild, "support")
+    radar_category = await ensure_bot_category(guild, "radar_pings")
     pve_category = None
 
     async def make_channel(name, *, cat=None):
@@ -15705,52 +15797,52 @@ async def on_guild_join(guild):
         if role.permissions.administrator or role.name in DEFAULT_ADMIN_ROLES:
             staff_overwrites[role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
 
-    killfeed = await make_channel("🔥🔥・killfeed・🔥🔥", cat=live_category)
-    raids = await make_channel("🚨🏴・raids・🏴🚨", cat=live_category)
-    builds = await make_channel("🔨🧱・building・🧱🔨", cat=live_category)
-    connections = await make_channel("🟢✅・connected・✅🟢", cat=live_category)
-    disconnects = await make_channel("🔴⛔・disconnects・⛔🔴", cat=live_category)
-    zombie_feed = await make_channel("🧟🧟・zombie-feed・🧟🧟", cat=live_category)
-    unconscious_feed = await make_channel("🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
-    cuts_feed = await guild.create_text_channel("🩸🩹・cuts-feed・🩹🩸", category=live_category, overwrites=staff_overwrites)
-    suicide_feed = await guild.create_text_channel("💀🧠・suicide-feed・🧠💀", category=live_category, overwrites=staff_overwrites)
-    flag_feed = await guild.create_text_channel("🚩🏴・flag-feed・🏴🚩", category=live_category, overwrites=staff_overwrites)
-    placed_feed = await guild.create_text_channel("📦🧰・placed-feed・🧰📦", category=live_category, overwrites=staff_overwrites)
+    killfeed = await make_channel(clean_name("killfeed"), cat=live_category)
+    raids = await make_channel(clean_name("raids"), cat=live_category)
+    builds = await make_channel(clean_name("building"), cat=live_category)
+    connections = await make_channel(clean_name("connections"), cat=live_category)
+    disconnects = await make_channel(clean_name("disconnects"), cat=live_category)
+    zombie_feed = await make_channel(clean_name("zombie_feed"), cat=live_category)
+    unconscious_feed = await make_channel(clean_name("unconscious_feed"), cat=live_category)
+    cuts_feed = await guild.create_text_channel(clean_name("cuts_feed"), category=live_category, overwrites=staff_overwrites)
+    suicide_feed = await guild.create_text_channel(clean_name("suicide_feed"), category=live_category, overwrites=staff_overwrites)
+    flag_feed = await guild.create_text_channel(clean_name("flag_feed"), category=live_category, overwrites=staff_overwrites)
+    placed_feed = await guild.create_text_channel(clean_name("placed_feed"), category=live_category, overwrites=staff_overwrites)
     pvp_intel = None
-    radar_channel = await make_channel(DEFAULT_CHANNEL_NAMES["radar"], cat=radar_category)
+    radar_channel = await make_channel(clean_name("radar"), cat=radar_category)
 
-    online = await make_channel("✅🎮・online-survivors・🎮✅", cat=info_category)
-    leaderboards = await make_channel("🏆📊・leaderboards・📊🏆", cat=info_category)
-    heatmap_channel = await make_channel("🔥🗺️・heatmap・🗺️🔥", cat=info_category)
-    longshot_channel = await make_channel("🎯🏹・longshots・🏹🎯", cat=info_category)
-    restart_alerts = await make_channel("📢⏰・restart-alerts・⏰📢", cat=info_category)
-    bot_updates = await make_channel("📢✨・bot-updates・✨📢", cat=info_category)
+    online = await make_channel(clean_name("online"), cat=info_category)
+    leaderboards = await make_channel(clean_name("leaderboards"), cat=info_category)
+    heatmap_channel = await make_channel(clean_name("heatmap"), cat=info_category)
+    longshot_channel = await make_channel(clean_name("longshots"), cat=info_category)
+    restart_alerts = await make_channel(clean_name("restart_alerts"), cat=info_category)
+    bot_updates = await make_channel(clean_name("bot_updates"), cat=info_category)
 
-    welcome_channel = await make_channel("👋🟩・welcome・🟩👋", cat=community_category)
-    public_shame = await make_channel("🚫📣・wandering-in-shame・📣🚫", cat=community_category)
-    linked_players_channel = await make_channel(DEFAULT_CHANNEL_NAMES["linked_players"], cat=community_category)
-    member_leaves = await make_channel(DEFAULT_CHANNEL_NAMES["member_leaves"], cat=community_category)
-    general_chat = await make_channel("💬🌲・survivor-chat・🌲💬", cat=community_category)
-    ai_channel = await make_channel("🧠📻・survivor-ai・📻🧠", cat=community_category)
-    clips_channel = await make_channel("🎬⭐・dayz-clips・⭐🎬", cat=community_category)
+    welcome_channel = await make_channel(clean_name("welcome"), cat=community_category)
+    public_shame = await make_channel(clean_name("public_shame"), cat=community_category)
+    linked_players_channel = await make_channel(clean_name("linked_players"), cat=community_category)
+    member_leaves = await make_channel(clean_name("member_leaves"), cat=community_category)
+    general_chat = await make_channel(clean_name("general_chat"), cat=community_category)
+    ai_channel = await make_channel(clean_name("ai_chat"), cat=community_category)
+    clips_channel = await make_channel(clean_name("clips_channel"), cat=community_category)
 
-    factions_chat = await make_channel("🏴⚔️・factions-chat・⚔️🏴", cat=faction_category)
-    faction_list = await make_channel("📜🏴・faction-list・🏴📜", cat=faction_category)
-    faction_tickets = await make_channel("🎫🏴・faction-tickets・🏴🎫", cat=faction_category)
-    faction_staff = await make_channel("🛡️🏴・faction-staff・🏴🛡️", cat=staff_category)
+    factions_chat = await make_channel(clean_name("factions_chat"), cat=faction_category)
+    faction_list = await make_channel(clean_name("faction_list"), cat=faction_category)
+    faction_tickets = await make_channel(clean_name("faction_tickets"), cat=faction_category)
+    faction_staff = await make_channel(clean_name("faction_staff"), cat=staff_category)
 
-    help_channel = await make_channel("❓📘・help-desk・📘❓", cat=support_category)
-    economy_channel = await make_channel("💰🛒・black-market・🛒💰", cat=economy_category)
-    admin_logs = await make_channel("🛡️📕・admin-logs・📕🛡️", cat=staff_category)
-    link_audit = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["link_audit"], category=staff_category, overwrites=staff_overwrites)
-    moderation_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["moderation_logs"], category=staff_category, overwrites=staff_overwrites)
-    nitrado_ban_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["nitrado_ban_logs"], category=staff_category, overwrites=staff_overwrites)
-    restart_logs = await guild.create_text_channel(DEFAULT_CHANNEL_NAMES["restart_logs"], category=staff_category, overwrites=staff_overwrites)
-    cheat_checks = await guild.create_text_channel("🕵️🚫・pc-cheat-check・🚫🕵️", category=staff_category, overwrites=staff_overwrites)
-    command_logs = await make_channel("📜🛡️・command-logs・🛡️📜", cat=staff_category)
-    purchase_logs = await make_channel("💳📦・purchase-logs・📦💳", cat=economy_category)
-    vehicle_rentals = await make_channel("🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
-    rental_logs = await make_channel("🛻📒・rental-logs・📒🛻", cat=economy_category)
+    help_channel = await make_channel(clean_name("help_channel"), cat=support_category)
+    economy_channel = await make_channel(clean_name("economy"), cat=economy_category)
+    admin_logs = await make_channel(clean_name("admin_logs"), cat=staff_category)
+    link_audit = await guild.create_text_channel(clean_name("link_audit"), category=staff_category, overwrites=staff_overwrites)
+    moderation_logs = await guild.create_text_channel(clean_name("moderation_logs"), category=staff_category, overwrites=staff_overwrites)
+    nitrado_ban_logs = await guild.create_text_channel(clean_name("nitrado_ban_logs"), category=staff_category, overwrites=staff_overwrites)
+    restart_logs = await guild.create_text_channel(clean_name("restart_logs"), category=staff_category, overwrites=staff_overwrites)
+    cheat_checks = await guild.create_text_channel(clean_name("cheat_checks"), category=staff_category, overwrites=staff_overwrites)
+    command_logs = await make_channel(clean_name("command_logs"), cat=staff_category)
+    purchase_logs = await make_channel(clean_name("purchase_logs"), cat=economy_category)
+    vehicle_rentals = await make_channel(clean_name("vehicle_rentals"), cat=economy_category)
+    rental_logs = await make_channel(clean_name("rental_logs"), cat=economy_category)
     pve_quests = None
     pve_hunting = None
     pve_collection = None
@@ -15765,7 +15857,7 @@ async def on_guild_join(guild):
         guild.owner: discord.PermissionOverwrite(read_messages=True, send_messages=True)
     }
     company_announcements = await guild.create_text_channel(
-        "📢・wandering-company-announcements・📢",
+        clean_name("company_announcements"),
         category=staff_category,
         overwrites=owner_overwrites
     )
@@ -16048,6 +16140,9 @@ async def setup_command(
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
 
+    def clean_name(key):
+        return default_channel_name_for_config(key, guild_configs[guild_id])
+
     def normalize_discord_name(name):
         return re.sub(r"[^a-z0-9]+", "", name.lower())
 
@@ -16082,19 +16177,19 @@ async def setup_command(
 
         return await interaction.guild.create_category(name)
 
-    category = await ensure_category("wandering_hq", "🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩")
-    live_category = await ensure_category("live_feeds", "🟥🟧🟨┃LIVE SERVER FEEDS┃🟨🟧🟥")
-    info_category = await ensure_category("server_info", "🟦🟩🟦┃SERVER INFO┃🟦🟩🟦")
-    community_category = await ensure_category("survivor_comms", "🟪🟩🟪┃SURVIVOR COMMS┃🟪🟩🟪")
-    staff_category = await ensure_category("staff_ops", "🛡️🟥🛡️┃STAFF OPS┃🛡️🟥🛡️")
-    economy_category = await ensure_category("economy", "💰🟨💰┃ECONOMY┃💰🟨💰")
-    faction_category = await ensure_category("factions", "🏴🟩🏴┃FACTIONS┃🏴🟩🏴")
-    support_category = await ensure_category("support", "❓🟦❓┃HELP & SUPPORT┃❓🟦❓")
-    bot_updates_category = await ensure_category("bot_updates", "📢✨┃BOT NEWS & UPDATES┃✨📢")
-    radar_category = await ensure_category("radar_pings", "📡🟧📡┃RADAR PINGS┃📡🟧📡")
+    category = await ensure_bot_category(interaction.guild, "wandering_hq")
+    live_category = await ensure_bot_category(interaction.guild, "live_feeds")
+    info_category = await ensure_bot_category(interaction.guild, "server_info")
+    community_category = await ensure_bot_category(interaction.guild, "survivor_comms")
+    staff_category = await ensure_bot_category(interaction.guild, "staff_ops")
+    economy_category = await ensure_bot_category(interaction.guild, "economy")
+    faction_category = await ensure_bot_category(interaction.guild, "factions")
+    support_category = await ensure_bot_category(interaction.guild, "support")
+    bot_updates_category = await ensure_bot_category(interaction.guild, "bot_updates")
+    radar_category = await ensure_bot_category(interaction.guild, "radar_pings")
     pve_category = None
     if server_allows_pve(guild_configs[guild_id]):
-        pve_category = await ensure_category("pve", "🦌🌲🧭┃PVE EXPEDITIONS┃🧭🌲🦌")
+        pve_category = await ensure_bot_category(interaction.guild, "pve")
 
     channel_aliases = {
         "killfeed": ["killfeed", "kills", "pvpfeed", "playerkills"],
@@ -16147,10 +16242,9 @@ async def setup_command(
 
     def channel_matches_key(channel, key, desired_name):
         normalized = normalize_discord_name(channel.name)
-        desired = normalize_discord_name(desired_name)
         aliases = {normalize_discord_name(alias) for alias in channel_aliases.get(key, [])}
-        aliases.add(normalize_discord_name(key))
-        aliases.add(desired)
+        aliases.update(normalize_discord_name(name) for name in default_channel_name_variants(key))
+        aliases.add(normalize_discord_name(desired_name))
         return normalized in aliases
 
     async def ensure_channel(key, name, *, cat=None, private=False):
@@ -16209,52 +16303,52 @@ async def setup_command(
         channels[key] = channel.id
 
         return channel
-    await ensure_channel("killfeed", "🔥🔥・killfeed・🔥🔥", cat=live_category)
-    await ensure_channel("raids", "🚨🏴・raids・🏴🚨", cat=live_category)
-    await ensure_channel("building", "🔨🧱・building・🧱🔨", cat=live_category)
-    await ensure_channel("connections", "🟢✅・connected・✅🟢", cat=live_category)
-    await ensure_channel("disconnects", "🔴⛔・disconnects・⛔🔴", cat=live_category)
-    await ensure_channel("zombie_feed", "🧟🧟・zombie-feed・🧟🧟", cat=live_category)
-    await ensure_channel("unconscious_feed", "🩹⚠️・unconscious-feed・⚠️🩹", cat=live_category)
-    await ensure_channel("cuts_feed", "🩸🩹・cuts-feed・🩹🩸", cat=live_category, private=True)
-    await ensure_channel("suicide_feed", "💀🧠・suicide-feed・🧠💀", cat=live_category, private=True)
-    await ensure_channel("flag_feed", "🚩🏴・flag-feed・🏴🚩", cat=live_category, private=True)
-    await ensure_channel("placed_feed", "📦🧰・placed-feed・🧰📦", cat=live_category, private=True)
-    await ensure_channel("pvp_intel", "⚔️📡・pvp-intel・📡⚔️", cat=live_category)
-    await ensure_channel("radar", DEFAULT_CHANNEL_NAMES["radar"], cat=radar_category)
+    await ensure_channel("killfeed", clean_name("killfeed"), cat=live_category)
+    await ensure_channel("raids", clean_name("raids"), cat=live_category)
+    await ensure_channel("building", clean_name("building"), cat=live_category)
+    await ensure_channel("connections", clean_name("connections"), cat=live_category)
+    await ensure_channel("disconnects", clean_name("disconnects"), cat=live_category)
+    await ensure_channel("zombie_feed", clean_name("zombie_feed"), cat=live_category)
+    await ensure_channel("unconscious_feed", clean_name("unconscious_feed"), cat=live_category)
+    await ensure_channel("cuts_feed", clean_name("cuts_feed"), cat=live_category, private=True)
+    await ensure_channel("suicide_feed", clean_name("suicide_feed"), cat=live_category, private=True)
+    await ensure_channel("flag_feed", clean_name("flag_feed"), cat=live_category, private=True)
+    await ensure_channel("placed_feed", clean_name("placed_feed"), cat=live_category, private=True)
+    await ensure_channel("pvp_intel", clean_name("pvp_intel"), cat=live_category)
+    await ensure_channel("radar", clean_name("radar"), cat=radar_category)
 
-    await ensure_channel("online", "✅🎮・online-survivors・🎮✅", cat=info_category)
-    await ensure_channel("leaderboards", "🏆📊・leaderboards・📊🏆", cat=info_category)
-    await ensure_channel("heatmap", "🔥🗺️・heatmap・🗺️🔥", cat=info_category)
-    await ensure_channel("longshots", "🎯🏹・longshots・🏹🎯", cat=info_category)
-    await ensure_channel("restart_alerts", "📢⏰・restart-alerts・⏰📢", cat=info_category)
-    await ensure_channel("restart_logs", DEFAULT_CHANNEL_NAMES["restart_logs"], cat=staff_category, private=True)
-    await ensure_channel("bot_updates", "📢✨・bot-updates・✨📢", cat=bot_updates_category)
+    await ensure_channel("online", clean_name("online"), cat=info_category)
+    await ensure_channel("leaderboards", clean_name("leaderboards"), cat=info_category)
+    await ensure_channel("heatmap", clean_name("heatmap"), cat=info_category)
+    await ensure_channel("longshots", clean_name("longshots"), cat=info_category)
+    await ensure_channel("restart_alerts", clean_name("restart_alerts"), cat=info_category)
+    await ensure_channel("restart_logs", clean_name("restart_logs"), cat=staff_category, private=True)
+    await ensure_channel("bot_updates", clean_name("bot_updates"), cat=bot_updates_category)
 
-    await ensure_channel("welcome", "👋🟩・welcome・🟩👋", cat=community_category)
-    await ensure_channel("public_shame", "🚫📣・wandering-in-shame・📣🚫", cat=community_category)
-    await ensure_channel("linked_players", DEFAULT_CHANNEL_NAMES["linked_players"], cat=community_category)
-    await ensure_channel("member_leaves", DEFAULT_CHANNEL_NAMES["member_leaves"], cat=community_category)
-    await ensure_channel("general_chat", "💬🌲・survivor-chat・🌲💬", cat=community_category)
-    await ensure_channel("ai_chat", "🧠📻・survivor-ai・📻🧠", cat=community_category)
-    await ensure_channel("clips_channel", "🎬⭐・dayz-clips・⭐🎬", cat=community_category)
+    await ensure_channel("welcome", clean_name("welcome"), cat=community_category)
+    await ensure_channel("public_shame", clean_name("public_shame"), cat=community_category)
+    await ensure_channel("linked_players", clean_name("linked_players"), cat=community_category)
+    await ensure_channel("member_leaves", clean_name("member_leaves"), cat=community_category)
+    await ensure_channel("general_chat", clean_name("general_chat"), cat=community_category)
+    await ensure_channel("ai_chat", clean_name("ai_chat"), cat=community_category)
+    await ensure_channel("clips_channel", clean_name("clips_channel"), cat=community_category)
 
-    await ensure_channel("factions_chat", "🏴⚔️・factions-chat・⚔️🏴", cat=faction_category)
-    await ensure_channel("faction_list", "📜🏴・faction-list・🏴📜", cat=faction_category)
-    await ensure_channel("faction_tickets", "🎫🏴・faction-tickets・🏴🎫", cat=faction_category)
-    await ensure_channel("faction_staff", "🛡️🏴・faction-staff・🏴🛡️", cat=staff_category)
+    await ensure_channel("factions_chat", clean_name("factions_chat"), cat=faction_category)
+    await ensure_channel("faction_list", clean_name("faction_list"), cat=faction_category)
+    await ensure_channel("faction_tickets", clean_name("faction_tickets"), cat=faction_category)
+    await ensure_channel("faction_staff", clean_name("faction_staff"), cat=staff_category)
 
-    await ensure_channel("help_channel", "❓📘・help-desk・📘❓", cat=support_category)
-    await ensure_channel("economy", "💰🛒・black-market・🛒💰", cat=economy_category)
-    await ensure_channel("admin_logs", "🛡️📕・admin-logs・📕🛡️", cat=staff_category)
-    await ensure_channel("link_audit", DEFAULT_CHANNEL_NAMES["link_audit"], cat=staff_category, private=True)
-    await ensure_channel("moderation_logs", DEFAULT_CHANNEL_NAMES["moderation_logs"], cat=staff_category, private=True)
-    await ensure_channel("nitrado_ban_logs", DEFAULT_CHANNEL_NAMES["nitrado_ban_logs"], cat=staff_category, private=True)
-    await ensure_channel("cheat_checks", "🕵️🚫・pc-cheat-check・🚫🕵️", cat=staff_category, private=True)
-    await ensure_channel("command_logs", "📜🛡️・command-logs・🛡️📜", cat=staff_category)
-    await ensure_channel("purchase_logs", "💳📦・purchase-logs・📦💳", cat=economy_category)
-    await ensure_channel("vehicle_rentals", "🚗💰・vehicle-rentals・💰🚗", cat=economy_category)
-    await ensure_channel("rental_logs", "🛻📒・rental-logs・📒🛻", cat=economy_category)
+    await ensure_channel("help_channel", clean_name("help_channel"), cat=support_category)
+    await ensure_channel("economy", clean_name("economy"), cat=economy_category)
+    await ensure_channel("admin_logs", clean_name("admin_logs"), cat=staff_category)
+    await ensure_channel("link_audit", clean_name("link_audit"), cat=staff_category, private=True)
+    await ensure_channel("moderation_logs", clean_name("moderation_logs"), cat=staff_category, private=True)
+    await ensure_channel("nitrado_ban_logs", clean_name("nitrado_ban_logs"), cat=staff_category, private=True)
+    await ensure_channel("cheat_checks", clean_name("cheat_checks"), cat=staff_category, private=True)
+    await ensure_channel("command_logs", clean_name("command_logs"), cat=staff_category)
+    await ensure_channel("purchase_logs", clean_name("purchase_logs"), cat=economy_category)
+    await ensure_channel("vehicle_rentals", clean_name("vehicle_rentals"), cat=economy_category)
+    await ensure_channel("rental_logs", clean_name("rental_logs"), cat=economy_category)
     pve_channels = {}
     if server_allows_pve(guild_configs[guild_id]):
         pve_channels = await ensure_pve_channels(
@@ -28033,7 +28127,7 @@ async def get_or_create_pve_ticket_category(guild, config):
         if existing and isinstance(existing, discord.CategoryChannel):
             return existing
     try:
-        category = await guild.create_category("🎟️ PVE Quest Tickets")
+        category = await guild.create_category("PVE TiCKeTs🎫")
     except discord.Forbidden:
         return None
     except Exception as err:
