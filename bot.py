@@ -4754,9 +4754,21 @@ def onboarding_message_has_reaction(message, reaction_emoji):
     if not wanted:
         return False
     for reaction in getattr(message, "reactions", []) or []:
-        if str(getattr(reaction, "emoji", "")) == wanted:
+        if onboarding_emojis_match(getattr(reaction, "emoji", reaction), wanted):
             return True
     return False
+
+
+def onboarding_emoji_key(value):
+    return str(value or "").strip().replace("\ufe0f", "").replace("\ufe0e", "")
+
+
+def onboarding_emojis_match(left, right):
+    left_text = str(left or "").strip()
+    right_text = str(right or "").strip()
+    if not left_text or not right_text:
+        return False
+    return left_text == right_text or onboarding_emoji_key(left_text) == onboarding_emoji_key(right_text)
 
 
 def is_onboarding_bot_prompt_message(message):
@@ -4821,6 +4833,46 @@ async def find_existing_onboarding_rules_message(channel, reaction_emoji):
     except Exception as error:
         print(f"[ONBOARDING] could not inspect rules channel history in #{getattr(channel, 'name', channel)}: {error}")
     return fallback
+
+
+async def repair_member_onboarding_reactions_for_guild(guild, config):
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return False
+
+    repaired = False
+    rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    if rules_channel and settings.get("rules_message_id"):
+        rules_message = await fetch_onboarding_rules_message(rules_channel, settings.get("rules_message_id"))
+        if rules_message:
+            reaction_emoji = settings.get("reaction_emoji")
+            if reaction_emoji and not onboarding_message_has_reaction(rules_message, reaction_emoji):
+                try:
+                    await rules_message.add_reaction(reaction_emoji)
+                    repaired = True
+                except Exception as error:
+                    print(f"[ONBOARDING] could not repair rules reaction in {guild}: {error}")
+
+    choice_channel = resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
+    choice_message_id = str(settings.get("choice_message_id") or "").strip()
+    if choice_channel and choice_message_id.isdigit():
+        try:
+            choice_message = await choice_channel.fetch_message(int(choice_message_id))
+        except Exception as error:
+            print(f"[ONBOARDING] could not fetch choice message {choice_message_id} in {guild}: {error}")
+            choice_message = None
+        if choice_message:
+            for choice in onboarding_server_choice_entries(settings):
+                choice_emoji = str(choice.get("emoji") or "").strip()
+                if not choice_emoji or onboarding_message_has_reaction(choice_message, choice_emoji):
+                    continue
+                try:
+                    await choice_message.add_reaction(choice_emoji)
+                    repaired = True
+                except Exception as error:
+                    print(f"[ONBOARDING] could not repair {choice.get('key')} choice reaction in {guild}: {error}")
+
+    return repaired
 
 
 def remember_onboarding_rules_message(config, settings, message_id):
@@ -5006,7 +5058,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
         (
             entry
             for entry in onboarding_server_choice_entries(settings)
-            if str(payload.emoji) == str(entry.get("emoji") or "")
+            if onboarding_emojis_match(payload.emoji, entry.get("emoji"))
         ),
         None,
     )
@@ -5017,15 +5069,15 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
     if not member:
         return True
 
+    if remove:
+        await remove_onboarding_role(member, choice.get("role_id"), "Wandering Bot onboarding server choice removed")
+        return True
+
     if (
         settings.get("choice_require_rules", True)
         and settings.get("rules_role_id")
         and not member_has_role_id(member, settings.get("rules_role_id"))
     ):
-        return True
-
-    if remove:
-        await remove_onboarding_role(member, choice.get("role_id"), "Wandering Bot onboarding server choice removed")
         return True
 
     if settings.get("choice_single"):
@@ -54081,6 +54133,15 @@ async def on_ready():
     load_delivery_queue()
 
     await publish_bot_updates_for_active_guilds()
+    for guild_id, config in active_guild_config_items():
+        guild = bot.get_guild(int(guild_id.split(":", 1)[0])) if str(guild_id).split(":", 1)[0].isdigit() else None
+        if not guild:
+            continue
+        try:
+            if await repair_member_onboarding_reactions_for_guild(guild, config):
+                print(f"[ONBOARDING] repaired configured reactions for {guild_display_name(guild_id)}")
+        except Exception as error:
+            print(f"[ONBOARDING] reaction repair failed for {guild_display_name(guild_id)}: {error}")
 
     for guild_id, config in active_guild_config_items():
         try:

@@ -17,11 +17,30 @@ class FakeRole:
     def __init__(self, name, role_id):
         self.name = name
         self.id = role_id
+        self.position = int(role_id) if str(role_id).isdigit() else 1
+        self.managed = False
 
 
 class FakeMember:
-    def __init__(self, roles=None):
+    def __init__(self, roles=None, member_id=555):
         self.roles = roles or []
+        self.id = member_id
+        self.bot = False
+        self.guild = None
+        self.top_role = self.roles[-1] if self.roles else FakeRole("@everyone", 0)
+        self.added_roles = []
+        self.removed_roles = []
+
+    async def add_roles(self, role, **_kwargs):
+        self.added_roles.append(role)
+        if role not in self.roles:
+            self.roles.append(role)
+            self.top_role = role
+
+    async def remove_roles(self, role, **_kwargs):
+        self.removed_roles.append(role)
+        self.roles = [existing for existing in self.roles if str(existing.id) != str(role.id)]
+        self.top_role = self.roles[-1] if self.roles else FakeRole("@everyone", 0)
 
 
 class FakeChannel:
@@ -92,18 +111,54 @@ class FakeFetchChannel:
         self.name = name
         self.id = int(channel_id)
         self._messages = {int(message.id): message for message in messages}
+        self.sent = []
 
     async def fetch_message(self, message_id):
         return self._messages[int(message_id)]
 
+    def permissions_for(self, _member):
+        return type("Perms", (), {"send_messages": True})()
+
+    async def send(self, **kwargs):
+        self.sent.append(kwargs)
+        return type("SentMessage", (), {"id": 999})()
+
 
 class FakeOnboardingGuild:
-    def __init__(self, channels):
+    def __init__(self, channels, roles=None, member=None):
         self.channels = {int(channel.id): channel for channel in channels}
         self.text_channels = list(channels)
+        self.roles = {int(role.id): role for role in (roles or [])}
+        self.member = member
+        self.id = 1234
+        self.me = FakeMember([FakeRole("Bot", 999999)], member_id=999)
+        self.me.guild = self
 
     def get_channel(self, channel_id):
         return self.channels.get(int(channel_id))
+
+    def get_role(self, role_id):
+        return self.roles.get(int(role_id))
+
+    def get_member(self, member_id):
+        if self.member and int(self.member.id) == int(member_id):
+            return self.member
+        return None
+
+    async def fetch_member(self, member_id):
+        member = self.get_member(member_id)
+        if member:
+            return member
+        raise RuntimeError("member not found")
+
+
+class FakeReactionPayload:
+    def __init__(self, *, message_id=222, channel_id=20, user_id=555, emoji="🔵"):
+        self.guild_id = 1234
+        self.message_id = int(message_id)
+        self.channel_id = int(channel_id)
+        self.user_id = int(user_id)
+        self.emoji = emoji
 
 
 class FlakySendChannel(FakeSendChannel):
@@ -315,6 +370,80 @@ class ChannelMatchingTests(unittest.TestCase):
         )
 
         self.assertIs(channel, welcome_channel)
+
+    def test_onboarding_choice_remove_bypasses_rules_gate(self):
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        member = FakeMember([livo_role], member_id=555)
+        guild = FakeOnboardingGuild(
+            [FakeFetchChannel("pick-server", 20, [])],
+            roles=[FakeRole("Rule Abider", 101), livo_role],
+            member=member,
+        )
+        member.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_channel_id": "20",
+                "choice_message_id": "222",
+                "choice_require_rules": True,
+                "rules_role_id": "101",
+                "choice_livo_emoji": "🔵",
+                "choice_livo_role_id": "102",
+            }
+        }
+
+        handled = asyncio.run(
+            bot.apply_member_onboarding_server_choice(
+                guild,
+                config,
+                FakeReactionPayload(emoji="🔵"),
+                remove=True,
+            )
+        )
+
+        self.assertTrue(handled)
+        self.assertEqual([livo_role], member.removed_roles)
+        self.assertFalse(bot.member_has_role_id(member, "102"))
+
+    def test_onboarding_choice_add_posts_to_configured_welcome_channel(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        member = FakeMember([rules_role], member_id=555)
+        choice_channel = FakeFetchChannel("pick-server", 20, [])
+        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
+        guild = FakeOnboardingGuild(
+            [choice_channel, welcome_channel],
+            roles=[rules_role, livo_role],
+            member=member,
+        )
+        member.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_channel_id": "20",
+                "choice_message_id": "222",
+                "choice_require_rules": True,
+                "rules_role_id": "101",
+                "choice_livo_emoji": "🔵",
+                "choice_livo_role_id": "102",
+                "choice_livo_welcome_channel_id": "31",
+                "choice_livo_welcome_message": "Welcome to Livo.",
+            }
+        }
+
+        handled = asyncio.run(
+            bot.apply_member_onboarding_server_choice(
+                guild,
+                config,
+                FakeReactionPayload(emoji="🔵"),
+                remove=False,
+            )
+        )
+
+        self.assertTrue(handled)
+        self.assertTrue(bot.member_has_role_id(member, "102"))
+        self.assertEqual(1, len(welcome_channel.sent))
+        self.assertEqual(0, len(choice_channel.sent))
 
     def test_failed_adm_delivery_can_be_removed_from_both_dedupe_caches(self):
         guild_id = "guild-retry"
