@@ -152,7 +152,7 @@ moderation_guard_recent_messages = defaultdict(lambda: deque(maxlen=30))
 # in a non-UTC timezone (e.g. CEST/CET/EST Nitrado nodes).
 BOT_PROCESS_START_TIME = datetime.now(UTC)
 # How long after process start the ADM age guard stays active. 90s is
-# enough to filter out yesterday's 250 tail lines on a cold container,
+# enough to filter out yesterday's latest ADM tail on a cold container,
 # but short enough that the first real-world player connect after start
 # always dispatches.
 ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
@@ -176,13 +176,14 @@ adm_parse_context = {}
 # dedupe store (the hash file is the canonical "already broadcast" gate).
 _adm_history_swept = {}
 # Maximum number of recently-seen ADM line hashes to keep per guild.
-# Must be high enough that lines still inside the `lines[-250:]` parse
+# Must be high enough that lines still inside the ADM parse tail
 # window remain in cache between scans, even on a quiet server where
 # the same lines linger in that window for a long time.
 PROCESSED_ADM_CACHE_LIMIT = 5000
 PROCESSED_ADM_EVENT_CACHE_LIMIT = 10000
 PROCESSED_KILL_EVENT_CACHE_LIMIT = 10000
 ADM_SOURCE_FETCH_CACHE_SECONDS = 45
+ADM_PARSE_TAIL_LINES = 2500
 online_players = {}
 player_last_coords = {}
 player_online_times = {}
@@ -442,70 +443,91 @@ DEFAULT_CHANNEL_NAMES = {
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
 
+CHANNEL_NAME_STYLE_CHARS = {
+    "A": "Α", "B": "Β", "C": "С", "D": "Ꭰ", "E": "Ε", "F": "Ϝ",
+    "G": "Ԍ", "H": "Η", "I": "Ι", "J": "Ј", "K": "Κ", "L": "Ꮮ",
+    "M": "Μ", "N": "Ν", "O": "Ο", "P": "Ρ", "R": "Ꭱ", "S": "Ѕ",
+    "T": "Τ", "U": "Ս", "V": "Ѵ", "W": "Ԝ", "X": "Χ", "Y": "Υ",
+    "Z": "Ζ",
+}
+CHANNEL_NAME_STYLE_MAP = str.maketrans(CHANNEL_NAME_STYLE_CHARS)
+CHANNEL_NAME_STYLE_REVERSE_MAP = str.maketrans({
+    styled: plain for plain, styled in CHANNEL_NAME_STYLE_CHARS.items()
+})
+
+
+def styled_channel_name(text):
+    return str(text or "").translate(CHANNEL_NAME_STYLE_MAP)
+
+
+def unstyled_channel_name(text):
+    return str(text or "").translate(CHANNEL_NAME_STYLE_REVERSE_MAP)
+
+
 DEFAULT_CHANNEL_NAMES.update({
-    "killfeed": "kiLLFeeD💀",
-    "raids": "RAiDs🚨",
-    "building": "BUiLD-FeeD🔨",
-    "connections": "CoNNeCteD🟢",
-    "disconnects": "DisCoNNeCteD🔴",
-    "zombie_feed": "ZoMBie-FeeD🧟",
-    "unconscious_feed": "UNCoN-FeeD😴",
-    "cuts_feed": "CUTs-FeeD💊",
-    "suicide_feed": "sUiCiDe-FeeD🪦",
-    "flag_feed": "FLAg-FeeD🚩",
-    "placed_feed": "PLACeD-FeeD📦",
-    "pvp_intel": "PVP-iNTeL⚔️",
-    "radar": "RADAR-PiNGs🗼",
-    "online": "oNLiNe-PLAYeRs🎮",
-    "leaderboards": "LeADeRBoARD📊",
-    "heatmap": "HeAtMAP🗺️",
-    "longshots": "LoNgHots🎯",
-    "restart_alerts": "ResTARt-ALeRts⏰",
-    "restart_logs": "ResTARt-LoGs📋",
-    "rpt_admin": "eVeNt-sPAWNs📍",
-    "bot_updates": "BoT-UPDATeS📢",
-    "welcome": "WeLCome👋",
-    "public_shame": "WANDERiNG-JUsTiCe📣",
-    "linked_players": "LiNKeD-PLAYeRs🔗",
-    "link_audit": "LiNK-AUDiT🔗",
-    "member_leaves": "FARe-THee-WeLL👋",
-    "moderation_logs": "MoD-WAtCH🛡️",
-    "general_chat": "SuRViVoR-CHAt💬",
-    "ai_chat": "SuRViVoR-Ai🧠",
-    "clips_channel": "DAYZ-CLiPs🎬",
-    "factions_chat": "FACtioN-CHAt🏴",
-    "faction_list": "FACtioN-LiSt🧭",
-    "faction_tickets": "FACtioN-TiCKeTs🎫",
-    "faction_staff": "FACtioN-STaFF🛡️",
-    "help_channel": "HeLP-DeSK❔",
-    "economy": "BLAcK-MARKeT💰",
-    "money_feed": "MoNeY-FeeD💰",
-    "swear_jar_feed": "SWeAR-JAR🤬",
-    "admin_logs": "ADMiN-LoGs📋",
-    "nitrado_ban_logs": "NiTRADo-BANs🔴",
-    "dashboard_audit": "DASHBoARD-AUDiT🧾",
-    "cheat_checks": "CHeAT-CHeCKs🕵️",
-    "command_logs": "CoMMAND-LoGs📜",
-    "purchase_logs": "PURCHASe-LoGs💳",
-    "vehicle_rentals": "VeHiCLe-ReNTALs🚗",
-    "rental_logs": "ReNTAL-LoGs📒",
-    "pve_quests": "PVE-QUeSTs🧭",
-    "pve_hunting": "PVE-HUNTiNG🦌",
-    "pve_collection": "PVE-CoLLeCTioN🎒",
-    "pve_fishing": "PVE-FiSHiNG🎣",
-    "pve_crafting": "PVE-CRAFTiNG🛠️",
-    "pve_expeditions": "PVE-ExPeDiTioNs🗺️",
-    "pve_info": "PVE-iNFo📘",
-    "pve_help": "PVE-HeLP❔",
-    "pve_heatmap": "PVE-HeAtMAP🗺️",
-    "pve_rewards_public": "PVE-ReWARDs🎁",
-    "pve_rewards_private": "PVE-ReWARD-LoGs🔒",
-    "quest_workshop": "QUeST-WoRKSHoP🛠️",
-    "livo_trader_help": "TRADeR-HeLP📘",
-    "livo_trader_log": "TRADeR-LoG📒",
-    "livo_trader_transactions": "TRANSACTioNs💳",
-    "livo_trader_balance": "BALANCe-FeeD💰",
-    "company_announcements": "CoMPANY-ANNoUNCeMeNTs📢",
+    "killfeed": f"{styled_channel_name('kiLLFeeD')}💀",
+    "raids": f"{styled_channel_name('RAiDs')}🚨",
+    "building": f"{styled_channel_name('BUiLD-FeeD')}🔨",
+    "connections": f"{styled_channel_name('CoNNeCteD')}🟢",
+    "disconnects": f"{styled_channel_name('DisCoNNeCteD')}🔴",
+    "zombie_feed": f"{styled_channel_name('ZoMBie-FeeD')}🧟",
+    "unconscious_feed": f"{styled_channel_name('UNCoN-FeeD')}😴",
+    "cuts_feed": f"{styled_channel_name('CUTs-FeeD')}💊",
+    "suicide_feed": f"{styled_channel_name('sUiCiDe-FeeD')}🪦",
+    "flag_feed": f"{styled_channel_name('FLAg-FeeD')}🚩",
+    "placed_feed": f"{styled_channel_name('PLACeD-FeeD')}📦",
+    "pvp_intel": f"{styled_channel_name('PVP-iNTeL')}⚔️",
+    "radar": f"{styled_channel_name('RADAR-PiNGs')}🗼",
+    "online": f"{styled_channel_name('oNLiNe-PLAYeRs')}🎮",
+    "leaderboards": f"{styled_channel_name('LeADeRBoARD')}📊",
+    "heatmap": f"{styled_channel_name('HeAtMAP')}🗺️",
+    "longshots": f"{styled_channel_name('LoNgHots')}🎯",
+    "restart_alerts": f"{styled_channel_name('ResTARt-ALeRts')}⏰",
+    "restart_logs": f"{styled_channel_name('ResTARt-LoGs')}📋",
+    "rpt_admin": f"{styled_channel_name('eVeNt-sPAWNs')}📍",
+    "bot_updates": f"{styled_channel_name('BoT-UPDATeS')}📢",
+    "welcome": f"{styled_channel_name('WeLCome')}👋",
+    "public_shame": f"{styled_channel_name('WANDERiNG-JUsTiCe')}📣",
+    "linked_players": f"{styled_channel_name('LiNKeD-PLAYeRs')}🔗",
+    "link_audit": f"{styled_channel_name('LiNK-AUDiT')}🔗",
+    "member_leaves": f"{styled_channel_name('FARe-THee-WeLL')}👋",
+    "moderation_logs": f"{styled_channel_name('MoD-WAtCH')}🛡️",
+    "general_chat": f"{styled_channel_name('SuRViVoR-CHAt')}💬",
+    "ai_chat": f"{styled_channel_name('SuRViVoR-Ai')}🧠",
+    "clips_channel": f"{styled_channel_name('DAYZ-CLiPs')}🎬",
+    "factions_chat": f"{styled_channel_name('FACtioN-CHAt')}🏴",
+    "faction_list": f"{styled_channel_name('FACtioN-LiSt')}🧭",
+    "faction_tickets": f"{styled_channel_name('FACtioN-TiCKeTs')}🎫",
+    "faction_staff": f"{styled_channel_name('FACtioN-STaFF')}🛡️",
+    "help_channel": f"{styled_channel_name('HeLP-DeSK')}❔",
+    "economy": f"{styled_channel_name('BLAcK-MARKeT')}💰",
+    "money_feed": f"{styled_channel_name('MoNeY-FeeD')}💰",
+    "swear_jar_feed": f"{styled_channel_name('SWeAR-JAR')}🤬",
+    "admin_logs": f"{styled_channel_name('ADMiN-LoGs')}📋",
+    "nitrado_ban_logs": f"{styled_channel_name('NiTRADo-BANs')}🔴",
+    "dashboard_audit": f"{styled_channel_name('DASHBoARD-AUDiT')}🧾",
+    "cheat_checks": f"{styled_channel_name('CHeAT-CHeCKs')}🕵️",
+    "command_logs": f"{styled_channel_name('CoMMAND-LoGs')}📜",
+    "purchase_logs": f"{styled_channel_name('PURCHASe-LoGs')}💳",
+    "vehicle_rentals": f"{styled_channel_name('VeHiCLe-ReNTALs')}🚗",
+    "rental_logs": f"{styled_channel_name('ReNTAL-LoGs')}📒",
+    "pve_quests": f"{styled_channel_name('PVE-QUeSTs')}🧭",
+    "pve_hunting": f"{styled_channel_name('PVE-HUNTiNG')}🦌",
+    "pve_collection": f"{styled_channel_name('PVE-CoLLeCTioN')}🎒",
+    "pve_fishing": f"{styled_channel_name('PVE-FiSHiNG')}🎣",
+    "pve_crafting": f"{styled_channel_name('PVE-CRAFTiNG')}🛠️",
+    "pve_expeditions": f"{styled_channel_name('PVE-ExPeDiTioNs')}🗺️",
+    "pve_info": f"{styled_channel_name('PVE-iNFo')}📘",
+    "pve_help": f"{styled_channel_name('PVE-HeLP')}❔",
+    "pve_heatmap": f"{styled_channel_name('PVE-HeAtMAP')}🗺️",
+    "pve_rewards_public": f"{styled_channel_name('PVE-ReWARDs')}🎁",
+    "pve_rewards_private": f"{styled_channel_name('PVE-ReWARD-LoGs')}🔒",
+    "quest_workshop": f"{styled_channel_name('QUeST-WoRKSHoP')}🛠️",
+    "livo_trader_help": f"{styled_channel_name('TRADeR-HeLP')}📘",
+    "livo_trader_log": f"{styled_channel_name('TRADeR-LoG')}📒",
+    "livo_trader_transactions": f"{styled_channel_name('TRANSACTioNs')}💳",
+    "livo_trader_balance": f"{styled_channel_name('BALANCe-FeeD')}💰",
+    "company_announcements": f"{styled_channel_name('CoMPANY-ANNoUNCeMeNTs')}📢",
 })
 
 
@@ -7230,7 +7252,7 @@ def load_json(path):
 
 
 def normalize_discord_name(name):
-    return re.sub(r"[^a-z0-9]+", "", str(name).lower())
+    return re.sub(r"[^a-z0-9]+", "", unstyled_channel_name(name).lower())
 
 
 def new_guild_config(guild):
@@ -13423,6 +13445,13 @@ def save_processed_kill_events():
     save_json(PROCESSED_KILL_EVENTS_FILE, data)
 
 
+def adm_parse_tail_line_count():
+    try:
+        return max(250, int(os.getenv("WANDERING_ADM_PARSE_TAIL_LINES", ADM_PARSE_TAIL_LINES)))
+    except Exception:
+        return ADM_PARSE_TAIL_LINES
+
+
 def remember_processed_line(guild_id, line_hash):
     ensure_guild_runtime(guild_id)
     cache = processed_lines[guild_id]
@@ -14079,9 +14108,30 @@ def adm_rate_limit_backoff_seconds():
         return 180
 
 
-def set_adm_rate_limit_backoff(guild_id):
+def adm_rate_limit_backoff_keys(guild_id, config=None):
+    keys = [str(guild_id)]
+    config = config if isinstance(config, dict) else {}
+    token = str(config.get("nitrado_token") or "").strip()
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if token:
+        keys.append(f"token:{stable_line_hash(token)[:24]}")
+    elif nitrado_user:
+        keys.append(f"user:{normalize_discord_name(nitrado_user)}")
+    return list(dict.fromkeys(keys))
+
+
+def active_adm_rate_limit_backoff_until(guild_id, config=None):
+    return max(
+        (float(adm_rate_limit_backoff_until.get(key, 0) or 0) for key in adm_rate_limit_backoff_keys(guild_id, config)),
+        default=0,
+    )
+
+
+def set_adm_rate_limit_backoff(guild_id, config=None):
     seconds = adm_rate_limit_backoff_seconds()
-    adm_rate_limit_backoff_until[str(guild_id)] = time.time() + seconds
+    until = time.time() + seconds
+    for key in adm_rate_limit_backoff_keys(guild_id, config):
+        adm_rate_limit_backoff_until[key] = until
     return seconds
 
 
@@ -18733,7 +18783,7 @@ async def parse_adm(guild_id, config):
     stale_adm_skipped = 0
     dashboard_live_feed_changed = False
 
-    for raw_line in lines[-250:]:
+    for raw_line in lines[-adm_parse_tail_line_count():]:
 
         line = raw_line.strip()
 
@@ -20081,7 +20131,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     if missing:
         return False, f"Missing setup values: {', '.join(missing)}"
 
-    backoff_until = float(adm_rate_limit_backoff_until.get(str(guild_id), 0) or 0)
+    backoff_until = active_adm_rate_limit_backoff_until(guild_id, config)
     if backoff_until > time.time():
         remaining = max(1, int(backoff_until - time.time()))
         force_note = " Force reset was accepted, but the Nitrado cooldown is still being respected." if force else ""
@@ -20107,7 +20157,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             print(f"[ADM COLD-START] history listing failed: {err}")
             history_logs = []
         if adm_scan_diagnostics_rate_limited(history_diagnostics):
-            backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+            backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
             return False, adm_rate_limited_message("history search", history_diagnostics, backoff_seconds)
         # Walk oldest → newest so events arrive in chronological order.
         history_logs = list(reversed(history_logs))
@@ -20118,7 +20168,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
                 older_download_diagnostics = []
                 ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older, older_download_diagnostics)
                 if not ok_dl and adm_scan_diagnostics_rate_limited(older_download_diagnostics):
-                    backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+                    backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
                     return False, adm_rate_limited_message("history download", older_download_diagnostics, backoff_seconds)
                 if ok_dl:
                     adm_parse_context[str(guild_id)] = {
@@ -20150,7 +20200,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
         if not latest_log:
             if adm_scan_diagnostics_rate_limited(adm_scan_diagnostics):
-                backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+                backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
                 return False, adm_rate_limited_message("search", adm_scan_diagnostics, backoff_seconds)
             return False, f"No ADM log found: {adm_scan_failure_summary(adm_scan_diagnostics)}"
 
@@ -20169,7 +20219,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
             if not success:
                 if adm_scan_diagnostics_rate_limited(adm_download_diagnostics):
-                    backoff_seconds = set_adm_rate_limit_backoff(guild_id)
+                    backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
                     return False, adm_rate_limited_message("download", adm_download_diagnostics, backoff_seconds)
                 return False, f"ADM download failed for `{latest_log.get('path')}`: {adm_scan_failure_summary(adm_download_diagnostics)}"
 
@@ -20194,7 +20244,8 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         adm_parse_context.pop(str(guild_id), None)
 
     print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
-    adm_rate_limit_backoff_until.pop(str(guild_id), None)
+    for key in adm_rate_limit_backoff_keys(guild_id, config):
+        adm_rate_limit_backoff_until.pop(key, None)
     return True, "ADM feed refreshed"
 
 

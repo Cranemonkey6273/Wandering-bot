@@ -547,17 +547,23 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.category_matches_bot_spec(category, "radar_pings"))
 
     def test_clean_default_channel_names_match(self):
-        self.assertEqual("kiLLFeeD💀", bot.DEFAULT_CHANNEL_NAMES["killfeed"])
-        self.assertEqual("LeADeRBoARD📊", bot.DEFAULT_CHANNEL_NAMES["leaderboards"])
-        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("kiLLFeeD💀", 501), "killfeed"))
-        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel("LeADeRBoARD📊", 502), "leaderboards"))
+        killfeed_name = bot.styled_channel_name("kiLLFeeD") + "\U0001f480"
+        leaderboard_name = bot.styled_channel_name("LeADeRBoARD") + "\U0001f4ca"
+
+        self.assertEqual(killfeed_name, bot.DEFAULT_CHANNEL_NAMES["killfeed"])
+        self.assertEqual(leaderboard_name, bot.DEFAULT_CHANNEL_NAMES["leaderboards"])
+        self.assertNotEqual("kiLLFeeD\U0001f480", killfeed_name)
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel(killfeed_name, 501), "killfeed"))
+        self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel(leaderboard_name, 502), "leaderboards"))
 
     def test_clean_defaults_do_not_add_server_prefixes(self):
         livo_config = {"server_map": "livonia", "profile_name": "Wandering Around Livo"}
         cherno_config = {"server_map": "chernarus", "profile_name": "Wandering Around Cherno"}
 
-        self.assertEqual("FLAg-FeeD🚩", bot.default_channel_name_for_config("flag_feed", livo_config))
-        self.assertEqual("FLAg-FeeD🚩", bot.default_channel_name_for_config("flag_feed", cherno_config))
+        flag_name = bot.styled_channel_name("FLAg-FeeD") + "\U0001f6a9"
+
+        self.assertEqual(flag_name, bot.default_channel_name_for_config("flag_feed", livo_config))
+        self.assertEqual(flag_name, bot.default_channel_name_for_config("flag_feed", cherno_config))
 
     def test_livo_trader_category_matches_plain_owner_category(self):
         category = FakeCategory("Livo Trader")
@@ -580,7 +586,7 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
 
     def test_rpt_admin_is_routeable_private_staff_channel(self):
-        self.assertEqual("eVeNt-sPAWNs📍", bot.DEFAULT_CHANNEL_NAMES["rpt_admin"])
+        self.assertEqual(bot.styled_channel_name("eVeNt-sPAWNs") + "\U0001f4cd", bot.DEFAULT_CHANNEL_NAMES["rpt_admin"])
         self.assertIn("rpt_admin", bot.PRIVATE_FEED_CHANNEL_KEYS)
         self.assertIn("rpt_admin", bot.CHANNEL_RESTORE_PACKS["staff"])
         self.assertEqual("staff_ops", bot.BOT_CHANNEL_CATEGORY_BY_KEY["rpt_admin"])

@@ -209,6 +209,20 @@ class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("backoff active", message)
         self.assertIn("Force reset was accepted", message)
 
+    def test_adm_rate_limit_backoff_is_shared_by_nitrado_token(self):
+        old_backoff = dict(bot.adm_rate_limit_backoff_until)
+        config_a = {"nitrado_token": "shared-token", "nitrado_user": "ni123"}
+        config_b = {"nitrado_token": "shared-token", "nitrado_user": "ni123"}
+        try:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.set_adm_rate_limit_backoff("guild-a:cherno", config_a)
+
+            self.assertGreater(bot.active_adm_rate_limit_backoff_until("guild-b:livo", config_b), time.time())
+            self.assertNotIn("shared-token", "".join(bot.adm_rate_limit_backoff_until.keys()))
+        finally:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.adm_rate_limit_backoff_until.update(old_backoff)
+
     def test_ping_latest_adm_log_stops_after_first_matching_directory(self):
         original_get = bot.requests.get
         calls = []
