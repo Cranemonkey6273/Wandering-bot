@@ -217,6 +217,10 @@ class FakeInteraction:
 
 
 class ChannelMatchingTests(unittest.TestCase):
+    def setUp(self):
+        if hasattr(bot, "onboarding_choice_welcome_dedupe"):
+            bot.onboarding_choice_welcome_dedupe.clear()
+
     def test_style_embed_replaces_legacy_alpha_footer(self):
         embed = FakeEmbed("Wandering Bot Alpha - Disconnect Feed")
 
@@ -531,6 +535,15 @@ class ChannelMatchingTests(unittest.TestCase):
             )
         )
 
+    def test_onboarding_emoji_match_accepts_partial_emoji_name(self):
+        class FakePartialEmoji:
+            name = "\U0001F534"
+
+            def __str__(self):
+                return "<red circle>"
+
+        self.assertTrue(bot.onboarding_emojis_match(FakePartialEmoji(), "\U0001F534"))
+
     def test_onboarding_choice_add_posts_to_configured_welcome_channel(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)
@@ -570,6 +583,78 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.member_has_role_id(member, "102"))
         self.assertEqual(1, len(welcome_channel.sent))
         self.assertEqual(0, len(choice_channel.sent))
+
+    def test_manual_choice_role_update_posts_to_configured_welcome_channel(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        before = FakeMember([rules_role], member_id=555)
+        after = FakeMember([rules_role, livo_role], member_id=555)
+        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
+        guild = FakeOnboardingGuild(
+            [welcome_channel],
+            roles=[rules_role, livo_role],
+            member=after,
+        )
+        after.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_require_rules": True,
+                "rules_role_id": "101",
+                "choice_livo_emoji": "\U0001F535",
+                "choice_livo_role_id": "102",
+                "choice_livo_welcome_channel_id": "31",
+                "choice_livo_welcome_message": "Welcome to Livo.",
+            }
+        }
+
+        with mock.patch.dict(bot.guild_configs, {str(guild.id): config}, clear=False):
+            handled = asyncio.run(bot.apply_member_onboarding_member_update(before, after))
+
+        self.assertTrue(handled)
+        self.assertEqual(1, len(welcome_channel.sent))
+
+    def test_manual_rules_role_update_posts_existing_choice_welcome(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        before = FakeMember([livo_role], member_id=555)
+        after = FakeMember([livo_role, rules_role], member_id=555)
+        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
+        guild = FakeOnboardingGuild(
+            [welcome_channel],
+            roles=[rules_role, livo_role],
+            member=after,
+        )
+        after.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_require_rules": True,
+                "rules_role_id": "101",
+                "choice_livo_emoji": "\U0001F535",
+                "choice_livo_role_id": "102",
+                "choice_livo_welcome_channel_id": "31",
+                "choice_livo_welcome_message": "Welcome to Livo.",
+            }
+        }
+
+        with mock.patch.dict(bot.guild_configs, {str(guild.id): config}, clear=False):
+            handled = asyncio.run(bot.apply_member_onboarding_member_update(before, after))
+
+        self.assertTrue(handled)
+        self.assertEqual(1, len(welcome_channel.sent))
+
+    def test_requested_restart_history_does_not_suppress_online_presence(self):
+        guild_id = "guild-requested-restart-only"
+        bot.rpt_event_tracker.pop(guild_id, None)
+        cutoff = bot.datetime(2026, 7, 18, 20, 0, tzinfo=bot.UTC)
+        event_time = cutoff - bot.timedelta(minutes=10)
+
+        requested_config = {"restart_history": [{"status": "requested", "created_at": cutoff.isoformat()}]}
+        detected_config = {"restart_history": [{"status": "detected", "created_at": cutoff.isoformat()}]}
+
+        self.assertFalse(bot.is_online_state_event_before_latest_restart(guild_id, requested_config, event_time))
+        self.assertTrue(bot.is_online_state_event_before_latest_restart(guild_id, detected_config, event_time))
 
     def test_failed_adm_delivery_can_be_removed_from_both_dedupe_caches(self):
         guild_id = "guild-retry"

@@ -4601,6 +4601,9 @@ ONBOARDING_CHOICE_WELCOME_UNSAFE_TOKENS = (
     "suicide",
     "zombie",
 )
+ONBOARDING_CHOICE_WELCOME_DEDUPE_SECONDS = 12 * 60 * 60
+ONBOARDING_CHOICE_WELCOME_DEDUPE_LIMIT = 5000
+onboarding_choice_welcome_dedupe = OrderedDict()
 
 
 def member_onboarding_settings(config):
@@ -4654,6 +4657,48 @@ def onboarding_server_choice_entries(settings):
         for key, label, emoji, role_id in choices
         if str(emoji or "").strip() and str(role_id or "").strip()
     ]
+
+
+def onboarding_choice_for_role_id(settings, role_id):
+    wanted = str(role_id or "").strip()
+    if not wanted:
+        return None
+    for choice in onboarding_server_choice_entries(settings):
+        if str(choice.get("role_id") or "").strip() == wanted:
+            return choice
+    return None
+
+
+def onboarding_member_role_ids(member):
+    return {str(getattr(role, "id", "")).strip() for role in getattr(member, "roles", []) or []}
+
+
+def onboarding_choice_welcome_dedupe_key(guild, member, choice):
+    return ":".join(
+        [
+            str(getattr(guild, "id", "")),
+            str(getattr(member, "id", "")),
+            str((choice or {}).get("key") or ""),
+        ]
+    )
+
+
+def should_send_onboarding_choice_welcome(guild, member, choice):
+    now = time.time()
+    for key, seen_at in list(onboarding_choice_welcome_dedupe.items()):
+        if now - float(seen_at or 0) > ONBOARDING_CHOICE_WELCOME_DEDUPE_SECONDS:
+            onboarding_choice_welcome_dedupe.pop(key, None)
+    key = onboarding_choice_welcome_dedupe_key(guild, member, choice)
+    if key in onboarding_choice_welcome_dedupe:
+        return False
+    onboarding_choice_welcome_dedupe[key] = now
+    while len(onboarding_choice_welcome_dedupe) > ONBOARDING_CHOICE_WELCOME_DEDUPE_LIMIT:
+        onboarding_choice_welcome_dedupe.popitem(last=False)
+    return True
+
+
+def clear_onboarding_choice_welcome_dedupe(guild, member, choice):
+    onboarding_choice_welcome_dedupe.pop(onboarding_choice_welcome_dedupe_key(guild, member, choice), None)
 
 
 def resolve_onboarding_channel(guild, config, settings, prefix, fallback_key="welcome"):
@@ -4821,13 +4866,21 @@ def onboarding_message_has_reaction(message, reaction_emoji):
     return False
 
 
+def onboarding_emoji_text(value):
+    if hasattr(value, "name"):
+        name = getattr(value, "name", "")
+        if name:
+            return str(name)
+    return str(value or "")
+
+
 def onboarding_emoji_key(value):
-    return str(value or "").strip().replace("\ufe0f", "").replace("\ufe0e", "")
+    return onboarding_emoji_text(value).strip().replace("\ufe0f", "").replace("\ufe0e", "")
 
 
 def onboarding_emojis_match(left, right):
-    left_text = str(left or "").strip()
-    right_text = str(right or "").strip()
+    left_text = onboarding_emoji_text(left).strip()
+    right_text = onboarding_emoji_text(right).strip()
     if not left_text or not right_text:
         return False
     return left_text == right_text or onboarding_emoji_key(left_text) == onboarding_emoji_key(right_text)
@@ -5123,6 +5176,8 @@ async def send_member_onboarding_choice_welcome(guild, config, settings, member,
             return False
     except Exception:
         pass
+    if not should_send_onboarding_choice_welcome(guild, member, choice):
+        return True
     message = str(
         settings.get(f"choice_{choice_key}_welcome_message")
         or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES.get(choice_key)
@@ -5140,6 +5195,7 @@ async def send_member_onboarding_choice_welcome(guild, config, settings, member,
         await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
         return True
     except Exception as error:
+        clear_onboarding_choice_welcome_dedupe(guild, member, choice)
         print(f"[ONBOARDING] {choice_key} welcome notice failed for {member}: {error}")
         return False
 
@@ -5171,6 +5227,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
 
     if remove:
         await remove_onboarding_role(member, choice.get("role_id"), "Wandering Bot onboarding server choice removed")
+        clear_onboarding_choice_welcome_dedupe(guild, member, choice)
         return True
 
     if (
@@ -5203,6 +5260,74 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
         return True
     await send_member_onboarding_choice_welcome(guild, config, settings, member, choice)
     return True
+
+
+async def apply_member_onboarding_member_update(before, after):
+    guild = getattr(after, "guild", None)
+    if not guild or getattr(after, "bot", False):
+        return False
+    guild_id = str(getattr(guild, "id", ""))
+    config = guild_configs.get(guild_id, {})
+    settings = member_onboarding_settings(config)
+    if not settings["enabled"]:
+        return False
+
+    before_role_ids = onboarding_member_role_ids(before)
+    after_role_ids = onboarding_member_role_ids(after)
+    added_role_ids = after_role_ids - before_role_ids
+    removed_role_ids = before_role_ids - after_role_ids
+    if not added_role_ids and not removed_role_ids:
+        return False
+
+    rules_role_id = str(settings.get("rules_role_id") or "").strip()
+    has_rules_role = not (
+        settings.get("choice_require_rules", True)
+        and rules_role_id
+        and rules_role_id not in after_role_ids
+    )
+    handled = False
+
+    for removed_role_id in removed_role_ids:
+        choice = onboarding_choice_for_role_id(settings, removed_role_id)
+        if choice:
+            clear_onboarding_choice_welcome_dedupe(guild, after, choice)
+            handled = True
+
+    if rules_role_id and rules_role_id in removed_role_ids and settings.get("choice_require_rules", True):
+        for choice in onboarding_server_choice_entries(settings):
+            clear_onboarding_choice_welcome_dedupe(guild, after, choice)
+            await remove_onboarding_role(after, choice.get("role_id"), "Wandering Bot rules role removed")
+        if settings.get("require_rules_before_linked_role"):
+            await remove_onboarding_role(after, settings.get("linked_role_id"), "Wandering Bot rules role removed")
+        handled = True
+
+    choices_to_welcome = []
+    for added_role_id in added_role_ids:
+        choice = onboarding_choice_for_role_id(settings, added_role_id)
+        if choice:
+            choices_to_welcome.append(choice)
+    if rules_role_id and rules_role_id in added_role_ids:
+        for choice in onboarding_server_choice_entries(settings):
+            if str(choice.get("role_id") or "").strip() in after_role_ids:
+                choices_to_welcome.append(choice)
+
+    seen_choice_keys = set()
+    for choice in choices_to_welcome:
+        choice_key = str(choice.get("key") or "").strip()
+        if not choice_key or choice_key in seen_choice_keys:
+            continue
+        seen_choice_keys.add(choice_key)
+        if not has_rules_role:
+            handled = True
+            continue
+        if settings.get("choice_single"):
+            for other in onboarding_server_choice_entries(settings):
+                if str(other.get("role_id") or "") != str(choice.get("role_id") or ""):
+                    await remove_onboarding_role(after, other.get("role_id"), "Wandering Bot onboarding single server choice")
+        await send_member_onboarding_choice_welcome(guild, config, settings, after, choice)
+        handled = True
+
+    return handled
 
 
 async def announce_verified_gamer_link(guild, config, member, gamertag, account_label="Primary gamertag"):
@@ -13954,7 +14079,10 @@ def latest_restart_cutoff_for_online_state(guild_id, config):
     for record in (config or {}).get("restart_history") or []:
         if not isinstance(record, dict):
             continue
-        if str(record.get("status") or "").lower() not in {"requested", "detected"}:
+        # A requested restart is only an API request, not proof the DayZ mission
+        # actually restarted. Using it here can suppress real connect/disconnect
+        # ADM lines during scheduled restarts or Nitrado rate-limit delays.
+        if str(record.get("status") or "").lower() != "detected":
             continue
         when = _as_utc_datetime(record.get("created_at"))
         if when:
@@ -21499,6 +21627,14 @@ async def on_member_join(member):
     )
 
     await welcome_channel.send(embed=style_embed(embed))
+
+
+@bot.event
+async def on_member_update(before, after):
+    try:
+        await apply_member_onboarding_member_update(before, after)
+    except Exception as error:
+        print(f"[ONBOARDING] member update handling failed for {getattr(after, 'id', 'unknown')}: {error}")
 
 
 @bot.event
