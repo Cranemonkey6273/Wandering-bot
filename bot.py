@@ -4604,6 +4604,12 @@ ONBOARDING_CHOICE_WELCOME_UNSAFE_TOKENS = (
 ONBOARDING_CHOICE_WELCOME_DEDUPE_SECONDS = 12 * 60 * 60
 ONBOARDING_CHOICE_WELCOME_DEDUPE_LIMIT = 5000
 onboarding_choice_welcome_dedupe = OrderedDict()
+ONBOARDING_GATE_NOTICE_DEDUPE_SECONDS = 5 * 60
+ONBOARDING_GATE_NOTICE_DEDUPE_LIMIT = 1000
+onboarding_gate_notice_dedupe = OrderedDict()
+ONBOARDING_RULES_ACCEPTANCE_GRACE_SECONDS = 10 * 60
+ONBOARDING_RULES_ACCEPTANCE_GRACE_LIMIT = 5000
+onboarding_rules_acceptance_dedupe = OrderedDict()
 
 
 def member_onboarding_settings(config):
@@ -4699,6 +4705,69 @@ def should_send_onboarding_choice_welcome(guild, member, choice):
 
 def clear_onboarding_choice_welcome_dedupe(guild, member, choice):
     onboarding_choice_welcome_dedupe.pop(onboarding_choice_welcome_dedupe_key(guild, member, choice), None)
+
+
+def onboarding_rules_acceptance_key(guild, member):
+    return f"{getattr(guild, 'id', '')}:{getattr(member, 'id', '')}"
+
+
+def clear_recent_onboarding_rules_acceptance(guild, member):
+    onboarding_rules_acceptance_dedupe.pop(onboarding_rules_acceptance_key(guild, member), None)
+
+
+def remember_recent_onboarding_rules_acceptance(guild, member):
+    now = time.time()
+    for key, seen_at in list(onboarding_rules_acceptance_dedupe.items()):
+        if now - float(seen_at or 0) > ONBOARDING_RULES_ACCEPTANCE_GRACE_SECONDS:
+            onboarding_rules_acceptance_dedupe.pop(key, None)
+    onboarding_rules_acceptance_dedupe[onboarding_rules_acceptance_key(guild, member)] = now
+    while len(onboarding_rules_acceptance_dedupe) > ONBOARDING_RULES_ACCEPTANCE_GRACE_LIMIT:
+        onboarding_rules_acceptance_dedupe.popitem(last=False)
+
+
+def has_recent_onboarding_rules_acceptance(guild, member):
+    key = onboarding_rules_acceptance_key(guild, member)
+    seen_at = onboarding_rules_acceptance_dedupe.get(key)
+    if not seen_at:
+        return False
+    if time.time() - float(seen_at or 0) > ONBOARDING_RULES_ACCEPTANCE_GRACE_SECONDS:
+        onboarding_rules_acceptance_dedupe.pop(key, None)
+        return False
+    return True
+
+
+def should_send_onboarding_gate_notice(guild, member, channel, notice_key):
+    now = time.time()
+    for key, seen_at in list(onboarding_gate_notice_dedupe.items()):
+        if now - float(seen_at or 0) > ONBOARDING_GATE_NOTICE_DEDUPE_SECONDS:
+            onboarding_gate_notice_dedupe.pop(key, None)
+    key = ":".join(
+        [
+            str(getattr(guild, "id", "")),
+            str(getattr(channel, "id", "")),
+            str(getattr(member, "id", "")),
+            str(notice_key or "notice"),
+        ]
+    )
+    if key in onboarding_gate_notice_dedupe:
+        return False
+    onboarding_gate_notice_dedupe[key] = now
+    while len(onboarding_gate_notice_dedupe) > ONBOARDING_GATE_NOTICE_DEDUPE_LIMIT:
+        onboarding_gate_notice_dedupe.popitem(last=False)
+    return True
+
+
+def current_onboarding_config_for_guild(guild_id):
+    guild_id = str(guild_id or "").strip()
+    existing_config = guild_configs.get(guild_id, {}) if guild_id else {}
+    try:
+        load_guild_configs()
+    except Exception as error:
+        print(f"[ONBOARDING] could not reload guild config for {guild_id}: {error}")
+        return existing_config if isinstance(existing_config, dict) else {}
+    if guild_id in guild_configs:
+        return guild_configs.get(guild_id, {})
+    return existing_config if isinstance(existing_config, dict) else {}
 
 
 def resolve_onboarding_channel(guild, config, settings, prefix, fallback_key="welcome"):
@@ -4822,13 +4891,30 @@ async def remove_onboarding_role(member, role_id, reason):
         return False
 
 
-async def send_onboarding_role_issue_notice(guild, config, member, role_id, action_label):
+async def send_onboarding_role_issue_notice(guild, config, member, role_id, action_label, target_channel=None):
     problem = onboarding_role_assignment_problem(member, role_id, action="add")
     if not problem:
         problem = "Discord rejected the role update. Check the bot has Manage Roles and the bot role is above this role."
     print(f"[ONBOARDING] {action_label} failed for {member}: {problem}")
-    channel = resolve_feed_channel(str(getattr(guild, "id", "")), config, "dashboard_audit")
-    if not channel:
+    settings = member_onboarding_settings(config)
+    fallback_channel = (
+        resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
+        or resolve_onboarding_channel(guild, config, settings, "next", "general_chat")
+        or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    )
+    channels = []
+    for channel in (
+        resolve_feed_channel(str(getattr(guild, "id", "")), config, "dashboard_audit"),
+        target_channel,
+        fallback_channel,
+    ):
+        if not channel:
+            continue
+        channel_id = str(getattr(channel, "id", id(channel)))
+        if any(str(getattr(existing, "id", id(existing))) == channel_id for existing in channels):
+            continue
+        channels.append(channel)
+    if not channels:
         return False
     embed = discord.Embed(
         title="ONBOARDING ROLE NOT APPLIED",
@@ -4845,15 +4931,18 @@ async def send_onboarding_role_issue_notice(guild, config, member, role_id, acti
     )
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot - Member Onboarding")
-    try:
-        await channel.send(
-            embed=style_embed(embed),
-            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
-        )
-        return True
-    except Exception as error:
-        print(f"[ONBOARDING] role issue notice failed for {member}: {error}")
-        return False
+    styled_embed = style_embed(embed)
+    sent = False
+    for channel in channels:
+        try:
+            await channel.send(
+                embed=styled_embed,
+                allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+            )
+            sent = True
+        except Exception as error:
+            print(f"[ONBOARDING] role issue notice failed in #{getattr(channel, 'name', channel)} for {member}: {error}")
+    return sent
 
 
 def onboarding_message_has_reaction(message, reaction_emoji):
@@ -4967,6 +5056,10 @@ async def repair_member_onboarding_reactions_for_guild(guild, config):
                     repaired = True
                 except Exception as error:
                     print(f"[ONBOARDING] could not repair rules reaction in {guild}: {error}")
+            for member in await onboarding_reaction_members(guild, rules_message, reaction_emoji):
+                changed = await add_onboarding_role(member, settings.get("rules_role_id"), "Wandering Bot onboarding reaction catch-up")
+                if changed:
+                    repaired = True
 
     choice_channel = resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
     choice_message_id = str(settings.get("choice_message_id") or "").strip()
@@ -4979,13 +5072,32 @@ async def repair_member_onboarding_reactions_for_guild(guild, config):
         if choice_message:
             for choice in onboarding_server_choice_entries(settings):
                 choice_emoji = str(choice.get("emoji") or "").strip()
-                if not choice_emoji or onboarding_message_has_reaction(choice_message, choice_emoji):
+                if not choice_emoji:
                     continue
-                try:
-                    await choice_message.add_reaction(choice_emoji)
-                    repaired = True
-                except Exception as error:
-                    print(f"[ONBOARDING] could not repair {choice.get('key')} choice reaction in {guild}: {error}")
+                if not onboarding_message_has_reaction(choice_message, choice_emoji):
+                    try:
+                        await choice_message.add_reaction(choice_emoji)
+                        repaired = True
+                    except Exception as error:
+                        print(f"[ONBOARDING] could not repair {choice.get('key')} choice reaction in {guild}: {error}")
+                for member in await onboarding_reaction_members(guild, choice_message, choice_emoji):
+                    if (
+                        settings.get("choice_require_rules", True)
+                        and settings.get("rules_role_id")
+                        and not member_has_role_id(member, settings.get("rules_role_id"))
+                    ):
+                        continue
+                    if settings.get("choice_single"):
+                        for other in onboarding_server_choice_entries(settings):
+                            if str(other.get("role_id") or "") != str(choice.get("role_id") or ""):
+                                await remove_onboarding_role(member, other.get("role_id"), "Wandering Bot onboarding reaction catch-up")
+                    changed = await add_onboarding_role(
+                        member,
+                        choice.get("role_id"),
+                        f"Wandering Bot onboarding choice catch-up: {choice.get('label')}",
+                    )
+                    if changed:
+                        repaired = True
 
     return repaired
 
@@ -5041,11 +5153,13 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
     if not settings["enabled"]:
         return False
     rules_role_id = settings.get("rules_role_id")
+    channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
     had_rules_role = member_has_role_id(member, rules_role_id)
     rules_role_added = await add_onboarding_role(member, rules_role_id, "Wandering Bot rules accepted")
     if rules_role_id and not (had_rules_role or rules_role_added or member_has_role_id(member, rules_role_id)):
-        await send_onboarding_role_issue_notice(guild, config, member, rules_role_id, "Rules role")
+        await send_onboarding_role_issue_notice(guild, config, member, rules_role_id, "Rules role", target_channel=channel)
         return True
+    remember_recent_onboarding_rules_acceptance(guild, member)
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules accepted")
     linked_data = linked_players.get(str(member.id), {}) if isinstance(linked_players.get(str(member.id)), dict) else {}
     linked_data = linked_player_data_for_guild(linked_data, getattr(guild, "id", ""))
@@ -5058,8 +5172,7 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
             "Wandering Bot gamertag already linked when rules were accepted",
         )
         if linked_role_id and not (had_linked_role or linked_role_added or member_has_role_id(member, linked_role_id)):
-            await send_onboarding_role_issue_notice(guild, config, member, linked_role_id, "Linked gamer role")
-    channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+            await send_onboarding_role_issue_notice(guild, config, member, linked_role_id, "Linked gamer role", target_channel=channel)
     if channel:
         embed = discord.Embed(
             title="RULES ACCEPTED",
@@ -5087,6 +5200,7 @@ async def remove_member_onboarding_rules_acceptance(guild, config, member):
     if settings.get("choice_require_rules", True):
         for choice in onboarding_server_choice_entries(settings):
             await remove_onboarding_role(member, choice.get("role_id"), "Wandering Bot rules reaction removed")
+    clear_recent_onboarding_rules_acceptance(guild, member)
     return True
 
 
@@ -5115,8 +5229,15 @@ async def apply_member_onboarding_link_role(guild, config, member):
     return changed
 
 
-async def onboarding_member_from_payload(guild, payload):
-    member = guild.get_member(int(payload.user_id))
+async def onboarding_member_from_payload(guild, payload, *, fresh=False):
+    member = None
+    if fresh:
+        try:
+            member = await guild.fetch_member(int(payload.user_id))
+        except Exception:
+            member = None
+    if not member:
+        member = guild.get_member(int(payload.user_id))
     if not member:
         try:
             member = await guild.fetch_member(int(payload.user_id))
@@ -5125,6 +5246,46 @@ async def onboarding_member_from_payload(guild, payload):
     if getattr(member, "bot", False):
         return None
     return member
+
+
+async def onboarding_member_from_user(guild, user):
+    if not user or getattr(user, "bot", False):
+        return None
+    user_id = getattr(user, "id", None)
+    if user_id is None:
+        return None
+    member = guild.get_member(int(user_id))
+    if member:
+        return member
+    try:
+        member = await guild.fetch_member(int(user_id))
+    except Exception:
+        return None
+    if getattr(member, "bot", False):
+        return None
+    return member
+
+
+async def onboarding_reaction_members(guild, message, emoji):
+    wanted = str(emoji or "").strip()
+    if not wanted:
+        return []
+    members = []
+    for reaction in getattr(message, "reactions", []) or []:
+        if not onboarding_emojis_match(getattr(reaction, "emoji", reaction), wanted):
+            continue
+        users = getattr(reaction, "users", None)
+        if not callable(users):
+            continue
+        try:
+            async for user in users(limit=None):
+                member = await onboarding_member_from_user(guild, user)
+                if member:
+                    members.append(member)
+        except Exception as error:
+            print(f"[ONBOARDING] could not inspect reaction users for {wanted}: {error}")
+        break
+    return members
 
 
 def payload_matches_onboarding_rules_reaction(guild, config, settings, payload):
@@ -5200,6 +5361,39 @@ async def send_member_onboarding_choice_welcome(guild, config, settings, member,
         return False
 
 
+async def send_onboarding_rules_required_notice(guild, config, settings, member, target_channel=None):
+    channel = target_channel or resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
+    if not channel:
+        return False
+    if not should_send_onboarding_gate_notice(guild, member, channel, "rules-required"):
+        return True
+    embed = discord.Embed(
+        title="RULES ROLE REQUIRED",
+        description=(
+            f"{member.mention}\n\n"
+            "The bot saw your server-choice reaction, but your rules role is not applied yet."
+        ),
+        color=0xF1C40F,
+    )
+    embed.add_field(name="Rules Role", value=onboarding_role_label(guild, settings.get("rules_role_id")), inline=False)
+    embed.add_field(
+        name="Next Step",
+        value="React to the rules message first. If you already did, check the Wandering Bot role is above the onboarding roles.",
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot - Member Onboarding")
+    try:
+        await channel.send(
+            embed=style_embed(embed),
+            allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False),
+        )
+        return True
+    except Exception as error:
+        print(f"[ONBOARDING] rules-required notice failed for {member}: {error}")
+        return False
+
+
 async def apply_member_onboarding_server_choice(guild, config, payload, *, remove=False):
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
@@ -5221,7 +5415,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
     if not choice:
         return False
 
-    member = await onboarding_member_from_payload(guild, payload)
+    member = await onboarding_member_from_payload(guild, payload, fresh=True)
     if not member:
         return True
 
@@ -5234,7 +5428,9 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
         settings.get("choice_require_rules", True)
         and settings.get("rules_role_id")
         and not member_has_role_id(member, settings.get("rules_role_id"))
+        and not has_recent_onboarding_rules_acceptance(guild, member)
     ):
+        await send_onboarding_rules_required_notice(guild, config, settings, member, choice_channel)
         return True
 
     if settings.get("choice_single"):
@@ -5256,6 +5452,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
             member,
             choice_role_id,
             f"{choice.get('label') or choice.get('key') or 'Server choice'} role",
+            target_channel=choice_channel,
         )
         return True
     await send_member_onboarding_choice_welcome(guild, config, settings, member, choice)
@@ -5267,7 +5464,7 @@ async def apply_member_onboarding_member_update(before, after):
     if not guild or getattr(after, "bot", False):
         return False
     guild_id = str(getattr(guild, "id", ""))
-    config = guild_configs.get(guild_id, {})
+    config = current_onboarding_config_for_guild(guild_id)
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return False
@@ -21548,7 +21745,7 @@ async def on_member_join(member):
 
     guild_id = str(member.guild.id)
 
-    config = guild_configs.get(guild_id, {})
+    config = current_onboarding_config_for_guild(guild_id)
 
     channels = config.get("channels", {})
 
@@ -21647,7 +21844,7 @@ async def on_raw_reaction_add(payload):
     if not guild:
         return
     guild_id = str(guild.id)
-    config = guild_configs.get(guild_id, {})
+    config = current_onboarding_config_for_guild(guild_id)
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return
@@ -21656,7 +21853,7 @@ async def on_raw_reaction_add(payload):
         return
     if not payload_matches_onboarding_rules_reaction(guild, config, settings, payload):
         return
-    member = await onboarding_member_from_payload(guild, payload)
+    member = await onboarding_member_from_payload(guild, payload, fresh=True)
     if not member:
         return
     await apply_member_onboarding_rules_acceptance(guild, config, member)
@@ -21672,7 +21869,7 @@ async def on_raw_reaction_remove(payload):
     if not guild:
         return
     guild_id = str(guild.id)
-    config = guild_configs.get(guild_id, {})
+    config = current_onboarding_config_for_guild(guild_id)
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return
@@ -21681,7 +21878,7 @@ async def on_raw_reaction_remove(payload):
         return
     if not payload_matches_onboarding_rules_reaction(guild, config, settings, payload):
         return
-    member = await onboarding_member_from_payload(guild, payload)
+    member = await onboarding_member_from_payload(guild, payload, fresh=True)
     if not member:
         return
     await remove_member_onboarding_rules_acceptance(guild, config, member)

@@ -107,6 +107,16 @@ class FakeReactionMessage:
         self.added_reactions.append(str(emoji))
 
 
+class FakeReaction:
+    def __init__(self, emoji, users=None):
+        self.emoji = emoji
+        self._users = users or []
+
+    async def users(self, limit=None):
+        for user in self._users:
+            yield user
+
+
 class FakeFetchChannel:
     def __init__(self, name, channel_id, messages):
         self.name = name
@@ -341,6 +351,43 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertIn("✅", rules_message.added_reactions)
         self.assertEqual(["🔴", "🔵", "🤖"], choice_message.added_reactions)
 
+    def test_onboarding_repair_applies_roles_for_existing_reactions(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        member = FakeMember([], member_id=555)
+        rules_message = FakeReactionMessage(111)
+        choice_message = FakeReactionMessage(222)
+        rules_message.reactions = [FakeReaction("\u2705", [member])]
+        choice_message.reactions = [FakeReaction("\U0001F535", [member])]
+        rules_channel = FakeFetchChannel("rules", 10, [rules_message])
+        choice_channel = FakeFetchChannel("pick-server", 20, [choice_message])
+        guild = FakeOnboardingGuild(
+            [rules_channel, choice_channel],
+            roles=[rules_role, livo_role],
+            member=member,
+        )
+        member.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "rules_channel_id": "10",
+                "rules_message_id": "111",
+                "reaction_emoji": "\u2705",
+                "rules_role_id": "101",
+                "choice_channel_id": "20",
+                "choice_message_id": "222",
+                "choice_require_rules": True,
+                "choice_livo_emoji": "\U0001F535",
+                "choice_livo_role_id": "102",
+            },
+        }
+
+        repaired = asyncio.run(bot.repair_member_onboarding_reactions_for_guild(guild, config))
+
+        self.assertTrue(repaired)
+        self.assertTrue(bot.member_has_role_id(member, "101"))
+        self.assertTrue(bot.member_has_role_id(member, "102"))
+
     def test_onboarding_choice_welcome_refuses_feed_or_event_channel(self):
         event_channel = FakeFetchChannel("LiVo-eVeNt-sPAWNs", 30, [])
         guild = FakeOnboardingGuild([event_channel])
@@ -411,6 +458,42 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual([livo_role], member.removed_roles)
         self.assertFalse(bot.member_has_role_id(member, "102"))
 
+    def test_onboarding_choice_add_without_rules_posts_gate_notice(self):
+        rules_role = FakeRole("Rule Abider", 101)
+        livo_role = FakeRole("Wandering Around Livo", 102)
+        member = FakeMember([], member_id=555)
+        choice_channel = FakeFetchChannel("pick-server", 20, [])
+        guild = FakeOnboardingGuild(
+            [choice_channel],
+            roles=[rules_role, livo_role],
+            member=member,
+        )
+        member.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_channel_id": "20",
+                "choice_message_id": "222",
+                "choice_require_rules": True,
+                "rules_role_id": "101",
+                "choice_livo_emoji": "\U0001F535",
+                "choice_livo_role_id": "102",
+            }
+        }
+
+        handled = asyncio.run(
+            bot.apply_member_onboarding_server_choice(
+                guild,
+                config,
+                FakeReactionPayload(emoji="\U0001F535"),
+                remove=False,
+            )
+        )
+
+        self.assertTrue(handled)
+        self.assertFalse(bot.member_has_role_id(member, "102"))
+        self.assertEqual(1, len(choice_channel.sent))
+
     def test_onboarding_rules_acceptance_reports_role_hierarchy_failure(self):
         rules_role = FakeRole("Rule Abider", 101)
         member = FakeMember([], member_id=555)
@@ -437,7 +520,7 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertFalse(bot.member_has_role_id(member, "101"))
         self.assertEqual(1, len(audit_channel.sent))
-        self.assertEqual(0, len(next_channel.sent))
+        self.assertEqual(1, len(next_channel.sent))
 
     def test_onboarding_choice_add_reports_role_hierarchy_failure_without_welcome(self):
         rules_role = FakeRole("Rule Abider", 101)
