@@ -7211,6 +7211,12 @@ PAGE_TEMPLATE = """
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.next_channel_value or channel.id == onboarding.next_channel_value or channel.key == onboarding.next_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
+            <label>Rules accepted embed channel
+              <select name="accepted_channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.accepted_channel_value or channel.id == onboarding.accepted_channel_value or channel.key == onboarding.accepted_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+              <small class="muted">Where the RULES ACCEPTED confirmation embed is posted. Use this to keep the rules channel clean.</small>
+            </label>
             <label>Require rules before linked role
               <select name="require_rules_before_linked_role">
                 <option value="true" {% if onboarding.require_rules_before_linked_role %}selected{% endif %}>Yes</option>
@@ -7297,7 +7303,7 @@ PAGE_TEMPLATE = """
             <div class="full embed-preview">
               <strong>Current gate</strong>
               <span>{{ 'On' if onboarding.enabled else 'Off' }} -> {{ onboarding.rules_channel_label }} -> {{ onboarding.next_channel_label }} -> {{ onboarding.choice_channel_label }}</span>
-              <small>Rules: {{ onboarding.rules_role_label }} | Linked: {{ onboarding.linked_role_label }} | Choice mode: {{ 'one only' if onboarding.choice_single else 'multiple allowed' }}</small>
+              <small>Rules accepted embed: {{ onboarding.accepted_channel_label }} | Rules: {{ onboarding.rules_role_label }} | Linked: {{ onboarding.linked_role_label }} | Choice mode: {{ 'one only' if onboarding.choice_single else 'multiple allowed' }}</small>
             </div>
             <div class="full modal-actions"><button type="submit">Save Onboarding Gate</button><span class="result muted"></span></div>
           </form>
@@ -26450,6 +26456,11 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         settings.get("next_channel_id") or settings.get("next_channel_key") or "general_chat",
         default="general_chat",
     )
+    accepted_channel_value = dashboard_channel_value(
+        config,
+        settings.get("accepted_channel_id") or settings.get("accepted_channel_key") or next_channel_value,
+        default=next_channel_value,
+    )
     choice_channel_value = dashboard_channel_value(
         config,
         settings.get("choice_channel_id") or settings.get("choice_channel_key") or next_channel_value or "general_chat",
@@ -26472,6 +26483,8 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         "rules_channel_label": channel_label_from_channels(channels, rules_channel_value, "Rules channel"),
         "next_channel_value": next_channel_value,
         "next_channel_label": channel_label_from_channels(channels, next_channel_value, "Next channel"),
+        "accepted_channel_value": accepted_channel_value,
+        "accepted_channel_label": channel_label_from_channels(channels, accepted_channel_value, "Rules accepted embed channel"),
         "choice_channel_value": choice_channel_value,
         "choice_channel_label": channel_label_from_channels(channels, choice_channel_value, "Choice channel"),
         "choice_message_id": str(settings.get("choice_message_id") or ""),
@@ -30691,6 +30704,7 @@ def api_member_onboarding():
     }
     settings.update(channel_setting(raw_payload.get("rules_channel_key") or raw_payload.get("rules_channel_id"), "rules_channel_key", "rules_channel_id", "rules"))
     settings.update(channel_setting(raw_payload.get("next_channel_key") or raw_payload.get("next_channel_id"), "next_channel_key", "next_channel_id", "general_chat"))
+    settings.update(channel_setting(raw_payload.get("accepted_channel_key") or raw_payload.get("accepted_channel_id"), "accepted_channel_key", "accepted_channel_id", ""))
     settings.update(channel_setting(raw_payload.get("choice_channel_key") or raw_payload.get("choice_channel_id"), "choice_channel_key", "choice_channel_id", "general_chat"))
     settings.update(channel_setting(raw_payload.get("choice_cherno_welcome_channel_key") or raw_payload.get("choice_cherno_welcome_channel_id"), "choice_cherno_welcome_channel_key", "choice_cherno_welcome_channel_id", ""))
     settings.update(channel_setting(raw_payload.get("choice_livo_welcome_channel_key") or raw_payload.get("choice_livo_welcome_channel_id"), "choice_livo_welcome_channel_key", "choice_livo_welcome_channel_id", ""))

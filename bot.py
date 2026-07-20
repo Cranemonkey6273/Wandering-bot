@@ -4624,6 +4624,8 @@ def member_onboarding_settings(config):
         "rules_channel_id": str(saved.get("rules_channel_id") or "").strip(),
         "next_channel_key": str(saved.get("next_channel_key") or "").strip(),
         "next_channel_id": str(saved.get("next_channel_id") or "").strip(),
+        "accepted_channel_key": str(saved.get("accepted_channel_key") or "").strip(),
+        "accepted_channel_id": str(saved.get("accepted_channel_id") or "").strip(),
         "rules_role_id": str(saved.get("rules_role_id") or "").strip(),
         "linked_role_id": str(saved.get("linked_role_id") or "").strip(),
         "pending_role_id": str(saved.get("pending_role_id") or "").strip(),
@@ -4898,7 +4900,8 @@ async def send_onboarding_role_issue_notice(guild, config, member, role_id, acti
     print(f"[ONBOARDING] {action_label} failed for {member}: {problem}")
     settings = member_onboarding_settings(config)
     fallback_channel = (
-        resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
+        resolve_onboarding_channel(guild, config, settings, "accepted", "")
+        or resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
         or resolve_onboarding_channel(guild, config, settings, "next", "general_chat")
     )
     channels = []
@@ -5153,7 +5156,8 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
         return False
     rules_role_id = settings.get("rules_role_id")
     channel = (
-        resolve_onboarding_channel(guild, config, settings, "next", "")
+        resolve_onboarding_channel(guild, config, settings, "accepted", "")
+        or resolve_onboarding_channel(guild, config, settings, "next", "")
         or resolve_onboarding_channel(guild, config, settings, "choice", "")
     )
     had_rules_role = member_has_role_id(member, rules_role_id)
