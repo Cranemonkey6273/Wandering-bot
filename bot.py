@@ -4902,10 +4902,12 @@ async def send_onboarding_role_issue_notice(guild, config, member, role_id, acti
         or resolve_onboarding_channel(guild, config, settings, "next", "general_chat")
         or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
     )
+    rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
     channels = []
     for channel in (
         resolve_feed_channel(str(getattr(guild, "id", "")), config, "dashboard_audit"),
         target_channel,
+        rules_channel,
         fallback_channel,
     ):
         if not channel:
@@ -5153,7 +5155,8 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
     if not settings["enabled"]:
         return False
     rules_role_id = settings.get("rules_role_id")
-    channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    rules_channel = resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
+    channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or rules_channel
     had_rules_role = member_has_role_id(member, rules_role_id)
     rules_role_added = await add_onboarding_role(member, rules_role_id, "Wandering Bot rules accepted")
     if rules_role_id and not (had_rules_role or rules_role_added or member_has_role_id(member, rules_role_id)):
@@ -5173,7 +5176,15 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
         )
         if linked_role_id and not (had_linked_role or linked_role_added or member_has_role_id(member, linked_role_id)):
             await send_onboarding_role_issue_notice(guild, config, member, linked_role_id, "Linked gamer role", target_channel=channel)
-    if channel:
+    notice_channels = []
+    for notice_channel in (channel, rules_channel):
+        if not notice_channel:
+            continue
+        notice_channel_id = str(getattr(notice_channel, "id", id(notice_channel)))
+        if any(str(getattr(existing, "id", id(existing))) == notice_channel_id for existing in notice_channels):
+            continue
+        notice_channels.append(notice_channel)
+    for notice_channel in notice_channels:
         embed = discord.Embed(
             title="RULES ACCEPTED",
             description=f"{member.mention}\n\n{settings['accepted_message']}",
@@ -5182,7 +5193,7 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot - Member Onboarding")
         try:
-            await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
+            await notice_channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
         except Exception as error:
             print(f"[ONBOARDING] accepted notice failed for {member}: {error}")
     return True
