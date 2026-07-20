@@ -5622,7 +5622,6 @@ PAGE_TEMPLATE = """
       <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
       {% elif auth.kind == "owner" and mode == "owner" %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
-      <a href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       <a class="{{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
       <a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
@@ -5631,7 +5630,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
-      <a href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       {% if customer_billing_plans %}<a href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
@@ -5749,7 +5747,6 @@ PAGE_TEMPLATE = """
     <section class="section-nav" aria-label="Dashboard sections">
       {% if auth.kind == "owner" and mode == "owner" %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
-      <a class="tab-link" href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       <a class="tab-link {{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
       <a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
@@ -5758,7 +5755,6 @@ PAGE_TEMPLATE = """
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
       {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
-      <a class="tab-link" href="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</a>
       {% if customer_billing_plans %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
@@ -5785,7 +5781,6 @@ PAGE_TEMPLATE = """
         <select onchange="if (this.value) window.location.href = this.value;">
           {% if auth.kind == "owner" and mode == "owner" %}
           <option value="/owner?section=overview" {{ 'selected' if active_section == 'overview' else '' }}>Owner Home</option>
-          <option value="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</option>
           <option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Servers</option>
           <option value="/owner?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Server Access</option>
           <option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>
@@ -5794,7 +5789,6 @@ PAGE_TEMPLATE = """
           {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
           {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
-          <option value="/app{% if server %}?guild_id={{ server.guild_id }}{% if selected_dayz_profile_id %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}{% endif %}">Mobile App</option>
           {% if customer_billing_plans %}<option value="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</option>{% endif %}
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
