@@ -14199,6 +14199,7 @@ def zone_from_coords(coords):
 
 
 def ensure_guild_runtime(guild_id):
+    guild_id = str(guild_id)
 
     if guild_id not in processed_lines:
         processed_lines[guild_id] = OrderedDict()
@@ -14271,6 +14272,7 @@ def remember_player_location_from_adm(guild_id, line):
 
 
 def remember_online_state_from_adm_line(guild_id, line, event_type=None, event_time=None):
+    guild_id = str(guild_id)
     event_type = event_type or classify_event(line)
     if event_type not in {"connect", "disconnect"}:
         return False, event_type, ""
@@ -14385,6 +14387,103 @@ def clear_online_state_for_restart(guild_id):
     if had_state:
         save_online_players()
     return had_state
+
+
+def online_state_parse_reference(guild_id):
+    guild_id = str(guild_id)
+    context = adm_parse_context.get(guild_id, {})
+    reference = parse_saved_datetime(
+        context.get("source_modified_datetime")
+        or context.get("source_datetime")
+    )
+    if reference:
+        return _as_utc_datetime(reference) or reference
+
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(adm_file_path(guild_id)), UTC)
+    except Exception:
+        return datetime.now(UTC)
+
+
+def reconcile_online_state_from_cached_adm(guild_id, config, *, source=""):
+    guild_id = str(guild_id)
+    ensure_guild_runtime(guild_id)
+    path = adm_file_path(guild_id)
+    if not os.path.exists(path):
+        return False, ""
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            lines = handle.readlines()
+    except Exception as error:
+        print(f"[ONLINE STATE] {guild_id} could not read cached ADM for recovery: {error}")
+        return False, ""
+
+    if not lines:
+        return False, ""
+
+    reference = online_state_parse_reference(guild_id)
+    cutoff = latest_restart_cutoff_for_online_state(guild_id, config)
+    recovered = set()
+    recovered_times = {}
+    saw_presence_event = False
+
+    for raw_line in lines[-adm_parse_tail_line_count():]:
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+
+        event_type = classify_event(line)
+        if event_type not in {"connect", "disconnect"}:
+            continue
+
+        player_name = extract_player_name(line)
+        if not player_name or player_name == "Unknown":
+            continue
+
+        event_time = extract_adm_event_time(line, now=reference, config=config)
+        if event_time:
+            event_time = normalize_live_adm_event_time(
+                line,
+                event_time,
+                config=config,
+                now=reference,
+            )
+        event_dt = _as_utc_datetime(event_time) or reference
+        if cutoff and event_dt and event_dt < (cutoff - timedelta(minutes=5)):
+            continue
+
+        saw_presence_event = True
+        if event_type == "connect":
+            recovered.add(player_name)
+            recovered_times[player_name] = event_dt or datetime.now(UTC)
+        else:
+            recovered.discard(player_name)
+            recovered_times.pop(player_name, None)
+
+    if not saw_presence_event:
+        return False, ""
+
+    current = set(online_players.get(guild_id, set()))
+    target = set(recovered) if not current else current | recovered
+    if target == current:
+        return False, ""
+
+    online_players[guild_id] = target
+    existing_times = player_online_times.setdefault(guild_id, {})
+    player_online_times[guild_id] = {
+        player_name: existing_times.get(player_name)
+        or recovered_times.get(player_name)
+        or datetime.now(UTC)
+        for player_name in target
+    }
+    save_online_players()
+    detail = f"ADM roster recovery ({len(target)} online)"
+    print(
+        f"[ONLINE STATE] {guild_id} recovered roster from cached ADM "
+        f"({source or 'reconcile'}): {len(current)} -> {len(target)}"
+    )
+    return True, detail
 
 
 def classify_event(line):
@@ -23099,7 +23198,7 @@ async def helpme(ctx):
 @bot.command()
 async def online(ctx):
 
-    guild_id, _config, target_error = runtime_config_for_command_context(
+    guild_id, config, target_error = runtime_config_for_command_context(
         ctx.guild,
         channel=ctx.channel,
         member=ctx.author,
@@ -23110,6 +23209,8 @@ async def online(ctx):
         return
 
     ensure_guild_runtime(guild_id)
+    if not online_players.get(guild_id):
+        reconcile_online_state_from_cached_adm(guild_id, config, source="!online")
 
     guild_online = online_players[guild_id]
 
@@ -31139,11 +31240,21 @@ async def find_existing_online_dashboard_message(channel):
 
 
 async def upsert_online_dashboard_message(guild_id, config, reason="", force=False):
+    guild_id = str(guild_id)
     online_channel = resolve_feed_channel(guild_id, config, "online", required=True)
     if not online_channel:
         return False
 
     ensure_guild_runtime(guild_id)
+    if not online_players.get(guild_id):
+        recovered, recovery_reason = reconcile_online_state_from_cached_adm(
+            guild_id,
+            config,
+            source="online board",
+        )
+        if recovered and (not reason or reason == "15 min safety refresh"):
+            reason = recovery_reason
+
     online_channel_id = getattr(online_channel, "id", None)
     configured_message_id = str(config.get("online_dashboard_message_id") or "").strip()
     snapshot = (
@@ -45020,13 +45131,30 @@ async def wanderingemoji(interaction: discord.Interaction):
     )
 
 @bot.tree.command(name="online", description="Show currently online survivors")
-async def slash_online(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
+@app_commands.describe(server="Optional merged-server id, for example cherno or livo")
+@app_commands.autocomplete(server=server_profile_autocomplete)
+async def slash_online(interaction: discord.Interaction, server: str = ""):
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+
+    guild_id = str(guild_id)
     ensure_guild_runtime(guild_id)
+    if not online_players.get(guild_id):
+        reconcile_online_state_from_cached_adm(guild_id, config, source="/online")
+
     guild_online = online_players[guild_id]
     player_list = "\n".join(f"🟢 {p}" for p in sorted(guild_online)) if guild_online else "No players online."
+    server_label = dayz_server_display_name(guild_id, config) or guild_display_name(guild_id)
     embed = discord.Embed(
-        title=f"✅🎮 ONLINE SURVIVORS 🎮✅ ({len(guild_online)})",
+        title=f"✅🎮 ONLINE SURVIVORS - {server_label} 🎮✅ ({len(guild_online)})",
         description=player_list,
         color=0x2ECC71
     )
@@ -47189,6 +47317,8 @@ async def send_live_map_response(interaction: discord.Interaction, server: str =
     guild_id = str(guild_id or base_guild_id)
     ensure_guild_runtime(guild_id)
     server_label = dayz_server_display_name(guild_id, config) or guild_display_name(guild_id)
+    if not online_players.get(guild_id):
+        reconcile_online_state_from_cached_adm(guild_id, config, source="/map")
 
     if not online_players.get(guild_id):
         await send_map_followup(f"No online survivors are currently tracked for **{server_label}**.", ephemeral=True)
