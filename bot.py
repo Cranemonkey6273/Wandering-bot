@@ -4828,6 +4828,17 @@ def member_has_role_id(member, role_id):
     return any(str(getattr(role, "id", "")) == wanted for role in getattr(member, "roles", []) or [])
 
 
+def member_bypasses_onboarding_rules_gate(member):
+    permissions = getattr(member, "guild_permissions", None)
+    if not permissions:
+        return False
+    return bool(
+        getattr(permissions, "administrator", False)
+        or getattr(permissions, "manage_guild", False)
+        or getattr(permissions, "manage_roles", False)
+    )
+
+
 def onboarding_role_label(guild, role_id):
     role = resolve_onboarding_role(guild, role_id)
     if role:
@@ -5087,6 +5098,7 @@ async def repair_member_onboarding_reactions_for_guild(guild, config):
                         settings.get("choice_require_rules", True)
                         and settings.get("rules_role_id")
                         and not member_has_role_id(member, settings.get("rules_role_id"))
+                        and not member_bypasses_onboarding_rules_gate(member)
                     ):
                         continue
                     if settings.get("choice_single"):
@@ -5162,9 +5174,12 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
     )
     had_rules_role = member_has_role_id(member, rules_role_id)
     rules_role_added = await add_onboarding_role(member, rules_role_id, "Wandering Bot rules accepted")
+    rules_role_problem = ""
     if rules_role_id and not (had_rules_role or rules_role_added or member_has_role_id(member, rules_role_id)):
+        rules_role_problem = onboarding_role_assignment_problem(member, rules_role_id, action="add")
+        if not rules_role_problem:
+            rules_role_problem = "Discord rejected the role update. Check role hierarchy and Manage Roles permission."
         await send_onboarding_role_issue_notice(guild, config, member, rules_role_id, "Rules role", target_channel=channel)
-        return True
     remember_recent_onboarding_rules_acceptance(guild, member)
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules accepted")
     linked_data = linked_players.get(str(member.id), {}) if isinstance(linked_players.get(str(member.id)), dict) else {}
@@ -5185,6 +5200,12 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
             description=f"{member.mention}\n\n{settings['accepted_message']}",
             color=0x2ECC71,
         )
+        if rules_role_problem:
+            embed.add_field(
+                name="Role note",
+                value=discord_safe_content(f"Rules accepted, but Discord blocked the rules-role update: {rules_role_problem}", 900),
+                inline=False,
+            )
         embed.set_thumbnail(url=BOT_IMAGE)
         embed.set_footer(text="Wandering Bot - Member Onboarding")
         try:
@@ -5216,7 +5237,12 @@ async def apply_member_onboarding_link_role(guild, config, member):
     settings = member_onboarding_settings(config)
     if not settings["enabled"] or not settings.get("linked_role_id"):
         return False
-    if settings.get("require_rules_before_linked_role") and settings.get("rules_role_id") and not member_has_role_id(member, settings.get("rules_role_id")):
+    if (
+        settings.get("require_rules_before_linked_role")
+        and settings.get("rules_role_id")
+        and not member_has_role_id(member, settings.get("rules_role_id"))
+        and not member_bypasses_onboarding_rules_gate(member)
+    ):
         return False
     changed = await add_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot gamertag linked")
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot gamertag linked")
@@ -5322,21 +5348,16 @@ def resolve_onboarding_choice_welcome_channel(guild, config, settings, choice):
         return None
     channel = resolve_onboarding_channel(guild, config, settings, f"choice_{choice_key}_welcome", "")
     if channel:
-        if is_safe_onboarding_choice_welcome_channel(channel):
-            return channel
-        print(
-            "[ONBOARDING] refusing configured "
-            f"{choice_key} welcome channel #{getattr(channel, 'name', channel)}; "
-            "channel name looks like a feed/event/log channel"
-        )
+        return channel
     return find_onboarding_choice_welcome_channel(guild, choice_key)
 
 
-async def send_member_onboarding_choice_welcome(guild, config, settings, member, choice):
+async def send_member_onboarding_choice_welcome(guild, config, settings, member, choice, access_text=None):
     choice_key = str((choice or {}).get("key") or "").strip().lower()
     choice_label = str((choice or {}).get("label") or choice_key or "Server").strip()
     channel = resolve_onboarding_choice_welcome_channel(guild, config, settings, choice)
     if not channel:
+        print(f"[ONBOARDING] no {choice_key} welcome channel resolved for {member} in guild {getattr(guild, 'id', '')}")
         return False
     bot_member = getattr(guild, "me", None)
     try:
@@ -5357,7 +5378,7 @@ async def send_member_onboarding_choice_welcome(guild, config, settings, member,
         description=f"{member.mention}\n\n{discord_safe_content(discord.utils.escape_mentions(message), 1200)}",
         color=ONBOARDING_CHOICE_WELCOME_COLORS.get(choice_key, 0x1ABC9C),
     )
-    embed.add_field(name="Access", value=f"{choice_label} role applied.", inline=False)
+    embed.add_field(name="Access", value=discord_safe_content(access_text or f"{choice_label} role applied.", 900), inline=False)
     embed.set_thumbnail(url=BOT_IMAGE)
     embed.set_footer(text="Wandering Bot - Member Onboarding")
     try:
@@ -5437,6 +5458,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
         and settings.get("rules_role_id")
         and not member_has_role_id(member, settings.get("rules_role_id"))
         and not has_recent_onboarding_rules_acceptance(guild, member)
+        and not member_bypasses_onboarding_rules_gate(member)
     ):
         await send_onboarding_rules_required_notice(guild, config, settings, member, choice_channel)
         return True
@@ -5453,7 +5475,13 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
         choice_role_id,
         f"Wandering Bot onboarding choice: {choice.get('label')}",
     )
+    access_text = f"{choice.get('label') or choice.get('key') or 'Server'} role applied."
+    if had_choice_role:
+        access_text = f"{choice.get('label') or choice.get('key') or 'Server'} role already active."
     if choice_role_id and not (had_choice_role or choice_role_added or member_has_role_id(member, choice_role_id)):
+        problem = onboarding_role_assignment_problem(member, choice_role_id, action="add")
+        if not problem:
+            problem = "Discord rejected the role update. Check role hierarchy and Manage Roles permission."
         await send_onboarding_role_issue_notice(
             guild,
             config,
@@ -5462,8 +5490,11 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
             f"{choice.get('label') or choice.get('key') or 'Server choice'} role",
             target_channel=choice_channel,
         )
-        return True
-    await send_member_onboarding_choice_welcome(guild, config, settings, member, choice)
+        access_text = (
+            f"{choice.get('label') or choice.get('key') or 'Server'} selected, "
+            f"but Discord blocked the role update: {problem}"
+        )
+    await send_member_onboarding_choice_welcome(guild, config, settings, member, choice, access_text=access_text)
     return True
 
 
@@ -5489,6 +5520,7 @@ async def apply_member_onboarding_member_update(before, after):
         settings.get("choice_require_rules", True)
         and rules_role_id
         and rules_role_id not in after_role_ids
+        and not member_bypasses_onboarding_rules_gate(after)
     )
     handled = False
 
