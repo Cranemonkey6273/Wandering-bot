@@ -18,11 +18,13 @@ makes vehicles and static crates fail to spawn on Livonia terrain.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import os
 import sys
 import unittest
 import xml.etree.ElementTree as ET
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from _bot_loader import import_bot_module  # noqa: E402
@@ -2541,6 +2543,143 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         )
         ok, messages = bot.validate_console_ce_xml_bundle(built)
         self.assertTrue(ok, "\n".join(messages))
+
+
+class CeUploadAuthorizationAndBackupTests(unittest.TestCase):
+    def _backup_build(self):
+        return {
+            "map_key": "chernarus",
+            "events_path": "/dayzxb_missions/dayzOffline.chernarusplus/db/events.xml",
+            "events_source_text": '<events><event name="VanillaRecord" /></events>',
+        }
+
+    def test_background_upload_requires_an_explicit_event_request_marker(self):
+        event = {
+            "created_by": "dashboard",
+            "event_type": "airdrop",
+            "upload_status": "waiting_for_bot_upload",
+            "status": "Native CE XML upload requested",
+        }
+
+        self.assertFalse(bot.scenario_event_upload_needs_resolution(event))
+
+        event["ce_upload_requested_at"] = "2026-07-29T10:00:00+00:00"
+        event["ce_upload_request_action"] = "create"
+        self.assertTrue(bot.scenario_event_upload_needs_resolution(event))
+
+    def test_failed_timestamped_backup_blocks_the_live_upload(self):
+        source = '<events><event name="VanillaRecord" /></events>'
+        with patch.object(bot, "download_text_file_from_nitrado", return_value=(True, "downloaded", source)), \
+             patch.object(bot, "validate_console_ce_live_source_baseline", return_value=(True, "")), \
+             patch.object(bot, "upload_ce_latest_backup_to_nitrado", return_value=(False, "backup rejected")):
+            ok, messages = bot.backup_remote_ce_sources_before_upload({}, self._backup_build())
+
+        self.assertFalse(ok)
+        rendered = "\n".join(messages)
+        self.assertIn("timestamped backup", rendered)
+        self.assertIn("could not be created before the live upload", rendered)
+
+    def test_verified_timestamped_and_latest_backups_are_both_written(self):
+        source = '<events><event name="VanillaRecord" /></events>'
+        backup_paths = []
+
+        def capture_backup(_config, _label, backup_path, _content):
+            backup_paths.append(backup_path)
+            return True, "verified"
+
+        with patch.object(bot, "download_text_file_from_nitrado", return_value=(True, "downloaded", source)), \
+             patch.object(bot, "validate_console_ce_live_source_baseline", return_value=(True, "")), \
+             patch.object(bot, "upload_ce_latest_backup_to_nitrado", side_effect=capture_backup), \
+             patch.object(bot, "cleanup_wanderingbot_backups_for_path", return_value=([], [])):
+            ok, messages = bot.backup_remote_ce_sources_before_upload({}, self._backup_build())
+
+        self.assertTrue(ok, "\n".join(messages))
+        self.assertEqual(2, len(backup_paths))
+        self.assertIn(".wanderingbot-backup-", backup_paths[0])
+        self.assertTrue(backup_paths[0].endswith("Z"))
+        self.assertTrue(backup_paths[1].endswith(".wanderingbot-backup-latest"))
+
+    def test_restart_schedule_cannot_invoke_native_ce_uploader(self):
+        config = {"restart_interval_hours": 1, "restart_start_hour": 0}
+        upload_calls = []
+
+        async def no_results(*_args, **_kwargs):
+            return []
+
+        async def no_dashboard_upload(*_args, **_kwargs):
+            return False
+
+        async def inline_to_thread(function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+        def fail_if_called(*_args, **_kwargs):
+            upload_calls.append(True)
+            return False, {}, ["scheduler invoked CE uploader"]
+
+        with patch.object(bot, "active_adm_config_items", return_value=[("guild-1", config)]), \
+             patch.object(bot, "mark_server_control_scheduler_status", return_value=False), \
+             patch.object(bot, "apply_due_damage_schedule", return_value=[]), \
+             patch.object(bot, "queue_due_vehicle_reset_schedule", return_value=None), \
+             patch.object(bot, "process_cfgignorelist_vehicle_reset_events", new=no_results), \
+             patch.object(bot, "process_economy_vehicle_reset_events", new=no_results), \
+             patch.object(bot, "process_dashboard_scenario_xml_upload", new=no_dashboard_upload), \
+             patch.object(bot, "_restart_schedule_matches", return_value=True), \
+             patch.object(bot, "bridge_scenario_events", return_value=[]), \
+             patch.object(bot, "delivery_bridge_scenario_events", return_value=[]), \
+             patch.object(bot, "native_ce_scenario_events", return_value=[{"id": 1}]), \
+             patch.object(bot, "console_ce_event_config", return_value={"enabled": True}), \
+             patch.object(bot, "queue_entries_for_guild", return_value=[]), \
+             patch.object(bot, "upload_console_ce_event_files", side_effect=fail_if_called), \
+             patch.object(bot.asyncio, "to_thread", new=inline_to_thread):
+            asyncio.run(bot.restart_delivery_processor())
+
+        self.assertEqual([], upload_calls)
+
+    def test_bridge_upload_does_not_queue_native_ce_cleanup(self):
+        config = {}
+        event = {"id": 1, "event_type": "airdrop"}
+        with patch.object(bot, "scenario_event_uses_delivery_bridge", return_value=True), \
+             patch.object(bot, "write_and_upload_delivery_xml", return_value=(True, "/tmp/deliveries.xml")):
+            ok, _path, _messages = bot.upload_delivery_bridge_scenario_events(
+                "guild-1",
+                config,
+                [event],
+                "test",
+            )
+
+        self.assertTrue(ok)
+        self.assertNotIn("scenario_events_cleanup_pending", config)
+
+    def test_generic_cleanup_flag_without_native_delete_cannot_invoke_uploader(self):
+        config = {"scenario_events_cleanup_pending": True, "scenario_events": []}
+        upload_calls = []
+
+        def fail_if_called(*_args, **_kwargs):
+            upload_calls.append(True)
+            return False, {}, ["unexpected"]
+
+        with patch.object(bot, "upload_console_ce_event_files", side_effect=fail_if_called):
+            changed = asyncio.run(bot.process_dashboard_scenario_xml_upload("guild-1", config))
+
+        self.assertFalse(changed)
+        self.assertEqual([], upload_calls)
+
+    def test_direct_dashboard_uploader_rejects_missing_explicit_request(self):
+        config = {"scenario_events": []}
+        upload_calls = []
+
+        def fail_if_called(*_args, **_kwargs):
+            upload_calls.append(True)
+            return False, {}, ["unexpected"]
+
+        with patch.object(bot, "load_guild_configs"), \
+             patch.object(bot, "config_for_server_runtime", return_value=config), \
+             patch.object(bot, "upload_console_ce_event_files", side_effect=fail_if_called):
+            result = bot.dashboard_upload_console_ce_event_files("guild-1")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("no explicit dashboard event", result["messages"][0])
+        self.assertEqual([], upload_calls)
 
 
 if __name__ == "__main__":

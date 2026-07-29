@@ -1025,6 +1025,8 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "scenario_events_cleanup_completed_at",
     "scenario_events_cleanup_error",
     "scenario_events_cleanup_pending",
+    "scenario_events_cleanup_requested_at",
+    "scenario_events_native_ce_cleanup_requested_at",
     "server_control_scheduler_status",
     "server_timezone",
     "vehicle_reset_cfgignorelist_workflow",
@@ -39112,7 +39114,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     })[:24]
     output["restart_required"] = bool(
         records
-        or config.get("scenario_events_cleanup_pending")
+        or native_ce_cleanup_is_explicitly_requested(config)
         or repaired_revamp_events
         or repaired_revamp_spawns
         or removed_revamp_spawn_groups
@@ -39154,7 +39156,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
     animal_records = [record for record in records if record.get("animal_territory")]
     zombie_records = [record for record in records if record.get("zombie_territory")]
-    should_cleanup_environment = bool(records) or bool(config.get("scenario_events_cleanup_pending"))
+    should_cleanup_environment = bool(records) or native_ce_cleanup_is_explicitly_requested(config)
     if should_cleanup_environment:
         if not mission_base:
             output.setdefault("source_fallbacks", []).append(
@@ -39224,7 +39226,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"removed `{removed_blocks}` old managed block(s) and `{removed_zones}` old managed zone(s)."
         )
 
-    should_cleanup_zombie_territories = bool(zombie_records) or bool(config.get("scenario_events_cleanup_pending"))
+    should_cleanup_zombie_territories = bool(zombie_records) or native_ce_cleanup_is_explicitly_requested(config)
     if should_cleanup_zombie_territories:
         zombie_text, resolved_zombie_path, zombie_source = download_console_zombie_territories_source(
             config,
@@ -39296,7 +39298,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         record for record in records
         if record.get("use_eventgroup") or record.get("mapgroupproto_classes")
     ]
-    cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
     repair_static_helicrash_proto = (
         allow_unowned_repairs
         and bool(mapgroupproto_records)
@@ -40096,6 +40098,18 @@ def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content)
     return False, f"FTP backup upload failed: {ftp_message} API backup fallback also failed: {api_message}"
 
 
+def timestamped_ce_backup_path(path, now=None):
+    """Return a collision-resistant, recoverable CE backup path.
+
+    The stable ``.wanderingbot-backup-latest`` copy remains useful for an
+    automated recovery, but it must never be the only pre-write backup.  A
+    timestamped copy means every successful CE operation has an immutable
+    rollback point even when a later operation also succeeds.
+    """
+    moment = now if isinstance(now, datetime) else datetime.now(UTC)
+    return f"{canonical_remote_path(path)}.wanderingbot-backup-{moment.strftime('%Y%m%dT%H%M%S%fZ')}"
+
+
 def backup_remote_ce_sources_before_upload(config, built):
     backup_messages = []
     restore_texts = built.setdefault("restore_texts", {})
@@ -40239,15 +40253,33 @@ def backup_remote_ce_sources_before_upload(config, built):
                 )
                 continue
         restore_texts[path] = content
+        timestamped_backup_path = timestamped_ce_backup_path(path)
+        timestamped_ok, timestamped_message = upload_ce_latest_backup_to_nitrado(
+            config,
+            label,
+            timestamped_backup_path,
+            content,
+        )
+        backup_messages.append(
+            f"`{label}` timestamped backup `{timestamped_backup_path}`: {timestamped_message}"
+        )
+        if not timestamped_ok:
+            return False, backup_messages + [
+                f"Backup blocked: verified timestamped backup for `{label}` could not be created before the live upload."
+            ]
+
         backup_path = f"{path}.wanderingbot-backup-latest"
         backup_ok, backup_message = upload_ce_latest_backup_to_nitrado(config, label, backup_path, content)
-        backup_messages.append(f"`{label}` backup `{backup_path}`: {backup_message}")
+        backup_messages.append(f"`{label}` latest backup `{backup_path}`: {backup_message}")
         if not backup_ok:
-            backup_messages.append(
-                f"`{label}` remote latest backup failed verification, so this upload will use the freshly downloaded in-memory restore copy if rollback is needed."
-            )
-            continue
-        deleted, failed = cleanup_wanderingbot_backups_for_path(config, path, keep_paths=[backup_path])
+            return False, backup_messages + [
+                f"Backup blocked: verified latest backup for `{label}` could not be refreshed before the live upload."
+            ]
+        deleted, failed = cleanup_wanderingbot_backups_for_path(
+            config,
+            path,
+            keep_paths=[timestamped_backup_path, backup_path],
+        )
         if deleted:
             backup_messages.append(f"`{label}` old WanderingBot backups removed: {len(deleted)}")
         if failed:
@@ -41249,9 +41281,35 @@ def scenario_event_has_confirmed_upload(event):
     return scenario_event_has_confirmed_native_upload(event) or scenario_event_has_confirmed_bridge_upload(event)
 
 
+def scenario_event_has_explicit_xml_upload_request(event):
+    """Whether an operator deliberately asked the worker to alter event XML.
+
+    Status text is display state and can be inherited by profile migrations or
+    interrupted dashboard saves.  It must not itself authorize a live CE
+    write.  Dashboard create/edit/retry actions stamp this marker before
+    scheduling the worker; direct Discord commands execute in their own
+    interaction path and do not rely on this background-worker predicate.
+    """
+    if not isinstance(event, dict):
+        return False
+    requested_at = str(event.get("ce_upload_requested_at") or "").strip()
+    action = str(event.get("ce_upload_request_action") or "").strip().lower()
+    return bool(requested_at and action in {"create", "edit", "retry", "delete"})
+
+
+def native_ce_cleanup_is_explicitly_requested(config):
+    """Only a recorded native-event delete may authorize a CE cleanup run."""
+    return bool(
+        isinstance(config, dict)
+        and config.get("scenario_events_cleanup_pending")
+        and str(config.get("scenario_events_native_ce_cleanup_requested_at") or "").strip()
+    )
+
+
 def scenario_event_needs_native_redeploy_after_bridge(event):
     return (
         isinstance(event, dict)
+        and scenario_event_has_explicit_xml_upload_request(event)
         and str(event.get("event_type") or "").strip().lower() in DELIVERY_BRIDGE_SCENARIO_TYPES
         and not scenario_event_uses_delivery_bridge(event)
         and scenario_event_has_confirmed_bridge_upload(event)
@@ -41261,6 +41319,8 @@ def scenario_event_needs_native_redeploy_after_bridge(event):
 
 def scenario_event_upload_needs_resolution(event):
     if not isinstance(event, dict):
+        return False
+    if not scenario_event_has_explicit_xml_upload_request(event):
         return False
     upload_status = str(event.get("upload_status") or "waiting_for_bot_upload").strip().lower()
     status_text = str(event.get("status") or "").strip().lower()
@@ -41346,8 +41406,6 @@ def upload_delivery_bridge_scenario_events(guild_id, config, events, source="Das
         return False, delivery_path, [
             f"Bridge delivery XML upload failed: {type(error).__name__}: {error}. Leaf trace: {trace[:800]}"
         ]
-    if upload_success:
-        config["scenario_events_cleanup_pending"] = True
     event_labels = ", ".join(str(event.get("id") or event.get("name") or event.get("class_name") or "?") for event in events[:8])
     messages = [
         f"Bridge delivery XML {'uploaded' if upload_success else 'failed'} for {len(events)} live event(s): {event_labels}.",
@@ -41476,7 +41534,7 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
         if not isinstance(config, dict) or not config:
             return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
         target_event_id = safe_int(event_id, 0)
-        cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+        cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
         active_dashboard_events = [
             event
             for event in scenario_events_for_config(config)
@@ -41559,7 +41617,7 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
             except Exception as notice_error:
                 bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
             save_guild_configs_for_runtime(config)
-            if not native_events and not bool(config.get("scenario_events_cleanup_pending")):
+            if not native_events and not native_ce_cleanup_is_explicitly_requested(config):
                 return {
                     "ok": bridge_success,
                     "built": {
@@ -41569,6 +41627,14 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
                     },
                     "messages": bridge_messages,
                 }
+        if not native_events and not native_ce_cleanup_is_explicitly_requested(config):
+            return {
+                "ok": False,
+                "built": {},
+                "messages": [
+                    "Native CE upload blocked: no explicit dashboard event create, edit, delete, or retry request is pending."
+                ],
+            }
         success, built, messages = upload_console_ce_event_files(
             guild_id,
             config,
@@ -41596,11 +41662,12 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
     now_text = datetime.now(UTC).isoformat()
     changed = False
     affected_events = []
-    cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
     if success and cleanup_pending:
         config["scenario_events_cleanup_pending"] = False
         config["scenario_events_cleanup_completed_at"] = now_text
         config.pop("scenario_events_cleanup_error", None)
+        config.pop("scenario_events_native_ce_cleanup_requested_at", None)
         changed = True
     elif cleanup_pending:
         config["scenario_events_cleanup_error"] = status_text
@@ -44536,20 +44603,13 @@ async def restart_delivery_processor():
                         not console_ce_enabled,
                     )
 
-                if native_scenario_events and console_ce_enabled:
-                    success, built, messages = await asyncio.to_thread(
-                        upload_console_ce_event_files,
-                        guild_id,
-                        config,
-                        "",
-                        "",
-                        "",
-                        True
-                    )
-                    queue_scenario_event_discord_notice(config, success, built, messages, native_scenario_events, "Scheduled restart")
-                    await process_scenario_event_discord_notices(guild_id, config)
-                    if not success:
-                        print(f"CONSOLE CE EVENT UPLOAD FAILED {guild_id}: {' | '.join(messages[-4:])}")
+                # A restart schedule must never mutate CE XML.  Native CE
+                # changes are only executed by an explicit dashboard/Discord
+                # event create, edit, delete, or retry request.  In
+                # particular, do not re-upload a whole merged bundle merely
+                # because an existing event is still enabled at restart time.
+                # ``native_scenario_events`` is intentionally not acted on
+                # here; it is retained above only for delivery-route logic.
 
                 pending_files = config.get("pending_server_file_changes") or []
                 if "messages.xml" in pending_files:
@@ -44703,7 +44763,7 @@ def migrate_base_dashboard_scenario_events_to_matching_profile(config):
 
 async def process_dashboard_scenario_xml_upload(guild_id, config):
     pending_events = pending_dashboard_scenario_xml_events(config)
-    cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+    cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
     bridge_events = [
         event
         for event in pending_events
@@ -44752,7 +44812,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         except Exception as notice_error:
             bridge_messages.append(f"Discord notice queue skipped after bridge upload state update: {type(notice_error).__name__}: {notice_error}")
         changed = True
-        cleanup_pending = bool(config.get("scenario_events_cleanup_pending"))
+        cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
 
     pending_events = native_events
     if not pending_events and not cleanup_pending:
@@ -44789,6 +44849,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         config["scenario_events_cleanup_pending"] = False
         config["scenario_events_cleanup_completed_at"] = now_text
         config.pop("scenario_events_cleanup_error", None)
+        config.pop("scenario_events_native_ce_cleanup_requested_at", None)
     elif cleanup_pending:
         config["scenario_events_cleanup_error"] = status_text
     for event in pending_events:

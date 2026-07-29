@@ -208,6 +208,11 @@ class DashboardServerControlTests(unittest.TestCase):
                 for item in attachments.findall("item"):
                     self.assertEqual("1.00", item.get("chance"))
 
+    def test_zone_radius_limits_cover_each_supported_map(self):
+        self.assertEqual(12000, dashboard.zone_radius_limit_for_map("chernarus"))
+        self.assertEqual(10000, dashboard.zone_radius_limit_for_map("livonia"))
+        self.assertEqual(12000, dashboard.zone_radius_limit_for_map("sakhal"))
+
     def test_builder_truck_preset_adds_supplies_only_to_covered_trucks(self):
         result = dashboard.build_dayz_preset_file("chernarus", "spawnabletypes_builder_trucks")
         root = ET.fromstring(result["content"])

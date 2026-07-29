@@ -7638,6 +7638,7 @@ PAGE_TEMPLATE = """
       {% set edit_zone.boundary_points = request.args.get('draft_points', '[]') %}
     {% endif %}
     {% set draft_map_size = server.map_size if server else 15360 %}
+    {% set zone_radius_limit = server.zone_radius_limit if server else 12000 %}
     {% set draft_x_percent = ((edit_zone.x|float / draft_map_size) * 100) if draft_zone_active else 0 %}
     {% set draft_y_percent = (100 - ((edit_zone.y|float / draft_map_size) * 100)) if draft_zone_active else 0 %}
     {% set draft_radius_percent = (((edit_zone.radius|float * 2) / draft_map_size) * 100) if draft_zone_active else 0 %}
@@ -7694,8 +7695,8 @@ PAGE_TEMPLATE = """
             <label>Shape
               <select name="shape" data-zone-shape><option value="circle" {% if edit_zone.shape == 'circle' %}selected{% endif %}>Circle</option><option value="boundary" {% if edit_zone.shape == 'boundary' %}selected{% endif %}>Draw boundary</option></select>
             </label>
-            <label>Radius meters <input name="radius" type="number" min="10" max="{{ server.map_size if server else 15360 }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius></label>
-            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="3000" step="10" value="{{ edit_zone.radius }}" data-zone-radius-slider></label>
+            <label>Radius meters <input name="radius" type="number" min="10" max="{{ zone_radius_limit }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius></label>
+            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="{{ zone_radius_limit }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius-slider><small class="field-help">Full-map-safe limit for this map: {{ zone_radius_limit }}m.</small></label>
             <label>Ping / report channel
               <select name="channel_key">
                 <option value="" {% if not edit_zone.channel_key %}selected{% endif %}>No ping / report channel</option>
@@ -16729,7 +16730,8 @@ PAGE_TEMPLATE = """
       }
 
       function syncRadius(value) {
-        const radius = Math.max(10, Number(value || 250));
+        const maxRadius = Number((radiusInput && radiusInput.max) || (radiusSlider && radiusSlider.max) || size);
+        const radius = Math.max(10, Math.min(maxRadius, Number(value || 250)));
         if (radiusInput) radiusInput.value = radius;
         if (radiusSlider) radiusSlider.value = Math.min(Number(radiusSlider.max || radius), radius);
         if (radiusLabel) radiusLabel.textContent = `${radius}m`;
@@ -28019,6 +28021,22 @@ def map_size_for(server_map: str) -> int:
     return 15360
 
 
+def zone_radius_limit_for_map(server_map: str) -> int:
+    """Largest circle that safely covers a complete selected DayZ map.
+
+    These are deliberately lower than the raw square-map widths: a circle
+    centred on the map needs roughly half the diagonal to cover its corners.
+    They give the dashboard a useful full-map zone without an arbitrary
+    3,000m ceiling.
+    """
+    key = map_key_for(server_map)
+    return {
+        "chernarus": 12000,
+        "livonia": 10000,
+        "sakhal": 12000,
+    }.get(key, 12000)
+
+
 def map_key_for(server_map: str) -> str:
     name = str(server_map or "").strip().lower()
     if "livonia" in name or name == "enoch":
@@ -28613,6 +28631,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "map": server_map,
                 "map_key": map_key_for(server_map),
                 "map_size": map_size_for(server_map),
+                "zone_radius_limit": zone_radius_limit_for_map(server_map),
                 "map_labels": redact(dashboard_map_labels(server_map)),
                 "map_image_available": map_image_available_for(server_map),
                 "platform": server_platform,
@@ -28871,6 +28890,7 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server["map"] = profile_map
         selected_server["map_key"] = map_key_for(profile_map)
         selected_server["map_size"] = map_size_for(profile_map)
+        selected_server["zone_radius_limit"] = zone_radius_limit_for_map(profile_map)
         state = dict(state)
         server_rows = list(state.get("servers") or [])
         if server_rows:
@@ -28913,6 +28933,7 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server["map"] = profile_map
         selected_server["map_key"] = map_key_for(profile_map)
         selected_server["map_size"] = map_size_for(profile_map)
+        selected_server["zone_radius_limit"] = zone_radius_limit_for_map(profile_map)
         selected_server["map_labels"] = redact(dashboard_map_labels(profile_map))
         selected_server["map_image_available"] = map_image_available_for(profile_map)
         state = dict(state)
@@ -29336,6 +29357,7 @@ def dashboard_app_selected_state(auth: dict[str, Any]) -> dict[str, Any]:
                 selected_server["map"] = profile_map
                 selected_server["map_key"] = map_key_for(profile_map)
                 selected_server["map_size"] = map_size_for(profile_map)
+                selected_server["zone_radius_limit"] = zone_radius_limit_for_map(profile_map)
                 selected_server["config"] = profile_config
                 selected_server["channels"] = profile_channels
                 selected_server["dashboard_live_feed_rows"] = matched_profile.get("dashboard_live_feed_rows") if isinstance(matched_profile.get("dashboard_live_feed_rows"), list) else []
@@ -32072,6 +32094,12 @@ def api_scenario_event():
             "enabled": True,
             "status": f"Saved - {upload_route_label} upload requested",
             "upload_status": "waiting_for_bot_upload",
+            # The bot worker must see a durable, user-originated request
+            # before it is allowed to change native CE files.  A generic
+            # ``waiting_for_bot_upload`` value is not sufficient: it can be
+            # left behind by an old migration or an unrelated dashboard save.
+            "ce_upload_requested_at": datetime.now(UTC).isoformat(),
+            "ce_upload_request_action": "create" if existing_index is None else "edit",
             "created_by": event.get("created_by") or "dashboard",
             "created_at": event.get("created_at") or datetime.now(UTC).isoformat(),
             "updated_at": datetime.now(UTC).isoformat(),
@@ -32240,10 +32268,15 @@ def api_scenario_event_action():
         if action in {"delete", "cancel"}:
             removed = events.pop(index)
             mark_scenario_event_deleted(config, event_id, action, removed)
-            cleanup_needed = scenario_event_has_confirmed_upload(removed)
+            # A bridge delivery and native CE are distinct remote artifacts.
+            # Only deleting an event that was actually applied through native
+            # CE may queue the native CE cleanup worker.
+            cleanup_needed = scenario_event_has_confirmed_native_upload(removed)
             if cleanup_needed:
                 config["scenario_events_cleanup_pending"] = True
-                config["scenario_events_cleanup_requested_at"] = datetime.now(UTC).isoformat()
+                now_text = datetime.now(UTC).isoformat()
+                config["scenario_events_cleanup_requested_at"] = now_text
+                config["scenario_events_native_ce_cleanup_requested_at"] = now_text
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
             if not wants_json_response():
@@ -32281,6 +32314,8 @@ def api_scenario_event_action():
                 safe_int(event.get("upload_revision"), 0),
             ) + 1
             reset_dashboard_scenario_upload_state(event)
+            event["ce_upload_requested_at"] = datetime.now(UTC).isoformat()
+            event["ce_upload_request_action"] = "retry" if action == "upload" else "edit"
         event["updated_at"] = datetime.now(UTC).isoformat()
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
@@ -32892,13 +32927,15 @@ def api_zone():
     config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
     if target_error or config is None:
         return jsonify({"ok": False, "error": target_error or "DayZ server profile was not found."}), 404
-    map_size = map_size_for(str(config.get("server_map") or config.get("map") or "chernarus"))
+    server_map = str(config.get("server_map") or config.get("map") or "chernarus")
+    map_size = map_size_for(server_map)
+    zone_radius_limit = zone_radius_limit_for_map(server_map)
     x = max(0, min(map_size, safe_int(payload.get("x"))))
     z_value = next((value for value in (payload.get("z"), payload.get("y")) if value not in (None, "")), 0)
     z = max(0, min(map_size, safe_int(z_value)))
     y = z
     radius_value = next((value for value in (payload.get("radius_slider"), payload.get("radius")) if value not in (None, "")), 250)
-    radius = max(10, min(map_size, safe_int(radius_value, 250)))
+    radius = max(10, min(zone_radius_limit, safe_int(radius_value, 250)))
     shape = str(payload.get("shape") or "circle").strip().lower()
     if shape not in {"circle", "boundary"}:
         return jsonify({"ok": False, "error": "shape must be circle or boundary"}), 400
