@@ -61,6 +61,7 @@ MAP_IMAGE_FILES = {
 DEFAULT_MAP_IMAGE_SOURCES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_URL", "https://i.redd.it/a2mn8bzx93gd1.jpeg"),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_URL", "https://i.imgur.com/nzEp9wF.jpeg"),
+    "sakhal": os.getenv("WANDERING_SAKHAL_MAP_URL", ""),
 }
 BUILD_COMMIT = (
     os.getenv("RAILWAY_GIT_COMMIT_SHA")
@@ -137,6 +138,16 @@ DASHBOARD_AIRDROP_LOCATION_PRESETS = {
         {"name": "Polana", "x": 3906, "z": 2211},
         {"name": "Tarnow", "x": 9317, "z": 10861},
         {"name": "Dolnik", "x": 11350, "z": 11350},
+    ],
+    "sakhal": [
+        {"name": "Petropavlovsk Port", "x": 4750, "z": 10000},
+        {"name": "Central Volcano Ridge", "x": 10200, "z": 11300},
+        {"name": "North Coast Settlement", "x": 8500, "z": 12800},
+        {"name": "Eastern Mining Town", "x": 13100, "z": 10300},
+        {"name": "South-East Coast", "x": 11900, "z": 6450},
+        {"name": "South-West Peninsula", "x": 3100, "z": 6100},
+        {"name": "Southern Island", "x": 1900, "z": 2450},
+        {"name": "North Island Chain", "x": 12150, "z": 13800},
     ],
 }
 DASHBOARD_MAP_LABELS = {
@@ -1008,7 +1019,7 @@ DASHBOARD_FEATURE_LABELS = {
     "server_control": "Server controls",
     "wages": "Economy wages",
     "moderation": "Moderation tools",
-    "ai_agent": "AI development agent",
+    "ai_agent": "AI sandbox",
 }
 DASHBOARD_FEATURE_KEYS = tuple(DASHBOARD_FEATURE_LABELS)
 FEED_ROUTE_GROUPS = {
@@ -1221,7 +1232,7 @@ DEFAULT_BILLING_PLANS = [
         "id": "dashboard_ultimate",
         "name": "Wandering Bot Ultimate",
         "price_text": "Set monthly price",
-        "description": "Top tier dashboard access with every server tool plus private AI development agent access.",
+        "description": "Top tier dashboard access with every server tool plus private AI sandbox access.",
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -2103,7 +2114,7 @@ AGENT_LOGIN_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wandering Agent Login</title>
+  <title>Wandering Bot AI Sandbox Login</title>
   <meta name="theme-color" content="{{ pwa_theme_color }}">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -2131,13 +2142,13 @@ AGENT_LOGIN_TEMPLATE = """
 <body>
   <main>
     <section>
-      <img src="/brand-character" alt="Wandering Agent">
-      <h1>AI Development Agent</h1>
-      <p>Standalone coding-agent access for planning, editing, sandbox jobs, approvals and future paid credits. This login does not require the bot to be in a Discord server.</p>
+      <img src="/brand-character" alt="Wandering Bot AI Sandbox">
+      <h1>AI Sandbox</h1>
+      <p>Standalone sandbox access for planning, validation, safe file preparation, queued jobs, approvals and future paid credits. This login does not require the bot to be in a Discord server.</p>
       <ul>
         <li>Accounts are separate from Discord dashboard logins.</li>
         <li>Credits are charged per agent prompt once billing is enabled.</li>
-        <li>High-risk execution still stays approval-gated.</li>
+        <li>Live writes, deploys and destructive work stay approval-gated.</li>
       </ul>
       <p class="muted">Owner dashboard login still has full unrestricted access.</p>
     </section>
@@ -2147,7 +2158,7 @@ AGENT_LOGIN_TEMPLATE = """
       <form method="post" action="/agent/login">
         <label>Email <input name="email" type="email" autocomplete="username" required></label>
         <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
-        <button type="submit">Open Agent</button>
+        <button type="submit">Open Sandbox</button>
       </form>
       <h2>Create Account</h2>
       {% if signup_enabled %}
@@ -3786,10 +3797,48 @@ PAGE_TEMPLATE = """
     .ai-agent-stat { border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .75rem; background: rgba(2, 9, 12, .78); }
     .ai-agent-stat span { display: block; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; }
     .ai-agent-stat strong { display: block; color: var(--accent); font-size: 1.25rem; overflow-wrap: anywhere; }
+    .ai-agent-readiness { display: grid; gap: .75rem; margin: 0 0 .85rem; border: 1px solid rgba(103,245,231,.18); border-radius: .75rem; padding: .85rem; background: linear-gradient(135deg, rgba(103,245,231,.10), rgba(2,9,12,.82)); }
+    .ai-agent-readiness[data-mode="setup_required"] { border-color: rgba(242,193,78,.34); background: linear-gradient(135deg, rgba(242,193,78,.12), rgba(2,9,12,.82)); }
+    .ai-agent-readiness-head { display: flex; gap: .75rem; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+    .ai-agent-readiness-head strong { display: block; color: #effcff; font-size: 1rem; }
+    .ai-agent-readiness-head span:not(.pill) { display: block; color: var(--muted); font-size: .86rem; margin-top: .2rem; max-width: 48rem; }
+    .ai-agent-readiness-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: .65rem; }
+    .ai-agent-ready-card { border: 1px solid rgba(103,245,231,.14); border-radius: .6rem; padding: .7rem; background: rgba(2,9,12,.76); display: grid; gap: .35rem; }
+    .ai-agent-ready-card[data-status="ready"] { border-color: rgba(117,216,154,.28); }
+    .ai-agent-ready-card[data-status="warning"] { border-color: rgba(242,193,78,.34); }
+    .ai-agent-ready-card[data-status="missing"] { border-color: rgba(255,112,112,.32); }
+    .ai-agent-ready-card strong { color: #effcff; }
+    .ai-agent-ready-card span { color: var(--muted); font-size: .84rem; line-height: 1.38; }
+    .ai-agent-ready-card em { color: var(--accent); font-size: .78rem; font-style: normal; }
+    .ai-agent-ready-env { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .ai-agent-ready-env code { white-space: normal; overflow-wrap: anywhere; border: 1px solid rgba(103,245,231,.15); border-radius: .45rem; padding: .3rem .45rem; background: rgba(0,0,0,.25); color: var(--muted); font-size: .75rem; }
+    .ai-agent-ready-env code.ok { color: #bff7c9; border-color: rgba(117,216,154,.28); }
+    .ai-agent-ready-env code.missing { color: #ffd6d6; border-color: rgba(255,112,112,.32); }
+    .ai-sandbox-guardrails { display: grid; gap: .75rem; margin: 0 0 .85rem; }
+    .ai-sandbox-summary { border: 1px solid rgba(103,245,231,.18); border-radius: .75rem; padding: .85rem; background: linear-gradient(135deg, rgba(103,245,231,.10), rgba(2,9,12,.78)); color: var(--muted); }
+    .ai-sandbox-summary strong { display: block; color: #effcff; margin-bottom: .25rem; }
+    .ai-sandbox-rule-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr)); gap: .65rem; }
+    .ai-sandbox-rule-card { border: 1px solid rgba(103,245,231,.16); border-radius: .65rem; padding: .75rem; background: rgba(2,9,12,.78); }
+    .ai-sandbox-rule-card h3 { margin: 0 0 .45rem; color: #effcff; font-size: .95rem; }
+    .ai-sandbox-rule-card ul { margin: 0; padding-left: 1.05rem; color: var(--muted); }
+    .ai-sandbox-rule-card li { margin: .25rem 0; line-height: 1.35; }
+    .ai-sandbox-rule-card[data-tone="ok"] { border-color: rgba(117,216,154,.26); }
+    .ai-sandbox-rule-card[data-tone="warn"] { border-color: rgba(242,193,78,.32); }
+    .ai-sandbox-rule-card[data-tone="bad"] { border-color: rgba(255,112,112,.34); }
+    .ai-sandbox-rule-card[data-tone="info"] { border-color: rgba(103,245,231,.24); }
     .ai-agent-plan { display: grid; gap: .55rem; }
     .ai-agent-step { border: 1px solid rgba(103,245,231,.14); border-radius: .5rem; padding: .65rem; background: rgba(4, 14, 17, .72); }
     .ai-agent-step strong { display: block; color: #effcff; }
     .ai-agent-step span { display: block; color: var(--muted); font-size: .86rem; }
+    .ai-agent-memory-list { display: grid; gap: .45rem; margin-top: .25rem; }
+    .ai-agent-memory-row { display: grid; gap: .35rem; color: var(--muted); font-size: .86rem; }
+    .ai-agent-memory-row em { color: #effcff; font-style: normal; }
+    .ai-agent-memory-row form { margin: 0; }
+    .ai-agent-memory-row button { min-height: 0; padding: .25rem .5rem; font-size: .72rem; }
+    .ai-agent-env-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .75rem; margin-top: 1rem; }
+    .ai-agent-env-grid > div { border: 1px solid rgba(49, 214, 207, .22); border-radius: 8px; padding: .8rem; background: rgba(0, 0, 0, .16); display: grid; gap: .45rem; }
+    .ai-agent-env-grid strong { color: #fff3d8; }
+    .ai-agent-env-grid code { display: block; white-space: normal; overflow-wrap: anywhere; color: #bff9f5; background: rgba(0, 0, 0, .24); border: 1px solid rgba(49, 214, 207, .18); border-radius: 6px; padding: .35rem .45rem; font-size: .78rem; }
     .ai-agent-feed { display: grid; gap: .5rem; max-height: 26rem; overflow: auto; padding-right: .25rem; }
     .ai-agent-feed article { border: 1px solid rgba(103,245,231,.13); border-radius: .5rem; padding: .65rem; background: rgba(2, 8, 11, .74); }
     .ai-agent-feed strong { display: block; }
@@ -5594,7 +5643,7 @@ PAGE_TEMPLATE = """
       </div>
       <div>
         <strong>Wandering Bot</strong>
-        <small>{{ 'AI Development Agent' if auth.kind == 'agent_account' else (server.guild_name if server else view_title) }}</small>
+        <small>{{ 'AI Sandbox' if auth.kind == 'agent_account' else (server.guild_name if server else view_title) }}</small>
         <span class="command-status"><span class="command-dot"></span>Online</span>
         <small>{% if auth.kind == 'agent_account' %}Standalone coding workspace{% else %}DayZ | {{ server.platform_label if server else 'Xbox' }} | {{ (server.map|capitalize) if server else 'Chernarus' }}{% endif %}</small>
       </div>
@@ -5619,7 +5668,7 @@ PAGE_TEMPLATE = """
     </div>
     <nav class="command-side-nav">
       {% if auth.kind == "agent_account" %}
-      <a class="active" href="/agent?section=ai-agent">AI Development Agent</a>
+      <a class="active" href="/agent?section=ai-agent">AI Sandbox</a>
       {% elif auth.kind == "owner" and mode == "owner" %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/owner?section=overview">Owner Home</a>
       <a class="{{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
@@ -5627,7 +5676,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
-      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if customer_billing_plans %}<a href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
@@ -5641,7 +5690,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
-      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Sandbox</a>{% endif %}
       {% if auth.kind == "owner" and mode == "owner" %}<a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>{% endif %}
       {% endif %}
     </nav>
@@ -5668,8 +5717,8 @@ PAGE_TEMPLATE = """
       <div>
         <p class="command-title-mark">Wandering Bot</p>
         <p class="muted">{{ generated_at }}</p>
-        <h1>{{ 'AI Development Agent' if auth.kind == 'agent_account' else view_title }}</h1>
-        <p class="muted">{% if auth.kind == 'agent_account' %}Private coding-agent workspace for planning, approvals, sandbox jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Admin Center when you manage more than one.{% endif %}</p>
+        <h1>{{ 'AI Sandbox' if auth.kind == 'agent_account' else view_title }}</h1>
+        <p class="muted">{% if auth.kind == 'agent_account' %}Private sandbox workspace for planning, approvals, controlled jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Admin Center when you manage more than one.{% endif %}</p>
         {% if server %}
         <div class="pills">
           <span class="pill ok">{{ server.guild_name }}</span>
@@ -5752,7 +5801,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
-      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Development Agent</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
       {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if customer_billing_plans %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
@@ -5768,7 +5817,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('presets') %}<a class="tab-link {{ 'active' if active_section == 'presets' else '' }}" href="/admin?section=presets{{ server_qs }}">Preset Files</a>{% endif %}
-      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Development Agent</a>{% endif %}
+      {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Sandbox</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if auth.kind == "owner" %}<a class="tab-link {{ 'active' if mode == 'owner' and active_section == 'owner' else '' }}" href="/owner?section=owner">Owner Control</a>{% endif %}
@@ -5786,7 +5835,7 @@ PAGE_TEMPLATE = """
           <option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>
           <option value="/owner?section=reviews" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
           <option value="/owner?section=help" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
-          {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
+          {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Sandbox</option>{% endif %}
           {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
           {% if customer_billing_plans %}<option value="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</option>{% endif %}
@@ -5802,7 +5851,7 @@ PAGE_TEMPLATE = """
           {% if section_allowed('economy') or section_allowed('shop') %}<option value="/admin?section={{ shop_economy_section }}{{ server_qs }}" {{ 'selected' if active_section in ['economy', 'shop'] else '' }}>Shop & Economy</option>{% endif %}
           {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
           {% if section_allowed('presets') %}<option value="/admin?section=presets{{ server_qs }}" {{ 'selected' if active_section == 'presets' else '' }}>Preset Files</option>{% endif %}
-          {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Development Agent</option>{% endif %}
+          {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Sandbox</option>{% endif %}
           <option value="/admin?section=reviews{{ server_qs }}" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
           <option value="/admin?section=help{{ server_qs }}" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if auth.kind == "owner" %}<option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Owner Control</option>{% endif %}
@@ -6354,34 +6403,118 @@ PAGE_TEMPLATE = """
 
 
     {% if mode in ["admin", "owner"] and active_section == "ai-agent" %}
+    {% set sandbox_readiness = ai_agent_readiness %}
     <section class="section-panel ai-agent-shell" id="ai-agent">
       <div class="section-head">
         <div>
-          <h2>AI Development Agent</h2>
-          <p class="tool-note">Private owner-controlled coding workspace.</p>
+          <h2>AI Sandbox</h2>
+          <p class="tool-note">Private owner-controlled workspace for planning, safe file work, dry runs, and approval-gated automation.</p>
         </div>
         <span class="pill {{ 'ok' if ai_agent_access.allowed else 'bad' }}">{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span>
       </div>
       <div class="ai-agent-stat-grid">
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
-        <div class="ai-agent-stat"><span>God Mode</span><strong>{{ 'Enabled' if ai_agent_state.god_mode_enabled else 'Disabled' }}</strong></div>
-        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Worker Ready' if ai_agent_state.sandbox.worker_enabled else 'Docker Ready' if ai_agent_state.sandbox.docker_enabled else 'Locked' }}</strong></div>
-        <div class="ai-agent-stat"><span>Agent Brain</span><strong>{{ 'Wandering Agent Online' if ai_agent_state.sandbox.llm_configured else 'Planner Ready' }}</strong></div>
+        <div class="ai-agent-stat"><span>Approval Gates</span><strong>{{ 'Owner bypass on' if ai_agent_state.god_mode_enabled else 'Strict' }}</strong></div>
+        <div class="ai-agent-stat"><span>Sandbox</span><strong>{{ 'Runner Ready' if sandbox_readiness.runner_ready else 'Setup Required' }}</strong></div>
+        <div class="ai-agent-stat"><span>Assistant</span><strong>{{ 'Model Online' if sandbox_readiness.model_ready else 'Model Missing' }}</strong></div>
         <div class="ai-agent-stat"><span>Tasks</span><strong data-ai-stat="tasks">{{ ai_agent_tasks|length }}</strong></div>
         <div class="ai-agent-stat"><span>Runs</span><strong data-ai-stat="runs">{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong data-ai-stat="approvals">{{ ai_agent_pending_approvals }}</strong></div>
         <div class="ai-agent-stat"><span>Jobs</span><strong data-ai-stat="jobs">{{ ai_agent_job_counts.total }}</strong></div>
         {% if auth.kind == 'agent_account' %}<div class="ai-agent-stat"><span>Credits</span><strong data-ai-agent-credits>{{ auth.credits|default(0) }}</strong></div>{% endif %}
       </div>
+      <div class="ai-agent-readiness" data-mode="{{ sandbox_readiness.mode }}">
+        <div class="ai-agent-readiness-head">
+          <div>
+            <strong>{{ sandbox_readiness.headline }}</strong>
+            <span>{{ sandbox_readiness.summary }}</span>
+          </div>
+          <span class="pill {{ 'ok' if sandbox_readiness.product_ready else 'warn' }}">{{ 'Product ready' if sandbox_readiness.product_ready else 'Setup required' }}</span>
+        </div>
+        <div class="ai-agent-readiness-grid">
+          {% for check in sandbox_readiness.checks %}
+          <article class="ai-agent-ready-card" data-status="{{ check.status }}">
+            <strong>{{ check.label }}</strong>
+            <span>{{ check.detail }}</span>
+            {% if check.fix %}<em>{{ check.fix }}</em>{% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% if auth.kind == "owner" and sandbox_readiness.required_env %}
+        <div class="ai-agent-ready-env">
+          {% for item in sandbox_readiness.required_env %}
+          <code class="{{ 'ok' if item.configured else 'missing' }}">{{ item.key }} - {{ 'set' if item.configured else 'missing' }}</code>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <div class="ai-sandbox-guardrails" id="ai-sandbox-rules">
+        <div class="ai-sandbox-summary">
+          <strong>Sandbox rule of thumb</strong>
+          <span>The sandbox can help plan, inspect, validate and prepare work. Anything that changes live Discord, Nitrado, Stripe, customer access or production code must go through an explicit owner approval path.</span>
+        </div>
+        <div class="ai-sandbox-rule-grid">
+          <article class="ai-sandbox-rule-card" data-tone="ok">
+            <h3>Can Do</h3>
+            <ul>
+              <li>Read selected dashboard context, logs and uploaded files.</li>
+              <li>Validate XML, JSON, configs and command ideas before you use them.</li>
+              <li>Draft rules, guides, Discord messages and support replies.</li>
+              <li>Prepare file snippets, presets and code changes inside the sandbox workspace.</li>
+              <li>Suggest improvements to Wandering Bot and prepare safe code changes for review.</li>
+              <li>Queue dry-run checks and worker jobs when the sandbox worker is configured.</li>
+            </ul>
+          </article>
+          <article class="ai-sandbox-rule-card" data-tone="warn">
+            <h3>Needs Approval</h3>
+            <ul>
+              <li>Editing repository files or running shell commands.</li>
+              <li>Creating, deleting or renaming Discord channels, roles or webhooks.</li>
+              <li>Uploading files to Nitrado, FTP or changing live DayZ server state.</li>
+              <li>Restarting servers, changing schedules, billing, Stripe or feature access.</li>
+              <li>Pushing code, deploying, or touching customer data.</li>
+            </ul>
+          </article>
+          <article class="ai-sandbox-rule-card" data-tone="bad">
+            <h3>Will Not Do</h3>
+            <ul>
+              <li>Reveal stored tokens, passwords, secret keys or private customer data.</li>
+              <li>Overwrite live XML without a backup, diff and owner confirmation.</li>
+              <li>Silently change Discord permissions or server access.</li>
+              <li>Delete live data, reset economy files or remove routes without a named request.</li>
+              <li>Bypass Discord, Nitrado, Stripe or Google platform limits.</li>
+            </ul>
+          </article>
+          <article class="ai-sandbox-rule-card" data-tone="info">
+            <h3>Hard Limits</h3>
+            <ul>
+              <li>It only knows the context, files, logs and APIs available to this dashboard.</li>
+              <li>Discord and Nitrado rate limits can delay feeds or actions outside the sandbox.</li>
+              <li>Worker actions need a configured sandbox worker URL and token.</li>
+              <li>Live writes must stay auditable and reversible.</li>
+              <li>The sandbox is a helper, not the source of truth for live server state.</li>
+            </ul>
+          </article>
+          <article class="ai-sandbox-rule-card" data-tone="ok">
+            <h3>Self-Improvement Loop</h3>
+            <ul>
+              <li>Use audit logs, failed jobs and repeated support issues to suggest fixes.</li>
+              <li>Turn ideas into scoped tasks with a backup, diff, tests and rollback plan.</li>
+              <li>Prepare patches for the bot, dashboard, mobile app or docs.</li>
+              <li>Keep final apply, deploy and publish steps owner-approved.</li>
+            </ul>
+          </article>
+        </div>
+      </div>
       <div class="ai-codex-workbench">
         <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
           <div class="ai-codex-title">
             <div>
-              <h3>Wandering Agent</h3>
-              <p class="tool-note">Ask it to inspect, build, test, fix, continue, or prepare a deploy.</p>
+              <h3>Sandbox Assistant</h3>
+              <p class="tool-note">Ask it to inspect, validate, draft, build, test, or prepare approval-gated work.</p>
             </div>
-            <span class="pill {{ 'ok' if ai_agent_state.sandbox.llm_configured else 'warn' }}">{{ 'Wandering Agent Online' if ai_agent_state.sandbox.llm_configured else 'Planner Ready' }}</span>
-            <span class="pill {{ 'ok' if ai_agent_state.sandbox.worker_enabled else 'warn' }}">Runner {{ ai_agent_state.sandbox.runner|default('local docker') }}</span>
+            <span class="pill {{ 'ok' if sandbox_readiness.model_ready else 'warn' }}">{{ 'Assistant Online' if sandbox_readiness.model_ready else 'Model Missing' }}</span>
+            <span class="pill {{ 'ok' if sandbox_readiness.runner_ready else 'warn' }}">{{ 'Runner Ready' if sandbox_readiness.runner_ready else 'Runner Setup Required' }}</span>
             <span class="pill ok" data-ai-live-status>Live sync</span>
           </div>
           <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
@@ -6397,7 +6530,7 @@ PAGE_TEMPLATE = """
               {% else %}
               <div class="ai-codex-avatar"><img src="/brand-character" alt="Wandering Bot"></div>
               <div class="ai-codex-bubble">
-                <strong>{{ message.author|default('Wandering Agent') }}</strong>
+                <strong>{{ message.author|default('Sandbox Assistant') }}</strong>
                 <p>{{ message.content }}</p>
                 {% if message.plan_steps %}
                 <div class="ai-codex-plan-mini">
@@ -6413,14 +6546,14 @@ PAGE_TEMPLATE = """
             {% else %}
             <div class="ai-codex-empty">
               <strong>Ready when you are.</strong>
-              <p>Ask for a dashboard change, bug fix, test run, GitHub task, or deployment plan. Nothing executes until the permission and approval checks allow it.</p>
+              <p>Ask for a sandbox plan, file validation, dashboard change, bug fix, test run, GitHub task, or deployment plan. Nothing executes until the permission and approval checks allow it.</p>
             </div>
             {% endfor %}
           </div>
           <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true">
             <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
             <input class="hidden-field" name="guild_id" value="global">
-            <label class="full">Message<textarea name="prompt" placeholder="Ask the agent what to build, fix, test, deploy, or investigate..." required></textarea></label>
+            <label class="full">Message<textarea name="prompt" placeholder="Ask the sandbox what to inspect, validate, build, test, explain, or prepare..." required></textarea></label>
             <div class="ai-codex-options">
               <label>Project
                 <select name="project_type">
@@ -6453,17 +6586,17 @@ PAGE_TEMPLATE = """
             <div class="ai-codex-toggle-row">
               <label><input type="checkbox" name="allow_read" value="1" checked> Read</label>
               <label><input type="checkbox" name="allow_edit" value="1" checked> Edit</label>
-              <label><input type="checkbox" name="allow_execute" value="1"> Sandbox</label>
+              <label><input type="checkbox" name="allow_execute" value="1"> Run job</label>
               <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
             </div>
             <div class="ai-agent-quick-prompts">
               <button type="button" data-ai-quick-prompt="Carry on this work. Continue the active run and move to the next unfinished step.">Carry On</button>
-              <button type="button" data-ai-quick-prompt="Inspect this project and tell me what is broken, what is unfinished, and what you can do next.">Inspect</button>
-              <button type="button" data-ai-quick-prompt="Run the safest available checks for this project and fix any failures you can safely handle.">Run Checks</button>
-              <button type="button" data-ai-quick-prompt="Summarize the latest work, current risks, and exact next actions.">Status</button>
+              <button type="button" data-ai-quick-prompt="List exactly what this sandbox can do, what needs approval, and the safest next action for my request.">Limits</button>
+              <button type="button" data-ai-quick-prompt="Validate the file or config I provide and point out anything that could damage a live server before I upload it.">Validate</button>
+              <button type="button" data-ai-quick-prompt="Prepare a safe implementation plan with backup, diff, test and rollback steps.">Safe Plan</button>
             </div>
             <div class="ai-codex-submit">
-              <span class="tool-note">{% if auth.kind == 'agent_account' %}{{ agent_chat_credit_cost }} credit(s).{% else %}High-risk work asks first unless God Mode is enabled.{% endif %}</span>
+              <span class="tool-note">{% if auth.kind == 'agent_account' %}{{ agent_chat_credit_cost }} credit(s).{% else %}Live writes and risky actions require approval unless the owner bypass is enabled.{% endif %}</span>
               <span><button type="submit">Send</button><span class="result muted" data-ai-chat-result></span></span>
             </div>
           </form>
@@ -6487,7 +6620,7 @@ PAGE_TEMPLATE = """
               {% if not ai_agent_sandbox_jobs and not ai_agent_approvals %}
               <div class="ai-agent-work-item" data-status="idle">
                 <strong>Idle</strong>
-                <span>Ask the agent to inspect, build, test, or continue a run.</span>
+                <span>Ask the sandbox to inspect, validate, build, test, or continue a run.</span>
               </div>
               {% endif %}
             </div>
@@ -6589,9 +6722,99 @@ PAGE_TEMPLATE = """
         </aside>
       </div>
       <div class="ai-agent-grid">
+        <section class="admin-panel" id="ai-agent-memory">
+          <h3>Sandbox Memory</h3>
+          <p class="tool-note">Durable notes the sandbox can reuse on future requests. This is how it learns from owner decisions without training on secrets or changing production by itself.</p>
+          <div class="ai-agent-plan">
+            <div class="ai-agent-step"><strong>Project Summary</strong><span>{{ ai_agent_memory.project_summary }}</span></div>
+            <div class="ai-agent-step"><strong>Standing Rules</strong><span>{% for standard in ai_agent_memory.coding_standards %}{{ standard }}{% if not loop.last %}<br>{% endif %}{% endfor %}</span></div>
+            {% for category, label in ai_agent_memory_labels.items() %}
+            {% set memory_rows = ai_agent_memory.get(category, []) %}
+            <div class="ai-agent-step">
+              <strong>{{ label }}</strong>
+              {% if memory_rows %}
+              <div class="ai-agent-memory-list">
+                {% for memory_item in memory_rows[:4] %}
+                <div class="ai-agent-memory-row">
+                  <span><em>{{ memory_item.title }}</em>: {{ memory_item.detail }}</span>
+                  {% if auth.kind == "owner" %}
+                  <form class="admin-form" method="post" action="/api/owner/ai-agent-memory" data-route="/api/owner/ai-agent-memory">
+                    <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-memory">
+                    <input class="hidden-field" name="guild_id" value="global">
+                    <input class="hidden-field" name="action" value="remove">
+                    <input class="hidden-field" name="memory_id" value="{{ memory_item.id }}">
+                    <button type="submit">Forget</button><span class="result muted"></span>
+                  </form>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              </div>
+              {% else %}
+              <span>No saved notes yet.</span>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          {% if auth.kind == "owner" %}
+          <form class="admin-form" method="post" action="/api/owner/ai-agent-memory" data-route="/api/owner/ai-agent-memory">
+            <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-memory">
+            <input class="hidden-field" name="guild_id" value="global">
+            <input class="hidden-field" name="action" value="add">
+            <label>Memory type
+              <select name="category">
+                {% for category, label in ai_agent_memory_labels.items() %}
+                <option value="{{ category }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>Title<input name="title" maxlength="140" placeholder="What should the sandbox remember?" required></label>
+            <label class="full">Detail<textarea name="detail" rows="4" maxlength="1400" placeholder="Stable fact, decision, lesson or blocked pattern. Do not paste passwords, API keys or tokens." required></textarea></label>
+            <label class="full">Tags<input name="tags" maxlength="200" placeholder="onboarding, feeds, mobile-app"></label>
+            <div class="full modal-actions"><button type="submit">Save Memory</button><span class="result muted"></span></div>
+          </form>
+          {% else %}
+          <p class="tool-note">Only the Primary Owner can add sandbox memory.</p>
+          {% endif %}
+        </section>
+        {% if auth.kind == "owner" %}
+        <section class="admin-panel" id="ai-agent-model">
+          <h3>AI Model & Learning Setup</h3>
+          <p class="tool-note">This sandbox can run on OpenAI or any OpenAI-compatible model endpoint. You can connect your own hosted model later; training a brand-new model is separate from the dashboard. If no model is configured it stays in planner mode, which can organise work but cannot reason through code with a real LLM.</p>
+          <div class="ai-agent-plan">
+            <div class="ai-agent-step"><strong>Current Brain</strong><span>{{ ai_agent_state.sandbox.llm_provider|default('local_planner') }} / {{ ai_agent_state.sandbox.llm_model|default('planner') }}</span></div>
+            <div class="ai-agent-step"><strong>Model Ready</strong><span>{{ 'Yes' if ai_agent_state.sandbox.llm_configured else 'No - add a model key/base URL in Railway' }}</span></div>
+            <div class="ai-agent-step"><strong>Model Key</strong><span>{{ 'Configured' if ai_agent_state.sandbox.llm_api_key_configured else 'Not configured' }}</span></div>
+            <div class="ai-agent-step"><strong>Custom Base URL</strong><span>{{ 'Configured' if ai_agent_state.sandbox.llm_base_url_configured else 'Not configured' }}</span></div>
+            <div class="ai-agent-step"><strong>Learning Mode</strong><span>Owner-approved durable memory plus sandbox job history. It remembers decisions and lessons; it does not store secrets or silently retrain a model.</span></div>
+            <div class="ai-agent-step"><strong>Own Model Path</strong><span>Use a custom OpenAI-compatible endpoint now. Later, exported sandbox memories and incident notes can become fine-tuning data if you choose to train a private model properly.</span></div>
+            <div class="ai-agent-step"><strong>Self-improvement</strong><span>The AI can propose patches, tests, docs and checks. Live deploys, pushes, secrets, billing, deletions and server writes still require approval gates.</span></div>
+          </div>
+          <div class="ai-agent-env-grid">
+            <div>
+              <strong>Railway OpenAI setup</strong>
+              <code>WANDERING_AI_AGENT_PROVIDER=openai</code>
+              <code>WANDERING_AI_AGENT_API_KEY=sk-...</code>
+              <code>WANDERING_AI_AGENT_MODEL=your-model</code>
+            </div>
+            <div>
+              <strong>Custom model setup</strong>
+              <code>WANDERING_AI_AGENT_PROVIDER=custom</code>
+              <code>WANDERING_AI_AGENT_BASE_URL=https://your-model-host/v1</code>
+              <code>WANDERING_AI_AGENT_API_KEY=optional-provider-key</code>
+              <code>WANDERING_AI_AGENT_MODEL=your-model-name</code>
+            </div>
+            <div>
+              <strong>Execution worker setup</strong>
+              <code>WANDERING_AI_AGENT_WORKER_URL=https://your-worker</code>
+              <code>WANDERING_AI_AGENT_WORKER_TOKEN=long-random-token</code>
+              <code>WANDERING_AI_AGENT_COMMAND_TIMEOUT_SECONDS=900</code>
+            </div>
+          </div>
+        </section>
+        {% endif %}
         <section class="admin-panel">
           <h3>Sandbox Command Request</h3>
-          <p class="tool-note">Commands are queued into the AI sandbox job list. If an external worker is configured, Railway dispatches jobs there; otherwise local Docker stays locked unless explicitly enabled.</p>
+          <p class="tool-note">Commands never run in the browser. They are queued as sandbox jobs and stay blocked unless the worker and approval rules allow them.</p>
           <form class="admin-form" method="post" action="/api/ai-agent/sandbox-command" data-route="/api/ai-agent/sandbox-command">
             <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-jobs">
             <input class="hidden-field" name="guild_id" value="global">
@@ -6629,14 +6852,14 @@ PAGE_TEMPLATE = """
           {% endif %}
         </section>
         <section class="admin-panel">
-          <h3>Owner God Mode</h3>
-          <p class="tool-note">Disabled by default. When off, deploys, GitHub pushes, migrations, secrets, deletions and force-pushes remain approval-gated.</p>
+          <h3>Approval Gates</h3>
+          <p class="tool-note">Keep this strict for production. When gates are on, deploys, pushes, migrations, secrets, deletions, billing and live server writes require approval even if the sandbox prepared the work.</p>
           {% if auth.kind == "owner" %}
-          <form class="admin-form" method="post" action="/api/owner/ai-agent-access" data-route="/api/owner/ai-agent-access" data-confirm="Changing AI Agent God Mode affects high-risk approval gates. Continue?">
+          <form class="admin-form" method="post" action="/api/owner/ai-agent-access" data-route="/api/owner/ai-agent-access" data-confirm="Changing AI Sandbox approval gates affects high-risk actions. Continue?">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
             <input class="hidden-field" name="guild_id" value="global">
             <input class="hidden-field" name="action" value="god_mode">
-            <label class="full"><input type="checkbox" name="god_mode_enabled" value="1" {% if ai_agent_state.god_mode_enabled %}checked{% endif %}> Enable Owner God Mode</label>
+            <label class="full"><input type="checkbox" name="god_mode_enabled" value="1" {% if ai_agent_state.god_mode_enabled %}checked{% endif %}> Allow owner bypass for configured approval gates</label>
             <div class="check-grid full">
               {% for key, enabled in ai_agent_state.approval_rules.items() %}
               <label><input type="checkbox" name="approval_{{ key }}" value="1" {% if enabled %}checked{% endif %}> {{ key|replace('_', ' ')|title }}</label>
@@ -6645,7 +6868,7 @@ PAGE_TEMPLATE = """
             <div class="full modal-actions"><button type="submit">Save Safety Rules</button><span class="result muted"></span></div>
           </form>
           {% else %}
-          <p class="muted">Only the Primary Owner can change God Mode.</p>
+          <p class="muted">Only the Primary Owner can change approval gates.</p>
           {% endif %}
         </section>
         <section class="admin-panel">
@@ -6678,7 +6901,7 @@ PAGE_TEMPLATE = """
         {% if auth.kind == "owner" %}
         <section class="admin-panel">
           <h3>Standalone Accounts & Credits</h3>
-          <p class="tool-note">Website-only coding-agent accounts. These do not require the bot to be installed in a Discord server.</p>
+          <p class="tool-note">Website-only AI sandbox accounts. These do not require the bot to be installed in a Discord server.</p>
           <form class="admin-form" method="post" action="/api/owner/agent-account" data-route="/api/owner/agent-account">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
             <input class="hidden-field" name="guild_id" value="global">
@@ -6724,7 +6947,7 @@ PAGE_TEMPLATE = """
             <div class="ai-agent-step"><strong>Research Agent</strong><span>Reads project files and architecture notes before edits.</span></div>
             <div class="ai-agent-step"><strong>Builder Agent</strong><span>Writes changes inside isolated workspaces.</span></div>
             <div class="ai-agent-step"><strong>Tester and Debug Agents</strong><span>Run checks, diagnose failures, and retry fixes.</span></div>
-            <div class="ai-agent-step"><strong>Deployment Agent</strong><span>Requires approval before production deploys while God Mode is off.</span></div>
+            <div class="ai-agent-step"><strong>Deployment Agent</strong><span>Requires approval before production deploys while approval bypass is off.</span></div>
           </div>
         </section>
       </div>
@@ -6867,7 +7090,7 @@ PAGE_TEMPLATE = """
                 <td>{{ task.approvals|join(', ') if task.approvals else 'None' }}</td>
               </tr>
               {% else %}
-              <tr><td colspan="6">No AI agent tasks yet.</td></tr>
+              <tr><td colspan="6">No AI sandbox tasks yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -6883,7 +7106,7 @@ PAGE_TEMPLATE = """
             <time>{{ event.created_at }}</time>
           </article>
           {% else %}
-          <article><strong>Ready</strong><span>No AI agent activity has been recorded yet.</span></article>
+          <article><strong>Ready</strong><span>No AI sandbox activity has been recorded yet.</span></article>
           {% endfor %}
         </div>
       </section>
@@ -10844,7 +11067,7 @@ PAGE_TEMPLATE = """
                 <label class="check"><input type="checkbox" name="feature_server_rules" {% if features.server_rules %}checked{% endif %}> Server rules</label>
                 <label class="check"><input type="checkbox" name="feature_server_control" {% if features.server_control %}checked{% endif %}> Server control</label>
                 <label class="check"><input type="checkbox" name="feature_wages" {% if features.wages %}checked{% endif %}> Economy wages</label>
-                <label class="check"><input type="checkbox" name="feature_ai_agent" {% if features.ai_agent %}checked{% endif %}> AI agent</label>
+                <label class="check"><input type="checkbox" name="feature_ai_agent" {% if features.ai_agent %}checked{% endif %}> AI sandbox</label>
               </div>
             </div>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
@@ -15024,7 +15247,7 @@ PAGE_TEMPLATE = """
       const bubble = document.createElement("div");
       bubble.className = "ai-codex-bubble";
       const author = document.createElement("strong");
-      author.textContent = String(message?.author || (role === "user" ? "You" : "Wandering Agent"));
+      author.textContent = String(message?.author || (role === "user" ? "You" : "Sandbox Assistant"));
       const content = document.createElement("p");
       content.textContent = String(message?.content || "");
       const time = document.createElement("time");
@@ -15087,7 +15310,7 @@ PAGE_TEMPLATE = """
       button.type = "button";
       button.dataset.aiCommandSuggestion = "true";
       button.dataset.command = String(command.command || "");
-      button.dataset.reason = String(command.reason || "Suggested by Wandering Agent.");
+      button.dataset.reason = String(command.reason || "Suggested by Sandbox Assistant.");
       button.dataset.projectPath = String(command.project_path || "");
       button.dataset.taskId = String(command.task_id || "");
       button.dataset.runId = String(command.run_id || "");
@@ -15115,7 +15338,7 @@ PAGE_TEMPLATE = """
         button.type = "button";
         button.dataset.aiCommandSuggestion = "true";
         button.dataset.command = String(command.command || "");
-        button.dataset.reason = String(command.reason || "Suggested by Wandering Agent.");
+        button.dataset.reason = String(command.reason || "Suggested by Sandbox Assistant.");
         button.dataset.projectPath = String(command.project_path || task.project_path || "");
         button.dataset.taskId = String(task.id || "");
         button.dataset.runId = String(task.run_id || "");
@@ -15138,7 +15361,7 @@ PAGE_TEMPLATE = """
           guild_id: "global",
           dashboard_mode: "{{ mode }}",
           command: button.dataset.command || "",
-          reason: button.dataset.reason || "Suggested by Wandering Agent.",
+          reason: button.dataset.reason || "Suggested by Sandbox Assistant.",
           project_path: button.dataset.projectPath || "",
           task_id: button.dataset.taskId || "",
           run_id: button.dataset.runId || "",
@@ -15303,7 +15526,7 @@ PAGE_TEMPLATE = """
       if (items.length) {
         items.forEach((item) => target.append(item));
       } else {
-        target.append(aiAgentWorkItem("Idle", "Ask the agent to inspect, build, test, or continue a run.", "idle"));
+        target.append(aiAgentWorkItem("Idle", "Ask the sandbox to inspect, build, test, or continue a run.", "idle"));
       }
     }
     function aiAgentContextRow(label, value) {
@@ -15737,7 +15960,7 @@ PAGE_TEMPLATE = """
         thread.append(userMessage);
         const typingMessage = aiChatMessageNode({
           role: "assistant",
-          author: "Wandering Agent",
+          author: "Sandbox Assistant",
           content: "Thinking",
           created_at: new Date().toISOString(),
         }, {typing: true});
@@ -19376,6 +19599,8 @@ AI_AGENT_DEFAULT_APPROVAL_RULES = {
     "repository_deletions": True,
     "force_pushes": True,
     "permission_changes": True,
+    "external_worker_commands": True,
+    "sandbox_commands": False,
 }
 AI_AGENT_RISK_KEYWORDS = {
     "deploy": "Deployment approval required",
@@ -19387,6 +19612,14 @@ AI_AGENT_RISK_KEYWORDS = {
     "remove": "Removal approval required",
     "force push": "Force-push approval required",
     "push": "GitHub approval required",
+    "discord": "Discord action approval required",
+    "nitrado": "Nitrado action approval required",
+    "stripe": "Billing action approval required",
+    "railway": "Deployment platform approval required",
+    "ftp": "Remote file access approval required",
+    "curl ": "Network command approval required",
+    "wget ": "Network command approval required",
+    "invoke-webrequest": "Network command approval required",
 }
 AI_AGENT_DOCKER_ENABLED = os.getenv("WANDERING_AI_AGENT_DOCKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 AI_AGENT_DOCKER_IMAGE = os.getenv("WANDERING_AI_AGENT_DOCKER_IMAGE", "python:3.12-slim").strip() or "python:3.12-slim"
@@ -19467,6 +19700,252 @@ AI_AGENT_CHANGE_LIST_MAX_ITEMS = 140
 AI_AGENT_DIFF_MAX_CHARS = 80_000
 
 
+def ai_agent_workspace_root_ready() -> bool:
+    if not AI_AGENT_WORKSPACE_ROOT:
+        return False
+    try:
+        return os.path.isdir(os.path.abspath(AI_AGENT_WORKSPACE_ROOT))
+    except (OSError, ValueError):
+        return False
+
+
+def ai_agent_worker_ready() -> bool:
+    return bool(AI_AGENT_WORKER_URL and AI_AGENT_WORKER_TOKEN)
+
+
+def ai_agent_docker_ready() -> bool:
+    return bool(AI_AGENT_DOCKER_ENABLED and ai_agent_workspace_root_ready())
+
+
+def ai_agent_runner_is_configured() -> bool:
+    return ai_agent_worker_ready() or ai_agent_docker_ready()
+
+
+def ai_agent_runner_missing_message() -> str:
+    if AI_AGENT_WORKER_URL and not AI_AGENT_WORKER_TOKEN:
+        return "WANDERING_AI_AGENT_WORKER_URL is set, but WANDERING_AI_AGENT_WORKER_TOKEN is missing."
+    if AI_AGENT_DOCKER_ENABLED and not ai_agent_workspace_root_ready():
+        return "WANDERING_AI_AGENT_DOCKER_ENABLED is on, but WANDERING_AI_AGENT_WORKSPACE_ROOT is missing or unavailable."
+    if AI_AGENT_DOCKER_ENABLED:
+        return "Local Docker sandbox is enabled, but the workspace root is not ready."
+    return "No sandbox runner is configured. Set WANDERING_AI_AGENT_WORKER_URL plus WANDERING_AI_AGENT_WORKER_TOKEN, or enable Docker with WANDERING_AI_AGENT_DOCKER_ENABLED=true and WANDERING_AI_AGENT_WORKSPACE_ROOT."
+
+
+AI_AGENT_MEMORY_CATEGORIES = {
+    "project_facts": 80,
+    "lessons": 80,
+    "decisions": 80,
+    "incidents": 60,
+    "approved_patterns": 80,
+    "blocked_patterns": 80,
+}
+AI_AGENT_MEMORY_LABELS = {
+    "project_facts": "Project facts",
+    "lessons": "Lessons learned",
+    "decisions": "Owner decisions",
+    "incidents": "Incident notes",
+    "approved_patterns": "Approved patterns",
+    "blocked_patterns": "Blocked patterns",
+}
+AI_AGENT_MEMORY_SECRET_MARKERS = (
+    "api_key",
+    "apikey",
+    "bearer ",
+    "client_secret",
+    "password",
+    "private key",
+    "secret",
+    "sk_live",
+    "sk_test",
+    "token",
+)
+
+
+def ai_agent_default_memory() -> dict[str, Any]:
+    return {
+        "project_summary": "Wandering Bot dashboard and Discord/DayZ automation platform.",
+        "coding_standards": [
+            "Keep owner-only tools hidden unless explicitly granted.",
+            "Require approval for production, database, secret, deletion, and force-push actions.",
+            "Run changes through sandboxed execution before deployment.",
+        ],
+        "updated_at": "",
+        **{category: [] for category in AI_AGENT_MEMORY_CATEGORIES},
+    }
+
+
+def ai_agent_memory_text_is_safe(*values: Any) -> bool:
+    combined = "\n".join(str(value or "") for value in values).lower()
+    if not combined.strip():
+        return True
+    if any(marker in combined for marker in AI_AGENT_MEMORY_SECRET_MARKERS):
+        return False
+    if re.search(r"\b(?:sk|rk|ghp|github_pat|xox[baprs])-[-_A-Za-z0-9]{16,}\b", combined):
+        return False
+    return True
+
+
+def ai_agent_normalize_memory_item(item: Any, category: str) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    title = str(item.get("title") or "").strip()
+    detail = str(item.get("detail") or item.get("summary") or "").strip()
+    if not title or not detail or not ai_agent_memory_text_is_safe(title, detail):
+        return None
+    tags = item.get("tags") if isinstance(item.get("tags"), list) else []
+    return {
+        "id": str(item.get("id") or ai_agent_new_id("mem")).strip(),
+        "category": category,
+        "title": title[:140],
+        "detail": detail[:1400],
+        "source": str(item.get("source") or "").strip()[:120],
+        "actor": str(item.get("actor") or "").strip()[:120],
+        "tags": [str(tag).strip()[:40] for tag in tags if str(tag).strip()][:10],
+        "created_at": str(item.get("created_at") or "").strip(),
+        "updated_at": str(item.get("updated_at") or item.get("created_at") or "").strip(),
+    }
+
+
+def ai_agent_normalize_memory(memory: Any) -> dict[str, Any]:
+    normalized = ai_agent_default_memory()
+    if not isinstance(memory, dict):
+        return normalized
+    project_summary = str(memory.get("project_summary") or "").strip()
+    if project_summary and ai_agent_memory_text_is_safe(project_summary):
+        normalized["project_summary"] = project_summary[:1200]
+    coding_standards = memory.get("coding_standards")
+    if isinstance(coding_standards, list):
+        normalized["coding_standards"] = [
+            str(item).strip()[:220]
+            for item in coding_standards
+            if str(item or "").strip() and ai_agent_memory_text_is_safe(item)
+        ][:20] or normalized["coding_standards"]
+    normalized["updated_at"] = str(memory.get("updated_at") or "").strip()
+    for category, limit in AI_AGENT_MEMORY_CATEGORIES.items():
+        rows = memory.get(category)
+        if not isinstance(rows, list):
+            continue
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            item = ai_agent_normalize_memory_item(row, category)
+            if not item:
+                continue
+            key = f"{item['title'].lower()}::{item['detail'].lower()[:240]}"
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+        normalized[category] = items[:limit]
+    return normalized
+
+
+def ai_agent_memory_snapshot(state: dict[str, Any], limit_per_category: int = 8) -> dict[str, Any]:
+    memory = ai_agent_normalize_memory(state.get("memory") if isinstance(state, dict) else {})
+    snapshot: dict[str, Any] = {
+        "project_summary": memory.get("project_summary", ""),
+        "coding_standards": memory.get("coding_standards", [])[:12],
+        "updated_at": memory.get("updated_at", ""),
+    }
+    for category in AI_AGENT_MEMORY_CATEGORIES:
+        snapshot[category] = memory.get(category, [])[:max(1, limit_per_category)]
+    return snapshot
+
+
+def ai_agent_record_memory(
+    state: dict[str, Any],
+    category: str,
+    title: Any,
+    detail: Any,
+    source: str = "",
+    actor: str = "",
+    tags: list[str] | None = None,
+) -> tuple[dict[str, Any] | None, bool]:
+    if not isinstance(state, dict):
+        return None, False
+    category = str(category or "").strip()
+    if category not in AI_AGENT_MEMORY_CATEGORIES:
+        return None, False
+    title_text = str(title or "").strip()
+    detail_text = str(detail or "").strip()
+    if not title_text or not detail_text or not ai_agent_memory_text_is_safe(title_text, detail_text):
+        return None, False
+    now = datetime.now(UTC).isoformat()
+    memory = ai_agent_normalize_memory(state.get("memory"))
+    rows = memory.setdefault(category, [])
+    tags = [str(tag).strip()[:40] for tag in (tags or []) if str(tag).strip()][:10]
+    identity = f"{title_text.lower()}::{detail_text.lower()[:240]}"
+    for index, existing in enumerate(rows):
+        existing_key = f"{str(existing.get('title') or '').lower()}::{str(existing.get('detail') or '').lower()[:240]}"
+        if existing_key == identity:
+            existing.update(
+                {
+                    "title": title_text[:140],
+                    "detail": detail_text[:1400],
+                    "source": str(source or existing.get("source") or "")[:120],
+                    "actor": str(actor or existing.get("actor") or "")[:120],
+                    "tags": tags or existing.get("tags", []),
+                    "updated_at": now,
+                }
+            )
+            rows.insert(0, rows.pop(index))
+            memory["updated_at"] = now
+            state["memory"] = memory
+            return existing, False
+    item = {
+        "id": ai_agent_new_id("mem"),
+        "category": category,
+        "title": title_text[:140],
+        "detail": detail_text[:1400],
+        "source": str(source or "")[:120],
+        "actor": str(actor or "")[:120],
+        "tags": tags,
+        "created_at": now,
+        "updated_at": now,
+    }
+    rows.insert(0, item)
+    del rows[AI_AGENT_MEMORY_CATEGORIES[category]:]
+    memory["updated_at"] = now
+    state["memory"] = memory
+    return item, True
+
+
+def ai_agent_store_llm_learning(
+    state: dict[str, Any],
+    data: dict[str, Any],
+    task: dict[str, Any],
+    actor: str,
+) -> list[dict[str, Any]]:
+    raw_items = data.get("learning") if isinstance(data, dict) else None
+    if raw_items is None and isinstance(data, dict):
+        raw_items = data.get("memory_updates")
+    if not isinstance(raw_items, list):
+        return []
+    stored: list[dict[str, Any]] = []
+    task_id = str((task or {}).get("id") or "").strip()
+    for raw in raw_items[:8]:
+        if not isinstance(raw, dict):
+            continue
+        category = str(raw.get("category") or "lessons").strip()
+        title = raw.get("title") or raw.get("summary")
+        detail = raw.get("detail") or raw.get("reason") or raw.get("body")
+        tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+        item, created = ai_agent_record_memory(
+            state,
+            category,
+            title,
+            detail,
+            source=f"task:{task_id}" if task_id else "assistant",
+            actor=actor,
+            tags=tags,
+        )
+        if item:
+            stored.append({**item, "created": created})
+    if stored:
+        ai_agent_activity(state, "AI memory updated", f"{len(stored)} durable note(s) saved", actor, {"task_id": task_id, "memory_ids": [item.get("id") for item in stored]})
+    return stored
+
+
 def ai_agent_default_state() -> dict[str, Any]:
     return {
         "enabled": True,
@@ -19481,29 +19960,27 @@ def ai_agent_default_state() -> dict[str, Any]:
         "sandbox_jobs": [],
         "chat_messages": [],
         "activity": [],
-        "memory": {
-            "project_summary": "Wandering Bot dashboard and Discord/DayZ automation platform.",
-            "coding_standards": [
-                "Keep owner-only tools hidden unless explicitly granted.",
-                "Require approval for production, database, secret, deletion, and force-push actions.",
-                "Run changes through sandboxed execution before deployment.",
-            ],
-        },
+        "memory": ai_agent_default_memory(),
         "sandbox": {
             "status": "not_connected",
             "mode": "approval-gated",
-            "runner": "external worker" if AI_AGENT_WORKER_URL else "local docker",
+            "runner": "external worker" if ai_agent_worker_ready() else "local docker" if ai_agent_docker_ready() else "not configured",
+            "runner_ready": ai_agent_runner_is_configured(),
+            "runner_error": "" if ai_agent_runner_is_configured() else ai_agent_runner_missing_message(),
             "llm_provider": AI_AGENT_LLM_PROVIDER,
             "llm_base_url_configured": bool(AI_AGENT_LLM_BASE_URL),
             "llm_api_key_configured": bool(AI_AGENT_LLM_API_KEY),
-            "llm_configured": (AI_AGENT_LLM_PROVIDER == "openai" and bool(AI_AGENT_LLM_API_KEY)) or (AI_AGENT_LLM_PROVIDER not in {"local_planner", "openai"} and bool(AI_AGENT_LLM_BASE_URL)),
+            "llm_configured": ai_agent_llm_is_configured(),
             "llm_model": AI_AGENT_MODEL,
             "cpu_limit": "2 cores",
             "memory_limit": "2 GB",
             "timeout_seconds": 900,
             "docker_enabled": AI_AGENT_DOCKER_ENABLED,
+            "docker_ready": ai_agent_docker_ready(),
             "docker_image": AI_AGENT_DOCKER_IMAGE,
-            "worker_enabled": bool(AI_AGENT_WORKER_URL),
+            "workspace_root_configured": bool(AI_AGENT_WORKSPACE_ROOT),
+            "workspace_root_ready": ai_agent_workspace_root_ready(),
+            "worker_enabled": ai_agent_worker_ready(),
             "worker_url_configured": bool(AI_AGENT_WORKER_URL),
             "worker_token_configured": bool(AI_AGENT_WORKER_TOKEN),
             "worker_http_timeout_seconds": AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS,
@@ -19542,6 +20019,7 @@ def load_ai_agent_state() -> dict[str, Any]:
         merged["chat_messages"] = []
     if not isinstance(merged.get("activity"), list):
         merged["activity"] = []
+    merged["memory"] = ai_agent_normalize_memory(merged.get("memory"))
     if not isinstance(merged.get("approval_rules"), dict):
         merged["approval_rules"] = dict(AI_AGENT_DEFAULT_APPROVAL_RULES)
     for key, enabled in AI_AGENT_DEFAULT_APPROVAL_RULES.items():
@@ -19549,9 +20027,12 @@ def load_ai_agent_state() -> dict[str, Any]:
     merged["god_mode_enabled"] = bool(merged.get("god_mode_enabled", False))
     sandbox = merged.get("sandbox") if isinstance(merged.get("sandbox"), dict) else {}
     sandbox["docker_enabled"] = AI_AGENT_DOCKER_ENABLED
+    sandbox["docker_ready"] = ai_agent_docker_ready()
     sandbox["docker_image"] = AI_AGENT_DOCKER_IMAGE
     sandbox["timeout_seconds"] = AI_AGENT_COMMAND_TIMEOUT_SECONDS
-    sandbox["worker_enabled"] = bool(AI_AGENT_WORKER_URL)
+    sandbox["workspace_root_configured"] = bool(AI_AGENT_WORKSPACE_ROOT)
+    sandbox["workspace_root_ready"] = ai_agent_workspace_root_ready()
+    sandbox["worker_enabled"] = ai_agent_worker_ready()
     sandbox["worker_url_configured"] = bool(AI_AGENT_WORKER_URL)
     sandbox["worker_token_configured"] = bool(AI_AGENT_WORKER_TOKEN)
     sandbox["worker_http_timeout_seconds"] = AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS
@@ -19562,9 +20043,15 @@ def load_ai_agent_state() -> dict[str, Any]:
     sandbox["llm_model"] = AI_AGENT_MODEL
     sandbox.setdefault("last_worker_catalog_sync_at", "")
     sandbox.setdefault("last_worker_catalog_error", "")
-    sandbox["runner"] = "external worker" if AI_AGENT_WORKER_URL else "local docker"
-    if AI_AGENT_WORKER_URL:
-        sandbox["status"] = "worker_configured"
+    sandbox["runner"] = "external worker" if ai_agent_worker_ready() else "local docker" if ai_agent_docker_ready() else "not configured"
+    sandbox["runner_ready"] = ai_agent_runner_is_configured()
+    sandbox["runner_error"] = "" if sandbox["runner_ready"] else ai_agent_runner_missing_message()
+    if sandbox["runner_ready"]:
+        sandbox["status"] = "ready"
+    elif AI_AGENT_WORKER_URL or AI_AGENT_DOCKER_ENABLED:
+        sandbox["status"] = "misconfigured"
+    else:
+        sandbox["status"] = "setup_required"
     merged["sandbox"] = sandbox
     return merged
 
@@ -19656,7 +20143,7 @@ def ai_agent_chat_message(
         "id": ai_agent_new_id("msg"),
         "run_id": str(run_id or ""),
         "role": "user" if role == "user" else "assistant",
-        "author": str(author or ("You" if role == "user" else "Wandering Agent")),
+        "author": str(author or ("You" if role == "user" else "Sandbox Assistant")),
         "content": str(content or "").strip()[:4000],
         "payload": compact_audit_value(payload or {}),
         "plan_steps": plan_steps or [],
@@ -19778,7 +20265,7 @@ def ai_agent_create_run(
     runs.insert(0, run)
     del runs[80:]
     ai_agent_set_active_run(state, subject_key, run["id"])
-    ai_agent_activity(state, "AI agent run started", f"{run['id']}: {run['title']}", run["created_by"], {"run_id": run["id"]})
+    ai_agent_activity(state, "AI sandbox run started", f"{run['id']}: {run['title']}", run["created_by"], {"run_id": run["id"]})
     return run
 
 
@@ -20266,6 +20753,10 @@ def ai_agent_requires_owner_approval(state: dict[str, Any], action_type: str, te
     normalized_action = str(action_type or "").lower()
     if normalized_action == "deploy" and rules.get("production_deployments", True):
         reasons.append("Production deployment approval required")
+    if normalized_action == "command" and rules.get("sandbox_commands", False):
+        reasons.append("Sandbox command approval required")
+    if normalized_action == "command" and ai_agent_worker_ready() and rules.get("external_worker_commands", True):
+        reasons.append("External worker command approval required")
     lower = str(text or "").lower()
     for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
         if keyword in lower and reason not in reasons:
@@ -20285,6 +20776,8 @@ def ai_agent_worker_headers() -> dict[str, str]:
 def ai_agent_worker_request(method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[bool, dict[str, Any], str]:
     if not AI_AGENT_WORKER_URL:
         return False, {}, "External sandbox worker is not configured. Set WANDERING_AI_AGENT_WORKER_URL."
+    if not AI_AGENT_WORKER_TOKEN:
+        return False, {}, "External sandbox worker token is not configured. Set WANDERING_AI_AGENT_WORKER_TOKEN."
     url = f"{AI_AGENT_WORKER_URL}{path}"
     try:
         response = requests.request(
@@ -20415,14 +20908,17 @@ def ai_agent_sync_worker_job(state: dict[str, Any], job: dict[str, Any], actor: 
 
 def ai_agent_worker_health_snapshot() -> dict[str, Any]:
     snapshot = {
-        "configured": bool(AI_AGENT_WORKER_URL),
+        "configured": ai_agent_worker_ready(),
         "ok": False,
-        "status": "not_configured" if not AI_AGENT_WORKER_URL else "unknown",
+        "status": "not_configured" if not AI_AGENT_WORKER_URL else "misconfigured" if not AI_AGENT_WORKER_TOKEN else "unknown",
         "error": "",
         "jobs": {},
         "checked_at": "",
     }
     if not AI_AGENT_WORKER_URL:
+        return snapshot
+    if not AI_AGENT_WORKER_TOKEN:
+        snapshot["error"] = "WANDERING_AI_AGENT_WORKER_URL is set, but WANDERING_AI_AGENT_WORKER_TOKEN is missing."
         return snapshot
     ok, data, error = ai_agent_worker_request("GET", "/health")
     snapshot["checked_at"] = datetime.now(UTC).isoformat()
@@ -20437,8 +20933,8 @@ def ai_agent_worker_health_snapshot() -> dict[str, Any]:
 
 
 def ai_agent_import_worker_jobs(state: dict[str, Any], actor: str, limit: int = 80) -> tuple[int, int, str]:
-    if not AI_AGENT_WORKER_URL:
-        return 0, 0, "External sandbox worker is not configured"
+    if not ai_agent_worker_ready():
+        return 0, 0, ai_agent_runner_missing_message()
     ok, data, error = ai_agent_worker_request("GET", f"/api/agent/jobs?limit={max(1, min(200, int(limit)))}")
     sandbox = state.setdefault("sandbox", {})
     if not isinstance(sandbox, dict):
@@ -20507,6 +21003,8 @@ def ai_agent_import_worker_jobs(state: dict[str, Any], actor: str, limit: int = 
 
 
 def ai_agent_sync_worker_jobs(state: dict[str, Any], actor: str, limit: int = 20) -> int:
+    if not ai_agent_worker_ready():
+        return 0
     imported, updated, _ = ai_agent_import_worker_jobs(state, actor)
     checked = 0
     for job in state.get("sandbox_jobs", []):
@@ -20540,7 +21038,7 @@ def ai_agent_iso_age_seconds(value: Any) -> float:
 
 
 def ai_agent_maybe_sync_worker_jobs(state: dict[str, Any], actor: str, *, recover: bool = False, min_interval_seconds: int = 12) -> int:
-    if not AI_AGENT_WORKER_URL:
+    if not ai_agent_worker_ready():
         return 0
     sandbox = state.setdefault("sandbox", {})
     if not isinstance(sandbox, dict):
@@ -20567,7 +21065,7 @@ def ai_agent_maybe_sync_worker_jobs(state: dict[str, Any], actor: str, *, recove
 
 def ai_agent_cancel_worker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
     remote_job_id = str(job.get("remote_job_id") or job.get("id") or "").strip()
-    if not remote_job_id or not AI_AGENT_WORKER_URL:
+    if not remote_job_id or not ai_agent_worker_ready():
         return job
     ok, data, error = ai_agent_worker_request("POST", f"/api/agent/jobs/{urllib.parse.quote(remote_job_id, safe='')}/cancel")
     if ok:
@@ -20581,7 +21079,20 @@ def ai_agent_cancel_worker_job(state: dict[str, Any], job: dict[str, Any], actor
 
 
 def ai_agent_run_sandbox_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
-    if AI_AGENT_WORKER_URL:
+    if not ai_agent_runner_is_configured():
+        job.update(
+            {
+                "status": "blocked",
+                "exit_code": None,
+                "stdout": "",
+                "stderr": ai_agent_runner_missing_message(),
+                "finished_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {job.get('stderr')}", actor, job)
+        ai_agent_update_run_from_job(state, job)
+        return job
+    if ai_agent_worker_ready():
         return ai_agent_dispatch_worker_job(state, job, actor)
     return ai_agent_run_docker_job(state, job, actor)
 
@@ -21096,6 +21607,106 @@ def ai_agent_llm_is_configured() -> bool:
     return bool(ai_agent_llm_endpoint())
 
 
+def ai_agent_readiness_checks(state: dict[str, Any] | None, auth: dict[str, Any] | None = None) -> dict[str, Any]:
+    state = state if isinstance(state, dict) else {}
+    sandbox = state.get("sandbox") if isinstance(state.get("sandbox"), dict) else {}
+    model_ready = ai_agent_llm_is_configured()
+    worker_url_configured = bool(AI_AGENT_WORKER_URL)
+    worker_token_configured = bool(AI_AGENT_WORKER_TOKEN)
+    worker_ready = ai_agent_worker_ready()
+    docker_enabled = bool(AI_AGENT_DOCKER_ENABLED)
+    docker_ready = ai_agent_docker_ready()
+    workspace_configured = bool(AI_AGENT_WORKSPACE_ROOT)
+    workspace_ready = ai_agent_workspace_root_ready()
+    runner_ready = worker_ready or docker_ready
+    god_mode_enabled = bool(state.get("god_mode_enabled"))
+    approval_rules = state.get("approval_rules") if isinstance(state.get("approval_rules"), dict) else {}
+    command_approval_enabled = bool(approval_rules.get("sandbox_commands", False) or approval_rules.get("external_worker_commands", True))
+    approvals_ready = bool(command_approval_enabled and not god_mode_enabled)
+    product_ready = bool(model_ready and runner_ready and approvals_ready)
+    if worker_ready:
+        runner_detail = "External worker URL and token are configured."
+        runner_fix = ""
+    elif worker_url_configured and not worker_token_configured:
+        runner_detail = "External worker URL is set, but the worker token is missing."
+        runner_fix = "Set WANDERING_AI_AGENT_WORKER_TOKEN in Railway."
+    elif docker_ready:
+        runner_detail = "Local Docker runner can use the configured workspace root."
+        runner_fix = ""
+    elif docker_enabled and not workspace_ready:
+        runner_detail = "Docker mode is enabled, but the workspace root is missing or unavailable."
+        runner_fix = "Set WANDERING_AI_AGENT_WORKSPACE_ROOT to a real folder the app can read."
+    else:
+        runner_detail = "No executable sandbox runner is configured."
+        runner_fix = "Use an external worker URL plus token, or enable Docker with a workspace root."
+    if AI_AGENT_LLM_PROVIDER == "local_planner":
+        model_detail = "No external model backend is configured. The built-in planner can draft only."
+        model_fix = "Set WANDERING_AI_AGENT_API_KEY or OPENAI_API_KEY and WANDERING_AI_AGENT_PROVIDER=openai."
+    elif model_ready:
+        model_detail = f"{AI_AGENT_LLM_PROVIDER or 'model'} backend is configured for {AI_AGENT_MODEL}."
+        model_fix = ""
+    elif AI_AGENT_LLM_PROVIDER == "openai":
+        model_detail = "OpenAI provider is selected, but no API key is configured."
+        model_fix = "Set WANDERING_AI_AGENT_API_KEY or OPENAI_API_KEY in Railway."
+    else:
+        model_detail = "Custom model provider is selected, but no chat endpoint is configured."
+        model_fix = "Set WANDERING_AI_AGENT_BASE_URL for the model backend."
+    checks = [
+        {
+            "key": "model",
+            "label": "Model backend",
+            "status": "ready" if model_ready else "missing",
+            "detail": model_detail,
+            "fix": model_fix,
+        },
+        {
+            "key": "runner",
+            "label": "Sandbox runner",
+            "status": "ready" if runner_ready else "missing",
+            "detail": runner_detail,
+            "fix": runner_fix,
+        },
+        {
+            "key": "workspace",
+            "label": "Workspace isolation",
+            "status": "ready" if worker_ready or workspace_ready else "missing",
+            "detail": "External worker owns the isolated workspace boundary." if worker_ready else "Workspace root exists and is available to the local runner." if workspace_ready else "No local workspace root is currently available.",
+            "fix": "" if worker_ready or workspace_ready else "Set WANDERING_AI_AGENT_WORKSPACE_ROOT or use an external worker.",
+        },
+        {
+            "key": "approvals",
+            "label": "Approval gates",
+            "status": "ready" if command_approval_enabled and not god_mode_enabled else "warning",
+            "detail": "Sandbox commands stay owner-approved before execution." if command_approval_enabled and not god_mode_enabled else "Owner bypass is enabled or command approvals are relaxed.",
+            "fix": "" if command_approval_enabled and not god_mode_enabled else "Keep god mode off and command approval rules on before selling this feature.",
+        },
+    ]
+    required_env = [
+        {"key": "WANDERING_AI_AGENT_PROVIDER", "configured": AI_AGENT_LLM_PROVIDER != "local_planner"},
+        {"key": "WANDERING_AI_AGENT_API_KEY or OPENAI_API_KEY", "configured": bool(AI_AGENT_LLM_API_KEY)},
+        {"key": "WANDERING_AI_AGENT_MODEL", "configured": bool(AI_AGENT_MODEL)},
+        {"key": "Runner option A: WANDERING_AI_AGENT_WORKER_URL + WANDERING_AI_AGENT_WORKER_TOKEN", "configured": worker_ready},
+        {"key": "Runner option B: WANDERING_AI_AGENT_DOCKER_ENABLED + WANDERING_AI_AGENT_WORKSPACE_ROOT", "configured": docker_ready},
+    ]
+    if not auth or auth.get("kind") != "owner":
+        required_env = []
+    return {
+        "product_ready": product_ready,
+        "runner_ready": runner_ready,
+        "model_ready": model_ready,
+        "approvals_ready": approvals_ready,
+        "worker_ready": worker_ready,
+        "docker_ready": docker_ready,
+        "workspace_ready": workspace_ready,
+        "mode": "ready" if product_ready else "setup_required",
+        "headline": "AI Sandbox Ready" if product_ready else "AI Sandbox Setup Required",
+        "summary": "Model and runner are configured. Jobs can run through the guarded approval flow." if product_ready else "This is not production-ready yet. The sandbox will draft and plan, but executable jobs are blocked until setup is complete.",
+        "checks": checks,
+        "required_env": required_env,
+        "runner_error": "" if runner_ready else ai_agent_runner_missing_message(),
+    }
+
+
 def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tuple[bool, dict[str, Any], str]:
     endpoint = ai_agent_llm_endpoint()
     if not ai_agent_llm_is_configured():
@@ -21163,11 +21774,11 @@ def ai_agent_normalize_llm_suggestions(value: Any, project_path: str = "") -> li
         if isinstance(item, str):
             command = item
             label = item
-            reason = "Suggested by the AI agent."
+            reason = "Suggested by the AI sandbox."
         elif isinstance(item, dict):
             command = str(item.get("command") or "").strip()
             label = str(item.get("label") or command).strip()
-            reason = str(item.get("reason") or "Suggested by the AI agent.").strip()
+            reason = str(item.get("reason") or "Suggested by the AI sandbox.").strip()
         else:
             continue
         ai_agent_add_command_suggestion(
@@ -21218,9 +21829,11 @@ def ai_agent_llm_reply_for_task(
         return ai_agent_append_command_summary(ai_agent_assistant_reply_for_task(task, approval), task["suggested_commands"])
 
     system_message = (
-        "You are Wandering Agent, a private owner-controlled AI software engineering agent inside a dashboard. "
+        "You are the Wandering Bot AI Sandbox assistant, a private owner-controlled Codex-like software engineering helper inside a dashboard. "
         "Return only a JSON object. Do not claim you edited files, ran commands, deployed, pushed to GitHub, "
-        "or inspected private code unless the supplied context proves it. Be concise, practical, and Codex-like. "
+        "or inspected private code unless the supplied context proves it. Be concise, practical, and action-focused. "
+        "You can help Wandering Bot improve itself by proposing scoped fixes, safe patches, tests, docs and rollback plans, "
+        "but live writes must stay explicit, auditable and owner-approved. "
         "Default to action: when the safe next step is obvious, say what is happening now and use the supplied "
         "suggested commands instead of asking the user to restate the task. Ask a question only when the missing "
         "answer would make the next action unsafe or impossible. "
@@ -21228,9 +21841,14 @@ def ai_agent_llm_reply_for_task(
         "to queue the Inspect Project sandbox command, then continue after the job output is available. "
         "Respect approval gates: production deploys, database migrations, secrets, file deletion, repository deletion, "
         "force pushes, and permission changes need owner approval unless context explicitly says they are approved. "
+        "Use the supplied memory as durable project context. Add learning only for stable facts, owner decisions, "
+        "incidents, approved patterns or blocked patterns that will help future work; never store passwords, API keys, "
+        "tokens, secrets or private customer data. "
         "Schema: {\"reply\": string, \"steps\": [{\"agent\": string, \"title\": string, \"detail\": string}], "
         "\"suggested_commands\": [{\"label\": string, \"command\": string, \"reason\": string, \"project_path\": string, \"risk\": string}], "
-        "\"next_action\": string, \"summary\": string, \"risk_notes\": [string]}."
+        "\"next_action\": string, \"summary\": string, \"risk_notes\": [string], "
+        "\"learning\": [{\"category\": \"project_facts|lessons|decisions|incidents|approved_patterns|blocked_patterns\", "
+        "\"title\": string, \"detail\": string, \"tags\": [string]}]}."
     )
     user_payload = {
         "prompt": prompt,
@@ -21251,7 +21869,7 @@ def ai_agent_llm_reply_for_task(
             "steps": task.get("steps"),
         },
         "run": run_context,
-        "memory": compact_audit_value(state.get("memory", {})),
+        "memory": compact_audit_value(ai_agent_memory_snapshot(state)),
         "sandbox": compact_audit_value(state.get("sandbox", {})),
         "deterministic_suggestions": task.get("suggested_commands", []),
         "inspection_requested": wants_inspection,
@@ -21270,6 +21888,9 @@ def ai_agent_llm_reply_for_task(
     task["llm_provider"] = AI_AGENT_LLM_PROVIDER
     task["llm_model"] = AI_AGENT_MODEL
     task["updated_at"] = datetime.now(UTC).isoformat()
+    learned_items = ai_agent_store_llm_learning(state, data, task, access.get("label") or dashboard_audit_actor(auth))
+    if learned_items:
+        task["learning"] = learned_items
     task["steps"] = ai_agent_normalize_llm_steps(data.get("steps"), task.get("steps") if isinstance(task.get("steps"), list) else [])
     llm_suggestions = ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
     merged_suggestions = ai_agent_merge_suggested_commands(task, [*base_suggestions, *llm_suggestions])
@@ -21328,7 +21949,7 @@ def ai_agent_plan_from_objective(objective: str, project_type: str, requested: d
     if requested.get("deploy") and "Deployment approval required" not in approvals:
         approvals.append("Deployment approval required")
     if not state.get("god_mode_enabled") and (requested.get("execute") or requested.get("deploy")):
-        approvals.append("God Mode is disabled, so execution/deploy actions require owner approval")
+        approvals.append("Owner bypass is disabled, so execution/deploy actions require owner approval")
     complexity = "medium"
     if len(text) > 220 or len(steps) >= 8 or approvals:
         complexity = "high"
@@ -21402,7 +22023,7 @@ def ai_agent_create_task_record(
         if run_id:
             ai_agent_attach_run_item(state, run_id, "approval_ids", approval["id"])
             ai_agent_update_run_from_task(state, run_id, task)
-    ai_agent_activity(state, "AI agent task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
+    ai_agent_activity(state, "AI sandbox task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
     return task, approval, "", 200
 
 
@@ -21438,7 +22059,7 @@ def require_ai_agent_permission(permission: str = "read") -> tuple[dict[str, Any
     state = load_ai_agent_state()
     access = ai_agent_access_for_auth(auth, state)
     if not access.get("allowed") or not access.get("permissions", {}).get(permission, False):
-        return None, None, None, (jsonify({"ok": False, "error": "AI Development Agent access denied"}), 403)
+        return None, None, None, (jsonify({"ok": False, "error": "AI Sandbox access denied"}), 403)
     return auth, access, state, None
 def dashboard_password_hash(password: str, salt: str) -> str:
     return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
@@ -21604,7 +22225,7 @@ def agent_charge_for_prompt(auth: dict[str, Any], prompt: str) -> tuple[bool, st
     ok, error, new_balance = agent_adjust_credits(
         account_id,
         -AGENT_CHAT_CREDIT_COST,
-        "AI agent prompt",
+        "AI sandbox prompt",
         dashboard_audit_actor(auth),
         {"prompt": str(prompt or "")[:180]},
     )
@@ -22441,12 +23062,12 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "wage": "Wage saved",
         "wage-action": "Wage updated",
         "wallet-adjustment": "Wallet adjusted",
-        "ai-agent-task": "AI agent task planned",
-        "ai-agent-chat": "AI agent prompt submitted",
-        "ai-agent-access": "AI agent access updated",
-        "ai-agent-approval": "AI agent approval decided",
-        "ai-agent-job-action": "AI agent sandbox job updated",
-        "sandbox-command": "AI agent sandbox command queued",
+        "ai-agent-task": "AI sandbox task planned",
+        "ai-agent-chat": "AI sandbox prompt submitted",
+        "ai-agent-access": "AI sandbox access updated",
+        "ai-agent-approval": "AI sandbox approval decided",
+        "ai-agent-job-action": "AI sandbox job updated",
+        "sandbox-command": "AI sandbox command queued",
         "welcome-automation": "Welcome automation saved",
         "xml-workshop": "XML workshop updated",
         "zone": "Zone saved",
@@ -27190,7 +27811,7 @@ COMMAND_SECTION_META = {
     "access": {"kicker": "Admin", "title": "Admin Center", "body": "Server setup, Discord messages, rules, moderation guard and live server controls in one place."},
     "billing": {"kicker": "Owner", "title": "Plans & Billing", "body": "Define dashboard tiers, enabled features, checkout links and owner-only subscription controls."},
     "owner": {"kicker": "Owner", "title": "Owner Console", "body": "Global owner-only operations across Wandering Bot servers."},
-    "ai-agent": {"kicker": "Private AI", "title": "AI Development Agent", "body": "Owner-controlled software engineering workspace with planning, approval gates, sandbox intent, audit logs and God Mode locked off by default."},
+    "ai-agent": {"kicker": "Private AI", "title": "AI Sandbox", "body": "Owner-controlled workspace for planning, validation, approval gates, sandbox jobs, audit logs and live-write protection."},
 }
 
 
@@ -29201,6 +29822,7 @@ def page(mode: str, auth: dict[str, Any]):
         dashboard_review_summary=dashboard_review_summary,
         dashboard_review_prompt=dashboard_review_prompt,
         ai_agent_state=ai_agent_state,
+        ai_agent_readiness=ai_agent_readiness_checks(ai_agent_state, auth),
         ai_agent_access=ai_agent_access,
         ai_agent_tasks=ai_agent_state.get("tasks", []),
         ai_agent_approvals=ai_agent_state.get("approvals", []),
@@ -29214,6 +29836,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_activity_feed=ai_agent_state.get("activity", []),
         ai_agent_members=ai_agent_state.get("members", {}),
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
+        ai_agent_memory=ai_agent_memory_snapshot(ai_agent_state, 12),
+        ai_agent_memory_labels=AI_AGENT_MEMORY_LABELS,
         billing_plans=billing_plans,
         customer_billing_plans=customer_billing_plans,
         native_app_mode=native_app_mode,
@@ -33883,6 +34507,8 @@ def ai_agent_queue_sandbox_job(
         return None, reason, 400
     if "deploy" in command.lower() and not access.get("permissions", {}).get("deploy"):
         return None, "deploy permission is required for deployment commands", 403
+    if not ai_agent_runner_is_configured():
+        return None, ai_agent_runner_missing_message(), 503
     run_id = str(payload.get("run_id") or "").strip()
     subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
     if run_id:
@@ -33949,18 +34575,25 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
     visible_state = ai_agent_visible_state(state, auth, access)
     visible_runs = visible_state.get("runs", []) if isinstance(visible_state.get("runs"), list) else []
     sandbox_payload = dict(state.get("sandbox", {}) if isinstance(state.get("sandbox"), dict) else {})
+    readiness_payload = ai_agent_readiness_checks(state, auth)
     if auth.get("kind") != "owner":
-        sandbox_payload["agent_brain"] = "online" if sandbox_payload.get("llm_configured") else "planner_ready"
-        sandbox_payload["llm_provider"] = "wandering_agent"
-        sandbox_payload["llm_model"] = "Wandering Agent"
+        sandbox_payload["agent_brain"] = "online" if readiness_payload.get("model_ready") else "planner_ready"
+        sandbox_payload["llm_provider"] = "ai_sandbox"
+        sandbox_payload["llm_model"] = "Sandbox Assistant"
         sandbox_payload.pop("llm_base_url_configured", None)
         sandbox_payload.pop("llm_api_key_configured", None)
+        sandbox_payload.pop("worker_url_configured", None)
+        sandbox_payload.pop("worker_token_configured", None)
+        sandbox_payload.pop("workspace_root_configured", None)
+        sandbox_payload.pop("workspace_root_ready", None)
     return {
         "ok": True,
         "access": access,
         "god_mode_enabled": bool(state.get("god_mode_enabled")),
         "approval_rules": state.get("approval_rules", {}),
         "sandbox": sandbox_payload,
+        "readiness": readiness_payload,
+        "memory": ai_agent_memory_snapshot(state, 12) if auth.get("kind") == "owner" else ai_agent_memory_snapshot(state, 4),
         "tasks": visible_state.get("tasks", [])[:30],
         "runs": visible_runs[:30],
         "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
@@ -34151,7 +34784,7 @@ def api_ai_agent_chat():
     task_objective = f"Continue existing run: {json.dumps(run_context, ensure_ascii=False, default=str)}\nLatest instruction: {prompt}" if continued else prompt
     task, approval, error_message, status_code = ai_agent_create_task_record(state, auth, access, payload, task_objective, run_id=run_id)
     if error_message:
-        assistant_message = ai_agent_chat_message(state, role="assistant", author="Wandering Agent", content=f"I could not create that plan yet: {error_message}", run_id=run_id)
+        assistant_message = ai_agent_chat_message(state, role="assistant", author="Sandbox Assistant", content=f"I could not create that plan yet: {error_message}", run_id=run_id)
         save_ai_agent_state(state)
         return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
     reply = ai_agent_llm_reply_for_task(state, auth, access, run, task or {}, approval, prompt, continued)
@@ -34171,7 +34804,7 @@ def api_ai_agent_chat():
     assistant_message = ai_agent_chat_message(
         state,
         role="assistant",
-        author="Wandering Agent",
+        author="Sandbox Assistant",
         content=reply,
         payload={"run_id": run_id, "task_id": (task or {}).get("id"), "approval_id": (approval or {}).get("id", ""), "auto_job_id": (auto_job or {}).get("id", "")},
         plan_steps=(task or {}).get("steps", []),
@@ -34318,6 +34951,75 @@ def api_owner_ai_agent_job_sync():
     return dashboard_api_response(raw_payload, {"ok": True, "synced": synced, "note": f"Synced {synced} worker job(s)."}, "ai-agent", "#ai-agent-jobs")
 
 
+@APP.post("/api/owner/ai-agent-memory")
+def api_owner_ai_agent_memory():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    state = load_ai_agent_state()
+    actor = dashboard_audit_actor(current_auth())
+    action = str(payload.get("action") or "add").strip().lower()
+    memory = ai_agent_normalize_memory(state.get("memory"))
+    if action in {"remove", "delete", "forget"}:
+        memory_id = str(payload.get("memory_id") or payload.get("id") or "").strip()
+        if not memory_id:
+            return jsonify({"ok": False, "error": "memory_id is required"}), 400
+        removed: dict[str, Any] | None = None
+        for category in AI_AGENT_MEMORY_CATEGORIES:
+            rows = memory.get(category)
+            if not isinstance(rows, list):
+                continue
+            kept: list[dict[str, Any]] = []
+            for item in rows:
+                if isinstance(item, dict) and str(item.get("id") or "") == memory_id:
+                    removed = item
+                else:
+                    kept.append(item)
+            memory[category] = kept
+        if not removed:
+            return jsonify({"ok": False, "error": "memory note not found"}), 404
+        memory["updated_at"] = datetime.now(UTC).isoformat()
+        state["memory"] = memory
+        ai_agent_activity(state, "AI sandbox memory removed", str(removed.get("title") or memory_id), actor, {"memory_id": memory_id})
+        save_ai_agent_state(state)
+        g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="memory_remove", memory_id=memory_id)
+        return dashboard_api_response(raw_payload, {"ok": True, "removed": removed, "memory": ai_agent_memory_snapshot(state, 12), "note": "Removed sandbox memory note."}, "ai-agent", "#ai-agent-memory")
+    if action not in {"add", "save", "upsert"}:
+        return jsonify({"ok": False, "error": "unsupported memory action"}), 400
+    category = str(payload.get("category") or "lessons").strip()
+    title = str(payload.get("title") or "").strip()
+    detail = str(payload.get("detail") or "").strip()
+    raw_tags = payload.get("tags")
+    tags: list[str] = []
+    if isinstance(raw_tags, list):
+        tags = [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+    elif isinstance(raw_tags, str):
+        tags = [part.strip() for part in raw_tags.split(",") if part.strip()]
+    if category not in AI_AGENT_MEMORY_CATEGORIES:
+        return jsonify({"ok": False, "error": "unknown memory type"}), 400
+    if not title or not detail:
+        return jsonify({"ok": False, "error": "title and detail are required"}), 400
+    if not ai_agent_memory_text_is_safe(title, detail, *tags):
+        return jsonify({"ok": False, "error": "Memory note looks like it contains a secret. Do not save passwords, API keys or tokens."}), 400
+    item, created = ai_agent_record_memory(
+        state,
+        category,
+        title,
+        detail,
+        source="owner",
+        actor=actor,
+        tags=tags,
+    )
+    if not item:
+        return jsonify({"ok": False, "error": "Could not save memory note"}), 400
+    ai_agent_activity(state, "AI sandbox memory saved", str(item.get("title") or ""), actor, {"memory_id": item.get("id"), "category": category, "created": created})
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="memory_save", memory_id=item.get("id"), category=category)
+    return dashboard_api_response(raw_payload, {"ok": True, "item": item, "created": created, "memory": ai_agent_memory_snapshot(state, 12), "note": "Saved sandbox memory note."}, "ai-agent", "#ai-agent-memory")
+
+
 @APP.post("/api/owner/ai-agent-access")
 def api_owner_ai_agent_access():
     payload, error = require_owner_payload()
@@ -34334,10 +35036,10 @@ def api_owner_ai_agent_access():
         for key, default_enabled in AI_AGENT_DEFAULT_APPROVAL_RULES.items():
             rules[key] = safe_bool(payload.get(f"approval_{key}"), default_enabled)
         state["approval_rules"] = rules
-        ai_agent_activity(state, "AI agent safety rules updated", f"God Mode {'enabled' if state['god_mode_enabled'] else 'disabled'}", actor, {"approval_rules": rules})
+        ai_agent_activity(state, "AI sandbox safety rules updated", f"Owner bypass {'enabled' if state['god_mode_enabled'] else 'disabled'}", actor, {"approval_rules": rules})
         save_ai_agent_state(state)
         g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="god_mode")
-        return dashboard_api_response(raw_payload, {"ok": True, "god_mode_enabled": state["god_mode_enabled"], "note": "Saved AI agent safety rules."}, "ai-agent", "#ai-agent")
+        return dashboard_api_response(raw_payload, {"ok": True, "god_mode_enabled": state["god_mode_enabled"], "note": "Saved AI sandbox safety rules."}, "ai-agent", "#ai-agent")
     subject_key = str(payload.get("subject_key") or "").strip()
     if not subject_key:
         return jsonify({"ok": False, "error": "subject_key is required"}), 400
@@ -34350,10 +35052,10 @@ def api_owner_ai_agent_access():
         state["members"] = members
     if action in {"remove", "delete"}:
         removed = members.pop(subject_key, None)
-        ai_agent_activity(state, "AI agent access removed", subject_key, actor, {"removed": bool(removed)})
+        ai_agent_activity(state, "AI sandbox access removed", subject_key, actor, {"removed": bool(removed)})
         save_ai_agent_state(state)
         g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="remove")
-        return dashboard_api_response(raw_payload, {"ok": True, "removed": bool(removed), "note": "Removed AI agent access."}, "ai-agent", "#ai-agent")
+        return dashboard_api_response(raw_payload, {"ok": True, "removed": bool(removed), "note": "Removed AI sandbox access."}, "ai-agent", "#ai-agent")
     permissions = {key: safe_bool(payload.get(f"perm_{key}"), key == "read") for key in AI_AGENT_PERMISSION_KEYS}
     if not permissions.get("read"):
         permissions["read"] = True
@@ -34370,10 +35072,10 @@ def api_owner_ai_agent_access():
         "updated_by": actor,
     }
     members[subject_key] = record
-    ai_agent_activity(state, "AI agent access saved", f"{record['label']} ({record['role']})", actor, record)
+    ai_agent_activity(state, "AI sandbox access saved", f"{record['label']} ({record['role']})", actor, record)
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="grant", subject_key=subject_key)
-    return dashboard_api_response(raw_payload, {"ok": True, "access": record, "note": "Saved AI agent access."}, "ai-agent", "#ai-agent")
+    return dashboard_api_response(raw_payload, {"ok": True, "access": record, "note": "Saved AI sandbox access."}, "ai-agent", "#ai-agent")
 
 
 @APP.post("/api/owner/agent-account")

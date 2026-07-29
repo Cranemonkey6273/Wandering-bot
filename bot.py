@@ -72,6 +72,7 @@ BOT_IMAGE = os.getenv(
 DEFAULT_MAP_IMAGE_SOURCES = {
     "chernarus": "https://i.redd.it/a2mn8bzx93gd1.jpeg",
     "livonia": "https://i.imgur.com/nzEp9wF.jpeg",
+    "sakhal": os.getenv("WANDERING_SAKHAL_MAP_URL", ""),
 }
 
 MAP_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
@@ -12487,9 +12488,14 @@ LIVONIA_LOOT_DROPS = [
     ("Branzow railway tunnel", "9700,8600"),
 ]
 SAKHAL_LOOT_DROPS = [
-    ("Volcanic ridge cache", "8500,9100"),
-    ("Coastal lighthouse", "3500,2200"),
-    ("Frozen radar base", "12000,12000"),
+    ("Petropavlovsk port cache", "4750,10000"),
+    ("Central volcano ridge", "10200,11300"),
+    ("North coast settlement", "8500,12800"),
+    ("Eastern mining town", "13100,10300"),
+    ("South-east coast stash", "11900,6450"),
+    ("South-west peninsula", "3100,6100"),
+    ("Southern island cache", "1900,2450"),
+    ("North island chain", "12150,13800"),
 ]
 
 
