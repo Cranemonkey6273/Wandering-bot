@@ -665,11 +665,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual({"ok": False, "built": {}, "messages": ["blocked for test"]}, result)
         self.assertEqual([("guild-1", 37)], calls)
 
-    def test_public_pricing_shows_all_enabled_tiers_and_uses_checkout_when_configured(self):
+    def test_public_pricing_shows_all_enabled_tiers_and_uses_configured_checkout(self):
         plans = list(dashboard.default_billing_plan_map().values())
-        for plan in plans:
-            if plan["id"] == "dashboard_ai":
-                plan["payment_url"] = "https://payments.example.test/pro"
 
         with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
             public_plans = {plan["id"]: plan for plan in dashboard.public_billing_plans_for_homepage()}
@@ -677,10 +674,36 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual({"free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate"}, set(public_plans))
         self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
         self.assertIn("Android and Apple companion application — coming soon", public_plans["dashboard_ultimate"]["public_features"])
+        self.assertEqual("Get started free", public_plans["free_bot"]["public_cta"])
+        self.assertEqual("Buy now", public_plans["dashboard"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard_ai"]["public_cta"])
-        self.assertEqual("/checkout/dashboard_ai", public_plans["dashboard_ai"]["public_checkout_url"])
-        self.assertEqual("Contact us to buy", public_plans["dashboard_ultimate"]["public_cta"])
-        self.assertEqual("Price coming soon", public_plans["dashboard_ultimate"]["public_price_text"])
+        self.assertEqual("Buy now", public_plans["dashboard_ultimate"]["public_cta"])
+        self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", public_plans["free_bot"]["payment_url"])
+        self.assertEqual("https://buy.stripe.com/aFaaER9TH6Qf6TY5pNbEA03", public_plans["dashboard"]["payment_url"])
+        self.assertEqual("https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04", public_plans["dashboard_ai"]["payment_url"])
+        self.assertEqual("https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05", public_plans["dashboard_ultimate"]["payment_url"])
+        self.assertEqual("Price shown at checkout", public_plans["dashboard_ultimate"]["public_price_text"])
+
+    def test_saved_free_billing_plan_keeps_its_checkout_url(self):
+        saved = {
+            "billing_plans": {
+                "free_bot": {"payment_url": "https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02"},
+            },
+        }
+
+        with patch.object(dashboard, "load_store", return_value=saved):
+            plans = {plan["id"]: plan for plan in dashboard.dashboard_billing_plans()}
+
+        self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", plans["free_bot"]["payment_url"])
+
+    def test_free_plan_checkout_uses_its_configured_free_stripe_link(self):
+        free_plan = dashboard.default_billing_plan_map()["free_bot"]
+
+        with patch.object(dashboard, "dashboard_plan_by_id", return_value=free_plan), patch.object(dashboard, "record_billing_plan_selection") as record_selection:
+            destination = dashboard.public_checkout("free_bot")
+
+        self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", destination)
+        record_selection.assert_called_once_with(free_plan)
 
 
 if __name__ == "__main__":

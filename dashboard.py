@@ -1199,7 +1199,7 @@ DEFAULT_BILLING_PLANS = [
         "description": "Basic Discord bot access while dashboard tools stay locked.",
         "enabled": True,
         "features": {"leaderboards": True, "embeds": True, "server_rules": True},
-        "payment_url": "",
+        "payment_url": "https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1226,7 +1226,7 @@ DEFAULT_BILLING_PLANS = [
             "wages": True,
             "moderation": True,
         },
-        "payment_url": "",
+        "payment_url": "https://buy.stripe.com/aFaaER9TH6Qf6TY5pNbEA03",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1254,7 +1254,7 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
             "ai_agent": False,
         },
-        "payment_url": "",
+        "payment_url": "https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1282,7 +1282,7 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
             "ai_agent": True,
         },
-        "payment_url": "",
+        "payment_url": "https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -19466,10 +19466,6 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
         stripe_buy_button_id = plan.get("stripe_buy_button_id", base.get("stripe_buy_button_id", ""))
         stripe_publishable_key = plan.get("stripe_publishable_key", base.get("stripe_publishable_key", ""))
         payment_url = str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500]
-        if clean_id == "free_bot":
-            payment_url = ""
-            stripe_buy_button_id = ""
-            stripe_publishable_key = ""
         name = str(plan.get("name") or base.get("name") or clean_id).strip()[:80]
         description = str(plan.get("description") or base.get("description") or "").strip()[:400]
         if clean_id == "dashboard_ai" and name == "Dashboard + AI":
@@ -19541,8 +19537,18 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
         public_plan["public_features"] = public_billing_plan_features(public_plan)
         public_plan["public_featured"] = plan_id == "dashboard"
         public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ("App coming soon" if plan_id == "dashboard_ultimate" else "")
-        public_plan["public_price_text"] = price_text if price_text and price_text.lower() != "set monthly price" else "Price coming soon"
-        if plan_id == "free_bot":
+        public_plan["public_price_text"] = (
+            price_text
+            if price_text and price_text.lower() != "set monthly price"
+            else ("Price shown at checkout" if has_checkout else "Price coming soon")
+        )
+        if plan_id == "free_bot" and has_checkout:
+            public_plan["public_cta"] = "Get started free"
+            public_plan["public_checkout_url"] = billing_plan_selection_url(plan_id)
+            public_plan["public_external_checkout"] = False
+            public_plan["public_primary_cta"] = True
+            public_plan["public_purchase_note"] = "Free checkout — no payment details needed."
+        elif plan_id == "free_bot":
             public_plan["public_cta"] = "Add Wandering Bot"
             public_plan["public_checkout_url"] = billing_plan_selection_url(plan_id)
             public_plan["public_external_checkout"] = False
@@ -30806,12 +30812,11 @@ def public_checkout(plan_id: str):
         return redirect("/#pricing")
 
     record_billing_plan_selection(plan)
-    if str(plan.get("id") or "") == "free_bot":
-        return redirect(dashboard_bot_invite_url())
-
     payment_url = str(plan.get("payment_url") or "").strip()
     if payment_url:
         return redirect(payment_url)
+    if str(plan.get("id") or "") == "free_bot":
+        return redirect(dashboard_bot_invite_url())
     if not (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")):
         return redirect("/#pricing")
     return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan, pwa_theme_color=PWA_THEME_COLOR)
