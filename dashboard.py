@@ -17,6 +17,7 @@ import html
 import inspect
 import secrets
 import hashlib
+import hmac
 import subprocess
 import tempfile
 import time
@@ -506,6 +507,15 @@ try:
     AGENT_CHAT_CREDIT_COST = max(0, int(float(os.getenv("WANDERING_AGENT_CHAT_CREDIT_COST", "1"))))
 except (TypeError, ValueError):
     AGENT_CHAT_CREDIT_COST = 1
+try:
+    AGENT_ULTIMATE_INCLUDED_CREDITS = max(0, int(float(os.getenv("WANDERING_AGENT_ULTIMATE_INCLUDED_CREDITS", "100"))))
+except (TypeError, ValueError):
+    AGENT_ULTIMATE_INCLUDED_CREDITS = 100
+STRIPE_AGENT_CREDITS_WEBHOOK_SECRET = os.getenv("WANDERING_STRIPE_AGENT_CREDITS_WEBHOOK_SECRET", "").strip()
+try:
+    STRIPE_WEBHOOK_TOLERANCE_SECONDS = max(60, min(900, int(float(os.getenv("WANDERING_STRIPE_WEBHOOK_TOLERANCE_SECONDS", "300")))))
+except (TypeError, ValueError):
+    STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_SECONDS", "300"))
 DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
@@ -1028,6 +1038,7 @@ FILES = {
     "removed_guilds": "removed_guilds.json",
     "ai_agent": "ai_agent.json",
     "agent_accounts": "agent_accounts.json",
+    "agent_credit_packs": "agent_credit_packs.json",
     "rpt_event_tracker": "rpt_event_tracker.json",
     "reviews": "reviews.json",
 }
@@ -3791,7 +3802,26 @@ PAGE_TEMPLATE = """
     .ai-agent-grid { display: grid; grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, .8fr); gap: .85rem; align-items: start; }
     .ai-agent-grid .admin-panel { min-height: 0; }
     .ai-agent-prompt textarea { min-height: 12rem; }
-    .ai-codex-workbench { display: grid; grid-template-columns: minmax(34rem, 1.65fr) minmax(17rem, .55fr); gap: .85rem; align-items: start; margin-bottom: .85rem; }
+    .ai-codex-workbench { display: grid; grid-template-columns: minmax(12.5rem, .45fr) minmax(30rem, 1.65fr) minmax(17rem, .55fr); gap: .85rem; align-items: start; margin-bottom: .85rem; }
+    .ai-conversation-nav { display: grid; gap: .6rem; align-content: start; position: sticky; top: 4.8rem; max-height: calc(100vh - 6rem); overflow: auto; padding: .75rem; border: 1px solid rgba(103,245,231,.18); border-radius: .75rem; background: linear-gradient(180deg, rgba(6,20,24,.92), rgba(1,8,10,.94)); }
+    .ai-conversation-nav h3 { margin: 0; color: #effcff; }
+    .ai-conversation-new { display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem; border: 1px solid rgba(103,245,231,.44); border-radius: .55rem; padding: .55rem .65rem; background: rgba(103,245,231,.12); color: #effcff; font-weight: 900; text-decoration: none; }
+    .ai-conversation-list { display: grid; gap: .4rem; }
+    .ai-conversation-link { display: grid; gap: .22rem; border: 1px solid rgba(103,245,231,.12); border-radius: .55rem; padding: .58rem .62rem; color: var(--muted); text-decoration: none; background: rgba(2,9,12,.68); overflow: hidden; }
+    .ai-conversation-link:hover, .ai-conversation-link.active { border-color: rgba(103,245,231,.48); background: rgba(103,245,231,.11); color: #effcff; }
+    .ai-conversation-link strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .84rem; }
+    .ai-conversation-link span { font-size: .72rem; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai-workspace-technical, .ai-workspace-advanced { margin: 0 0 .85rem; border: 1px solid rgba(103,245,231,.17); border-radius: .7rem; padding: .68rem .78rem; background: rgba(2,9,12,.64); }
+    .ai-workspace-technical summary, .ai-workspace-advanced summary { cursor: pointer; color: #effcff; font-weight: 850; }
+    .ai-workspace-technical > *:not(summary), .ai-workspace-advanced > *:not(summary) { margin-top: .75rem; }
+    .ai-credit-balance { display: grid; gap: .3rem; padding: .7rem; border: 1px solid rgba(236,161,64,.32); border-radius: .6rem; background: rgba(236,161,64,.08); }
+    .ai-credit-balance strong { color: var(--amber); font-size: 1.25rem; }
+    .ai-credit-pack-list, .ai-credit-ledger { display: grid; gap: .45rem; }
+    .ai-credit-pack { display: grid; gap: .35rem; border: 1px solid rgba(236,161,64,.2); border-radius: .55rem; padding: .65rem; background: rgba(1,8,10,.72); }
+    .ai-credit-pack strong { color: #fff5df; }
+    .ai-credit-pack span { color: var(--muted); font-size: .79rem; }
+    .ai-credit-ledger-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .45rem; align-items: start; border-top: 1px solid rgba(103,245,231,.10); padding-top: .45rem; color: var(--muted); font-size: .77rem; }
+    .ai-credit-ledger-row strong { color: #bff7c9; }
     .ai-codex-chat { min-height: min(74vh, 52rem); display: grid; grid-template-rows: auto minmax(24rem, 1fr) auto; gap: .75rem; background:
       radial-gradient(circle at top left, rgba(103,245,231,.12), transparent 34%),
       linear-gradient(180deg, rgba(6, 20, 25, .92), rgba(2, 8, 11, .88)); }
@@ -6549,11 +6579,16 @@ PAGE_TEMPLATE = """
     <section class="section-panel ai-agent-shell" id="ai-agent">
       <div class="section-head">
         <div>
-          <h2>AI Sandbox</h2>
-          <p class="tool-note">Private owner-controlled workspace for planning, safe file work, dry runs, and approval-gated automation.</p>
+          <h2>Wandering Bot AI</h2>
+          <p class="tool-note">Start one conversation per job. Ask a question plainly, then use the DayZ helper only when you need files, maps or presets.</p>
         </div>
-        <span class="pill {{ 'ok' if ai_agent_access.allowed else 'bad' }}">{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span>
+        <div class="pills">
+          {% if auth.kind in ['agent_account', 'guild'] and ai_agent_access.allowed %}<a class="pill warn" href="#ai-agent-credits"><span data-ai-agent-credits>{{ ai_agent_credits }}</span> credits · Top up</a>{% endif %}
+          <span class="pill {{ 'ok' if ai_agent_access.allowed else 'bad' }}">{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span>
+        </div>
       </div>
+      <details class="ai-workspace-technical">
+        <summary>Workspace status, safety and technical setup</summary>
       <div class="ai-agent-stat-grid">
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
         <div class="ai-agent-stat"><span>Approval Gates</span><strong>{{ 'Owner bypass on' if ai_agent_state.god_mode_enabled else 'Strict' }}</strong></div>
@@ -6563,7 +6598,7 @@ PAGE_TEMPLATE = """
         <div class="ai-agent-stat"><span>Runs</span><strong data-ai-stat="runs">{{ ai_agent_run_counts.active }} / {{ ai_agent_run_counts.total }}</strong></div>
         <div class="ai-agent-stat"><span>Approvals</span><strong data-ai-stat="approvals">{{ ai_agent_pending_approvals }}</strong></div>
         <div class="ai-agent-stat"><span>Jobs</span><strong data-ai-stat="jobs">{{ ai_agent_job_counts.total }}</strong></div>
-        {% if auth.kind == 'agent_account' %}<div class="ai-agent-stat"><span>Credits</span><strong data-ai-agent-credits>{{ auth.credits|default(0) }}</strong></div>{% endif %}
+        {% if auth.kind in ['agent_account', 'guild'] and ai_agent_access.allowed %}<div class="ai-agent-stat"><span>Credits</span><strong data-ai-agent-credits>{{ ai_agent_credits }}</strong></div>{% endif %}
       </div>
       <div class="ai-agent-readiness" data-mode="{{ sandbox_readiness.mode }}">
         <div class="ai-agent-readiness-head">
@@ -6648,12 +6683,28 @@ PAGE_TEMPLATE = """
           </article>
         </div>
       </div>
+      </details>
       <div class="ai-codex-workbench">
+        <aside class="ai-conversation-nav" aria-label="AI conversations" data-ai-run-list>
+          <h3>Conversations</h3>
+          <a class="ai-conversation-new" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}{{ auth_qs }}">+ New conversation</a>
+          <span class="tool-note">Each conversation keeps its own messages, plan, files and DayZ drafts.</span>
+          <div class="ai-conversation-list">
+            {% for run in ai_agent_runs[:30] %}
+            <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
+              <strong>{{ run.title or 'Untitled conversation' }}</strong>
+              <span>{{ run.status|replace('_', ' ')|title }} · {{ run.updated_at[:16]|replace('T', ' ') if run.updated_at else 'New' }}</span>
+            </a>
+            {% else %}
+            <span class="tool-note">No conversations yet. Start your first one here.</span>
+            {% endfor %}
+          </div>
+        </aside>
         <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
           <div class="ai-codex-title">
             <div>
-              <h3>Sandbox Assistant</h3>
-              <p class="tool-note">Ask it to inspect, validate, draft, build, test, or prepare approval-gated work.</p>
+              <h3>{{ ai_agent_active_run.title if ai_agent_active_run else 'New conversation' }}</h3>
+              <p class="tool-note">One project at a time. Ask normally, or open the DayZ helper when you need a file, map or preset.</p>
             </div>
             <span class="pill {{ 'ok' if sandbox_readiness.model_ready else 'warn' }}">{{ 'Assistant Online' if sandbox_readiness.model_ready else 'Model Missing' }}</span>
             <span class="pill {{ 'ok' if sandbox_readiness.runner_ready else 'warn' }}">{{ 'Runner Ready' if sandbox_readiness.runner_ready else 'Runner Setup Required' }}</span>
@@ -6695,8 +6746,11 @@ PAGE_TEMPLATE = """
           <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true">
             <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
             <input class="hidden-field" name="guild_id" value="global">
-            <label class="full">Message<textarea name="prompt" placeholder="Ask the sandbox what to inspect, validate, build, test, explain, or prepare..." required></textarea></label>
-            <div class="ai-codex-options">
+            <input class="hidden-field" name="run_id" data-ai-run-select value="{{ ai_agent_active_run.id if ai_agent_active_run else '' }}">
+            <label class="full">What do you need help with?<textarea name="prompt" placeholder="For example: explain this types.xml error; make an airdrop at these coordinates; or help me understand cfgweather.json..." required></textarea></label>
+            <details class="ai-workspace-advanced">
+              <summary>Project and workspace settings</summary>
+              <div class="ai-codex-options">
               <label>Project
                 <select name="project_type">
                   <option value="auto">Auto detect</option>
@@ -6710,14 +6764,6 @@ PAGE_TEMPLATE = """
               </label>
               <label>Repository<input name="repository" placeholder="owner/repo or local path"></label>
               <label>Workspace path<input name="project_path" placeholder="optional worker folder"></label>
-              <label>Run
-                <select name="run_id" data-ai-run-select>
-                  <option value="">New run / auto</option>
-                  {% for run in ai_agent_runs[:12] %}
-                  <option value="{{ run.id }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}selected{% endif %}>{{ run.title or run.id }}</option>
-                  {% endfor %}
-                </select>
-              </label>
               <label>Mode
                 <select name="mode">
                   <option value="plan">Plan first</option>
@@ -6725,7 +6771,8 @@ PAGE_TEMPLATE = """
                   <option value="deploy">Plan + request deploy</option>
                 </select>
               </label>
-            </div>
+              </div>
+            </details>
             <details class="ai-dayz-workbench">
               <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
               <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you an official vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
@@ -6831,12 +6878,15 @@ PAGE_TEMPLATE = """
                 </div>
               </details>
             </details>
-            <div class="ai-codex-toggle-row">
-              <label><input type="checkbox" name="allow_read" value="1" checked> Read</label>
-              <label><input type="checkbox" name="allow_edit" value="1" checked> Edit</label>
-              <label><input type="checkbox" name="allow_execute" value="1"> Run job</label>
-              <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
-            </div>
+            <details class="ai-workspace-advanced">
+              <summary>Permissions and execution options</summary>
+              <div class="ai-codex-toggle-row">
+                <label><input type="checkbox" name="allow_read" value="1" checked> Read</label>
+                <label><input type="checkbox" name="allow_edit" value="1" checked> Edit</label>
+                <label><input type="checkbox" name="allow_execute" value="1"> Run job</label>
+                <label><input type="checkbox" name="allow_deploy" value="1"> Deploy</label>
+              </div>
+            </details>
             <div class="ai-agent-quick-prompts">
               <button type="button" data-ai-quick-prompt="Carry on this work. Continue the active run and move to the next unfinished step.">Carry On</button>
               <button type="button" data-ai-quick-prompt="List exactly what this sandbox can do, what needs approval, and the safest next action for my request.">Limits</button>
@@ -6844,12 +6894,38 @@ PAGE_TEMPLATE = """
               <button type="button" data-ai-quick-prompt="Prepare a safe implementation plan with backup, diff, test and rollback steps.">Safe Plan</button>
             </div>
             <div class="ai-codex-submit">
-              <span class="tool-note">{% if auth.kind == 'agent_account' %}{{ agent_chat_credit_cost }} credit(s).{% else %}Live writes and risky actions require approval unless the owner bypass is enabled.{% endif %}</span>
+              <span class="tool-note">{% if auth.kind in ['agent_account', 'guild'] %}{{ agent_chat_credit_cost }} credit(s) per completed answer.{% else %}Live writes and risky actions require approval unless the owner bypass is enabled.{% endif %}</span>
               <span><button type="submit">Send</button><span class="result muted" data-ai-chat-result></span></span>
             </div>
           </form>
         </section>
         <aside class="ai-codex-side">
+          {% if auth.kind in ['agent_account', 'guild'] and ai_agent_access.allowed %}
+          <section class="admin-panel ai-credit-panel" id="ai-agent-credits" data-ai-credit-panel>
+            <h3>Agent Credits</h3>
+            <div class="ai-credit-balance">
+              <strong><span data-ai-agent-credits>{{ ai_agent_credits }}</span> credits</strong>
+              <span>{{ agent_chat_credit_cost }} credit{{ '' if agent_chat_credit_cost == 1 else 's' }} per completed answer. A failed answer is not charged.</span>
+            </div>
+            <div class="ai-credit-pack-list">
+              {% for pack in ai_agent_credit_packs %}
+              <article class="ai-credit-pack">
+                <strong>{{ pack.name }} · {{ pack.credits }} credits</strong>
+                <span>{{ pack.description }}{% if pack.price_text %} · {{ pack.price_text }}{% endif %}</span>
+                {% if pack.enabled and pack.payment_url and pack.stripe_payment_link_id %}<a class="button" href="/ai-agent/credits/checkout/{{ pack.id|urlencode }}">Top up securely</a>{% else %}<span class="tool-note">Top-up pack is being configured.</span>{% endif %}
+              </article>
+              {% endfor %}
+            </div>
+            {% if ai_agent_credit_ledger %}
+            <details class="ai-workspace-advanced">
+              <summary>Credit history</summary>
+              <div class="ai-credit-ledger">
+                {% for row in ai_agent_credit_ledger[:8] %}<span>{{ '+' if row.amount > 0 else '' }}{{ row.amount }} · {{ row.reason }} · balance {{ row.balance_after }}</span>{% endfor %}
+              </div>
+            </details>
+            {% endif %}
+          </section>
+          {% endif %}
           <section class="admin-panel ai-agent-live-work">
             <h3>Live Work</h3>
             <div class="ai-agent-work-stream" data-ai-work-stream>
@@ -7004,6 +7080,8 @@ PAGE_TEMPLATE = """
           </section>
         </aside>
       </div>
+      <details class="ai-workspace-technical">
+        <summary>Advanced workspace controls, approvals and activity</summary>
       <div class="ai-agent-grid">
         <section class="admin-panel" id="ai-agent-memory">
           <h3>Sandbox Memory</h3>
@@ -7155,8 +7233,8 @@ PAGE_TEMPLATE = """
           {% endif %}
         </section>
         <section class="admin-panel">
-          <h3>Access Management</h3>
-          <p class="tool-note">Granting access here records the permission, but the Primary Owner account is always retained and cannot be suspended or removed.</p>
+          <h3>AI Access Policy</h3>
+          <p class="tool-note">The AI is available only to the Primary Owner and active Ultimate dashboard subscriptions. Basic and Pro stay locked even if an older manual access record exists. Use Server Access to set a customer server to Ultimate; the records below are retained only for audit history.</p>
           {% if auth.kind == "owner" %}
           <form class="admin-form" method="post" action="/api/owner/ai-agent-access" data-route="/api/owner/ai-agent-access">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
@@ -7184,7 +7262,7 @@ PAGE_TEMPLATE = """
         {% if auth.kind == "owner" %}
         <section class="admin-panel">
           <h3>Standalone Accounts & Credits</h3>
-          <p class="tool-note">Website-only AI sandbox accounts. These do not require the bot to be installed in a Discord server.</p>
+          <p class="tool-note">Website-only AI sandbox accounts for Ultimate customers. Use <code>ultimate</code> as the subscription tier and an active, trial, subscription or lifetime status; lower tiers stay locked.</p>
           <form class="admin-form" method="post" action="/api/owner/agent-account" data-route="/api/owner/agent-account">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
             <input class="hidden-field" name="guild_id" value="global">
@@ -7192,7 +7270,7 @@ PAGE_TEMPLATE = """
             <label>Email<input name="email" type="email" placeholder="customer@email.com" required></label>
             <label>Temp password<input name="temporary_password" type="password" placeholder="required only for new accounts"></label>
             <label>Status<select name="status"><option value="">Keep current</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label>
-            <label>Subscription tier<input name="subscription_tier" placeholder="free, pro, bot-plus-agent"></label>
+            <label>Subscription tier<input name="subscription_tier" placeholder="ultimate"></label>
             <label>Subscription status<input name="subscription_status" placeholder="none, active, trial, lifetime"></label>
             <label>Credit adjustment<input name="credit_adjustment" type="number" value="0"></label>
             <label>Reason<input name="reason" placeholder="manual grant, refund, test credits"></label>
@@ -7393,6 +7471,7 @@ PAGE_TEMPLATE = """
           {% endfor %}
         </div>
       </section>
+      </details>
     </section>
     {% endif %}
     {% if mode in ["admin", "owner"] and (active_section == "automations" or (active_section == "access" and setup_tool in ["discord", "onboarding"])) %}
@@ -11864,6 +11943,34 @@ PAGE_TEMPLATE = """
         </article>
         {% endfor %}
       </div>
+      <section class="admin-panel" id="agent-credit-packs">
+        <div class="section-head">
+          <div>
+            <h3>Ultimate AI Credit Top-ups</h3>
+            <p class="tool-note">Customers can only spend credits after they have Ultimate AI access. Create three Stripe Payment Links, then enter each public link and its <code>plink_...</code> Payment Link ID here. The webhook credits the account only after Stripe reports a paid checkout.</p>
+          </div>
+        </div>
+        <div class="billing-plan-grid">
+          {% for pack in ai_agent_credit_packs %}
+          <article class="billing-plan-card">
+            <div class="row-between"><h4>{{ pack.name }}</h4><span class="pill {{ 'ok' if pack.enabled else 'bad' }}">{{ 'Live' if pack.enabled else 'Hidden' }}</span></div>
+            <form class="admin-form plan-edit-form" method="post" action="/api/owner/agent-credit-pack" data-route="/api/owner/agent-credit-pack">
+              <input class="hidden-field" name="return_to" value="/owner?section=billing#agent-credit-packs">
+              <input class="hidden-field" name="pack_id" value="{{ pack.id }}">
+              <label>Name<input name="name" value="{{ pack.name }}"></label>
+              <label>Credits<input name="credits" type="number" min="1" max="100000" value="{{ pack.credits }}"></label>
+              <label>Price label<input name="price_text" value="{{ pack.price_text }}" placeholder="€4.99"></label>
+              <label>Enabled<select name="enabled"><option value="true" {% if pack.enabled %}selected{% endif %}>On</option><option value="false" {% if not pack.enabled %}selected{% endif %}>Off</option></select></label>
+              <label class="full">Stripe Payment Link URL<input name="payment_url" value="{{ pack.payment_url }}" placeholder="https://buy.stripe.com/..."></label>
+              <label class="full">Stripe Payment Link ID<input name="stripe_payment_link_id" value="{{ pack.stripe_payment_link_id }}" placeholder="plink_..."><small class="field-help">This is not a secret key. The link must allow <code>client_reference_id</code> in its URL.</small></label>
+              <label class="full">Description<textarea name="description">{{ pack.description }}</textarea></label>
+              <div class="full"><button type="submit">Save credit pack</button> <span class="result muted"></span></div>
+            </form>
+          </article>
+          {% endfor %}
+        </div>
+        <p class="tool-note">Stripe webhook endpoint: <code>/api/stripe/agent-credits-webhook</code>. Set <code>WANDERING_STRIPE_AGENT_CREDITS_WEBHOOK_SECRET</code> in Railway from Stripe’s signing secret. Subscribe to <code>checkout.session.completed</code> and <code>checkout.session.async_payment_succeeded</code>.</p>
+      </section>
     </section>
     {% endif %}
 
@@ -15726,24 +15833,52 @@ PAGE_TEMPLATE = """
       }
     }
     function aiAgentUpdateRunSelect(state, form) {
-      const runSelect = form?.querySelector("[data-ai-run-select]");
-      if (!runSelect || !Array.isArray(state?.runs)) return;
-      const selected = state?.active_run?.id || runSelect.value || "";
-      state.runs.slice(0, 30).forEach((run) => {
-        if (!run?.id || Array.from(runSelect.options).some((option) => option.value === String(run.id))) return;
-        const option = document.createElement("option");
-        option.value = String(run.id);
-        option.textContent = String(run.title || run.id);
-        runSelect.append(option);
-      });
-      if (selected && Array.from(runSelect.options).some((option) => option.value === String(selected))) {
-        runSelect.value = String(selected);
+      const runInput = form?.querySelector("[data-ai-run-select]");
+      const selected = state?.selected_run?.id || state?.active_run?.id || runInput?.value || "";
+      if (runInput) runInput.value = String(selected || "");
+    }
+    function aiAgentConversationUrl(runId) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("section", "ai-agent");
+      if (runId) url.searchParams.set("agent_run", String(runId));
+      else url.searchParams.delete("agent_run");
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+    function aiAgentSetConversationUrl(runId) {
+      window.history.replaceState({}, "", aiAgentConversationUrl(runId));
+    }
+    function aiAgentUpdateRunList(state) {
+      const list = document.querySelector("[data-ai-run-list] .ai-conversation-list");
+      if (!list || !Array.isArray(state?.runs)) return;
+      const selected = String(state?.selected_run?.id || state?.active_run?.id || "");
+      list.replaceChildren();
+      if (!state.runs.length) {
+        const empty = document.createElement("span");
+        empty.className = "tool-note";
+        empty.textContent = "No conversations yet. Start your first one here.";
+        list.append(empty);
+        return;
       }
+      state.runs.slice(0, 30).forEach((run) => {
+        if (!run?.id) return;
+        const link = document.createElement("a");
+        link.className = `ai-conversation-link${String(run.id) === selected ? " active" : ""}`;
+        link.href = aiAgentConversationUrl(run.id);
+        if (String(run.id) === selected) link.setAttribute("aria-current", "page");
+        const title = document.createElement("strong");
+        title.textContent = String(run.title || "Untitled conversation");
+        const meta = document.createElement("span");
+        const status = String(run.status || "new").replace(/_/g, " ");
+        const updated = String(run.updated_at || "New").replace("T", " ").slice(0, 16);
+        meta.textContent = `${status.charAt(0).toUpperCase()}${status.slice(1)} · ${updated}`;
+        link.append(title, meta);
+        list.append(link);
+      });
     }
     function aiAgentUpdateCurrentRun(state, form) {
       const target = document.querySelector("[data-ai-current-run]");
       if (!target) return;
-      const run = state?.active_run;
+      const run = state?.selected_run || state?.active_run;
       target.replaceChildren();
       if (!run) {
         target.append(aiAgentStepNode("No active run", "Send a message to start a durable run."));
@@ -15828,7 +15963,7 @@ PAGE_TEMPLATE = """
     function aiAgentUpdateContextPanel(state) {
       const target = document.querySelector("[data-ai-context]");
       if (!target) return;
-      const run = state?.active_run || {};
+      const run = state?.selected_run || state?.active_run || {};
       target.replaceChildren(
         aiAgentContextRow("Repo", run.repository || "Not set"),
         aiAgentContextRow("Path", run.project_path || "Sandbox root"),
@@ -15861,11 +15996,11 @@ PAGE_TEMPLATE = """
       return secureDashboardUrl(`${path}?${params.toString()}`);
     }
     function aiAgentFileContext(form, state) {
-      const run = state?.active_run || {};
-      const runSelect = form?.querySelector("[data-ai-run-select]");
+      const run = state?.selected_run || state?.active_run || {};
+      const runInput = form?.querySelector("[data-ai-run-select]");
       const projectInput = form?.elements?.project_path;
       return {
-        runId: String(run.id || runSelect?.value || ""),
+        runId: String(run.id || runInput?.value || ""),
         projectPath: String(projectInput?.value || run.project_path || ""),
       };
     }
@@ -16237,6 +16372,7 @@ PAGE_TEMPLATE = """
       if (!state || state.ok === false) return;
       aiAgentUpdateStats(state);
       aiAgentUpdateRunSelect(state, form);
+      aiAgentUpdateRunList(state);
       aiAgentUpdateCurrentRun(state, form);
       aiAgentUpdateLatestPlan(state, form, thread);
       aiAgentUpdateWorkStream(state);
@@ -16250,7 +16386,8 @@ PAGE_TEMPLATE = """
       aiAgentAppendMessages(state, thread);
       const result = form?.querySelector("[data-ai-chat-result], .result");
       if (result && !result.classList.contains("error")) {
-        const active = state.active_run ? `${state.active_run.status || "live"} - ${state.active_run.next_action || "watching"}` : "Live sync ready.";
+        const activeRun = state.selected_run || state.active_run;
+        const active = activeRun ? `${activeRun.status || "live"} - ${activeRun.next_action || "watching"}` : "Live sync ready.";
         result.classList.remove("success");
         result.textContent = active;
       }
@@ -16263,8 +16400,16 @@ PAGE_TEMPLATE = """
       });
     }
     function aiAgentJsonRoute(path) {
+      const target = new URL(path, window.location.origin);
       const token = new URLSearchParams(window.location.search).get("token");
-      return secureDashboardUrl(token ? `${path}?token=${encodeURIComponent(token)}` : path);
+      if (token) target.searchParams.set("token", token);
+      return secureDashboardUrl(`${target.pathname}${target.search}${target.hash}`);
+    }
+    function aiAgentStateRoute(form, path = "/api/ai-agent/state") {
+      const target = new URL(path, window.location.origin);
+      const runId = String(form?.querySelector("[data-ai-run-select]")?.value || "").trim();
+      if (runId) target.searchParams.set("run_id", runId);
+      return aiAgentJsonRoute(`${target.pathname}${target.search}`);
     }
     let aiAgentPollTimer = null;
     let aiAgentPollBusy = false;
@@ -16273,7 +16418,7 @@ PAGE_TEMPLATE = """
       if (aiAgentPollBusy) return;
       aiAgentPollBusy = true;
       try {
-        const response = await fetch(aiAgentJsonRoute("/api/ai-agent/state"), {
+        const response = await fetch(aiAgentStateRoute(form), {
           method: "GET",
           headers: {"Accept": "application/json", "X-Requested-With": "fetch"},
           credentials: "same-origin",
@@ -16306,7 +16451,7 @@ PAGE_TEMPLATE = """
     function aiAgentStartEventStream(form, thread) {
       if (!window.EventSource || !form || !thread || aiAgentEventSource) return false;
       try {
-        const source = new EventSource(aiAgentJsonRoute("/api/ai-agent/events"), {withCredentials: true});
+        const source = new EventSource(aiAgentStateRoute(form, "/api/ai-agent/events"), {withCredentials: true});
         aiAgentEventSource = source;
         aiAgentSetLiveStatus("Connecting", "warn");
         source.addEventListener("open", () => {
@@ -16461,14 +16606,14 @@ PAGE_TEMPLATE = """
             userMessage.dataset.messageId = String(body.user_message.id);
           }
           if (body.run && body.run.id) {
-            const runSelect = form.querySelector("[data-ai-run-select]");
-            if (runSelect && !Array.from(runSelect.options).some((option) => option.value === String(body.run.id))) {
-              const option = document.createElement("option");
-              option.value = String(body.run.id);
-              option.textContent = String(body.run.title || body.run.id);
-              runSelect.insertBefore(option, runSelect.options[1] || null);
+            const runInput = form.querySelector("[data-ai-run-select]");
+            if (runInput) runInput.value = String(body.run.id);
+            aiAgentSetConversationUrl(body.run.id);
+            if (aiAgentEventSource) {
+              aiAgentEventSource.close();
+              aiAgentEventSource = null;
             }
-            if (runSelect) runSelect.value = String(body.run.id);
+            aiAgentStartEventStream(form, thread);
           }
           if (body.credits_remaining !== undefined && body.credits_remaining !== null) {
             document.querySelectorAll("[data-ai-agent-credits]").forEach((node) => {
@@ -19924,6 +20069,9 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Stripe buy button ID must start with buy_btn_.")
     if plan_id != "free_bot" and raw_stripe_key and not stripe_publishable_key:
         raise ValueError("Stripe publishable key must start with pk_test_ or pk_live_. Do not paste secret sk_ keys.")
+    features = {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
+    # AI access is a fixed entitlement: Primary Owner plus the Ultimate tier only.
+    features["ai_agent"] = plan_id == "dashboard_ultimate"
     record = {
         "id": plan_id,
         "name": str(plan.get("name") or plan_id).strip()[:80],
@@ -19933,7 +20081,7 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "stripe_buy_button_id": stripe_buy_button_id,
         "stripe_publishable_key": stripe_publishable_key,
         "enabled": safe_bool(plan.get("enabled"), True),
-        "features": {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS},
+        "features": features,
         "updated_at": datetime.now(UTC).isoformat(),
     }
     for existing_id in list(plans):
@@ -20671,15 +20819,39 @@ def ai_agent_access_for_auth(auth: dict[str, Any] | None, state: dict[str, Any] 
     if isinstance(auth, dict) and auth.get("kind") == "agent_account":
         permissions = auth.get("permissions") if isinstance(auth.get("permissions"), dict) else default_agent_account_permissions()
         normalized_permissions = {key: bool(permissions.get(key, False)) for key in AI_AGENT_PERMISSION_KEYS}
-        allowed = bool(normalized_permissions.get("read"))
+        subscription_tier = canonical_billing_plan_id(auth.get("subscription_tier"))
+        subscription_status = str(auth.get("subscription_status") or "").strip().lower()
+        has_ultimate_ai = subscription_tier == "dashboard_ultimate" and subscription_status in {"trial", "active", "subscription", "lifetime"}
+        allowed = bool(normalized_permissions.get("read")) and has_ultimate_ai
         return {
             "allowed": allowed,
-            "role": str(auth.get("subscription_tier") or "agent"),
-            "status": str(auth.get("subscription_status") or "active"),
-            "permissions": normalized_permissions,
+            "role": "ultimate" if has_ultimate_ai else "locked",
+            "status": subscription_status if has_ultimate_ai else "ultimate_required",
+            "permissions": {key: bool(value and has_ultimate_ai) for key, value in normalized_permissions.items()},
             "subject_key": ai_agent_subject_for_auth(auth),
             "label": str(auth.get("label") or auth.get("email") or "Agent account"),
             "credits": safe_int(auth.get("credits"), 0),
+        }
+    if isinstance(auth, dict) and auth.get("kind") == "guild":
+        guild_id = normalize_guild_id(auth.get("guild_id"))
+        guild_configs = load_store("guild_configs", {})
+        config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else {}
+        dashboard = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+        tier = dashboard_access_tier(dashboard)
+        plan_status = dashboard_access_plan_status(dashboard)
+        has_ultimate_ai = (
+            tier == "dashboard_ultimate"
+            and plan_status in {"trial", "subscription", "lifetime"}
+        )
+        permissions = {key: has_ultimate_ai for key in AI_AGENT_PERMISSION_KEYS}
+        return {
+            "allowed": has_ultimate_ai,
+            "role": "ultimate" if has_ultimate_ai else "locked",
+            "status": plan_status if has_ultimate_ai else "ultimate_required",
+            "permissions": permissions,
+            "subject_key": ai_agent_subject_for_auth(auth),
+            "label": str(auth.get("label") or f"Guild {guild_id}"),
+            "tier": tier,
         }
     subject_key = ai_agent_subject_for_auth(auth)
     record = state.get("members", {}).get(subject_key)
@@ -21298,6 +21470,67 @@ def ai_agent_visible_state(state: dict[str, Any], auth: dict[str, Any], access: 
     visible_state["approvals"] = approvals
     visible_state["chat_messages"] = messages
     return visible_state
+
+
+def ai_agent_selected_run(visible_state: dict[str, Any], requested_run_id: Any = "") -> dict[str, Any] | None:
+    runs = visible_state.get("runs", []) if isinstance(visible_state.get("runs"), list) else []
+    requested = str(requested_run_id or "").strip()
+    if requested:
+        selected = ai_agent_find_by_id(runs, requested)
+        if selected:
+            return selected
+    return runs[0] if runs else None
+
+
+def ai_agent_state_for_run(visible_state: dict[str, Any], run_id: Any = "") -> dict[str, Any]:
+    """Return one conversation workspace without losing the caller's run list."""
+    scoped = dict(visible_state)
+    selected = ai_agent_selected_run(visible_state, run_id)
+    if not selected:
+        scoped["tasks"] = []
+        scoped["sandbox_jobs"] = []
+        scoped["approvals"] = []
+        scoped["chat_messages"] = []
+        scoped["selected_run"] = None
+        return scoped
+    selected_id = str(selected.get("id") or "")
+    task_ids = {str(item) for item in selected.get("task_ids", []) if item}
+    job_ids = {str(item) for item in selected.get("job_ids", []) if item}
+    approval_ids = {str(item) for item in selected.get("approval_ids", []) if item}
+    tasks = [
+        item for item in visible_state.get("tasks", [])
+        if isinstance(item, dict) and (str(item.get("run_id") or "") == selected_id or str(item.get("id") or "") in task_ids)
+    ]
+    task_ids.update(str(item.get("id") or "") for item in tasks if item.get("id"))
+    jobs = [
+        item for item in visible_state.get("sandbox_jobs", [])
+        if isinstance(item, dict)
+        and (
+            str(item.get("run_id") or "") == selected_id
+            or str(item.get("task_id") or "") in task_ids
+            or str(item.get("id") or "") in job_ids
+        )
+    ]
+    job_ids.update(str(item.get("id") or "") for item in jobs if item.get("id"))
+    approvals = [
+        item for item in visible_state.get("approvals", [])
+        if isinstance(item, dict)
+        and (
+            str(item.get("id") or "") in approval_ids
+            or str((item.get("payload") or {}).get("run_id") or "") == selected_id
+            or str((item.get("payload") or {}).get("task_id") or "") in task_ids
+            or str((item.get("payload") or {}).get("job_id") or "") in job_ids
+        )
+    ]
+    scoped["tasks"] = tasks
+    scoped["sandbox_jobs"] = jobs
+    scoped["approvals"] = approvals
+    scoped["chat_messages"] = [
+        item for item in visible_state.get("chat_messages", [])
+        if isinstance(item, dict) and str(item.get("run_id") or "") == selected_id
+    ]
+    scoped["selected_run"] = selected
+    return scoped
 
 
 def ai_agent_create_approval(
@@ -23175,18 +23408,126 @@ def normalize_agent_email(value: Any) -> str:
     return str(value or "").strip().lower()
 
 
+AGENT_CREDIT_PACK_DEFAULTS = (
+    {
+        "id": "starter",
+        "name": "Starter credits",
+        "credits": 25,
+        "price_text": "Set price",
+        "description": "A small top-up for occasional DayZ file help and questions.",
+    },
+    {
+        "id": "builder",
+        "name": "Builder credits",
+        "credits": 100,
+        "price_text": "Set price",
+        "description": "For event packages, config changes and longer troubleshooting sessions.",
+    },
+    {
+        "id": "server_owner",
+        "name": "Server owner credits",
+        "credits": 300,
+        "price_text": "Set price",
+        "description": "A larger top-up for regular server development work.",
+    },
+)
+AGENT_CREDIT_PACK_IDS = tuple(str(item["id"]) for item in AGENT_CREDIT_PACK_DEFAULTS)
+STRIPE_PAYMENT_LINK_ID_RE = re.compile(r"^plink_[A-Za-z0-9_]+$")
+
+
+def agent_credit_pack_defaults_by_id() -> dict[str, dict[str, Any]]:
+    return {str(item["id"]): dict(item) for item in AGENT_CREDIT_PACK_DEFAULTS}
+
+
+def agent_credit_pack_id(value: Any) -> str:
+    text = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower()).strip("_")
+    return text if text in AGENT_CREDIT_PACK_IDS else ""
+
+
+def agent_credit_safe_checkout_url(value: Any) -> str:
+    text = str(value or "").strip()[:700]
+    if not text:
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(text)
+    except ValueError:
+        return ""
+    if parsed.scheme != "https" or not parsed.netloc:
+        return ""
+    return text
+
+
+def agent_credit_normalize_pack(value: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+    source = value if isinstance(value, dict) else {}
+    pack_id = str(fallback.get("id") or "")
+    payment_link_id = str(source.get("stripe_payment_link_id") or "").strip()
+    if payment_link_id and not STRIPE_PAYMENT_LINK_ID_RE.fullmatch(payment_link_id):
+        payment_link_id = ""
+    return {
+        "id": pack_id,
+        "name": str(source.get("name") or fallback.get("name") or pack_id).strip()[:80],
+        "credits": max(1, min(100000, safe_int(source.get("credits"), safe_int(fallback.get("credits"), 1)))),
+        "price_text": str(source.get("price_text") or fallback.get("price_text") or "Set price").strip()[:80],
+        "description": str(source.get("description") or fallback.get("description") or "").strip()[:420],
+        "payment_url": agent_credit_safe_checkout_url(source.get("payment_url")),
+        "stripe_payment_link_id": payment_link_id,
+        "enabled": safe_bool(source.get("enabled"), False),
+        "updated_at": str(source.get("updated_at") or ""),
+    }
+
+
+def agent_credit_packs() -> list[dict[str, Any]]:
+    stored = load_store("agent_credit_packs", {})
+    saved = stored.get("packs", {}) if isinstance(stored, dict) else {}
+    saved = saved if isinstance(saved, dict) else {}
+    result = []
+    for pack_id, fallback in agent_credit_pack_defaults_by_id().items():
+        result.append(agent_credit_normalize_pack(saved.get(pack_id), fallback))
+    return result
+
+
+def agent_credit_pack_by_id(value: Any) -> dict[str, Any] | None:
+    wanted = agent_credit_pack_id(value)
+    if not wanted:
+        return None
+    return next((pack for pack in agent_credit_packs() if pack["id"] == wanted), None)
+
+
+def save_agent_credit_pack(payload: dict[str, Any]) -> dict[str, Any]:
+    pack_id = agent_credit_pack_id(payload.get("pack_id") or payload.get("id"))
+    defaults = agent_credit_pack_defaults_by_id()
+    if not pack_id or pack_id not in defaults:
+        raise ValueError("Choose a recognised agent credit pack.")
+    record = agent_credit_normalize_pack(payload, defaults[pack_id])
+    record["updated_at"] = datetime.now(UTC).isoformat()
+    store = load_store("agent_credit_packs", {})
+    if not isinstance(store, dict):
+        store = {}
+    packs = store.setdefault("packs", {})
+    if not isinstance(packs, dict):
+        packs = {}
+        store["packs"] = packs
+    packs[pack_id] = record
+    save_store("agent_credit_packs", store)
+    return record
+
+
 def load_agent_accounts() -> dict[str, Any]:
     store = load_store("agent_accounts", {})
     if not isinstance(store, dict):
         store = {}
     accounts = store.get("accounts")
     ledger = store.get("ledger")
+    credit_checkouts = store.get("credit_checkouts")
     if not isinstance(accounts, dict):
         accounts = {}
     if not isinstance(ledger, list):
         ledger = []
+    if not isinstance(credit_checkouts, list):
+        credit_checkouts = []
     store["accounts"] = accounts
     store["ledger"] = ledger
+    store["credit_checkouts"] = credit_checkouts
     return store
 
 
@@ -23255,12 +23596,102 @@ def current_ai_agent_auth() -> dict[str, Any] | None:
     return current_auth() or current_agent_account_auth()
 
 
+def agent_credit_account_id_for_auth(auth: dict[str, Any] | None) -> str:
+    if not isinstance(auth, dict):
+        return ""
+    if auth.get("kind") == "agent_account":
+        return str(auth.get("account_id") or "").strip()
+    if auth.get("kind") == "guild":
+        guild_id = normalize_guild_id(auth.get("guild_id"))
+        if guild_id:
+            return "dashboard-" + hashlib.sha256(f"agent-credits:{guild_id}".encode("utf-8")).hexdigest()[:24]
+    return ""
+
+
+def agent_credit_account_for_auth(auth: dict[str, Any] | None, *, create: bool = False) -> dict[str, Any] | None:
+    account_id = agent_credit_account_id_for_auth(auth)
+    if not account_id:
+        return None
+    store = load_agent_accounts()
+    accounts = store.setdefault("accounts", {})
+    account = accounts.get(account_id)
+    if isinstance(account, dict):
+        return account
+    if not create or not isinstance(auth, dict) or auth.get("kind") != "guild":
+        return None
+    now = datetime.now(UTC).isoformat()
+    account = {
+        "id": account_id,
+        "name": str(auth.get("label") or f"Dashboard {auth.get('guild_id') or ''}").strip()[:80],
+        "email": "",
+        "account_kind": "dashboard_ultimate",
+        "guild_id": normalize_guild_id(auth.get("guild_id")),
+        "status": "active",
+        "role": "ultimate",
+        "subscription_tier": "dashboard_ultimate",
+        "subscription_status": "active",
+        "credits": AGENT_ULTIMATE_INCLUDED_CREDITS,
+        "permissions": {"read": True, "edit": True, "execute": False, "deploy": False},
+        "created_at": now,
+        "updated_at": now,
+    }
+    accounts[account_id] = account
+    if AGENT_ULTIMATE_INCLUDED_CREDITS:
+        agent_append_credit_ledger(
+            store,
+            account_id=account_id,
+            amount=AGENT_ULTIMATE_INCLUDED_CREDITS,
+            balance_after=AGENT_ULTIMATE_INCLUDED_CREDITS,
+            reason="Ultimate included AI credits",
+            actor="dashboard entitlement",
+            payload={"guild_id": account["guild_id"]},
+        )
+    save_agent_accounts(store)
+    return account
+
+
+def agent_credit_balance_for_auth(auth: dict[str, Any] | None) -> int:
+    account = agent_credit_account_for_auth(auth, create=False)
+    if isinstance(account, dict):
+        return safe_int(account.get("credits"), 0)
+    return 0
+
+
 def agent_account_credit_balance(account_id: str) -> int:
     store = load_agent_accounts()
     account = store.get("accounts", {}).get(str(account_id))
     if not isinstance(account, dict):
         return 0
     return safe_int(account.get("credits"), 0)
+
+
+def agent_append_credit_ledger(
+    store: dict[str, Any],
+    *,
+    account_id: str,
+    amount: int,
+    balance_after: int,
+    reason: str,
+    actor: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    ledger = store.setdefault("ledger", [])
+    if not isinstance(ledger, list):
+        ledger = []
+        store["ledger"] = ledger
+    entry = {
+        "id": f"credit-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+        "account_id": str(account_id),
+        "amount": int(amount),
+        "balance_after": int(balance_after),
+        "reason": str(reason),
+        "actor": str(actor),
+        "payload": compact_audit_value(payload or {}),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    ledger.insert(0, entry)
+    del ledger[300:]
+    return entry
 
 
 def agent_adjust_credits(account_id: str, amount: int, reason: str, actor: str, payload: dict[str, Any] | None = None) -> tuple[bool, str, int]:
@@ -23275,32 +23706,161 @@ def agent_adjust_credits(account_id: str, amount: int, reason: str, actor: str, 
         return False, "not enough credits", current
     account["credits"] = current + amount
     account["updated_at"] = datetime.now(UTC).isoformat()
-    ledger = store.setdefault("ledger", [])
-    if not isinstance(ledger, list):
-        ledger = []
-        store["ledger"] = ledger
-    ledger.insert(
-        0,
-        {
-            "id": f"credit-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
-            "account_id": str(account_id),
-            "amount": amount,
-            "balance_after": account["credits"],
-            "reason": str(reason),
-            "actor": str(actor),
-            "payload": compact_audit_value(payload or {}),
-            "created_at": datetime.now(UTC).isoformat(),
-        },
+    agent_append_credit_ledger(
+        store,
+        account_id=str(account_id),
+        amount=amount,
+        balance_after=safe_int(account["credits"], 0),
+        reason=reason,
+        actor=actor,
+        payload=payload,
     )
-    del ledger[300:]
     save_agent_accounts(store)
     return True, "", safe_int(account.get("credits"), 0)
 
 
+def agent_credit_ledger_for_account(account_id: Any, limit: int = 12) -> list[dict[str, Any]]:
+    wanted = str(account_id or "")
+    store = load_agent_accounts()
+    rows = []
+    for entry in store.get("ledger", []):
+        if not isinstance(entry, dict) or str(entry.get("account_id") or "") != wanted:
+            continue
+        rows.append(
+            {
+                "id": str(entry.get("id") or ""),
+                "amount": safe_int(entry.get("amount"), 0),
+                "balance_after": safe_int(entry.get("balance_after"), 0),
+                "reason": str(entry.get("reason") or "Credit activity")[:180],
+                "created_at": str(entry.get("created_at") or ""),
+            }
+        )
+        if len(rows) >= max(1, min(50, int(limit))):
+            break
+    return rows
+
+
+def agent_credit_checkout_url(payment_url: str, reference: str, email: str) -> str:
+    parsed = urllib.parse.urlsplit(payment_url)
+    query = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in {"client_reference_id", "prefilled_email", "locked_prefilled_email"}
+    ]
+    query.append(("client_reference_id", reference))
+    if email:
+        query.append(("prefilled_email", email))
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), parsed.fragment))
+
+
+def agent_create_credit_checkout(account_id: str, pack: dict[str, Any], email: str) -> tuple[dict[str, Any] | None, str]:
+    if not safe_bool(pack.get("enabled"), False):
+        return None, "That credit pack is not available yet."
+    payment_url = agent_credit_safe_checkout_url(pack.get("payment_url"))
+    payment_link_id = str(pack.get("stripe_payment_link_id") or "")
+    if not payment_url or not payment_link_id:
+        return None, "Credit checkout is still being configured for that pack."
+    store = load_agent_accounts()
+    account = store.get("accounts", {}).get(str(account_id))
+    if not isinstance(account, dict):
+        return None, "Agent account not found."
+    now = datetime.now(UTC).isoformat()
+    reference = f"credit-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(8)}"
+    checkout = {
+        "id": reference,
+        "account_id": str(account_id),
+        "pack_id": str(pack.get("id") or ""),
+        "credits": safe_int(pack.get("credits"), 0),
+        "payment_link_id": payment_link_id,
+        "status": "opened",
+        "stripe_session_id": "",
+        "stripe_event_id": "",
+        "created_at": now,
+        "fulfilled_at": "",
+    }
+    checkouts = store.setdefault("credit_checkouts", [])
+    if not isinstance(checkouts, list):
+        checkouts = []
+        store["credit_checkouts"] = checkouts
+    checkouts.insert(0, checkout)
+    del checkouts[500:]
+    save_agent_accounts(store)
+    checkout["checkout_url"] = agent_credit_checkout_url(payment_url, reference, normalize_agent_email(email))
+    return checkout, ""
+
+
+def stripe_webhook_signature_is_valid(raw_payload: bytes, signature_header: str, endpoint_secret: str) -> bool:
+    if not raw_payload or not signature_header or not endpoint_secret:
+        return False
+    components: dict[str, list[str]] = {}
+    for part in str(signature_header).split(","):
+        key, separator, value = part.strip().partition("=")
+        if separator and key and value:
+            components.setdefault(key, []).append(value)
+    try:
+        timestamp = int((components.get("t") or [""])[0])
+    except (TypeError, ValueError):
+        return False
+    if abs(time.time() - timestamp) > STRIPE_WEBHOOK_TOLERANCE_SECONDS:
+        return False
+    signed = str(timestamp).encode("utf-8") + b"." + raw_payload
+    expected = hmac.new(endpoint_secret.encode("utf-8"), signed, hashlib.sha256).hexdigest()
+    return any(secrets.compare_digest(expected, candidate) for candidate in components.get("v1", []))
+
+
+def agent_fulfil_credit_checkout(reference: Any, session_id: Any, payment_link_id: Any, event_id: Any) -> tuple[bool, str, int]:
+    wanted = str(reference or "").strip()
+    stripe_session_id = str(session_id or "").strip()
+    store = load_agent_accounts()
+    checkouts = store.get("credit_checkouts", [])
+    checkout = next((item for item in checkouts if isinstance(item, dict) and str(item.get("id") or "") == wanted), None)
+    if not checkout:
+        return False, "Credit checkout reference was not found.", 0
+    if str(checkout.get("status") or "") == "fulfilled":
+        return True, "Credit checkout was already fulfilled.", safe_int(checkout.get("balance_after"), 0)
+    expected_link_id = str(checkout.get("payment_link_id") or "")
+    if not expected_link_id or not secrets.compare_digest(expected_link_id, str(payment_link_id or "")):
+        return False, "Stripe payment link did not match the requested credit pack.", 0
+    account_id = str(checkout.get("account_id") or "")
+    account = store.get("accounts", {}).get(account_id)
+    if not isinstance(account, dict):
+        return False, "Agent account for this checkout was not found.", 0
+    for existing in checkouts:
+        if isinstance(existing, dict) and stripe_session_id and str(existing.get("stripe_session_id") or "") == stripe_session_id and str(existing.get("id") or "") != wanted:
+            return False, "Stripe session has already been used for another credit checkout.", 0
+    credits = max(1, safe_int(checkout.get("credits"), 0))
+    balance_after = safe_int(account.get("credits"), 0) + credits
+    account["credits"] = balance_after
+    account["updated_at"] = datetime.now(UTC).isoformat()
+    checkout.update(
+        {
+            "status": "fulfilled",
+            "stripe_session_id": stripe_session_id,
+            "stripe_event_id": str(event_id or ""),
+            "fulfilled_at": datetime.now(UTC).isoformat(),
+            "balance_after": balance_after,
+        }
+    )
+    agent_append_credit_ledger(
+        store,
+        account_id=account_id,
+        amount=credits,
+        balance_after=balance_after,
+        reason=f"Stripe credit pack: {checkout.get('pack_id')}",
+        actor="stripe webhook",
+        payload={"checkout_id": wanted, "stripe_session_id": stripe_session_id, "stripe_event_id": str(event_id or "")},
+    )
+    save_agent_accounts(store)
+    return True, "Credits added.", balance_after
+
+
 def agent_charge_for_prompt(auth: dict[str, Any], prompt: str) -> tuple[bool, str, int]:
-    if not isinstance(auth, dict) or auth.get("kind") != "agent_account" or AGENT_CHAT_CREDIT_COST <= 0:
+    if not isinstance(auth, dict) or auth.get("kind") not in {"agent_account", "guild"} or AGENT_CHAT_CREDIT_COST <= 0:
         return True, "", safe_int(auth.get("credits") if isinstance(auth, dict) else 0, 0)
-    account_id = str(auth.get("account_id") or "")
+    account = agent_credit_account_for_auth(auth, create=auth.get("kind") == "guild")
+    account_id = str((account or {}).get("id") or agent_credit_account_id_for_auth(auth))
+    if not account_id:
+        return False, "Could not find an AI credit account.", 0
     balance = agent_account_credit_balance(account_id)
     if balance < AGENT_CHAT_CREDIT_COST:
         return False, f"Not enough credits. This prompt costs {AGENT_CHAT_CREDIT_COST} credit(s).", balance
@@ -30882,15 +31442,18 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_access = ai_agent_access_for_auth(auth, {})
     ai_agent_runs: list[dict[str, Any]] = []
     ai_agent_active_run: dict[str, Any] | None = None
+    ai_agent_workspace_state: dict[str, Any] = {}
+    ai_agent_credits = 0
     if active_section == "ai-agent" or auth.get("kind") == "agent_account":
         ai_agent_state = load_ai_agent_state()
         ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
-        ai_agent_subject_key = str(ai_agent_access.get("subject_key") or ai_agent_subject_for_auth(auth))
-        ai_agent_all_runs = ai_agent_state.get("runs", []) if isinstance(ai_agent_state.get("runs"), list) else []
-        ai_agent_runs = ai_agent_all_runs if auth.get("kind") == "owner" else ai_agent_runs_for_subject(ai_agent_state, ai_agent_subject_key)
-        ai_agent_active_run = ai_agent_latest_run_for_subject(ai_agent_state, ai_agent_subject_key)
-        if not ai_agent_active_run and auth.get("kind") == "owner":
-            ai_agent_active_run = next((item for item in ai_agent_all_runs if isinstance(item, dict)), None)
+        ai_agent_visible = ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)
+        ai_agent_runs = ai_agent_visible.get("runs", []) if isinstance(ai_agent_visible.get("runs"), list) else []
+        ai_agent_active_run = ai_agent_selected_run(ai_agent_visible, request.args.get("agent_run"))
+        ai_agent_workspace_state = ai_agent_state_for_run(ai_agent_visible, ai_agent_active_run.get("id") if ai_agent_active_run else "")
+        if ai_agent_access.get("allowed") and auth.get("kind") in {"agent_account", "guild"}:
+            credit_account = agent_credit_account_for_auth(auth, create=auth.get("kind") == "guild")
+            ai_agent_credits = safe_int((credit_account or {}).get("credits"), 0)
 
     def section_allowed(section: str) -> bool:
         if auth.get("kind") == "agent_account":
@@ -31135,13 +31698,13 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_state=ai_agent_state,
         ai_agent_readiness=ai_agent_readiness_checks(ai_agent_state, auth),
         ai_agent_access=ai_agent_access,
-        ai_agent_tasks=ai_agent_state.get("tasks", []),
-        ai_agent_approvals=ai_agent_state.get("approvals", []),
-        ai_agent_pending_approvals=ai_agent_pending_approval_count(ai_agent_state),
-        ai_agent_sandbox_jobs=ai_agent_state.get("sandbox_jobs", []),
-        ai_agent_chat_messages=ai_agent_state.get("chat_messages", []),
-        ai_agent_dayz_drafts=ai_agent_dayz_draft_summaries(ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)),
-        ai_agent_dayz_references=ai_agent_dayz_reference_summaries(ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)),
+        ai_agent_tasks=ai_agent_workspace_state.get("tasks", []),
+        ai_agent_approvals=ai_agent_workspace_state.get("approvals", []),
+        ai_agent_pending_approvals=ai_agent_pending_approval_count(ai_agent_workspace_state),
+        ai_agent_sandbox_jobs=ai_agent_workspace_state.get("sandbox_jobs", []),
+        ai_agent_chat_messages=ai_agent_workspace_state.get("chat_messages", []),
+        ai_agent_dayz_drafts=ai_agent_dayz_draft_summaries(ai_agent_workspace_state),
+        ai_agent_dayz_references=ai_agent_dayz_reference_summaries(ai_agent_workspace_state),
         ai_agent_dayz_targets=AI_AGENT_DAYZ_TARGETS,
         ai_agent_dayz_presets=DAYZ_PRESET_FILES,
         ai_agent_runs=ai_agent_runs[:20],
@@ -31153,6 +31716,9 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
         ai_agent_memory=ai_agent_memory_snapshot(ai_agent_state, 12),
         ai_agent_memory_labels=AI_AGENT_MEMORY_LABELS,
+        ai_agent_credit_packs=agent_credit_packs() if auth.get("kind") in {"owner", "agent_account", "guild"} else [],
+        ai_agent_credit_ledger=agent_credit_ledger_for_account(agent_credit_account_id_for_auth(auth), 12) if auth.get("kind") in {"agent_account", "guild"} else [],
+        ai_agent_credits=ai_agent_credits,
         billing_plans=billing_plans,
         customer_billing_plans=customer_billing_plans,
         native_app_mode=native_app_mode,
@@ -32286,6 +32852,69 @@ def agent_register_post():
         max_age=60 * 60 * 24 * 30,
     )
     return response
+
+
+def ai_agent_credit_checkout_response(pack_id: str):
+    auth = current_ai_agent_auth()
+    if not auth:
+        return redirect("/agent/login")
+    access = ai_agent_access_for_auth(auth)
+    if not access.get("allowed"):
+        return redirect("/agent" if auth.get("kind") == "agent_account" else "/admin")
+    pack = agent_credit_pack_by_id(pack_id)
+    if not pack:
+        return redirect("/agent?section=ai-agent#ai-agent-credits" if auth.get("kind") == "agent_account" else "/admin?section=ai-agent#ai-agent-credits")
+    account = agent_credit_account_for_auth(auth, create=auth.get("kind") == "guild")
+    checkout, error = agent_create_credit_checkout(str((account or {}).get("id") or ""), pack, str(auth.get("email") or ""))
+    if error or not checkout:
+        return redirect("/agent?section=ai-agent#ai-agent-credits" if auth.get("kind") == "agent_account" else "/admin?section=ai-agent#ai-agent-credits")
+    return redirect(str(checkout.get("checkout_url") or ""))
+
+
+@APP.get("/ai-agent/credits/checkout/<pack_id>")
+def ai_agent_credit_checkout(pack_id: str):
+    return ai_agent_credit_checkout_response(pack_id)
+
+
+@APP.get("/agent/credits/checkout/<pack_id>")
+def agent_credit_checkout(pack_id: str):
+    return ai_agent_credit_checkout_response(pack_id)
+
+
+@APP.post("/api/stripe/agent-credits-webhook")
+def api_stripe_agent_credits_webhook():
+    raw_payload = request.get_data(cache=False)
+    signature = request.headers.get("Stripe-Signature") or ""
+    if not STRIPE_AGENT_CREDITS_WEBHOOK_SECRET:
+        return jsonify({"ok": False, "error": "Agent credit webhook is not configured."}), 503
+    if not stripe_webhook_signature_is_valid(raw_payload, signature, STRIPE_AGENT_CREDITS_WEBHOOK_SECRET):
+        return jsonify({"ok": False, "error": "Invalid Stripe signature."}), 400
+    try:
+        event = json.loads(raw_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "error": "Invalid Stripe event."}), 400
+    if not isinstance(event, dict):
+        return jsonify({"ok": False, "error": "Invalid Stripe event."}), 400
+    event_type = str(event.get("type") or "")
+    if event_type not in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+        return jsonify({"ok": True, "ignored": True})
+    session = ((event.get("data") or {}).get("object") or {}) if isinstance(event.get("data"), dict) else {}
+    if not isinstance(session, dict):
+        return jsonify({"ok": False, "error": "Stripe session is missing."}), 400
+    if str(session.get("payment_status") or "").lower() != "paid":
+        return jsonify({"ok": True, "ignored": True, "reason": "payment_not_paid"})
+    reference = str(session.get("client_reference_id") or "")
+    if not reference:
+        return jsonify({"ok": True, "ignored": True, "reason": "no_credit_reference"})
+    fulfilled, message, balance = agent_fulfil_credit_checkout(
+        reference,
+        session.get("id"),
+        session.get("payment_link"),
+        event.get("id"),
+    )
+    if not fulfilled:
+        return jsonify({"ok": False, "error": message}), 400
+    return jsonify({"ok": True, "note": message, "credits_remaining": balance})
 
 
 @APP.get("/agent/logout")
@@ -35899,10 +36528,12 @@ def ai_agent_queue_sandbox_job(
     return job, "", 200
 
 
-def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: dict[str, Any], selected_run_id: Any = "") -> dict[str, Any]:
     subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
     visible_state = ai_agent_visible_state(state, auth, access)
     visible_runs = visible_state.get("runs", []) if isinstance(visible_state.get("runs"), list) else []
+    workspace_state = ai_agent_state_for_run(visible_state, selected_run_id)
+    selected_run = workspace_state.get("selected_run") if isinstance(workspace_state.get("selected_run"), dict) else None
     sandbox_payload = dict(state.get("sandbox", {}) if isinstance(state.get("sandbox"), dict) else {})
     readiness_payload = ai_agent_readiness_checks(state, auth)
     if auth.get("kind") != "owner":
@@ -35923,21 +36554,34 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
         "sandbox": sandbox_payload,
         "readiness": readiness_payload,
         "memory": ai_agent_memory_snapshot(state, 12) if auth.get("kind") == "owner" else ai_agent_memory_snapshot(state, 4),
-        "tasks": [ai_agent_public_task(item) for item in visible_state.get("tasks", [])[:30] if isinstance(item, dict)],
-        "dayz_drafts": ai_agent_dayz_draft_summaries(visible_state),
-        "dayz_references": ai_agent_dayz_reference_summaries(visible_state),
-        "dayz_scenarios": ai_agent_dayz_scenario_summaries(visible_state),
+        "tasks": [ai_agent_public_task(item) for item in workspace_state.get("tasks", [])[:30] if isinstance(item, dict)],
+        "dayz_drafts": ai_agent_dayz_draft_summaries(workspace_state),
+        "dayz_references": ai_agent_dayz_reference_summaries(workspace_state),
+        "dayz_scenarios": ai_agent_dayz_scenario_summaries(workspace_state),
         "runs": visible_runs[:30],
         "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
+        "selected_run": selected_run,
         "run_counts": ai_agent_run_counts(visible_state),
-        "approvals": visible_state.get("approvals", [])[:30],
-        "sandbox_jobs": visible_state.get("sandbox_jobs", [])[:30],
-        "chat_messages": visible_state.get("chat_messages", [])[:50],
-        "pending_approvals": ai_agent_pending_approval_count(visible_state),
-        "job_counts": ai_agent_job_counts(visible_state),
+        "approvals": workspace_state.get("approvals", [])[:30],
+        "sandbox_jobs": workspace_state.get("sandbox_jobs", [])[:30],
+        "chat_messages": workspace_state.get("chat_messages", [])[:50],
+        "pending_approvals": ai_agent_pending_approval_count(workspace_state),
+        "job_counts": ai_agent_job_counts(workspace_state),
         "activity": visible_state.get("activity", [])[:30] if auth.get("kind") == "owner" else [],
-        "credits_remaining": safe_int(auth.get("credits"), 0) if isinstance(auth, dict) and auth.get("kind") == "agent_account" else None,
+        "credits_remaining": agent_credit_balance_for_auth(auth) if isinstance(auth, dict) and auth.get("kind") in {"agent_account", "guild"} else None,
         "chat_credit_cost": AGENT_CHAT_CREDIT_COST,
+        "credit_packs": [
+            {
+                "id": pack["id"],
+                "name": pack["name"],
+                "credits": pack["credits"],
+                "price_text": pack["price_text"],
+                "description": pack["description"],
+                "available": bool(pack.get("enabled") and pack.get("payment_url") and pack.get("stripe_payment_link_id")),
+            }
+            for pack in agent_credit_packs()
+        ] if auth.get("kind") in {"agent_account", "guild"} else [],
+        "credit_ledger": agent_credit_ledger_for_account(agent_credit_account_id_for_auth(auth), 12) if auth.get("kind") in {"agent_account", "guild"} else [],
         "server_time": datetime.now(UTC).isoformat(),
     }
 
@@ -35950,7 +36594,7 @@ def api_ai_agent_state():
     actor = access.get("label") or dashboard_audit_actor(auth)
     if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
         save_ai_agent_state(state)
-    return jsonify(ai_agent_state_payload(auth, access, state))
+    return jsonify(ai_agent_state_payload(auth, access, state, request.args.get("run_id")))
 
 
 @APP.get("/api/ai-agent/dayz-draft/<draft_id>")
@@ -36077,6 +36721,7 @@ def api_ai_agent_events():
     if error:
         return error
     actor = access.get("label") or dashboard_audit_actor(auth)
+    selected_run_id = request.args.get("run_id")
     if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
         save_ai_agent_state(state)
 
@@ -36085,13 +36730,13 @@ def api_ai_agent_events():
 
     @stream_with_context
     def generate():
-        yield sse_payload(ai_agent_state_payload(auth, access, state))
+        yield sse_payload(ai_agent_state_payload(auth, access, state, selected_run_id))
         for _ in range(45):
             time.sleep(2)
             live_state = load_ai_agent_state()
             if ai_agent_maybe_sync_worker_jobs(live_state, actor, recover=False, min_interval_seconds=2):
                 save_ai_agent_state(live_state)
-            yield sse_payload(ai_agent_state_payload(auth, access, live_state))
+            yield sse_payload(ai_agent_state_payload(auth, access, live_state, selected_run_id))
         yield sse_payload({"ok": True, "message": "reconnect"}, "close")
 
     return Response(
@@ -36220,8 +36865,9 @@ def api_ai_agent_chat():
     prompt = str(payload.get("prompt") or payload.get("message") or "").strip()
     if len(prompt) < 8:
         return jsonify({"ok": False, "error": "message is required"}), 400
-    if auth.get("kind") == "agent_account" and AGENT_CHAT_CREDIT_COST > 0:
-        balance = agent_account_credit_balance(str(auth.get("account_id") or ""))
+    if auth.get("kind") in {"agent_account", "guild"} and AGENT_CHAT_CREDIT_COST > 0:
+        account = agent_credit_account_for_auth(auth, create=auth.get("kind") == "guild")
+        balance = safe_int((account or {}).get("credits"), 0)
         if balance < AGENT_CHAT_CREDIT_COST:
             return jsonify({"ok": False, "error": f"Not enough credits. This prompt costs {AGENT_CHAT_CREDIT_COST} credit(s).", "credits_remaining": balance}), 402
     actor = access.get("label") or dashboard_audit_actor(auth)
@@ -36720,6 +37366,34 @@ def api_owner_billing_plan():
         {"ok": True, "plan": record, "note": "Saved billing plan."},
         "billing",
         "#billing",
+    )
+
+
+@APP.post("/api/owner/agent-credit-pack")
+def api_owner_agent_credit_pack():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    try:
+        pack = save_agent_credit_pack(payload)
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    state = load_ai_agent_state()
+    ai_agent_activity(
+        state,
+        "Agent credit pack updated",
+        f"{pack.get('name')}: {pack.get('credits')} credit(s)",
+        dashboard_audit_actor(current_auth()),
+        {"pack_id": pack.get("id"), "enabled": pack.get("enabled")},
+    )
+    save_ai_agent_state(state)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "pack": pack, "note": "Saved agent credit pack. Automatic credit delivery needs its Stripe payment link ID and signed webhook."},
+        "billing",
+        "#agent-credit-packs",
     )
 
 

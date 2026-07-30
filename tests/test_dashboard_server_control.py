@@ -294,6 +294,67 @@ class DashboardServerControlTests(unittest.TestCase):
             self.assertTrue(dashboard.dashboard_feature_allowed(config, "xml_workshop"))
             self.assertTrue(dashboard.dashboard_feature_allowed(config, "ai_agent"))
 
+    def test_ai_agent_dashboard_access_is_limited_to_ultimate(self):
+        ultimate_config = {
+            "guild-ultimate": {
+                "dashboard": {"tier": "dashboard_ultimate", "plan_status": "subscription"}
+            }
+        }
+        basic_config = {
+            "guild-basic": {
+                "dashboard": {"tier": "dashboard", "plan_status": "subscription"}
+            }
+        }
+        auth = {"kind": "guild", "guild_id": "guild-ultimate", "label": "Ultimate server"}
+
+        with patch.object(dashboard, "load_store", return_value=ultimate_config):
+            access = dashboard.ai_agent_access_for_auth(auth, {})
+        self.assertTrue(access["allowed"])
+        self.assertEqual("ultimate", access["role"])
+
+        with patch.object(dashboard, "load_store", return_value=basic_config):
+            access = dashboard.ai_agent_access_for_auth({**auth, "guild_id": "guild-basic"}, {})
+        self.assertFalse(access["allowed"])
+        self.assertEqual("ultimate_required", access["status"])
+
+    def test_ai_agent_workspaces_only_return_the_selected_conversation(self):
+        state = {
+            "runs": [{"id": "run-one", "task_ids": ["task-one"], "job_ids": [], "approval_ids": []}, {"id": "run-two", "task_ids": ["task-two"], "job_ids": [], "approval_ids": []}],
+            "tasks": [{"id": "task-one", "run_id": "run-one"}, {"id": "task-two", "run_id": "run-two"}],
+            "sandbox_jobs": [],
+            "approvals": [],
+            "chat_messages": [{"id": "message-one", "run_id": "run-one"}, {"id": "message-two", "run_id": "run-two"}],
+        }
+
+        workspace = dashboard.ai_agent_state_for_run(state, "run-two")
+
+        self.assertEqual("run-two", workspace["selected_run"]["id"])
+        self.assertEqual(["task-two"], [item["id"] for item in workspace["tasks"]])
+        self.assertEqual(["message-two"], [item["id"] for item in workspace["chat_messages"]])
+
+    def test_credit_checkout_url_adds_only_a_nonsecret_reference(self):
+        url = dashboard.agent_credit_checkout_url(
+            "https://buy.stripe.com/example?utm_source=dashboard",
+            "credit-reference-123",
+            "player@example.com",
+        )
+
+        self.assertIn("client_reference_id=credit-reference-123", url)
+        self.assertIn("prefilled_email=player%40example.com", url)
+        self.assertNotIn("sk_", url)
+
+    def test_ultimate_dashboard_gets_a_durable_credit_account(self):
+        store = {"accounts": {}, "ledger": [], "credit_checkouts": []}
+        auth = {"kind": "guild", "guild_id": "guild-ultimate", "label": "Ultimate server"}
+
+        with patch.object(dashboard, "load_store", return_value=store), patch.object(dashboard, "save_store"):
+            account = dashboard.agent_credit_account_for_auth(auth, create=True)
+
+        self.assertIsNotNone(account)
+        self.assertEqual("dashboard_ultimate", account["subscription_tier"])
+        self.assertEqual(dashboard.AGENT_ULTIMATE_INCLUDED_CREDITS, account["credits"])
+        self.assertEqual(1, len(store["ledger"]))
+
     def test_checkout_target_records_selection_before_any_external_payment(self):
         plan = {"id": "dashboard", "name": "Wandering Bot Basic", "payment_url": "https://payments.example/checkout"}
 
