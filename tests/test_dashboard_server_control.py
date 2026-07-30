@@ -125,6 +125,10 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertIn("Add Wandering Bot to Discord", template)
         self.assertIn("/setup", template)
+        self.assertIn("Nitrado service ID", template)
+        self.assertIn("/admstatus", template)
+        self.assertIn('href="/setup-guide"', template)
+        self.assertIn('href="/setup-guide/download"', template)
         self.assertIn("/dashboardcredentials reset:true", template)
         self.assertIn('name="return_to"', template)
         self.assertIn('name="app_source"', template)
@@ -347,6 +351,27 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("WANDERING BOT SETUP GUIDE", download)
         self.assertIn("run /setup", download)
         self.assertIn("Never post Nitrado API tokens", download)
+
+    def test_player_audit_rows_keep_only_last_24_hours_and_show_last_seen(self):
+        now = dashboard.datetime.now(dashboard.UTC)
+        store = {
+            "guild-1": [
+                {"id": "old", "player": "OldPlayer", "event_type": "connect", "summary": "old", "occurred_at": (now - dashboard.timedelta(hours=25)).isoformat()},
+                {"id": "join", "player": "Crane", "event_type": "connect", "summary": "Crane connected", "occurred_at": (now - dashboard.timedelta(minutes=10)).isoformat()},
+                {"id": "build", "player": "Crane", "event_type": "build", "summary": "Crane build activity", "coords": "100,0,200", "occurred_at": now.isoformat()},
+            ]
+        }
+
+        rows = dashboard.dashboard_player_audit_events_for_guild(store, "guild-1")
+        players = dashboard.dashboard_player_audit_players(rows, ["CRANE"])
+
+        self.assertEqual(["build", "connect"], [row["event_type"] for row in rows])
+        self.assertEqual("Crane", players[0]["player"])
+        self.assertTrue(players[0]["online"])
+        self.assertEqual(2, players[0]["actions"])
+        self.assertEqual(1, players[0]["locations"])
+        self.assertIn("Player Audit", dashboard.PAGE_TEMPLATE)
+        self.assertIn("not continuous GPS tracking", dashboard.PAGE_TEMPLATE)
 
     def test_dashboard_feature_allowed_uses_plan_for_missing_feature_keys(self):
         plans = list(dashboard.default_billing_plan_map().values())

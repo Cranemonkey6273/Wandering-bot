@@ -95,6 +95,7 @@ GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 DASHBOARD_AUDIT_QUEUE_FILE = data_path("dashboard_audit_queue.json")
 BILLING_PLAN_SELECTION_QUEUE_FILE = data_path("billing_plan_selection_queue.json")
 DASHBOARD_LIVE_FEEDS_FILE = data_path("dashboard_live_feeds.json")
+PLAYER_AUDIT_FILE = data_path("player_audit.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
@@ -208,6 +209,7 @@ first_blood_today = {}             # {guild_id: {"date": "YYYY-MM-DD", "killer":
 final_kill_today = {}              # {guild_id: {"date": "YYYY-MM-DD", "killer": str, "victim": str, "weapon": str, "time": iso}}
 daily_recap_data = {}              # {guild_id: {"YYYY-MM-DD": {kills, headshots, vehicle_kills, killers, weapons, zones, longshots, ...}}}
 dashboard_live_feeds = {}          # {guild_id: [recent ADM-derived dashboard feed rows]}
+player_audit = {}                  # {guild_id: [24-hour staff-only player activity rows]}
 bounties = {}                      # {guild_id: {target_player_lower: {target, amount, posted_by, posted_at, currency}}}
 survival_streaks = {}              # {guild_id: {player: {streak_start_date, last_alive_date, longest_days, current_days}}}
 recap_posted = {}                  # {guild_id: "YYYY-MM-DD"} to prevent double-posting
@@ -237,6 +239,8 @@ try:
     DASHBOARD_LIVE_FEED_LIMIT = max(50, min(5000, int(os.getenv("WANDERING_DASHBOARD_LIVE_FEED_LIMIT", "500"))))
 except ValueError:
     DASHBOARD_LIVE_FEED_LIMIT = 500
+PLAYER_AUDIT_RETENTION_HOURS = 24
+PLAYER_AUDIT_RECORD_LIMIT = 10000
 swear_jar = {}
 player_chat_tracker = {}
 linked_players = {}
@@ -2269,6 +2273,100 @@ def record_dashboard_live_feed(guild_id, event_type, line, event_time=None):
     if len(records) > DASHBOARD_LIVE_FEED_LIMIT:
         del records[:-DASHBOARD_LIVE_FEED_LIMIT]
     return True
+
+
+def player_audit_people(event_type, line):
+    """Return every player represented by an ADM action, not just its actor."""
+    if event_type == "kill":
+        details = extract_pvp_kill_details(line) or {}
+        names = [details.get("killer"), details.get("victim")]
+    else:
+        names = extract_adm_player_names(line)
+        if not names:
+            names = [extract_player_name(line)]
+
+    people = []
+    seen = set()
+    for name in names:
+        clean = str(name or "").strip()
+        key = normalize_discord_name(clean)
+        if not clean or clean == "Unknown" or not key or key in seen:
+            continue
+        people.append(clean)
+        seen.add(key)
+    return people
+
+
+def player_audit_summary(event_type, line, player_name):
+    summary, actor = dashboard_live_feed_summary(event_type, line)
+    if event_type == "kill":
+        details = extract_pvp_kill_details(line) or {}
+        killer = str(details.get("killer") or "Unknown")
+        victim = str(details.get("victim") or "Unknown")
+        if normalize_discord_name(player_name) == normalize_discord_name(victim):
+            weapon = str(details.get("weapon") or "")
+            suffix = f" with {weapon}" if weapon else ""
+            return compact_dashboard_live_feed_text(f"{victim} was killed by {killer}{suffix}")
+    if normalize_discord_name(player_name) != normalize_discord_name(actor):
+        return compact_dashboard_live_feed_text(f"{player_name}: {summary}")
+    return summary
+
+
+def prune_player_audit_records(records, now=None):
+    now = now or datetime.now(UTC)
+    cutoff = now - timedelta(hours=PLAYER_AUDIT_RETENTION_HOURS)
+    kept = []
+    for record in records if isinstance(records, list) else []:
+        if not isinstance(record, dict):
+            continue
+        occurred = parse_saved_datetime(record.get("occurred_at") or record.get("recorded_at"))
+        if occurred and occurred.tzinfo is None:
+            occurred = occurred.replace(tzinfo=UTC)
+        if occurred and occurred >= cutoff:
+            kept.append(record)
+    return kept[-PLAYER_AUDIT_RECORD_LIMIT:]
+
+
+def record_player_audit_event(guild_id, event_type, line, event_time=None):
+    """Persist a staff-only rolling 24-hour activity trail from actual ADM lines."""
+    guild_id = str(guild_id)
+    people = player_audit_people(event_type, line)
+    if not people:
+        return False
+
+    occurred = event_time if event_time else datetime.now(UTC)
+    occurred_at = occurred.isoformat() if hasattr(occurred, "isoformat") else str(occurred or "")
+    records = player_audit.setdefault(guild_id, [])
+    records = prune_player_audit_records(records)
+    player_audit[guild_id] = records
+    coords = extract_adm_coords(line) or ""
+    changed = False
+
+    for player_name in people:
+        record_id = hashlib.sha1(
+            f"{guild_id}|{event_type}|{player_name}|{occurred_at}|{line}".encode("utf-8", errors="ignore")
+        ).hexdigest()[:16]
+        if any(str(item.get("id") or "") == record_id for item in records[-50:] if isinstance(item, dict)):
+            continue
+        records.append(
+            {
+                "id": record_id,
+                "guild_id": guild_id,
+                "player": compact_dashboard_live_feed_text(player_name, 80),
+                "event_type": str(event_type or "activity"),
+                "summary": player_audit_summary(event_type, line, player_name),
+                "coords": compact_dashboard_live_feed_text(coords, 80),
+                "map_url": build_adm_map_link(line, guild_id) or "",
+                "raw_line": compact_dashboard_live_feed_text(line, 900),
+                "occurred_at": occurred_at,
+                "recorded_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        changed = True
+
+    if changed:
+        player_audit[guild_id] = prune_player_audit_records(records)
+    return changed
 
 
 def pvp_kill_signature(guild_id, details):
@@ -10499,6 +10597,25 @@ def save_dashboard_live_feeds():
     save_json(DASHBOARD_LIVE_FEEDS_FILE, dashboard_live_feeds)
 
 
+def load_player_audit():
+    global player_audit
+    data = load_json(PLAYER_AUDIT_FILE) or {}
+    player_audit = data if isinstance(data, dict) else {}
+    now = datetime.now(UTC)
+    changed = False
+    for guild_id, records in list(player_audit.items()):
+        cleaned = prune_player_audit_records(records, now=now)
+        if cleaned != records:
+            player_audit[str(guild_id)] = cleaned
+            changed = True
+    if changed:
+        save_player_audit()
+
+
+def save_player_audit():
+    save_json(PLAYER_AUDIT_FILE, player_audit)
+
+
 def load_recap_posted():
     global recap_posted
     recap_posted = load_json(RECAP_POSTED_FILE) or {}
@@ -14343,6 +14460,33 @@ def increase_heat(guild_id, zone, mode="pvp", coords=None):
     save_heatmap()
 
 
+def player_location_record_for_name(guild_id, player_name):
+    """Return a latest-location record even when ADM casing differs from the roster."""
+    locations = player_last_coords.get(str(guild_id), {})
+    if not isinstance(locations, dict):
+        return None
+    exact = locations.get(player_name)
+    if isinstance(exact, dict):
+        return exact
+
+    wanted = normalize_discord_name(player_name)
+    for stored_name, record in locations.items():
+        if normalize_discord_name(stored_name) == wanted and isinstance(record, dict):
+            return record
+    return None
+
+
+def canonical_online_player_name(guild_id, player_name):
+    """Use the roster's spelling so map positions join the right online survivor."""
+    wanted = normalize_discord_name(player_name)
+    if not wanted:
+        return str(player_name or "")
+    for online_name in online_players.get(str(guild_id), set()):
+        if normalize_discord_name(online_name) == wanted:
+            return str(online_name)
+    return str(player_name)
+
+
 def remember_player_location_from_adm(guild_id, line):
     player_name = extract_player_name(line)
     coords = extract_adm_coords(line)
@@ -14351,10 +14495,111 @@ def remember_player_location_from_adm(guild_id, line):
         return
 
     ensure_guild_runtime(guild_id)
+    player_name = canonical_online_player_name(guild_id, player_name)
     player_last_coords[str(guild_id)][player_name] = {
         "coords": coords,
         "seen": str(datetime.now(UTC)),
     }
+
+
+def reconcile_player_locations_from_cached_adm(guild_id, config, *, source=""):
+    """Rebuild last known positions after a bot restart or before rendering /map.
+
+    ADM logs only emit a position when an activity line carries coordinates, so
+    this is deliberately a latest-known-location recovery rather than GPS
+    tracking. It reads already-downloaded lines without announcing them again.
+    """
+    guild_id = str(guild_id)
+    ensure_guild_runtime(guild_id)
+    online = online_players.get(guild_id, set())
+    if not online:
+        return 0
+
+    path = adm_file_path(guild_id)
+    lines = []
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+                lines = handle.readlines()
+        except Exception as error:
+            print(f"[PLAYER LOCATION] {guild_id} could not read cached ADM: {error}")
+
+    wanted = {normalize_discord_name(name) for name in online if normalize_discord_name(name)}
+    recovered = 0
+    seen = set()
+    for raw_line in reversed(lines[-adm_parse_tail_line_count():]):
+        line = str(raw_line or "").strip()
+        player_name = extract_player_name(line)
+        coords = extract_adm_coords(line)
+        key = normalize_discord_name(player_name)
+        if not coords or not key or key not in wanted or key in seen:
+            continue
+        remember_player_location_from_adm(guild_id, line)
+        seen.add(key)
+        recovered += 1
+        if len(seen) >= len(wanted):
+            break
+
+    # The rolling audit survives a bot restart, so it is a useful fallback
+    # when a busy ADM file has already rotated past a player's last action.
+    if len(seen) < len(wanted):
+        for record in reversed(player_audit.get(guild_id, [])):
+            if not isinstance(record, dict):
+                continue
+            player_name = str(record.get("player") or "").strip()
+            coords = str(record.get("coords") or "").strip()
+            key = normalize_discord_name(player_name)
+            if not coords or not key or key not in wanted or key in seen:
+                continue
+            canonical_name = canonical_online_player_name(guild_id, player_name)
+            player_last_coords[guild_id][canonical_name] = {
+                "coords": coords,
+                "seen": str(record.get("occurred_at") or datetime.now(UTC)),
+            }
+            seen.add(key)
+            recovered += 1
+            if len(seen) >= len(wanted):
+                break
+
+    if recovered:
+        print(f"[PLAYER LOCATION] {guild_id} recovered {recovered} latest ADM position(s) ({source or 'reconcile'}).")
+    return recovered
+
+
+def backfill_player_audit_from_cached_adm(guild_id, config):
+    """Seed the rolling audit from the available ADM tail without posting feeds."""
+    guild_id = str(guild_id)
+    path = adm_file_path(guild_id)
+    if not os.path.exists(path):
+        return 0
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as handle:
+            lines = handle.readlines()
+    except Exception as error:
+        print(f"[PLAYER AUDIT] {guild_id} could not read cached ADM: {error}")
+        return 0
+
+    reference = online_state_parse_reference(guild_id)
+    cutoff = datetime.now(UTC) - timedelta(hours=PLAYER_AUDIT_RETENTION_HOURS)
+    added = 0
+    for raw_line in lines[-adm_parse_tail_line_count():]:
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        event_type = classify_event(line)
+        if not event_type and not extract_adm_coords(line):
+            continue
+        event_time = extract_adm_event_time(line, now=reference, config=config) or reference
+        event_dt = _as_utc_datetime(event_time) or reference
+        if event_dt < cutoff:
+            continue
+        if record_player_audit_event(guild_id, event_type or "position", line, event_time=event_dt):
+            added += 1
+
+    if added:
+        save_player_audit()
+        print(f"[PLAYER AUDIT] {guild_id} restored {added} event(s) from cached ADM.")
+    return added
 
 
 def remember_online_state_from_adm_line(guild_id, line, event_type=None, event_time=None):
@@ -16308,11 +16553,10 @@ def generate_live_player_map_image(guild_id: str):
             small_font = ImageFont.load_default()
 
         online = sorted(online_players.get(guild_id, set()))
-        locations = player_last_coords.get(guild_id, {})
         plotted_players = []
 
         for player in online:
-            coord_record = locations.get(player)
+            coord_record = player_location_record_for_name(guild_id, player)
             coords = coord_record.get("coords") if isinstance(coord_record, dict) else None
             if not coords:
                 continue
@@ -16819,51 +17063,6 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
         },
     )
     return created["credentials"], created["password"]
-
-
-def discord_setup_guide_entries(invite_url=""):
-    """Short public-safe setup copy for a Discord information channel."""
-    invite = str(invite_url or bot_invite_url()).strip()
-    setup_guide_url = f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/setup-guide"
-    return [
-        (
-            "1 · Add Wandering Bot",
-            f"[Invite the bot]({invite}) to the Discord server you own or administer. "
-            "For role features, keep the Wandering Bot role above roles it must manage.",
-        ),
-        (
-            "2 · Prepare the private server details",
-            "From the correct Nitrado DayZ service, collect its service ID, API token, and FTP host/login. "
-            "Choose the matching platform and map (Chernarus, Livonia, or Sakhal).",
-        ),
-        (
-            "3 · Run the private setup",
-            "An administrator runs `/setup` and enters those details in the private command form. "
-            "Never post API tokens, FTP details, dashboard passwords, or account passwords in this channel.",
-        ),
-        (
-            "4 · Confirm feeds",
-            "Run `/admstatus`, then `/restartadm force` once an ADM log is available. "
-            "Check that a connect or killfeed event arrives before enabling advanced server tools.",
-        ),
-        (
-            "5 · Open the dashboard",
-            f"`/setup` gives the administrator a private dashboard login. Read the full guide here: {setup_guide_url}",
-        ),
-    ]
-
-
-def build_discord_setup_guide_embed(invite_url=""):
-    embed = discord.Embed(
-        title="🧭 WANDERING BOT | START HERE",
-        description="A quick, safe checklist for connecting a new DayZ server to Wandering Bot.",
-        color=0x35D4C2,
-    )
-    for title, value in discord_setup_guide_entries(invite_url):
-        embed.add_field(name=title, value=value, inline=False)
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot • Keep all Nitrado and FTP credentials private")
-    return style_embed(embed)
 
 
 @bot.tree.command(
@@ -17453,25 +17652,6 @@ async def setup_command(
             "Use `/dashboardcredentials reset:true` if you need a new one.",
             ephemeral=True,
         )
-
-
-@bot.tree.command(name="setupguide", description="Admin: post the Wandering Bot setup guide in this channel")
-@app_commands.default_permissions(administrator=True)
-async def setup_guide_channel_command(interaction: discord.Interaction):
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
-
-    channel = getattr(interaction, "channel", None)
-    if not channel:
-        await interaction.response.send_message("Run this command inside the channel where you want the guide posted.", ephemeral=True)
-        return
-
-    await interaction.response.send_message("Setup guide posted in this channel.", ephemeral=True)
-    await channel.send(
-        embed=build_discord_setup_guide_embed(),
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
 
 
 @bot.tree.command(name="dashboardcredentials", description="Admin: view or reset this server's private dashboard login")
@@ -19606,6 +19786,7 @@ async def parse_adm(guild_id, config):
     online_state_reason = ""
     stale_adm_skipped = 0
     dashboard_live_feed_changed = False
+    player_audit_changed = False
 
     for raw_line in lines[-adm_parse_tail_line_count():]:
 
@@ -19658,6 +19839,8 @@ async def parse_adm(guild_id, config):
             if extract_adm_coords(line):
                 ensure_guild_runtime(guild_id)
                 remember_player_location_from_adm(guild_id, line)
+                if record_player_audit_event(guild_id, "position", line, event_time=event_time):
+                    player_audit_changed = True
                 await check_radar_zones_for_adm(guild_id, config, "position", line)
                 await check_safe_zones_for_adm(guild_id, config, "position", line)
             continue
@@ -19723,6 +19906,8 @@ async def parse_adm(guild_id, config):
 
         ensure_guild_runtime(guild_id)
         remember_player_location_from_adm(guild_id, line)
+        if record_player_audit_event(guild_id, event_type, line, event_time=event_time):
+            player_audit_changed = True
         update_player_stats_from_adm(guild_id, event_type, line)
         save_player_stats()
         if record_dashboard_live_feed(guild_id, event_type, line, event_time=event_time):
@@ -20907,6 +21092,9 @@ async def parse_adm(guild_id, config):
 
     if dashboard_live_feed_changed:
         save_dashboard_live_feeds()
+
+    if player_audit_changed:
+        save_player_audit()
 
     if stale_adm_skipped:
         context = adm_parse_context.get(str(guild_id), {})
@@ -47601,6 +47789,8 @@ async def send_live_map_response(interaction: discord.Interaction, server: str =
         await send_map_followup(f"No online survivors are currently tracked for **{server_label}**.", ephemeral=True)
         return
 
+    reconcile_player_locations_from_cached_adm(guild_id, config, source="/map")
+
     map_path, error = await asyncio.to_thread(generate_live_player_map_image, guild_id)
 
     if not map_path:
@@ -47611,7 +47801,7 @@ async def send_live_map_response(interaction: discord.Interaction, server: str =
     plotted_count = sum(
         1
         for player in online_players.get(guild_id, set())
-        if player_last_coords.get(guild_id, {}).get(player, {}).get("coords")
+        if (player_location_record_for_name(guild_id, player) or {}).get("coords")
     )
     map_key = server_map_key(guild_id)
     map_name = {"livonia": "Livonia", "sakhal": "Sakhal"}.get(map_key, "Chernarus")
@@ -55012,6 +55202,9 @@ async def on_ready():
     load_first_blood()
     load_daily_recap()
     load_dashboard_live_feeds()
+    load_player_audit()
+    for guild_id, config in active_guild_config_items():
+        backfill_player_audit_from_cached_adm(guild_id, config)
     load_bounties()
     load_survival_streaks()
     load_recap_posted()
@@ -55089,6 +55282,7 @@ try:
             "wages": wages,
             "delivery_queue": delivery_queue,
             "dashboard_live_feeds": dashboard_live_feeds,
+            "player_audit": player_audit,
             "discord_guild_counts": {
                 str(guild.id): {
                     "guild_name": guild.name,

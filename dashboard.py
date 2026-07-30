@@ -1017,6 +1017,7 @@ FILES = {
     "billing_plan_selection_queue": "billing_plan_selection_queue.json",
     "dashboard_admin": "dashboard_admin.json",
     "dashboard_live_feeds": "dashboard_live_feeds.json",
+    "player_audit": "player_audit.json",
     "heatmap": "heatmap.json",
     "pve_challenges": "pve_challenges.json",
     "pve_ai_campaigns": "pve_ai_campaigns.json",
@@ -1171,6 +1172,8 @@ DASHBOARD_LIVE_FEED_DEFAULT_KEYS = (
     "unconscious_feed",
 )
 DASHBOARD_LIVE_FEED_ROW_LIMIT = 150
+DASHBOARD_PLAYER_AUDIT_ROW_LIMIT = 500
+PLAYER_AUDIT_RETENTION_HOURS = 24
 SERVER_PROFILE_SEPARATOR = ":"
 DASHBOARD_SERVER_PROFILE_INHERITED_KEYS = (
     "nitrado_token",
@@ -1460,6 +1463,7 @@ APP_WELCOME_TEMPLATE = """
     }
     .primary, .submit { border: 1px solid var(--amber); background: var(--amber); color: #fff; }
     .secondary { border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+    .guide-actions { display: grid; gap: .55rem; }
     .steps { padding: 1rem; display: grid; gap: .7rem; }
     .steps h2, .login h2 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0; }
     .step { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .65rem; align-items: start; }
@@ -1492,13 +1496,19 @@ APP_WELCOME_TEMPLATE = """
       <h2>Connect your server from the app</h2>
       <p class="intro-copy">Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.</p>
       <a class="primary" href="{{ bot_invite_url }}" target="_blank" rel="external noopener">Add Wandering Bot to Discord</a>
+      <a class="secondary" href="/setup-guide">Read the full setup guide</a>
     </section>
 
     <section class="steps" aria-labelledby="setup-heading">
       <h2 id="setup-heading">First-time setup</h2>
       <div class="step"><span class="step-number">1</span><div><strong>Add the bot</strong><p>Choose the Discord server you administer and approve the requested permissions.</p></div></div>
-      <div class="step"><span class="step-number">2</span><div><strong>Run setup in Discord</strong><p>Use <code>/setup</code>. Wandering Bot replies privately with the dashboard ID and one-time password.</p></div></div>
-      <div class="step"><span class="step-number">3</span><div><strong>Return here to sign in</strong><p>Save the one-time password, then enter both credentials below.</p></div></div>
+      <div class="step"><span class="step-number">2</span><div><strong>Prepare your private details</strong><p>Have the Nitrado service ID and API token, plus the FTP host, username and password for the same DayZ service. Choose the correct platform and map.</p></div></div>
+      <div class="step"><span class="step-number">3</span><div><strong>Run setup in Discord</strong><p>Use <code>/setup</code> to enter those details privately. Then check <code>/admstatus</code> and use <code>/restartadm force</code> if an ADM feed needs starting.</p></div></div>
+      <div class="step"><span class="step-number">4</span><div><strong>Return here to sign in</strong><p>Save the dashboard ID and one-time password from the private setup reply, then enter both credentials below.</p></div></div>
+      <div class="guide-actions">
+        <a class="secondary" href="/setup-guide">View the complete setup guide</a>
+        <a class="secondary" href="/setup-guide/download">Download the setup guide</a>
+      </div>
     </section>
 
     <section class="login" aria-labelledby="login-heading">
@@ -5723,6 +5733,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
       <a class="{{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
+      <a class="{{ 'active' if active_section == 'player-audit' else '' }}" href="/owner?section=player-audit{{ server_qs }}{{ profile_qs }}">Player Audit</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
@@ -5737,6 +5748,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="{{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
+      <a class="{{ 'active' if active_section == 'player-audit' else '' }}" href="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}">Player Audit</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/admin?section=help{{ server_qs }}">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Sandbox</a>{% endif %}
@@ -5848,6 +5860,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link {{ 'active' if active_section == 'owner' else '' }}" href="/owner?section=owner">Servers</a>
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/owner?section=access&setup_tool=servers{{ server_qs }}">Server Access</a>
       <a class="tab-link {{ 'active' if active_section == 'billing' else '' }}" href="/owner?section=billing">Plans & Billing</a>
+      <a class="tab-link {{ 'active' if active_section == 'player-audit' else '' }}" href="/owner?section=player-audit{{ server_qs }}{{ profile_qs }}">Player Audit</a>
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
@@ -5858,6 +5871,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'live-feeds' else '' }}" href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live Feeds</a>
+      <a class="tab-link {{ 'active' if active_section == 'player-audit' else '' }}" href="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}">Player Audit</a>
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
       {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
@@ -5882,6 +5896,7 @@ PAGE_TEMPLATE = """
           <option value="/owner?section=owner" {{ 'selected' if active_section == 'owner' else '' }}>Servers</option>
           <option value="/owner?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Server Access</option>
           <option value="/owner?section=billing" {{ 'selected' if active_section == 'billing' else '' }}>Plans & Billing</option>
+          <option value="/owner?section=player-audit{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'player-audit' else '' }}>Player Audit</option>
           <option value="/owner?section=reviews" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
           <option value="/owner?section=help" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Sandbox</option>{% endif %}
@@ -5892,6 +5907,7 @@ PAGE_TEMPLATE = """
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
           <option value="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'live-feeds' else '' }}>Live Feeds</option>
+          <option value="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'player-audit' else '' }}>Player Audit</option>
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
           {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
@@ -6111,6 +6127,7 @@ PAGE_TEMPLATE = """
     <section class="category-grid" aria-label="Main categories">
       <a class="category-link" href="/admin?section=leaderboards{{ server_qs }}"><strong>Leaderboards</strong><span>Live kills, deaths, builds and rankings.</span></a>
       <a class="category-link" href="/admin?section=live-feeds{{ server_qs }}"><strong>Live Feeds</strong><span>Dashboard-only build, placed, raid and damage feed inbox.</span></a>
+      <a class="category-link" href="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}"><strong>Player Audit</strong><span>Staff-only rolling 24-hour activity, last-seen times and logged locations.</span></a>
       <a class="category-link" href="/admin?section=access&setup_tool=discord{{ server_qs }}"><strong>Admin Center</strong><span>Servers, Discord setup, rules, moderation and server controls.</span></a>
       <a class="category-link" href="/admin?section=factions{{ server_qs }}"><strong>Factions</strong><span>Faction setup, leaders, roles and members.</span></a>
       <a class="category-link" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
@@ -6310,6 +6327,71 @@ PAGE_TEMPLATE = """
         {% endif %}
         {% else %}
         <article class="admin-panel"><h3>No server selected</h3><p class="tool-note">Select a server before viewing dashboard feed events.</p></article>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mode in ["admin", "owner"] and active_section == "player-audit" %}
+    <section class="section-panel" id="player-audit">
+      <div class="section-head">
+        <div>
+          <h2>Player Audit — last 24 hours</h2>
+          <p class="tool-note">Staff-only ADM history for logins, logouts, combat and logged actions. Locations are only shown when DayZ wrote coordinates to an ADM event; this is not continuous GPS tracking.</p>
+        </div>
+        {% if server %}<span class="pill">{{ server.player_audit_total }} events retained</span>{% endif %}
+      </div>
+      <div class="panel-grid">
+        {% if server %}
+        {% if server.dayz_profiles %}
+        <article class="admin-panel full" id="player-audit-server-picker">
+          <h3>Pick DayZ Server</h3>
+          <div class="command-server-grid">
+            {% for option in server.dayz_profiles %}
+            <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/admin?section=player-audit&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#player-audit-server-picker">
+              <strong>{{ option.name }}</strong>
+              <small>{{ option.platform_label }} / {{ option.map_key }} / {{ option.server_mode }}</small>
+              <div class="pills"><span class="pill">{{ option.player_audit_total }} audit events</span><span class="pill">{{ option.player_audit_players|length }} players</span></div>
+            </a>
+            {% endfor %}
+          </div>
+        </article>
+        {% set audit = selected_dayz_profile if selected_dayz_profile else none %}
+        {% else %}
+        {% set audit = server %}
+        {% endif %}
+        {% if audit %}
+        <article class="admin-panel full">
+          <h3>{{ audit.name if audit.name else audit.dayz_name or audit.guild_name }} Player Summary</h3>
+          <p class="tool-note">“Last seen” means the latest stored ADM event. “Locations” is the number of audited events that contained coordinates.</p>
+          <table class="table">
+            <thead><tr><th>Player</th><th>Status</th><th>Last seen</th><th>Latest activity</th><th>24h actions</th><th>Logged locations</th></tr></thead>
+            <tbody>
+              {% for player in audit.player_audit_players %}
+              <tr><td><strong>{{ player.player }}</strong></td><td>{{ 'online now' if player.online else 'offline' }}</td><td>{{ player.last_seen_label }}</td><td>{{ player.last_event }}</td><td>{{ player.actions }}</td><td>{{ player.locations }}</td></tr>
+              {% else %}<tr><td colspan="6">No player activity has been recorded for this DayZ server in the last 24 hours yet.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </article>
+        <article class="admin-panel full">
+          <h3>Activity Trail</h3>
+          <p class="tool-note">The bot automatically expires these records after 24 hours. It never fills in locations that are not present in the source ADM line.</p>
+          <table class="table">
+            <thead><tr><th>Time</th><th>Player</th><th>Action</th><th>What happened</th><th>Known location</th><th>ADM line</th></tr></thead>
+            <tbody>
+              {% for row in audit.player_audit_rows %}
+              <tr>
+                <td>{{ row.time_label or 'unknown' }}</td><td><strong>{{ row.player }}</strong></td><td><code>{{ row.event_type }}</code></td><td>{{ row.summary }}</td>
+                <td>{% if row.coords %}<code>{{ row.coords }}</code>{% if row.map_url %}<br><a href="{{ row.map_url }}" target="_blank" rel="noopener">Open map</a>{% endif %}{% else %}<span class="muted">not logged</span>{% endif %}</td>
+                <td><details><summary>Line</summary><code>{{ row.raw_line }}</code></details></td>
+              </tr>
+              {% else %}<tr><td colspan="6">No audit events are available for this DayZ server yet.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </article>
+        {% endif %}
+        {% else %}
+        <article class="admin-panel"><h3>No server selected</h3><p class="tool-note">Select a server before reviewing player audit data.</p></article>
         {% endif %}
       </div>
     </section>
@@ -26885,6 +26967,88 @@ def dashboard_live_feed_rows(config: Any, live_feed_store: Any, guild_id: str, l
     return rows
 
 
+def dashboard_player_audit_name_key(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).casefold()
+
+
+def dashboard_player_audit_timestamp(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def dashboard_player_audit_events_for_guild(store: Any, guild_id: str, limit: int = DASHBOARD_PLAYER_AUDIT_ROW_LIMIT) -> list[dict[str, Any]]:
+    if not isinstance(store, dict):
+        return []
+    records = store.get(str(guild_id))
+    if not isinstance(records, list):
+        records = (store.get("guilds") or {}).get(str(guild_id), []) if isinstance(store.get("guilds"), dict) else []
+    if not isinstance(records, list):
+        return []
+
+    cutoff = datetime.now(UTC) - timedelta(hours=PLAYER_AUDIT_RETENTION_HOURS)
+    rows = []
+    for record in reversed(records):
+        if not isinstance(record, dict):
+            continue
+        occurred_at = record.get("occurred_at") or record.get("recorded_at")
+        occurred = dashboard_player_audit_timestamp(occurred_at)
+        if not occurred or occurred < cutoff:
+            continue
+        rows.append(
+            {
+                "id": str(record.get("id") or ""),
+                "player": compact_scenario_text(record.get("player") or "Unknown", 80),
+                "event_type": compact_scenario_text(record.get("event_type") or "activity", 80),
+                "summary": compact_scenario_text(record.get("summary") or record.get("raw_line") or "", 220),
+                "coords": compact_scenario_text(record.get("coords") or "", 80),
+                "map_url": str(record.get("map_url") or "").strip(),
+                "raw_line": compact_scenario_text(record.get("raw_line") or "", 900),
+                "occurred_at": occurred.isoformat(),
+                "time_label": dashboard_live_feed_display_time(occurred),
+                "occurred_ts": occurred.timestamp(),
+            }
+        )
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def dashboard_player_audit_players(rows: Any, online_players: Any) -> list[dict[str, Any]]:
+    online_keys = {dashboard_player_audit_name_key(player) for player in online_players or []}
+    summaries: dict[str, dict[str, Any]] = {}
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        player = str(row.get("player") or "Unknown")
+        key = dashboard_player_audit_name_key(player)
+        if not key or key == "unknown":
+            continue
+        summary = summaries.setdefault(
+            key,
+            {
+                "player": player,
+                "last_seen_label": row.get("time_label") or "unknown",
+                "last_seen_ts": safe_float(row.get("occurred_ts"), 0.0),
+                "last_event": row.get("summary") or row.get("event_type") or "activity",
+                "actions": 0,
+                "locations": 0,
+                "online": key in online_keys,
+            },
+        )
+        summary["actions"] += 1
+        if row.get("coords"):
+            summary["locations"] += 1
+    return sorted(summaries.values(), key=lambda item: (not item["online"], -safe_float(item.get("last_seen_ts"), 0.0), item["player"].casefold()))
+
+
 def normalize_server_profile_id(value: Any, default: str = "main") -> str:
     text = str(value or "").strip().lower()
     text = re.sub(r"[^a-z0-9_-]+", "-", text).strip("-_")
@@ -26992,7 +27156,15 @@ def dashboard_base_server_profile_name(config: Any) -> str:
     return "Chernarus"
 
 
-def dashboard_base_server_profile_row(config: Any, guild_id: str, live_feed_store: Any = None, needs_live_feeds: bool = False) -> dict[str, Any]:
+def dashboard_base_server_profile_row(
+    config: Any,
+    guild_id: str,
+    live_feed_store: Any = None,
+    needs_live_feeds: bool = False,
+    player_audit_store: Any = None,
+    needs_player_audit: bool = False,
+    online_store: Any = None,
+) -> dict[str, Any]:
     config = config if isinstance(config, dict) else {}
     channels = public_channels(config.get("channels", {}), guild_id)
     server_map = str(config.get("server_map") or config.get("map") or "chernarus")
@@ -27002,6 +27174,8 @@ def dashboard_base_server_profile_row(config: Any, guild_id: str, live_feed_stor
         for value in (config.get("channels") or {}).values()
         if str(value or "").strip()
     ]) if isinstance(config.get("channels"), dict) else 0
+    audit_rows = dashboard_player_audit_events_for_guild(player_audit_store, guild_id) if needs_player_audit else []
+    runtime_online = online_store.get(str(guild_id), []) if isinstance(online_store, dict) else []
     return {
         "id": "",
         "runtime_id": normalize_guild_id(guild_id),
@@ -27023,6 +27197,9 @@ def dashboard_base_server_profile_row(config: Any, guild_id: str, live_feed_stor
         "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
         "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(config, live_feed_store, guild_id) if needs_live_feeds else []),
         "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, guild_id)) if needs_live_feeds else 0,
+        "player_audit_rows": redact(audit_rows),
+        "player_audit_players": redact(dashboard_player_audit_players(audit_rows, runtime_online)),
+        "player_audit_total": len(audit_rows),
         "config": redact(config),
         "server_control_config": redact(config),
         "server_control_channels": channels,
@@ -27046,13 +27223,31 @@ def dashboard_server_profile_runtime_config(base_config: Any, guild_id: str, pro
     return runtime
 
 
-def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: Any = None, needs_live_feeds: bool = False) -> list[dict[str, Any]]:
+def dashboard_server_profile_rows(
+    config: Any,
+    guild_id: str,
+    live_feed_store: Any = None,
+    needs_live_feeds: bool = False,
+    player_audit_store: Any = None,
+    needs_player_audit: bool = False,
+    online_store: Any = None,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if not isinstance(config, dict):
         return rows
     profile_store = dashboard_server_profile_store(config)
     if dashboard_should_include_base_server_profile(config):
-        rows.append(dashboard_base_server_profile_row(config, guild_id, live_feed_store, needs_live_feeds))
+        rows.append(
+            dashboard_base_server_profile_row(
+                config,
+                guild_id,
+                live_feed_store,
+                needs_live_feeds,
+                player_audit_store,
+                needs_player_audit,
+                online_store,
+            )
+        )
     for raw_profile_id, profile in sorted(profile_store.items(), key=lambda item: str(item[0]).lower()):
         if not isinstance(profile, dict):
             continue
@@ -27068,6 +27263,8 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
         runtime_channels = public_channels(runtime_config.get("channels", {}), guild_id)
         server_map = str(profile.get("server_map") or profile.get("map") or config.get("server_map") or config.get("map") or "chernarus")
         server_platform = normalize_dashboard_server_platform(profile.get("server_platform") or profile.get("platform") or config.get("server_platform") or config.get("platform"))
+        audit_rows = dashboard_player_audit_events_for_guild(player_audit_store, runtime_id) if needs_player_audit else []
+        runtime_online = online_store.get(runtime_id, []) if isinstance(online_store, dict) else []
         rows.append(
             {
                 "id": profile_id,
@@ -27090,6 +27287,9 @@ def dashboard_server_profile_rows(config: Any, guild_id: str, live_feed_store: A
                 "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(profile)),
                 "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(profile, live_feed_store, runtime_id) if needs_live_feeds else []),
                 "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, runtime_id)) if needs_live_feeds else 0,
+                "player_audit_rows": redact(audit_rows),
+                "player_audit_players": redact(dashboard_player_audit_players(audit_rows, runtime_online)),
+                "player_audit_total": len(audit_rows),
                 "config": redact(profile),
                 "server_control_config": redact(runtime_config),
                 "server_control_channels": runtime_channels,
@@ -27922,6 +28122,7 @@ COMMAND_SECTION_META = {
     "overview": {"kicker": "Start", "title": "Start Here", "body": "Live server state plus plain shortcuts for the jobs admins need most."},
     "leaderboards": {"kicker": "Progression", "title": "Leaderboards", "body": "Review player rankings, activity totals and competitive server stats."},
     "live-feeds": {"kicker": "Intel", "title": "Live Feeds", "body": "Read selected ADM feeds in the dashboard without needing every feed to post into Discord."},
+    "player-audit": {"kicker": "Staff Intel", "title": "Player Audit", "body": "Review the rolling 24-hour ADM activity trail, last known locations and player actions for the selected DayZ server."},
     "automations": {"kicker": "Discord", "title": "Discord Setup", "body": "Build automated Discord panels, announcements and welcome flows for the selected server."},
     "factions": {"kicker": "Groups", "title": "Factions", "body": "Manage faction records, balances, wages and server-linked group data."},
     "zones": {"kicker": "Territory", "title": "Zones & Radar", "body": "Draft radar, safe and PVP zones with map-first editing and coordinate readouts."},
@@ -29267,6 +29468,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     needs_pve = needs_full or active_section == "pve"
     needs_leaderboard_extras = needs_full or active_section == "leaderboards"
     needs_live_feeds = active_section == "live-feeds"
+    needs_player_audit = active_section == "player-audit"
     needs_discord_roles = needs_full or active_section in {"automations", "factions", "zones", "economy", "xml-workshop", "loot-engine", "bulk-economy", "server-rules", "shop", "access"}
     needs_discord_members = needs_full or active_section in {"factions", "members", "economy"}
 
@@ -29296,6 +29498,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
     dashboard_live_feeds = (runtime_state.get("dashboard_live_feeds") or load_store("dashboard_live_feeds", {})) if needs_live_feeds else {}
+    player_audit = (runtime_state.get("player_audit") or load_store("player_audit", {})) if needs_player_audit else {}
     shop_items: list[dict[str, Any]] = []
     shop_categories = shop_category_map_from_items(shop_items) if needs_shop else {}
     shop_status_groups = shop_status_map_from_items(shop_items) if needs_shop else {}
@@ -29358,7 +29561,15 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
             discord_member_count = discord_guild_member_count(guild_id)
         if discord_member_count is None:
             discord_member_count = len(discord_members) if discord_members else len(server_members)
-        dayz_profiles = dashboard_server_profile_rows(config, guild_id, dashboard_live_feeds, needs_live_feeds)
+        dayz_profiles = dashboard_server_profile_rows(
+            config,
+            guild_id,
+            dashboard_live_feeds,
+            needs_live_feeds,
+            player_audit,
+            needs_player_audit,
+            online_players,
+        )
         server_heatmap = heatmap_summary(heatmap, guild_id) if needs_heatmap else {"total": 0, "modes": {}}
         scenario_events = visible_scenario_events(config) if needs_pve else []
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels) if needs_pve else {"active": [], "campaigns": 0, "schedules": 0, "reward_types": [], "quest_channels": 0}
@@ -29404,6 +29615,9 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
                 "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(config, dashboard_live_feeds, guild_id) if needs_live_feeds else []),
                 "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(dashboard_live_feeds, guild_id)) if needs_live_feeds else 0,
+                "player_audit_rows": redact(dashboard_player_audit_events_for_guild(player_audit, guild_id) if needs_player_audit else []),
+                "player_audit_players": redact(dashboard_player_audit_players(dashboard_player_audit_events_for_guild(player_audit, guild_id), online) if needs_player_audit else []),
+                "player_audit_total": len(dashboard_player_audit_events_for_guild(player_audit, guild_id)) if needs_player_audit else 0,
                 "totals": totals,
                 "safe_zones": redact(safe_zones),
                 "zones": redact(zones),
@@ -29523,7 +29737,7 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "live-feeds", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "presets", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
+    valid_sections = {"overview", "leaderboards", "live-feeds", "player-audit", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "presets", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if active_section == "visual-loadout":
@@ -29562,7 +29776,7 @@ def page(mode: str, auth: dict[str, Any]):
         active_section = "overview"
     if active_section not in valid_sections:
         active_section = "overview"
-    owner_sections = {"overview", "owner", "access", "billing", "reviews", "help", "ai-agent"}
+    owner_sections = {"overview", "owner", "access", "billing", "player-audit", "reviews", "help", "ai-agent"}
     if auth.get("kind") == "owner" and mode == "owner" and active_section not in owner_sections:
         active_section = "overview"
     setup_tool = str(request.args.get("setup_tool") or "servers").strip().lower()

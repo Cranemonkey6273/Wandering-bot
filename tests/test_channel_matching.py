@@ -238,17 +238,65 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual(bot.POWERED_BY_FOOTER_TEXT, embed.footer.text)
 
-    def test_discord_setup_guide_is_public_safe_and_links_to_full_guide(self):
-        entries = bot.discord_setup_guide_entries("https://discord.example/invite")
-        guide_text = "\n".join(f"{title}\n{body}" for title, body in entries)
+    def test_last_known_location_matches_online_name_despite_adm_casing(self):
+        previous_online = bot.online_players
+        previous_locations = bot.player_last_coords
+        try:
+            bot.online_players = {"guild-1": {"Crane"}}
+            bot.player_last_coords = {}
 
-        self.assertIn("https://discord.example/invite", guide_text)
-        self.assertIn("/setup", guide_text)
-        self.assertIn("/admstatus", guide_text)
-        self.assertIn("/restartadm force", guide_text)
-        self.assertIn("/setup-guide", guide_text)
-        self.assertIn("Never post API tokens", guide_text)
-        self.assertNotIn("FTP password:", guide_text)
+            bot.remember_player_location_from_adm(
+                "guild-1",
+                '12:00:00 | Player "CRANE" built a Fence (pos=<4321.5,12.0,6789.2>)',
+            )
+
+            record = bot.player_location_record_for_name("guild-1", "Crane")
+            self.assertEqual("4321.5,12.0,6789.2", record["coords"])
+            self.assertIn("Crane", bot.player_last_coords["guild-1"])
+        finally:
+            bot.online_players = previous_online
+            bot.player_last_coords = previous_locations
+
+    def test_player_audit_records_real_adm_actions_for_24_hours(self):
+        previous_audit = bot.player_audit
+        try:
+            bot.player_audit = {}
+            changed = bot.record_player_audit_event(
+                "guild-1",
+                "build",
+                '12:00:00 | Player "Crane" built a Fence (pos=<4321.5,12.0,6789.2>)',
+                event_time=bot.datetime.now(bot.UTC),
+            )
+
+            record = bot.player_audit["guild-1"][0]
+            self.assertTrue(changed)
+            self.assertEqual("Crane", record["player"])
+            self.assertEqual("build", record["event_type"])
+            self.assertEqual("4321.5,12.0,6789.2", record["coords"])
+            self.assertIn("build activity", record["summary"])
+        finally:
+            bot.player_audit = previous_audit
+
+    def test_map_location_recovers_from_player_audit_when_cache_has_rotated(self):
+        previous_online = bot.online_players
+        previous_locations = bot.player_last_coords
+        previous_audit = bot.player_audit
+        try:
+            bot.online_players = {"guild-1": {"Crane"}}
+            bot.player_last_coords = {}
+            bot.player_audit = {
+                "guild-1": [{"player": "CRANE", "coords": "4321.5,12.0,6789.2", "occurred_at": bot.datetime.now(bot.UTC).isoformat()}]
+            }
+
+            with mock.patch.object(bot, "adm_file_path", return_value="missing.ADM"):
+                recovered = bot.reconcile_player_locations_from_cached_adm("guild-1", {}, source="test")
+
+            self.assertEqual(1, recovered)
+            self.assertEqual("4321.5,12.0,6789.2", bot.player_location_record_for_name("guild-1", "Crane")["coords"])
+        finally:
+            bot.online_players = previous_online
+            bot.player_last_coords = previous_locations
+            bot.player_audit = previous_audit
 
     def test_send_feed_embed_replaces_legacy_alpha_footer_without_style_flag(self):
         embed = FakeEmbed("Wandering Bot Alpha - Disconnect Feed")
