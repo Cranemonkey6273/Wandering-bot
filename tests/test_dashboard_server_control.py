@@ -665,6 +665,23 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual({"ok": False, "built": {}, "messages": ["blocked for test"]}, result)
         self.assertEqual([("guild-1", 37)], calls)
 
+    def test_public_pricing_shows_all_enabled_tiers_and_uses_checkout_when_configured(self):
+        plans = list(dashboard.default_billing_plan_map().values())
+        for plan in plans:
+            if plan["id"] == "dashboard_ai":
+                plan["payment_url"] = "https://payments.example.test/pro"
+
+        with patch.object(dashboard, "dashboard_billing_plans", return_value=plans):
+            public_plans = {plan["id"]: plan for plan in dashboard.public_billing_plans_for_homepage()}
+
+        self.assertEqual({"free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate"}, set(public_plans))
+        self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
+        self.assertIn("Android and Apple companion application — coming soon", public_plans["dashboard_ultimate"]["public_features"])
+        self.assertEqual("Buy now", public_plans["dashboard_ai"]["public_cta"])
+        self.assertEqual("/checkout/dashboard_ai", public_plans["dashboard_ai"]["public_checkout_url"])
+        self.assertEqual("Contact us to buy", public_plans["dashboard_ultimate"]["public_cta"])
+        self.assertEqual("Price coming soon", public_plans["dashboard_ultimate"]["public_price_text"])
+
 
 if __name__ == "__main__":
     unittest.main()

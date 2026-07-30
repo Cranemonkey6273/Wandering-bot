@@ -1727,6 +1727,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .pricing-card-title { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
     .pricing-card h3 { color: var(--text); overflow-wrap: anywhere; }
     .pricing-price { display: block; color: var(--amber); font-size: 1.3rem; line-height: 1.1; }
+    .pricing-note { min-height: 2.2rem; margin: -.25rem 0 0; color: var(--teal); font-size: .86rem; font-weight: 750; }
     .pricing-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .38rem .7rem; margin: 0; padding: 0; list-style: none; }
     .pricing-features li { position: relative; padding-left: 1rem; color: #d7e4dc; }
     .pricing-features li::before { content: ""; position: absolute; left: 0; top: .72rem; width: .38rem; height: .38rem; border-radius: 50%; background: var(--green); }
@@ -1838,6 +1839,7 @@ PUBLIC_LANDING_TEMPLATE = """
           <div class="step"><div class="num">4</div><div><strong>Open the dashboard</strong><span>Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.</span></div></div>
           <div class="step"><div class="num">5</div><div><strong>Bring players in</strong><span>Players can use <code>/linkgamer</code>. Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.</span></div></div>
         </div>
+        <div class="search-copy"><strong>Free bot access includes</strong><span>Private <code>/setup</code> guidance, ADM connection checks, core Discord player and server feeds, leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web control tools.</span></div>
       </aside>
     </section>
     {% if page.path == "/" %}
@@ -1959,7 +1961,7 @@ PUBLIC_LANDING_TEMPLATE = """
         <div>
           <p class="eyebrow">Pricing</p>
           <h2>Pick the dashboard access that fits your server</h2>
-          <p>These plans are managed from the owner billing page, so prices and checkout buttons can be changed without rebuilding the homepage.</p>
+          <p>Every available tier is shown here. Paid plans open secure checkout when their price and payment link are configured; otherwise you can contact us about that plan directly.</p>
         </div>
         <a class="button ghost" href="/login">Existing customer login</a>
       </div>
@@ -1970,8 +1972,9 @@ PUBLIC_LANDING_TEMPLATE = """
             <h3>{{ plan.name }}</h3>
             {% if plan.public_badge %}<span class="pricing-pill">{{ plan.public_badge }}</span>{% endif %}
           </div>
-          <strong class="pricing-price">{{ plan.price_text or 'Price not set' }}</strong>
+          <strong class="pricing-price">{{ plan.public_price_text }}</strong>
           <p>{{ plan.description }}</p>
+          <p class="pricing-note">{{ plan.public_purchase_note }}</p>
           <ul class="pricing-features">
             {% for feature in plan.public_features %}
             <li>{{ feature }}</li>
@@ -19490,6 +19493,15 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
 
 
 def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
+    plan_id = canonical_billing_plan_id(plan.get("id"), plan)
+    if plan_id == "free_bot":
+        return [
+            "Free Wandering Bot invite",
+            "Private /setup guidance and ADM connection checks",
+            "Core Discord player and server activity feeds",
+            "Leaderboards, Discord setup and server rules",
+        ]
+
     feature_labels = []
     features = plan.get("features") if isinstance(plan.get("features"), dict) else {}
     for key in DASHBOARD_FEATURE_KEYS:
@@ -19497,7 +19509,24 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
             feature_labels.append(DASHBOARD_FEATURE_LABELS.get(key, key.replace("_", " ").title()))
     if not feature_labels:
         feature_labels = ["Discord bot access", "Server setup help", "Basic community tools"]
-    return feature_labels
+
+    plan_highlights = {
+        "dashboard": [
+            "Everything in free bot access",
+            "Full web dashboard for trusted staff",
+            "Live survivor map and 24-hour player audit",
+        ],
+        "dashboard_ai": [
+            "Everything in Basic dashboard access",
+            "Expanded event, moderation and server-management workflow",
+        ],
+        "dashboard_ultimate": [
+            "Everything in Pro dashboard access",
+            "Private AI sandbox access",
+            "Android and Apple companion application — coming soon",
+        ],
+    }
+    return list(dict.fromkeys(plan_highlights.get(plan_id, []) + feature_labels))
 
 
 def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
@@ -19507,30 +19536,30 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
             continue
         price_text = str(plan.get("price_text") or "").strip()
         has_checkout = bool(plan.get("payment_url") or (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")))
-        if not price_text:
-            continue
-        if price_text.lower() == "set monthly price" and not has_checkout:
-            continue
         public_plan = dict(plan)
         plan_id = str(public_plan.get("id") or "")
         public_plan["public_features"] = public_billing_plan_features(public_plan)
         public_plan["public_featured"] = plan_id == "dashboard"
-        public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ""
+        public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ("App coming soon" if plan_id == "dashboard_ultimate" else "")
+        public_plan["public_price_text"] = price_text if price_text and price_text.lower() != "set monthly price" else "Price coming soon"
         if plan_id == "free_bot":
             public_plan["public_cta"] = "Add Wandering Bot"
             public_plan["public_checkout_url"] = billing_plan_selection_url(plan_id)
             public_plan["public_external_checkout"] = False
             public_plan["public_primary_cta"] = True
+            public_plan["public_purchase_note"] = "Free to add — no payment details needed."
         elif has_checkout:
-            public_plan["public_cta"] = "Subscribe"
+            public_plan["public_cta"] = "Buy now"
             public_plan["public_checkout_url"] = billing_plan_selection_url(plan_id)
             public_plan["public_external_checkout"] = False
             public_plan["public_primary_cta"] = True
+            public_plan["public_purchase_note"] = "Secure checkout available now."
         else:
-            public_plan["public_cta"] = "Open dashboard"
-            public_plan["public_checkout_url"] = "/login"
+            public_plan["public_cta"] = "Contact us to buy"
+            public_plan["public_checkout_url"] = f"/support?{urllib.parse.urlencode({'plan': plan_id})}"
             public_plan["public_external_checkout"] = False
             public_plan["public_primary_cta"] = False
+            public_plan["public_purchase_note"] = "Direct checkout is being finalised for this tier."
         public_plans.append(public_plan)
     return public_plans[:4]
 
