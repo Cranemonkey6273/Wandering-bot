@@ -238,6 +238,18 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual(bot.POWERED_BY_FOOTER_TEXT, embed.footer.text)
 
+    def test_discord_setup_guide_is_public_safe_and_links_to_full_guide(self):
+        entries = bot.discord_setup_guide_entries("https://discord.example/invite")
+        guide_text = "\n".join(f"{title}\n{body}" for title, body in entries)
+
+        self.assertIn("https://discord.example/invite", guide_text)
+        self.assertIn("/setup", guide_text)
+        self.assertIn("/admstatus", guide_text)
+        self.assertIn("/restartadm force", guide_text)
+        self.assertIn("/setup-guide", guide_text)
+        self.assertIn("Never post API tokens", guide_text)
+        self.assertNotIn("FTP password:", guide_text)
+
     def test_send_feed_embed_replaces_legacy_alpha_footer_without_style_flag(self):
         embed = FakeEmbed("Wandering Bot Alpha - Disconnect Feed")
         channel = FakeSendChannel()

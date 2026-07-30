@@ -336,6 +336,18 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual("/checkout/dashboard?source=www.google.com", url)
 
+    def test_public_setup_guide_is_available_before_login_and_downloadable(self):
+        guide = dashboard.PUBLIC_SEO_GUIDES["wandering-bot-setup"]
+        download = dashboard.public_setup_guide_download_text()
+
+        self.assertEqual("/setup-guide", guide["path"])
+        self.assertIn("Read the setup guide", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn('href="/setup-guide/download"', dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Nitrado service ID and API token", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("WANDERING BOT SETUP GUIDE", download)
+        self.assertIn("run /setup", download)
+        self.assertIn("Never post Nitrado API tokens", download)
+
     def test_dashboard_feature_allowed_uses_plan_for_missing_feature_keys(self):
         plans = list(dashboard.default_billing_plan_map().values())
         config = {

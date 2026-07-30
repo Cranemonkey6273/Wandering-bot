@@ -789,6 +789,31 @@ PUBLIC_SEO_PAGES = {
 }
 
 PUBLIC_SEO_GUIDES = {
+    "wandering-bot-setup": {
+        "path": "/setup-guide",
+        "title": "Wandering Bot Setup Guide - Add Your DayZ Discord Bot",
+        "description": "A no-login starter guide for adding Wandering Bot to Discord, collecting the right Nitrado details, starting ADM feeds, and opening the dashboard.",
+        "eyebrow": "Start here",
+        "headline": "Set up Wandering Bot before you log in",
+        "lead": "Use this checklist before inviting the bot. It explains what you need, where to find it, and the first safe checks after setup for DayZ PC, Xbox, and PlayStation servers.",
+        "category": "Setup guide",
+        "reading_time": "6 min",
+        "keywords": ["Wandering Bot setup", "DayZ Discord bot setup", "Nitrado DayZ bot", "DayZ ADM killfeed setup", "DayZ bot FTP setup"],
+        "sections": [
+            ("1. Check Discord access first", "You need to be the Discord server owner or an administrator. Invite Wandering Bot to that server and approve its requested permissions. For role features, place the Wandering Bot role above every role it must add or remove. Do not give its dashboard password to normal members."),
+            ("2. Invite the bot and run /setup", "Use the Add Wandering Bot button, select the correct Discord server, then run /setup in Discord. Choose the DayZ platform and map, then enter the server details only for that DayZ profile. The bot returns the dashboard ID and a one-time password privately to the administrator who completes setup."),
+            ("3. Gather Nitrado details", "Open the correct DayZ service in your Nitrado account. Copy its service ID from the selected server/service page. Create or copy a Nitrado API token from your Nitrado account/API settings. Keep the token private: it is for the bot connection, not for Discord chat or screenshots."),
+            ("4. Gather FTP details", "In the same Nitrado DayZ service, open the FTP/file-access details and copy the FTP host, username, and password. These must belong to the same server as the service ID. Use them only in the private setup flow or owner dashboard; never paste them in public channels."),
+            ("5. Start with the safe checks", "After setup, run /admstatus to confirm the bot can see ADM activity. Once an ADM log exists, run /restartadm force once to begin the first scan. Confirm a connection or killfeed event arrives before changing advanced features such as events, XML tools, vehicle resets, or economy settings."),
+            ("6. Open the dashboard", "Use the private dashboard ID and one-time password from /setup to log in. Start with server profile, feed routes, and dashboard access. Set up trusted staff accounts only after the owner login is working. Cherno, Livonia, Sakhal, and separate customer servers should always use their own profile and credentials."),
+        ],
+        "faqs": [
+            ("Where do I find the service ID?", "Open the selected DayZ server in Nitrado and use the service/server identifier shown for that service. Do not use an ID from a different game or DayZ server."),
+            ("Do I need to share my Nitrado password?", "No. Use the dedicated API token and the FTP credentials requested by the private setup flow. Never share account passwords, tokens, or FTP details in Discord."),
+            ("Can I set up a console server?", "Yes. Select Xbox or PlayStation during setup, keep the correct map/profile selected, and make sure ADM logs are available before checking the feeds."),
+        ],
+        "related": ["dayz-bot", "dayz-killfeed-bot", "dayz-nitrado-server-tools", "dayz-server-dashboard"],
+    },
     "dayz-discord-killfeed-setup": {
         "path": "/guides/dayz-discord-killfeed-setup",
         "title": "How to Add a DayZ Killfeed to Discord - Wandering Bot Guide",
@@ -1780,6 +1805,7 @@ PUBLIC_LANDING_TEMPLATE = """
         <p class="lead">{{ page.lead }}</p>
         <div class="actions">
           <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Wandering Bot</a>
+          <a class="button" href="/setup-guide">Read the setup guide</a>
           <a class="button" href="/login">Open existing dashboard</a>
           {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
         </div>
@@ -1804,6 +1830,27 @@ PUBLIC_LANDING_TEMPLATE = """
         </div>
       </aside>
     </section>
+    {% if page.path == "/" %}
+    <section class="guide-section" id="start-here" aria-label="Wandering Bot starter guide">
+      <header>
+        <p class="eyebrow">New server checklist</p>
+        <h2>Everything to prepare before setup</h2>
+        <p>You do not need a dashboard login to use this guide. Gather the right details first, then run the private Discord setup without putting any credentials in public chat.</p>
+      </header>
+      <div class="guide-grid">
+        <article class="guide-card"><small>Step 1</small><strong>Discord permissions</strong><span>Be the server owner or an administrator. After inviting the bot, place its Discord role above every role it needs to manage.</span></article>
+        <article class="guide-card"><small>Step 2</small><strong>Nitrado service ID and API token</strong><span>Open the correct DayZ service in Nitrado. Copy its service ID and create or copy an API token from the account/API settings. Keep the token private.</span></article>
+        <article class="guide-card"><small>Step 3</small><strong>FTP access for that same server</strong><span>Use the FTP/file-access details for the selected DayZ service: host, username, and password. Never post these in Discord.</span></article>
+        <article class="guide-card"><small>Step 4</small><strong>Platform, map, and ADM logs</strong><span>Know whether the server is PC, Xbox, or PlayStation and choose the right map. ADM logs must be available before feeds can start.</span></article>
+        <article class="guide-card"><small>Step 5</small><strong>Run the first checks</strong><span>Run <code>/setup</code>, then <code>/admstatus</code>, and finally <code>/restartadm force</code> once to confirm the first feed scan.</span></article>
+        <article class="guide-card"><small>Keep it safe</small><strong>One server profile at a time</strong><span>Keep each Cherno, Livonia, Sakhal, or customer server on its own profile with its own credentials and feed routes.</span></article>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="/setup-guide">View the complete setup guide</a>
+        <a class="button" href="/setup-guide/download">Download the setup guide</a>
+      </div>
+    </section>
+    {% endif %}
     {% if page.app_pitch %}
     <section class="app-section" id="mobile-app" aria-label="Wandering Bot mobile dashboard">
       <header>
@@ -22813,6 +22860,29 @@ def public_guide_cards() -> list[dict[str, str]]:
     return cards
 
 
+def public_setup_guide_download_text() -> str:
+    """Build the no-login starter guide as a small, portable text download."""
+    guide = PUBLIC_SEO_GUIDES["wandering-bot-setup"]
+    lines = [
+        "WANDERING BOT SETUP GUIDE",
+        "=" * 26,
+        "",
+        str(guide["lead"]),
+        "",
+    ]
+    for title, body in guide["sections"]:
+        lines.extend([str(title), "-" * len(str(title)), str(body), ""])
+    lines.extend([
+        "Quick safety reminder",
+        "---------------------",
+        "Never post Nitrado API tokens, FTP details, dashboard passwords, or account passwords in Discord. Use the private /setup flow and owner dashboard only.",
+        "",
+        "Need help? Use the Wandering Bot support Discord after inviting the bot.",
+        "",
+    ])
+    return "\n".join(lines)
+
+
 def public_related_pages(keys: Iterable[str]) -> list[dict[str, str]]:
     related = []
     for key in keys or []:
@@ -30502,6 +30572,18 @@ def public_checkout(plan_id: str):
     if not (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")):
         return redirect("/#pricing")
     return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan, pwa_theme_color=PWA_THEME_COLOR)
+
+
+@APP.get("/setup-guide/download")
+def public_setup_guide_download():
+    response = Response(public_setup_guide_download_text(), content_type="text/plain; charset=utf-8")
+    response.headers["Content-Disposition"] = 'attachment; filename="wandering-bot-setup-guide.txt"'
+    return response
+
+
+@APP.get("/setup-guide")
+def public_setup_guide():
+    return public_landing_page(guide_key="wandering-bot-setup")
 
 
 @APP.get("/dayz-kill-feed-bot")

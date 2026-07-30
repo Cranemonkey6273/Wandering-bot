@@ -16821,6 +16821,51 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     return created["credentials"], created["password"]
 
 
+def discord_setup_guide_entries(invite_url=""):
+    """Short public-safe setup copy for a Discord information channel."""
+    invite = str(invite_url or bot_invite_url()).strip()
+    setup_guide_url = f"{DASHBOARD_PUBLIC_URL.rstrip('/')}/setup-guide"
+    return [
+        (
+            "1 · Add Wandering Bot",
+            f"[Invite the bot]({invite}) to the Discord server you own or administer. "
+            "For role features, keep the Wandering Bot role above roles it must manage.",
+        ),
+        (
+            "2 · Prepare the private server details",
+            "From the correct Nitrado DayZ service, collect its service ID, API token, and FTP host/login. "
+            "Choose the matching platform and map (Chernarus, Livonia, or Sakhal).",
+        ),
+        (
+            "3 · Run the private setup",
+            "An administrator runs `/setup` and enters those details in the private command form. "
+            "Never post API tokens, FTP details, dashboard passwords, or account passwords in this channel.",
+        ),
+        (
+            "4 · Confirm feeds",
+            "Run `/admstatus`, then `/restartadm force` once an ADM log is available. "
+            "Check that a connect or killfeed event arrives before enabling advanced server tools.",
+        ),
+        (
+            "5 · Open the dashboard",
+            f"`/setup` gives the administrator a private dashboard login. Read the full guide here: {setup_guide_url}",
+        ),
+    ]
+
+
+def build_discord_setup_guide_embed(invite_url=""):
+    embed = discord.Embed(
+        title="🧭 WANDERING BOT | START HERE",
+        description="A quick, safe checklist for connecting a new DayZ server to Wandering Bot.",
+        color=0x35D4C2,
+    )
+    for title, value in discord_setup_guide_entries(invite_url):
+        embed.add_field(name=title, value=value, inline=False)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot • Keep all Nitrado and FTP credentials private")
+    return style_embed(embed)
+
+
 @bot.tree.command(
     name="setup",
     description="Connect your Nitrado server"
@@ -17408,6 +17453,25 @@ async def setup_command(
             "Use `/dashboardcredentials reset:true` if you need a new one.",
             ephemeral=True,
         )
+
+
+@bot.tree.command(name="setupguide", description="Admin: post the Wandering Bot setup guide in this channel")
+@app_commands.default_permissions(administrator=True)
+async def setup_guide_channel_command(interaction: discord.Interaction):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    channel = getattr(interaction, "channel", None)
+    if not channel:
+        await interaction.response.send_message("Run this command inside the channel where you want the guide posted.", ephemeral=True)
+        return
+
+    await interaction.response.send_message("Setup guide posted in this channel.", ephemeral=True)
+    await channel.send(
+        embed=build_discord_setup_guide_embed(),
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
 
 
 @bot.tree.command(name="dashboardcredentials", description="Admin: view or reset this server's private dashboard login")
