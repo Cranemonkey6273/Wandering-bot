@@ -46,6 +46,7 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "globals.xml": DayZFileSpec("globals.xml", "xml", "variables", ("var",), description="global economy variables"),
     "economy.xml": DayZFileSpec("economy.xml", "xml", "economy", description="central economy switches"),
     "cfgeconomycore.xml": DayZFileSpec("cfgeconomycore.xml", "xml", "economycore", description="economy file includes"),
+    "cfgweather.xml": DayZFileSpec("cfgweather.xml", "xml", "weather", ("overcast",), description="weather, rain, fog and storm settings"),
     "cfggameplay.json": DayZFileSpec("cfggameplay.json", "json", json_root_types=("object",), description="gameplay flags and object spawner references"),
     "cfgeffectarea.json": DayZFileSpec("cfgeffectarea.json", "json", json_root_types=("object",), description="gas particle settings"),
     "cfgplayerspawn.json": DayZFileSpec("cfgplayerspawn.json", "json", json_root_types=("object",), description="fresh spawn loadouts"),

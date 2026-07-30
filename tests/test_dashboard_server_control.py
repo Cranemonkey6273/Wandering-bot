@@ -720,6 +720,80 @@ class DashboardServerControlTests(unittest.TestCase):
         load_emojis.assert_called_once_with("guild-1")
         self.assertEqual("<:cherno:123456789012345678>", dashboard.normalize_dashboard_onboarding_emoji(server_emoji["value"]))
 
+    def test_dayz_file_workbench_normalizes_a_types_fragment_as_a_merge_patch(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "types.xml",
+                "dayz_map": "Chernarus",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": '<type name="AKM"><nominal>4</nominal></type>',
+            },
+            "Make AKM more common without replacing the economy.",
+        )
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {
+                "target_path": "db/types.xml",
+                "kind": "patch",
+                "content": '<types><type name="AKM"><nominal>8</nominal><lifetime>14400</lifetime><restock>1800</restock><min>4</min><quantmin>-1</quantmin><quantmax>-1</quantmax><cost>100</cost><flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" count_in_player="0" crafted="0" deloot="0" /></type></types>',
+                "summary": "Increase AKM nominal only.",
+            },
+            context,
+        )
+
+        self.assertEqual("db/types.xml", context["target_path"])
+        self.assertTrue(context["allows_merge_patch"])
+        self.assertEqual("", error)
+        self.assertEqual("patch", draft["kind"])
+        self.assertTrue(draft["merge_required"])
+
+    def test_dayz_full_draft_requires_complete_current_file_and_preserves_existing_types(self):
+        current = '<types><type name="AKM" /><type name="M4A1" /></types>'
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "db/types.xml",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": current,
+            },
+            "Make the AKM more common.",
+        )
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {"kind": "full_file", "content": '<types><type name="AKM" /></types>'},
+            context,
+        )
+
+        self.assertIsNone(draft)
+        self.assertIn("removes existing records", error)
+
+    def test_dayz_file_plan_and_template_include_the_specialist_workbench(self):
+        plan = dashboard.ai_agent_plan_from_objective(
+            "Make the weather drier but retain storms.",
+            "dayz_files",
+            {"read": True, "edit": True, "execute": False, "deploy": False},
+            {"god_mode_enabled": False},
+        )
+
+        self.assertTrue(any(step["agent"] == "DayZ File Specialist" for step in plan["steps"]))
+        self.assertIn('value="dayz_files"', dashboard.PAGE_TEMPLATE)
+        self.assertIn('name="dayz_file_target"', dashboard.PAGE_TEMPLATE)
+        self.assertIn("DayZ File Drafts", dashboard.PAGE_TEMPLATE)
+
+    def test_dayz_task_state_hides_pasted_file_and_download_content(self):
+        task = {
+            "id": "ai-1",
+            "dayz_context": {"target_path": "db/types.xml", "source_text": "private current file", "source_excerpt": "private"},
+            "dayz_draft": {"id": "dayz-draft-1", "content": "private draft", "target_path": "db/types.xml"},
+        }
+
+        public = dashboard.ai_agent_public_task(task)
+
+        self.assertNotIn("source_text", public["dayz_context"])
+        self.assertNotIn("source_excerpt", public["dayz_context"])
+        self.assertNotIn("content", public["dayz_draft"])
+        self.assertEqual("private current file", task["dayz_context"]["source_text"])
+        self.assertEqual("private draft", task["dayz_draft"]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,6 +43,24 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/env/wanderingbot_animal_bear_territories.xml"),
             "territory-type",
         )
+        self.assertEqual(
+            dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.chernarusplus/cfgweather.xml"),
+            "weather",
+        )
+
+    def test_cfgweather_uses_the_protected_weather_root(self):
+        ok, message = validate_dayz_upload_text(
+            "/dayzxb_missions/dayzOffline.chernarusplus/cfgweather.xml",
+            '<weather reset="0" enable="1"><overcast><current actual="0.4" time="120" duration="600" /></overcast></weather>',
+        )
+
+        self.assertTrue(ok, message)
+        ok, message = validate_dayz_upload_text(
+            "/dayzxb_missions/dayzOffline.chernarusplus/cfgweather.xml",
+            '<weather reset="0" enable="1" />',
+        )
+        self.assertFalse(ok)
+        self.assertIn("no <overcast>", message)
 
     def test_vanilla_reference_files_load_for_all_supported_maps(self):
         bot.dayz_reference_cache.clear()

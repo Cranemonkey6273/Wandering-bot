@@ -3812,6 +3812,10 @@ PAGE_TEMPLATE = """
     .ai-codex-composer textarea { min-height: 6.5rem; resize: vertical; border-radius: .75rem; font-size: .98rem; line-height: 1.45; }
     .ai-codex-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .45rem; align-items: end; }
     .ai-codex-options label { min-width: 0; }
+    .ai-dayz-workbench { border: 1px solid rgba(126, 204, 184, .24); border-radius: .75rem; padding: .7rem; background: rgba(8, 24, 19, .5); }
+    .ai-dayz-workbench summary { cursor: pointer; color: var(--text); font-weight: 850; }
+    .ai-dayz-workbench p { margin: .6rem 0; }
+    .ai-dayz-workbench textarea { min-height: 10rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .84rem; }
     .ai-codex-toggle-row { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
     .ai-codex-toggle-row label { display: inline-flex; flex-direction: row; align-items: center; gap: .35rem; border: 1px solid rgba(103,245,231,.14); border-radius: .55rem; padding: .45rem .55rem; background: rgba(2, 9, 12, .72); color: var(--muted); font-size: .84rem; }
     .ai-codex-toggle-row input { width: auto; min-height: 0; }
@@ -6695,6 +6699,7 @@ PAGE_TEMPLATE = """
                   <option value="auto">Auto detect</option>
                   <option value="discord_bot">Discord bot</option>
                   <option value="dashboard">Dashboard</option>
+                  <option value="dayz_files">DayZ files</option>
                   <option value="python">Python</option>
                   <option value="node">Node / TypeScript</option>
                   <option value="docker">Docker deployment</option>
@@ -6718,6 +6723,35 @@ PAGE_TEMPLATE = """
                 </select>
               </label>
             </div>
+            <details class="ai-dayz-workbench">
+              <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
+              <p class="tool-note">Choose the file, map and what you want changed. Paste a complete current file for a replacement draft, or a relevant XML section for a merge-only patch. The sandbox never uploads a draft by itself.</p>
+              <div class="ai-codex-options">
+                <label>DayZ file
+                  <select name="dayz_file_target">
+                    <option value="">Choose a protected file</option>
+                    {% for target_path, target_label in ai_agent_dayz_targets %}
+                    <option value="{{ target_path }}">{{ target_label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>Map
+                  <select name="dayz_map">
+                    {% for map in dayz_preset_maps %}
+                    <option value="{{ map.key }}" {% if map.key == dayz_preset_map.key %}selected{% endif %}>{{ map.label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>What did you paste?
+                  <select name="dayz_source_mode">
+                    <option value="complete">Complete current file</option>
+                    <option value="fragment">Relevant XML section / fragment</option>
+                  </select>
+                </label>
+              </div>
+              <label class="full">Current file or relevant section<textarea name="dayz_file_source" spellcheck="false" placeholder="Optional but strongly recommended. Never paste a Nitrado token, password or API key here."></textarea></label>
+              <p class="tool-note">For <code>types.xml</code>, <code>events.xml</code> and other CE XML files, a fragment becomes a merge-required patch. It cannot be treated as a replacement for the full live file.</p>
+            </details>
             <div class="ai-codex-toggle-row">
               <label><input type="checkbox" name="allow_read" value="1" checked> Read</label>
               <label><input type="checkbox" name="allow_edit" value="1" checked> Edit</label>
@@ -6758,6 +6792,21 @@ PAGE_TEMPLATE = """
                 <span>Ask the sandbox to inspect, validate, build, test, or continue a run.</span>
               </div>
               {% endif %}
+            </div>
+          </section>
+          <section class="admin-panel" data-ai-dayz-drafts-panel>
+            <h3>DayZ File Drafts</h3>
+            <div class="ai-agent-plan" data-ai-dayz-draft-list>
+              {% for draft in ai_agent_dayz_drafts %}
+              <div class="ai-agent-step">
+                <strong>{{ draft.target_path }} - {{ draft.validation|title }}</strong>
+                <span>{{ draft.summary }}</span>
+                <span class="tool-note">{{ draft.map|title }} · {{ draft.content_chars }} characters · {{ 'Merge patch - do not upload whole' if draft.merge_required else 'Complete-file draft - review before protected upload' }}</span>
+                <button type="button" data-ai-dayz-draft-download="{{ draft.id }}">Download draft</button>
+              </div>
+              {% else %}
+              <div class="ai-agent-step"><strong>No DayZ draft yet</strong><span>Ask the File Workbench to create or validate a file draft.</span></div>
+              {% endfor %}
             </div>
           </section>
           <section class="admin-panel">
@@ -15927,6 +15976,43 @@ PAGE_TEMPLATE = """
       });
       if (added) aiChatScroll(thread);
     }
+    function aiAgentWireDayzDraftDownload(button) {
+      if (!button || button.dataset.aiDayzDraftReady === "true") return;
+      button.dataset.aiDayzDraftReady = "true";
+      button.addEventListener("click", () => {
+        const draftId = String(button.dataset.aiDayzDraftDownload || "").trim();
+        if (!draftId) return;
+        window.location.assign(aiAgentJsonRoute(`/api/ai-agent/dayz-draft/${encodeURIComponent(draftId)}`));
+      });
+    }
+    function aiAgentUpdateDayzDrafts(state) {
+      const target = document.querySelector("[data-ai-dayz-draft-list]");
+      if (!target) return;
+      const drafts = Array.isArray(state?.dayz_drafts) ? state.dayz_drafts : [];
+      target.replaceChildren();
+      if (!drafts.length) {
+        target.append(aiAgentStepNode("No DayZ draft yet", "Ask the File Workbench to create or validate a file draft."));
+        return;
+      }
+      drafts.slice(0, 12).forEach((draft) => {
+        const item = document.createElement("div");
+        item.className = "ai-agent-step";
+        const title = document.createElement("strong");
+        title.textContent = `${draft.target_path || "DayZ file"} - ${String(draft.validation || "passed").replace(/\\b\\w/g, (letter) => letter.toUpperCase())}`;
+        const detail = document.createElement("span");
+        detail.textContent = String(draft.summary || "Validated DayZ draft prepared by the sandbox.");
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = `${draft.map || "chernarus"} · ${Number(draft.content_chars || 0).toLocaleString()} characters · ${draft.merge_required ? "Merge patch - do not upload whole" : "Complete-file draft - review before protected upload"}`;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.aiDayzDraftDownload = String(draft.id || "");
+        button.textContent = "Download draft";
+        item.append(title, detail, note, button);
+        aiAgentWireDayzDraftDownload(button);
+        target.append(item);
+      });
+    }
     function aiAgentSyncState(state, form, thread) {
       if (!state || state.ok === false) return;
       aiAgentUpdateStats(state);
@@ -15934,6 +16020,7 @@ PAGE_TEMPLATE = """
       aiAgentUpdateCurrentRun(state, form);
       aiAgentUpdateLatestPlan(state, form, thread);
       aiAgentUpdateWorkStream(state);
+      aiAgentUpdateDayzDrafts(state);
       aiAgentUpdateContextPanel(state);
       aiAgentUpdateConsolePanel(state);
       aiAgentFetchFiles(form, state, {silent: true});
@@ -16052,6 +16139,9 @@ PAGE_TEMPLATE = """
       });
       document.querySelectorAll("[data-ai-command-suggestion]").forEach((button) => {
         aiAgentWireCommandSuggestion(button, form, thread);
+      });
+      document.querySelectorAll("[data-ai-dayz-draft-download]").forEach((button) => {
+        aiAgentWireDayzDraftDownload(button);
       });
       document.querySelectorAll("[data-ai-quick-prompt]").forEach((button) => {
         if (button.dataset.aiQuickPromptReady === "true") return;
@@ -19885,6 +19975,11 @@ try:
 except (TypeError, ValueError):
     AI_AGENT_LLM_TIMEOUT_SECONDS = 45
 AI_AGENT_LLM_TIMEOUT_SECONDS = max(5, min(120, AI_AGENT_LLM_TIMEOUT_SECONDS))
+try:
+    AI_AGENT_LLM_MAX_TOKENS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_MAX_TOKENS", "3600")))
+except (TypeError, ValueError):
+    AI_AGENT_LLM_MAX_TOKENS = 3600
+AI_AGENT_LLM_MAX_TOKENS = max(600, min(8000, AI_AGENT_LLM_MAX_TOKENS))
 AI_AGENT_MAX_LOG_CHARS = 12000
 AI_AGENT_BLOCKED_COMMAND_TERMS = (
     "docker.sock",
@@ -19929,6 +20024,23 @@ AI_AGENT_FILE_PREVIEW_MAX_BYTES = 240_000
 AI_AGENT_FILE_LIST_MAX_ITEMS = 180
 AI_AGENT_CHANGE_LIST_MAX_ITEMS = 140
 AI_AGENT_DIFF_MAX_CHARS = 80_000
+AI_AGENT_DAYZ_SOURCE_MAX_CHARS = 90_000
+AI_AGENT_DAYZ_DRAFT_MAX_CHARS = 90_000
+AI_AGENT_DAYZ_TARGETS = (
+    ("db/types.xml", "types.xml - loot economy quantities, lifetime and tiers"),
+    ("cfgweather.xml", "cfgweather.xml - rain, fog, wind and storms"),
+    ("cfggameplay.json", "cfggameplay.json - gameplay, stamina and world settings"),
+    ("cfgspawnabletypes.xml", "cfgspawnabletypes.xml - attachments and cargo"),
+    ("db/events.xml", "events.xml - CE event definitions"),
+    ("cfgeventspawns.xml", "cfgeventspawns.xml - CE event positions"),
+    ("cfgeventgroups.xml", "cfgeventgroups.xml - CE event groups"),
+    ("mapgroupproto.xml", "mapgroupproto.xml - map group loot prototypes"),
+    ("db/globals.xml", "globals.xml - CE global variables"),
+    ("db/economy.xml", "economy.xml - CE economy switches"),
+    ("cfgenvironment.xml", "cfgenvironment.xml - environment and territory references"),
+    ("cfgareaeffects.xml", "cfgareaeffects.xml - contaminated-area presets"),
+    ("cfgplayerspawn.json", "cfgplayerspawn.json - fresh-spawn loadouts"),
+)
 
 
 def ai_agent_workspace_root_ready() -> bool:
@@ -21419,6 +21531,213 @@ def ai_agent_compact_text(value: Any, limit: int = 500) -> str:
     return text
 
 
+def ai_agent_dayz_target_path(value: Any) -> str:
+    raw = str(value or "").replace("\\", "/").strip().lstrip("/")
+    if not raw:
+        return ""
+    lowered = raw.lower()
+    for target_path, _label in AI_AGENT_DAYZ_TARGETS:
+        if lowered == target_path.lower():
+            return target_path
+    filename = os.path.basename(lowered)
+    for target_path, _label in AI_AGENT_DAYZ_TARGETS:
+        if filename == os.path.basename(target_path).lower():
+            return target_path
+    return ""
+
+
+def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = "") -> dict[str, Any]:
+    payload = payload if isinstance(payload, dict) else {}
+    project_type = str(payload.get("project_type") or "auto").strip().lower()
+    requested_target = payload.get("dayz_file_target") or payload.get("target_path")
+    target_path = ai_agent_dayz_target_path(requested_target)
+    lower = " ".join([str(objective or ""), str(requested_target or ""), project_type]).lower()
+    is_dayz_request = project_type == "dayz_files" or bool(requested_target) or any(
+        term in lower
+        for term in ("dayz", "types.xml", "cfgweather", "weather.xml", "cfggameplay", "eventspawns", "spawnabletypes", "central economy")
+    )
+    if not is_dayz_request:
+        return {}
+
+    source_text = str(payload.get("dayz_file_source") or payload.get("source_text") or "")
+    source_mode = str(payload.get("dayz_source_mode") or ("complete" if source_text.strip() else "none")).strip().lower()
+    if source_mode not in {"complete", "fragment", "none"}:
+        source_mode = "complete" if source_text.strip() else "none"
+    source_error = ""
+    if len(source_text) > AI_AGENT_DAYZ_SOURCE_MAX_CHARS:
+        source_error = (
+            f"The pasted file is {len(source_text):,} characters. Paste the relevant section instead "
+            f"(maximum {AI_AGENT_DAYZ_SOURCE_MAX_CHARS:,} characters)."
+        )
+        source_text = source_text[:AI_AGENT_DAYZ_SOURCE_MAX_CHARS]
+        source_mode = "fragment"
+    spec = dayz_file_spec_for_path(target_path) if target_path else None
+    validation_ok: bool | None = None
+    validation_message = ""
+    if source_text.strip() and target_path and source_mode == "complete":
+        validation_ok, validation_message = validate_dayz_upload_text(target_path, source_text)
+    elif source_text.strip() and source_mode == "fragment":
+        validation_message = "A section was supplied. It is reference material only and cannot be uploaded as a full file."
+    elif requested_target and not target_path:
+        validation_message = "Choose one of the protected DayZ file targets before asking the sandbox to create a file."
+
+    return {
+        "enabled": True,
+        "target_path": target_path,
+        "target_error": "" if target_path or not requested_target else validation_message,
+        "map": normalize_dayz_reference_map_key(payload.get("dayz_map")),
+        "source_mode": source_mode,
+        "source_text": source_text,
+        "source_chars": len(source_text),
+        "source_excerpt": ai_agent_compact_text(source_text, 900),
+        "source_error": source_error,
+        "source_validation": {"ok": validation_ok, "message": validation_message},
+        "file_kind": spec.kind if spec else "",
+        "expected_root": spec.xml_root if spec and spec.kind == "xml" else "",
+        "description": spec.description if spec else "",
+        "allows_merge_patch": bool(spec and spec.kind == "xml" and spec.required_children),
+    }
+
+
+def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
+    if not isinstance(context, dict) or not context.get("enabled"):
+        return {}
+    return {
+        "target_path": context.get("target_path"),
+        "target_error": context.get("target_error"),
+        "map": context.get("map"),
+        "source_mode": context.get("source_mode"),
+        "source_chars": context.get("source_chars"),
+        "source_error": context.get("source_error"),
+        "source_validation": context.get("source_validation"),
+        "file_kind": context.get("file_kind"),
+        "expected_root": context.get("expected_root"),
+        "description": context.get("description"),
+        "allows_merge_patch": context.get("allows_merge_patch"),
+        "source_text": context.get("source_text", ""),
+    }
+
+
+def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, Any] | None, str]:
+    if not isinstance(value, dict) or not isinstance(context, dict) or not context.get("enabled"):
+        return None, ""
+    target_path = ai_agent_dayz_target_path(value.get("target_path") or context.get("target_path"))
+    expected_target = str(context.get("target_path") or "")
+    if not target_path or not expected_target:
+        return None, "No file draft was saved because no protected DayZ target file was selected."
+    if target_path != expected_target:
+        return None, "No file draft was saved because its target did not match the selected DayZ file."
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec:
+        return None, "No file draft was saved because that DayZ file is not in the protected target list."
+    content = str(value.get("content") or value.get("text") or value.get("file_content") or "").strip()
+    if not content:
+        return None, ""
+    if len(content) > AI_AGENT_DAYZ_DRAFT_MAX_CHARS:
+        return None, f"No file draft was saved because it exceeds {AI_AGENT_DAYZ_DRAFT_MAX_CHARS:,} characters."
+    raw_kind = str(value.get("kind") or value.get("draft_kind") or "").strip().lower().replace("-", "_")
+    kind = "patch" if raw_kind in {"patch", "merge", "merge_patch", "snippet"} else "full_file"
+    source_mode = str(context.get("source_mode") or "none")
+    if kind == "patch" and not (spec.kind == "xml" and spec.required_children):
+        return None, f"No file draft was saved: {target_path} needs a complete current file, not a merge patch."
+    if kind == "full_file" and source_mode != "complete":
+        return None, f"No file draft was saved: a full {target_path} replacement needs the complete current file for comparison."
+    if kind == "full_file" and (not str(context.get("source_text") or "").strip() or context.get("source_error")):
+        return None, f"No file draft was saved: a full {target_path} replacement needs a valid, complete current file."
+    source_validation = context.get("source_validation") if isinstance(context.get("source_validation"), dict) else {}
+    if kind == "full_file" and source_validation.get("ok") is False:
+        return None, f"No file draft was saved: the supplied current {target_path} did not pass validation. {source_validation.get('message') or ''}".strip()
+    valid, validation_message = validate_dayz_upload_text(target_path, content)
+    if not valid:
+        return None, f"No file draft was saved because validation failed: {validation_message}"
+    if kind == "full_file":
+        current_text = str(context.get("source_text") or "")
+        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, current_text, content)
+        if not shrink_ok:
+            return None, f"No file draft was saved because it looks destructive: {shrink_message}"
+        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, current_text, content)
+        if not preserve_ok:
+            return None, f"No file draft was saved because it removes existing records: {preserve_message}"
+    now = datetime.now(UTC).isoformat()
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": target_path,
+        "map": str(context.get("map") or "chernarus"),
+        "kind": kind,
+        "merge_required": kind == "patch",
+        "content": content + ("\n" if not content.endswith("\n") else ""),
+        "content_chars": len(content),
+        "summary": ai_agent_compact_text(value.get("summary") or value.get("description") or "Validated DayZ draft prepared by the sandbox.", 420),
+        "validation": "passed",
+        "created_at": now,
+        "updated_at": now,
+    }, ""
+
+
+def ai_agent_dayz_draft_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for task in state.get("tasks", []) if isinstance(state.get("tasks"), list) else []:
+        if not isinstance(task, dict):
+            continue
+        draft = task.get("dayz_draft")
+        if not isinstance(draft, dict) or not draft.get("id") or not draft.get("content"):
+            continue
+        summaries.append(
+            {
+                "id": str(draft.get("id")),
+                "task_id": str(task.get("id") or ""),
+                "target_path": str(draft.get("target_path") or ""),
+                "map": str(draft.get("map") or "chernarus"),
+                "kind": str(draft.get("kind") or "patch"),
+                "merge_required": bool(draft.get("merge_required")),
+                "content_chars": safe_int(draft.get("content_chars"), len(str(draft.get("content") or ""))),
+                "summary": ai_agent_compact_text(draft.get("summary"), 420),
+                "validation": str(draft.get("validation") or "passed"),
+                "created_at": str(draft.get("created_at") or task.get("created_at") or ""),
+            }
+        )
+    return summaries[:20]
+
+
+def ai_agent_public_task(task: dict[str, Any]) -> dict[str, Any]:
+    public = dict(task)
+    context = public.get("dayz_context")
+    if isinstance(context, dict):
+        public_context = dict(context)
+        public_context.pop("source_text", None)
+        public_context.pop("source_excerpt", None)
+        public["dayz_context"] = public_context
+    draft = public.get("dayz_draft")
+    if isinstance(draft, dict):
+        public_draft = dict(draft)
+        public_draft.pop("content", None)
+        public["dayz_draft"] = public_draft
+    return public
+
+
+def ai_agent_dayz_fallback_reply(task: dict[str, Any]) -> str:
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or not context.get("enabled"):
+        return ""
+    target_path = str(context.get("target_path") or "selected DayZ file")
+    source_validation = context.get("source_validation") if isinstance(context.get("source_validation"), dict) else {}
+    lines = [f"DayZ File Workbench is set to {target_path} for {context.get('map') or 'chernarus'}."]
+    if context.get("source_error"):
+        lines.append(str(context["source_error"]))
+    elif context.get("source_text"):
+        if source_validation.get("ok") is True:
+            lines.append("The complete current file passed the protected file check.")
+        elif context.get("source_mode") == "fragment":
+            lines.append("The pasted content is being treated as a merge-only reference section, never as a complete upload.")
+        else:
+            lines.append(f"The supplied current file needs attention before drafting: {source_validation.get('message') or 'validation failed.'}")
+    else:
+        lines.append("Paste the complete current file for a full replacement, or select ‘relevant section’ for an XML merge patch.")
+    lines.append("A model backend is still needed to write the requested draft; the built-in planner can safely plan and validate only.")
+    lines.append("Any resulting draft remains a download/review item. It will not be uploaded to a live DayZ server automatically.")
+    return "\n".join(lines)
+
+
 def ai_agent_run_context_summary(state: dict[str, Any], run: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(run, dict):
         return {}
@@ -21953,7 +22272,7 @@ def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tupl
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, default=str)},
         ],
         "temperature": 0.2,
-        "max_tokens": 1800,
+        "max_tokens": AI_AGENT_LLM_MAX_TOKENS,
         "response_format": {"type": "json_object"},
     }
     headers = {"Content-Type": "application/json"}
@@ -22057,7 +22376,8 @@ def ai_agent_llm_reply_for_task(
         task["llm_status"] = "not_configured"
         task["llm_provider"] = AI_AGENT_LLM_PROVIDER
         task["next_action"] = task.get("next_action") or "Review suggested sandbox commands"
-        return ai_agent_append_command_summary(ai_agent_assistant_reply_for_task(task, approval), task["suggested_commands"])
+        fallback = ai_agent_dayz_fallback_reply(task) or ai_agent_assistant_reply_for_task(task, approval)
+        return ai_agent_append_command_summary(fallback, task["suggested_commands"])
 
     system_message = (
         "You are the Wandering Bot AI Sandbox assistant, a private owner-controlled Codex-like software engineering helper inside a dashboard. "
@@ -22075,9 +22395,18 @@ def ai_agent_llm_reply_for_task(
         "Use the supplied memory as durable project context. Add learning only for stable facts, owner decisions, "
         "incidents, approved patterns or blocked patterns that will help future work; never store passwords, API keys, "
         "tokens, secrets or private customer data. "
+        "When dayz_file_context is supplied, act as a DayZ server-file specialist. Use only the selected target file; "
+        "do not invent a file path, a DayZ version-specific setting, or a live server result. Explain the exact file and "
+        "setting being changed. types.xml controls CE loot values such as nominal, min, lifetime and restock; "
+        "cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; cfgweather.xml controls weather; "
+        "cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml. "
+        "A fragment is never a full replacement. Only return a full_file draft if complete_current_file source is supplied and "
+        "valid. Return a patch only for supported named-record XML files, wrap it in its real XML root, and label it as merge-only. "
+        "Never claim a DayZ draft was uploaded; protected live upload requires a backup, diff and explicit owner confirmation. "
         "Schema: {\"reply\": string, \"steps\": [{\"agent\": string, \"title\": string, \"detail\": string}], "
         "\"suggested_commands\": [{\"label\": string, \"command\": string, \"reason\": string, \"project_path\": string, \"risk\": string}], "
         "\"next_action\": string, \"summary\": string, \"risk_notes\": [string], "
+        "\"dayz_draft\": {\"target_path\": string, \"kind\": \"patch|full_file\", \"content\": string, \"summary\": string} | null, "
         "\"learning\": [{\"category\": \"project_facts|lessons|decisions|incidents|approved_patterns|blocked_patterns\", "
         "\"title\": string, \"detail\": string, \"tags\": [string]}]}."
     )
@@ -22098,6 +22427,7 @@ def ai_agent_llm_reply_for_task(
             "requested_permissions": task.get("requested_permissions"),
             "approvals": task.get("approvals"),
             "steps": task.get("steps"),
+            "dayz_file_context": ai_agent_dayz_context_for_model(task.get("dayz_context")),
         },
         "run": run_context,
         "memory": compact_audit_value(ai_agent_memory_snapshot(state)),
@@ -22112,7 +22442,7 @@ def ai_agent_llm_reply_for_task(
         task["llm_provider"] = AI_AGENT_LLM_PROVIDER
         task["llm_error"] = ai_agent_compact_text(error, 420)
         ai_agent_activity(state, "AI model fallback", task["llm_error"], access.get("label") or dashboard_audit_actor(auth), {"task_id": task.get("id"), "run_id": run.get("id")})
-        fallback = ai_agent_assistant_reply_for_task(task, approval)
+        fallback = ai_agent_dayz_fallback_reply(task) or ai_agent_assistant_reply_for_task(task, approval)
         return ai_agent_append_command_summary(fallback + f"\n\nModel note: {task['llm_error']}", task.get("suggested_commands", []))
 
     task["llm_status"] = "ok"
@@ -22123,6 +22453,19 @@ def ai_agent_llm_reply_for_task(
     if learned_items:
         task["learning"] = learned_items
     task["steps"] = ai_agent_normalize_llm_steps(data.get("steps"), task.get("steps") if isinstance(task.get("steps"), list) else [])
+    dayz_draft, dayz_draft_error = ai_agent_normalize_dayz_draft(data.get("dayz_draft"), task.get("dayz_context"))
+    if dayz_draft:
+        task["dayz_draft"] = dayz_draft
+        task.pop("dayz_draft_error", None)
+        ai_agent_activity(
+            state,
+            "DayZ file draft prepared",
+            f"{dayz_draft.get('target_path')}: {dayz_draft.get('kind')}",
+            access.get("label") or dashboard_audit_actor(auth),
+            {"task_id": task.get("id"), "draft_id": dayz_draft.get("id"), "target_path": dayz_draft.get("target_path")},
+        )
+    elif dayz_draft_error:
+        task["dayz_draft_error"] = dayz_draft_error
     llm_suggestions = ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
     merged_suggestions = ai_agent_merge_suggested_commands(task, [*base_suggestions, *llm_suggestions])
     next_action = ai_agent_compact_text(data.get("next_action"), 220)
@@ -22151,6 +22494,11 @@ def ai_agent_llm_reply_for_task(
         )
     if risk_notes:
         reply += "\nRisk notes: " + "; ".join(ai_agent_compact_text(item, 160) for item in risk_notes[:4])
+    if dayz_draft:
+        review_note = "Merge-only patch: use the protected XML merge workflow; do not upload it as a full live file." if dayz_draft.get("merge_required") else "Complete-file draft: review its diff and use the protected upload workflow with a backup."
+        reply += f"\n\nDayZ draft ready for download: {dayz_draft.get('target_path')}. {review_note}"
+    elif dayz_draft_error:
+        reply += f"\n\nDayZ draft check: {dayz_draft_error}"
     return ai_agent_append_command_summary(reply, merged_suggestions)
 
 
@@ -22169,6 +22517,10 @@ def ai_agent_plan_from_objective(objective: str, project_type: str, requested: d
         steps.insert(3, {"agent": "Builder", "title": "Update Discord integration", "detail": "Wire commands, permissions, embeds, and persistent stores."})
     if any(word in lower for word in ("dashboard", "page", "frontend", "react", "ui", "style")):
         steps.insert(3, {"agent": "Builder", "title": "Update dashboard UI", "detail": "Build responsive views, forms, tables, and state feedback."})
+    if project_type == "dayz_files" or any(word in lower for word in ("dayz", "types.xml", "cfgweather", "cfggameplay", "cfgspawnabletypes", "events.xml", "central economy")):
+        steps.insert(1, {"agent": "DayZ File Specialist", "title": "Identify the exact DayZ file", "detail": "Confirm the map, target file, current-file versus fragment scope, and the settings that actually control the requested result."})
+        steps.insert(3, {"agent": "DayZ File Specialist", "title": "Draft a protected change", "detail": "Create a merge-only XML patch or a complete-file draft, then validate its root, record preservation and destructive-shrink safeguards."})
+        steps.insert(-1, {"agent": "Review", "title": "Prepare DayZ rollback", "detail": "Keep the current file backup, inspect the draft and diff, then use an explicit protected upload only after review."})
     if any(word in lower for word in ("database", "schema", "migration", "postgres", "mongodb", "sqlite")):
         steps.insert(-2, {"agent": "Tester", "title": "Validate data changes", "detail": "Create or review migrations, seed data, rollback notes, and query safety."})
     if any(word in lower for word in ("deploy", "railway", "render", "vercel", "netlify", "docker", "vps")):
@@ -22236,6 +22588,9 @@ def ai_agent_create_task_record(
         "created_by": access.get("label") or dashboard_audit_actor(auth),
         "created_at": datetime.now(UTC).isoformat(),
     }
+    dayz_context = ai_agent_dayz_file_context(payload, objective)
+    if dayz_context:
+        task["dayz_context"] = dayz_context
     tasks.insert(0, task)
     del tasks[60:]
     if run_id:
@@ -22254,7 +22609,7 @@ def ai_agent_create_task_record(
         if run_id:
             ai_agent_attach_run_item(state, run_id, "approval_ids", approval["id"])
             ai_agent_update_run_from_task(state, run_id, task)
-    ai_agent_activity(state, "AI sandbox task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), task)
+    ai_agent_activity(state, "AI sandbox task planned", f"{task_id}: {objective[:120]}", dashboard_audit_actor(auth), ai_agent_public_task(task))
     return task, approval, "", 200
 
 
@@ -30288,6 +30643,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_pending_approvals=ai_agent_pending_approval_count(ai_agent_state),
         ai_agent_sandbox_jobs=ai_agent_state.get("sandbox_jobs", []),
         ai_agent_chat_messages=ai_agent_state.get("chat_messages", []),
+        ai_agent_dayz_drafts=ai_agent_dayz_draft_summaries(ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)),
+        ai_agent_dayz_targets=AI_AGENT_DAYZ_TARGETS,
         ai_agent_runs=ai_agent_runs[:20],
         ai_agent_active_run=ai_agent_active_run or {},
         ai_agent_run_counts=ai_agent_run_counts(ai_agent_state),
@@ -35067,7 +35424,8 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
         "sandbox": sandbox_payload,
         "readiness": readiness_payload,
         "memory": ai_agent_memory_snapshot(state, 12) if auth.get("kind") == "owner" else ai_agent_memory_snapshot(state, 4),
-        "tasks": visible_state.get("tasks", [])[:30],
+        "tasks": [ai_agent_public_task(item) for item in visible_state.get("tasks", [])[:30] if isinstance(item, dict)],
+        "dayz_drafts": ai_agent_dayz_draft_summaries(visible_state),
         "runs": visible_runs[:30],
         "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
         "run_counts": ai_agent_run_counts(visible_state),
@@ -35092,6 +35450,33 @@ def api_ai_agent_state():
     if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
         save_ai_agent_state(state)
     return jsonify(ai_agent_state_payload(auth, access, state))
+
+
+@APP.get("/api/ai-agent/dayz-draft/<draft_id>")
+def api_ai_agent_dayz_draft(draft_id: str):
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    visible_state = ai_agent_visible_state(state, auth, access)
+    wanted = str(draft_id or "").strip()
+    for task in visible_state.get("tasks", []) if isinstance(visible_state.get("tasks"), list) else []:
+        if not isinstance(task, dict):
+            continue
+        draft = task.get("dayz_draft")
+        if not isinstance(draft, dict) or str(draft.get("id") or "") != wanted:
+            continue
+        content = str(draft.get("content") or "")
+        target_path = str(draft.get("target_path") or "dayz-draft.txt")
+        if not content.strip() or not dayz_file_spec_for_path(target_path):
+            break
+        mimetype = "application/json" if target_path.lower().endswith(".json") else "application/xml" if target_path.lower().endswith(".xml") else "text/plain"
+        return send_file(
+            io.BytesIO(content.encode("utf-8")),
+            mimetype=mimetype,
+            as_attachment=True,
+            download_name=os.path.basename(target_path),
+        )
+    return jsonify({"ok": False, "error": "DayZ draft not found or no longer available."}), 404
 
 
 @APP.get("/api/ai-agent/events")
@@ -35229,7 +35614,7 @@ def api_ai_agent_task():
         ai_agent_update_run_from_task(state, run.get("id", ""), task)
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="plan", task_id=task.get("id") if task else "", run_id=run.get("id"))
-    body = {"ok": True, "task": task, "run": run, "continued": continued, "note": "Agent plan created. High-risk actions remain approval-gated."}
+    body = {"ok": True, "task": ai_agent_public_task(task) if task else None, "run": run, "continued": continued, "note": "Agent plan created. High-risk actions remain approval-gated."}
     return dashboard_api_response(raw_payload, body, "ai-agent", "#ai-agent")
 
 
@@ -35290,7 +35675,7 @@ def api_ai_agent_chat():
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""), run_id=run_id)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "task": task, "run": run, "continued": continued, "approval": approval, "auto_job": auto_job, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
+        {"ok": True, "task": ai_agent_public_task(task) if task else None, "run": run, "continued": continued, "approval": approval, "auto_job": auto_job, "user_message": user_message, "assistant_message": assistant_message, "credits_remaining": credits_remaining, "note": "Agent replied with a plan."},
         "ai-agent",
         "#ai-agent-chat",
     )
