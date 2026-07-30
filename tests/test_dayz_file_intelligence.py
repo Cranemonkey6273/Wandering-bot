@@ -47,6 +47,10 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.chernarusplus/cfgweather.xml"),
             "weather",
         )
+        self.assertEqual(
+            dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.chernarusplus/mapgrouppos.xml"),
+            "map",
+        )
 
     def test_cfgweather_uses_the_protected_weather_root(self):
         ok, message = validate_dayz_upload_text(
@@ -61,6 +65,20 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         )
         self.assertFalse(ok)
         self.assertIn("no <overcast>", message)
+
+    def test_standard_support_files_have_their_real_roots(self):
+        cases = {
+            "cfgplayerspawnpoints.xml": '<playerspawnpoints><fresh /></playerspawnpoints>',
+            "cfgignorelist.xml": '<ignore><type name="Bandage" /></ignore>',
+            "cfglimitsdefinition.xml": '<lists><categories /></lists>',
+            "cfglimitsdefinitionuser.xml": '<user_lists><usageflags /></user_lists>',
+            "cfgrandompresets.xml": '<randompresets><cargo name="starter" chance="1" /></randompresets>',
+            "cfgundergroundtriggers.json": '{"Triggers": []}',
+        }
+        for target_path, text in cases.items():
+            with self.subTest(target_path=target_path):
+                valid, message = validate_dayz_upload_text(target_path, text)
+                self.assertTrue(valid, message)
 
     def test_vanilla_reference_files_load_for_all_supported_maps(self):
         bot.dayz_reference_cache.clear()
@@ -97,6 +115,12 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             "cfgareaeffects.xml",
             "cfggameplay.json",
             "cfgeffectarea.json",
+            "cfgplayerspawnpoints.xml",
+            "cfgignorelist.xml",
+            "cfglimitsdefinition.xml",
+            "cfglimitsdefinitionuser.xml",
+            "cfgrandompresets.xml",
+            "cfgundergroundtriggers.json",
         )
 
         for folder in ("dayzOffline.chernarusplus", "dayzOffline.enoch", "dayzOffline.sakhal"):

@@ -484,7 +484,7 @@ DEFAULT_BOT_INVITE_URL = os.getenv(
     "BOT_INVITE_URL",
     "https://discord.com/oauth2/authorize?client_id=1500819036026437662&permissions=8&integration_type=0&scope=bot+applications.commands",
 )
-SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "").strip()
+SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "https://discord.gg/9d8rZDSQaE").strip()
 ANDROID_APP_ID = os.getenv("WANDERING_ANDROID_APP_ID", "com.dayzwanderingbot.app").strip() or "com.dayzwanderingbot.app"
 IOS_APP_ID = os.getenv("WANDERING_IOS_APP_ID", "").strip()
 ANDROID_RELEASE_SHA256_FINGERPRINTS = (
@@ -493,7 +493,7 @@ ANDROID_RELEASE_SHA256_FINGERPRINTS = (
     or os.getenv("ANDROID_RELEASE_SHA256_FINGERPRINT")
     or ""
 ).strip()
-PUBLIC_SUPPORT_EMAIL = os.getenv("WANDERING_SUPPORT_EMAIL", "support@dayzwanderingbot.com").strip()
+PUBLIC_SUPPORT_EMAIL = os.getenv("WANDERING_SUPPORT_EMAIL", "dayzwanderingbot@gmail.com").strip()
 NATIVE_APP_SOURCE_VALUES = {"native", "native_android", "native_ios", "android_app", "ios_app"}
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
@@ -1819,7 +1819,8 @@ PUBLIC_LANDING_TEMPLATE = """
           <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Wandering Bot</a>
           <a class="button" href="/setup-guide">Read the setup guide</a>
           <a class="button" href="/login">Open existing dashboard</a>
-          {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
+          {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Join support Discord</a>{% endif %}
+          {% if support_email %}<a class="button" href="mailto:{{ support_email }}">Email support</a>{% endif %}
         </div>
         <div class="features">
           {% for feature in page.features %}
@@ -1861,6 +1862,8 @@ PUBLIC_LANDING_TEMPLATE = """
       <div class="actions">
         <a class="button primary" href="/setup-guide">View the complete setup guide</a>
         <a class="button" href="/setup-guide/download">Download the setup guide</a>
+        {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Join support Discord</a>{% endif %}
+        {% if support_email %}<a class="button" href="mailto:{{ support_email }}">Email {{ support_email }}</a>{% endif %}
       </div>
     </section>
     {% endif %}
@@ -6590,7 +6593,7 @@ PAGE_TEMPLATE = """
       <div class="ai-sandbox-guardrails" id="ai-sandbox-rules">
         <div class="ai-sandbox-summary">
           <strong>Sandbox rule of thumb</strong>
-          <span>The sandbox can help plan, inspect, validate and prepare work. Anything that changes live Discord, Nitrado, Stripe, customer access or production code must go through an explicit owner approval path.</span>
+          <span>The sandbox can help plan, inspect, validate and prepare work, but AI can be wrong or lack your server context. Treat every suggestion as a draft: check the file, validation result and diff. Anything that changes live Discord, Nitrado, Stripe, customer access or production code must go through an explicit owner approval path.</span>
         </div>
         <div class="ai-sandbox-rule-grid">
           <article class="ai-sandbox-rule-card" data-tone="ok">
@@ -6725,8 +6728,16 @@ PAGE_TEMPLATE = """
             </div>
             <details class="ai-dayz-workbench">
               <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
-              <p class="tool-note">Choose the file, map and what you want changed. Paste a complete current file for a replacement draft, or a relevant XML section for a merge-only patch. The sandbox never uploads a draft by itself.</p>
+              <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you an official vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
               <div class="ai-codex-options">
+                <label>Help needed
+                  <select name="dayz_support_mode">
+                    <option value="ask">Explain / advise</option>
+                    <option value="line_explain">Explain this line or block</option>
+                    <option value="fix_error">Fix an XML / JSON error</option>
+                    <option value="edit_file">Prepare a file change</option>
+                  </select>
+                </label>
                 <label>DayZ file
                   <select name="dayz_file_target">
                     <option value="">Choose a protected file</option>
@@ -6748,9 +6759,77 @@ PAGE_TEMPLATE = """
                     <option value="fragment">Relevant XML section / fragment</option>
                   </select>
                 </label>
+                <label>Starting point
+                  <select name="dayz_reference_mode">
+                    <option value="none">Use my current file</option>
+                    <option value="vanilla">Offer bundled vanilla file</option>
+                    <option value="preset">Offer selected safe preset</option>
+                  </select>
+                </label>
+                <label>Vanilla / boosted preset
+                  <select name="dayz_preset_id">
+                    <option value="">Choose a preset when needed</option>
+                    {% for preset in ai_agent_dayz_presets %}
+                    <option value="{{ preset.id }}">{{ preset.title }} — {{ preset.target_path }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
               </div>
               <label class="full">Current file or relevant section<textarea name="dayz_file_source" spellcheck="false" placeholder="Optional but strongly recommended. Never paste a Nitrado token, password or API key here."></textarea></label>
+              <label class="full">XML / JSON error (optional)<textarea name="dayz_error_text" spellcheck="false" placeholder="Paste the exact server, XML, JSON or Nitrado error here — including its line and column if shown."></textarea></label>
               <p class="tool-note">For <code>types.xml</code>, <code>events.xml</code> and other CE XML files, a fragment becomes a merge-required patch. It cannot be treated as a replacement for the full live file.</p>
+              <details class="ai-dayz-scenario-workbench">
+                <summary>Make a DayZ event plan <span class="tool-note">Airdrop, vehicle, infected, animal or gas event</span></summary>
+                <p class="tool-note">This creates a validated plan for the linked CE files. Adding it to Nitrado is always a separate, warned confirmation that uses the bot’s backup-first upload path.</p>
+                <input class="hidden-field" name="dayz_scenario_guild_id" value="{{ server.guild_id if server else '' }}">
+                <div class="ai-codex-options">
+                  <label>Event type
+                    <select name="dayz_scenario_type">
+                      <option value="">Not making an event</option>
+                      <option value="airdrop">Airdrop</option>
+                      <option value="vehicle_spawn">Personal vehicle spawn</option>
+                      <option value="zombie_horde">Infected horde</option>
+                      <option value="animal_pack">Animal pack</option>
+                      <option value="gas_zone">Gas zone</option>
+                    </select>
+                  </label>
+                  <label>Preset
+                    <select name="dayz_scenario_preset">
+                      <option value="military_crate">Military airdrop</option>
+                      <option value="wooden_crate">Survival airdrop</option>
+                      <option value="medical_crate">Medical airdrop</option>
+                      <option value="ada">Ada 4x4</option>
+                      <option value="gunter">Gunter 2</option>
+                      <option value="sarka">Sarka 120</option>
+                      <option value="olga">Olga 24</option>
+                      <option value="m3s">M3S covered truck</option>
+                      <option value="civilian_zombie">Civilian infected</option>
+                      <option value="military_zombie">Military infected</option>
+                      <option value="bear">Bears</option>
+                      <option value="wolf">Wolves</option>
+                      <option value="gas_temp">Temporary gas zone</option>
+                      <option value="gas_permanent">Permanent gas zone</option>
+                    </select>
+                  </label>
+                  <label>Server profile
+                    <select name="dayz_scenario_profile_id">
+                      <option value="{{ selected_dayz_profile_id }}">{{ selected_dayz_profile.name if selected_dayz_profile else 'Selected dashboard server' }}</option>
+                      {% for profile in (server.dayz_profiles if server and server.dayz_profiles else []) %}
+                      {% if profile.id != selected_dayz_profile_id %}<option value="{{ profile.id }}">{{ profile.name }}</option>{% endif %}
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <label>Name<input name="dayz_scenario_name" placeholder="e.g. NWAF Military Drop"></label>
+                  <label>Classname (optional)<input name="dayz_scenario_class" placeholder="Use only for a custom class"></label>
+                </div>
+                <div class="ai-codex-options">
+                  <label>X<input type="number" name="dayz_scenario_x" placeholder="e.g. 4481"></label>
+                  <label>Y<input type="number" name="dayz_scenario_y" value="0"></label>
+                  <label>Z<input type="number" name="dayz_scenario_z" placeholder="e.g. 10355"></label>
+                  <label>Radius<input type="number" name="dayz_scenario_radius" value="35" min="0" max="30000"></label>
+                  <label>Count<input type="number" name="dayz_scenario_count" value="1" min="1" max="250"></label>
+                </div>
+              </details>
             </details>
             <div class="ai-codex-toggle-row">
               <label><input type="checkbox" name="allow_read" value="1" checked> Read</label>
@@ -6807,6 +6886,26 @@ PAGE_TEMPLATE = """
               {% else %}
               <div class="ai-agent-step"><strong>No DayZ draft yet</strong><span>Ask the File Workbench to create or validate a file draft.</span></div>
               {% endfor %}
+            </div>
+          </section>
+          <section class="admin-panel" data-ai-dayz-references-panel>
+            <h3>DayZ References & Presets</h3>
+            <div class="ai-agent-plan" data-ai-dayz-reference-list>
+              {% for reference in ai_agent_dayz_references %}
+              <div class="ai-agent-step">
+                <strong>{{ reference.label }} - validated</strong>
+                <span class="tool-note">{{ reference.map|title }} · {{ reference.content_chars }} characters · {{ reference.target_path }}</span>
+                <button type="button" data-ai-dayz-reference-download="{{ reference.task_id }}">Download {{ reference.mode|title }} file</button>
+              </div>
+              {% else %}
+              <div class="ai-agent-step"><strong>No reference selected</strong><span>Choose bundled vanilla or a safe preset in the DayZ File Workbench.</span></div>
+              {% endfor %}
+            </div>
+          </section>
+          <section class="admin-panel" data-ai-dayz-scenarios-panel>
+            <h3>DayZ Event Plans</h3>
+            <div class="ai-agent-plan" data-ai-dayz-scenario-list>
+              <div class="ai-agent-step"><strong>No event plan yet</strong><span>Use the DayZ File Workbench to prepare an airdrop, vehicle or other CE event.</span></div>
             </div>
           </section>
           <section class="admin-panel">
@@ -16013,6 +16112,127 @@ PAGE_TEMPLATE = """
         target.append(item);
       });
     }
+    function aiAgentWireDayzReferenceDownload(button) {
+      if (!button || button.dataset.aiDayzReferenceReady === "true") return;
+      button.dataset.aiDayzReferenceReady = "true";
+      button.addEventListener("click", () => {
+        const taskId = String(button.dataset.aiDayzReferenceDownload || "").trim();
+        if (!taskId) return;
+        window.location.assign(aiAgentJsonRoute(`/api/ai-agent/dayz-reference/${encodeURIComponent(taskId)}`));
+      });
+    }
+    function aiAgentUpdateDayzReferences(state) {
+      const target = document.querySelector("[data-ai-dayz-reference-list]");
+      if (!target) return;
+      const references = Array.isArray(state?.dayz_references) ? state.dayz_references : [];
+      target.replaceChildren();
+      if (!references.length) {
+        target.append(aiAgentStepNode("No reference selected", "Choose bundled vanilla or a safe preset in the DayZ File Workbench."));
+        return;
+      }
+      references.slice(0, 12).forEach((reference) => {
+        const item = document.createElement("div");
+        item.className = "ai-agent-step";
+        const title = document.createElement("strong");
+        title.textContent = `${reference.label || "DayZ reference"} - validated`;
+        const note = document.createElement("span");
+        note.className = "tool-note";
+        note.textContent = `${reference.map || "chernarus"} · ${Number(reference.content_chars || 0).toLocaleString()} characters · ${reference.target_path || "DayZ file"}`;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.aiDayzReferenceDownload = String(reference.task_id || "");
+        button.textContent = `Download ${reference.mode || "reference"} file`;
+        item.append(title, note, button);
+        aiAgentWireDayzReferenceDownload(button);
+        target.append(item);
+      });
+    }
+    function aiAgentWireDayzScenarioDownload(button) {
+      if (!button || button.dataset.aiDayzScenarioDownloadReady === "true") return;
+      button.dataset.aiDayzScenarioDownloadReady = "true";
+      button.addEventListener("click", () => {
+        const taskId = String(button.dataset.aiDayzScenarioDownload || "").trim();
+        if (!taskId) return;
+        window.location.assign(aiAgentJsonRoute(`/api/ai-agent/dayz-scenario/${encodeURIComponent(taskId)}`));
+      });
+    }
+    function aiAgentWireDayzScenarioApply(button, form, thread) {
+      if (!button || button.dataset.aiDayzScenarioApplyReady === "true") return;
+      button.dataset.aiDayzScenarioApplyReady = "true";
+      button.addEventListener("click", async () => {
+        const scenario = button.aiDayzScenario || {};
+        const payload = scenario.apply_payload && typeof scenario.apply_payload === "object" ? {...scenario.apply_payload} : {};
+        if (!payload.guild_id) {
+          window.alert("Choose a dashboard server profile before applying this event.");
+          return;
+        }
+        const warning = String(scenario.warning || "This will request a guarded Nitrado upload.");
+        if (!window.confirm(`${warning}\n\nContinue and create this event?`)) return;
+        const original = button.textContent;
+        button.disabled = true;
+        button.textContent = "Creating event...";
+        try {
+          const response = await fetch(aiAgentJsonRoute("/api/admin/scenario-event"), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify({...payload, return_to: "/admin?section=pve&pve_tool=events"}),
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (!response.ok || !body.ok) throw new Error(body.error || "Could not create the DayZ event.");
+          const detail = `${body.note || "Event saved."} ${body.upload_worker_error ? `Upload warning: ${body.upload_worker_error}` : ""}`.trim();
+          const markerResponse = await fetch(aiAgentJsonRoute("/api/ai-agent/dayz-scenario-applied"), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify({task_id: scenario.task_id || "", event_id: body.event?.id || "", upload_started: Boolean(body.upload_started)}),
+          });
+          if (!markerResponse.ok) throw new Error("The event was created, but the AI plan could not be marked as applied. Do not click it again until you check Live Events.");
+          window.alert(detail);
+          aiAgentFetchState(form, thread, {silent: true});
+        } catch (error) {
+          window.alert(error && error.message ? error.message : String(error));
+        } finally {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+    }
+    function aiAgentUpdateDayzScenarios(state, form, thread) {
+      const target = document.querySelector("[data-ai-dayz-scenario-list]");
+      if (!target) return;
+      const scenarios = Array.isArray(state?.dayz_scenarios) ? state.dayz_scenarios : [];
+      target.replaceChildren();
+      if (!scenarios.length) {
+        target.append(aiAgentStepNode("No event plan yet", "Use the DayZ File Workbench to prepare an airdrop, vehicle or other CE event."));
+        return;
+      }
+      scenarios.slice(0, 12).forEach((scenario) => {
+        const item = document.createElement("div");
+        item.className = "ai-agent-step";
+        const title = document.createElement("strong");
+        title.textContent = `${scenario.name || "DayZ event"} — ${String(scenario.event_type || "event").replace(/_/g, " ")}`;
+        const detail = document.createElement("span");
+        detail.textContent = `${scenario.class_name || "DayZ class"} at X ${scenario.x}, Z ${scenario.z}. Managed files: ${(Array.isArray(scenario.files) ? scenario.files : []).join(", ") || "determined during validation"}.`;
+        const warning = document.createElement("span");
+        warning.className = "tool-note";
+        warning.textContent = String(scenario.warning || "Review before requesting a guarded upload.");
+        const download = document.createElement("button");
+        download.type = "button";
+        download.dataset.aiDayzScenarioDownload = String(scenario.task_id || "");
+        download.textContent = "Download event plan";
+        const apply = document.createElement("button");
+        apply.type = "button";
+        apply.textContent = scenario.applied_event_id ? "Already created — view Live Events" : "Create + request guarded Nitrado upload";
+        apply.aiDayzScenario = scenario;
+        apply.disabled = !scenario.can_apply || Boolean(scenario.applied_event_id);
+        item.append(title, detail, warning, download, apply);
+        aiAgentWireDayzScenarioDownload(download);
+        aiAgentWireDayzScenarioApply(apply, form, thread);
+        target.append(item);
+      });
+    }
     function aiAgentSyncState(state, form, thread) {
       if (!state || state.ok === false) return;
       aiAgentUpdateStats(state);
@@ -16021,6 +16241,8 @@ PAGE_TEMPLATE = """
       aiAgentUpdateLatestPlan(state, form, thread);
       aiAgentUpdateWorkStream(state);
       aiAgentUpdateDayzDrafts(state);
+      aiAgentUpdateDayzReferences(state);
+      aiAgentUpdateDayzScenarios(state, form, thread);
       aiAgentUpdateContextPanel(state);
       aiAgentUpdateConsolePanel(state);
       aiAgentFetchFiles(form, state, {silent: true});
@@ -16142,6 +16364,9 @@ PAGE_TEMPLATE = """
       });
       document.querySelectorAll("[data-ai-dayz-draft-download]").forEach((button) => {
         aiAgentWireDayzDraftDownload(button);
+      });
+      document.querySelectorAll("[data-ai-dayz-reference-download]").forEach((button) => {
+        aiAgentWireDayzReferenceDownload(button);
       });
       document.querySelectorAll("[data-ai-quick-prompt]").forEach((button) => {
         if (button.dataset.aiQuickPromptReady === "true") return;
@@ -20035,11 +20260,30 @@ AI_AGENT_DAYZ_TARGETS = (
     ("cfgeventspawns.xml", "cfgeventspawns.xml - CE event positions"),
     ("cfgeventgroups.xml", "cfgeventgroups.xml - CE event groups"),
     ("mapgroupproto.xml", "mapgroupproto.xml - map group loot prototypes"),
+    ("mapgrouppos.xml", "mapgrouppos.xml - map group placements"),
     ("db/globals.xml", "globals.xml - CE global variables"),
     ("db/economy.xml", "economy.xml - CE economy switches"),
+    ("cfgeconomycore.xml", "cfgeconomycore.xml - central economy file includes"),
     ("cfgenvironment.xml", "cfgenvironment.xml - environment and territory references"),
     ("cfgareaeffects.xml", "cfgareaeffects.xml - contaminated-area presets"),
-    ("cfgplayerspawn.json", "cfgplayerspawn.json - fresh-spawn loadouts"),
+    ("cfgeffectarea.json", "cfgeffectarea.json - gas particle settings"),
+    ("cfgplayerspawnpoints.xml", "cfgplayerspawnpoints.xml - fresh-spawn positions and settings"),
+    ("db/messages.xml", "messages.xml - on-screen server messages"),
+    ("cfgignorelist.xml", "cfgignorelist.xml - economy cleanup ignore list"),
+    ("cfglimitsdefinition.xml", "cfglimitsdefinition.xml - CE category, tag and usage lists"),
+    ("cfglimitsdefinitionuser.xml", "cfglimitsdefinitionuser.xml - custom CE category, tag and usage lists"),
+    ("cfgrandompresets.xml", "cfgrandompresets.xml - random cargo presets"),
+    ("cfgundergroundtriggers.json", "cfgundergroundtriggers.json - underground trigger settings"),
+    ("env/zombie_territories.xml", "zombie_territories.xml - infected territory zones"),
+    ("env/bear_territories.xml", "bear_territories.xml - bear territory zones"),
+    ("env/wolf_territories.xml", "wolf_territories.xml - wolf territory zones"),
+    ("env/wild_boar_territories.xml", "wild_boar_territories.xml - wild boar territory zones"),
+    ("env/roe_deer_territories.xml", "roe_deer_territories.xml - deer territory zones"),
+    ("env/red_deer_territories.xml", "red_deer_territories.xml - red deer territory zones"),
+    ("env/pig_territories.xml", "pig_territories.xml - pig territory zones"),
+    ("env/sheep_goat_territories.xml", "sheep_goat_territories.xml - sheep and goat territory zones"),
+    ("env/cattle_territories.xml", "cattle_territories.xml - cattle territory zones"),
+    ("env/domestic_animals_territories.xml", "domestic_animals_territories.xml - domestic animal territory zones"),
 )
 
 
@@ -21546,15 +21790,174 @@ def ai_agent_dayz_target_path(value: Any) -> str:
     return ""
 
 
+def ai_agent_dayz_error_diagnosis(error_text: Any) -> list[str]:
+    text = str(error_text or "").strip()
+    if not text:
+        return []
+    lower = text.lower()
+    notes: list[str] = []
+    location = re.search(r"line\s*(\d+)(?:\s*[,;:]?\s*(?:column|col)\s*(\d+))?", text, re.IGNORECASE)
+    if location:
+        notes.append(f"Start at line {location.group(1)}" + (f", column {location.group(2)}" if location.group(2) else "") + ".")
+    if any(term in lower for term in ("mismatched tag", "opening and ending tag", "end tag")):
+        notes.append("The XML opening and closing tags do not match; check the nearest parent element before the reported line.")
+    elif any(term in lower for term in ("not well-formed", "invalid token", "invalid xml")):
+        notes.append("The XML has an invalid character, missing quote, or broken tag near the reported line.")
+    elif "no element found" in lower or "unexpected end" in lower:
+        notes.append("The file or pasted block ends too early; check for a missing closing tag or a truncated upload.")
+    elif any(term in lower for term in ("jsondecodeerror", "expecting ',' delimiter", "expecting property name", "invalid json")):
+        notes.append("The JSON syntax is broken; check commas, double quotes around property names, and unmatched brackets near the reported line.")
+    elif "expected <" in lower and "root" in lower:
+        notes.append("The file has the wrong root element for its DayZ file type, so it must not be uploaded as-is.")
+    elif "no <" in lower and "record" in lower:
+        notes.append("The file parsed but is missing required DayZ records, which often means it is an empty or incomplete replacement.")
+    if not notes:
+        notes.append("Paste the full error and the surrounding 10–20 lines so the sandbox can identify the exact syntax or schema issue.")
+    return notes[:4]
+
+
+def ai_agent_dayz_reference_for_request(target_path: str, map_key: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    mode = str(payload.get("dayz_reference_mode") or "none").strip().lower()
+    preset_id = str(payload.get("dayz_preset_id") or "").strip()
+    if mode not in {"vanilla", "preset"} or not target_path:
+        return {}
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    try:
+        if mode == "preset":
+            preset = dayz_preset_definition(preset_id)
+            if str(preset.get("target_path") or "") != target_path:
+                return {"mode": mode, "error": "That preset belongs to a different DayZ file. Choose a matching target file."}
+            built = build_dayz_preset_file(clean_map, preset_id)
+            content = str(built.get("content") or "")
+            label = str(preset.get("title") or preset_id)
+            download_name = str(built.get("download_name") or os.path.basename(target_path))
+        else:
+            parts = tuple(part for part in target_path.replace("\\", "/").split("/") if part)
+            content = load_dayz_reference_text(clean_map, *parts)
+            label = f"Vanilla {os.path.basename(target_path)}"
+            download_name = f"{clean_map}_vanilla_{os.path.basename(target_path)}"
+        if not content.strip():
+            return {"mode": mode, "error": f"No bundled {label} reference is available for {clean_map}."}
+        valid, message = validate_dayz_upload_text(target_path, content)
+        if not valid:
+            return {"mode": mode, "error": f"The bundled reference did not pass validation: {message}"}
+        return {
+            "mode": mode,
+            "preset_id": preset_id if mode == "preset" else "",
+            "label": label,
+            "map": clean_map,
+            "target_path": target_path,
+            "content_chars": len(content),
+            "preview": ai_agent_compact_text(content, 12000),
+            "preview_truncated": len(content) > 12000,
+            "download_name": download_name,
+            "validation": "passed",
+        }
+    except ValueError as error:
+        return {"mode": mode, "error": str(error)}
+
+
+def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -> dict[str, Any]:
+    event_type = str(payload.get("dayz_scenario_type") or "").strip().lower()
+    if not event_type:
+        return {}
+    allowed_types = {"airdrop", "animal_pack", "zombie_horde", "vehicle_spawn", "gas_zone"}
+    if event_type not in allowed_types:
+        return {"error": "Choose a supported scenario type before creating an event plan."}
+    preset_id = str(payload.get("dayz_scenario_preset") or "").strip()
+    preset = SCENARIO_SPAWN_PRESETS.get(preset_id, {})
+    if event_type == "vehicle_spawn" and not preset:
+        preset = SCENARIO_VEHICLE_PRESETS.get(preset_id, {})
+    default_preset = {
+        "airdrop": "military_crate",
+        "animal_pack": "bear",
+        "zombie_horde": "civilian_zombie",
+        "vehicle_spawn": "m3s",
+        "gas_zone": "gas_temp",
+    }[event_type]
+    if not preset:
+        preset_id = default_preset
+        preset = SCENARIO_SPAWN_PRESETS.get(preset_id, SCENARIO_VEHICLE_PRESETS.get(preset_id, {}))
+    preset_type = "vehicle_spawn" if preset_id in SCENARIO_VEHICLE_PRESETS else str(preset.get("event_type") or "")
+    if preset_type == "loot_crate":
+        preset_type = "airdrop"
+    if preset_type and preset_type != event_type:
+        return {"error": f"The {preset_id} preset is not a {event_type.replace('_', ' ')} preset."}
+    try:
+        x = int(float(str(payload.get("dayz_scenario_x") or "").strip()))
+        z = int(float(str(payload.get("dayz_scenario_z") or "").strip()))
+        y = int(float(str(payload.get("dayz_scenario_y") or "0").strip()))
+    except (TypeError, ValueError):
+        return {"error": "Event coordinates need numeric X and Z values."}
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    map_size = map_size_for(clean_map)
+    if not (0 <= x <= map_size and 0 <= z <= map_size):
+        return {"error": f"X and Z must be inside the selected {clean_map.title()} map bounds (0 to {map_size:,})."}
+    class_name = str(payload.get("dayz_scenario_class") or preset.get("class") or "").strip()
+    if not class_name:
+        return {"error": "A custom scenario needs a valid DayZ classname."}
+    radius_default = safe_int(preset.get("radius"), 35)
+    radius = max(0, min(30000, safe_int(payload.get("dayz_scenario_radius"), radius_default)))
+    if event_type == "gas_zone":
+        radius = max(30, radius)
+    event_name = ai_agent_compact_text(payload.get("dayz_scenario_name") or f"AI {str(preset.get('label') or event_type.replace('_', ' ').title())}", 100)
+    guild_id = normalize_guild_id(payload.get("dayz_scenario_guild_id"))
+    profile_id = normalize_server_profile_id(payload.get("dayz_scenario_profile_id"), "")
+    files = ["db/events.xml", "cfgeventspawns.xml"]
+    if event_type == "vehicle_spawn":
+        files.extend(["db/types.xml", "cfgspawnabletypes.xml"])
+    elif event_type == "animal_pack":
+        files.extend(["cfgenvironment.xml", "env/*_territories.xml"])
+    elif event_type == "gas_zone":
+        files.extend(["cfgareaeffects.xml", "cfgeffectarea.json"])
+    apply_payload = {
+        "guild_id": guild_id,
+        "server_profile_id": profile_id,
+        "event_type": event_type,
+        "spawn_preset": preset_id,
+        "class_name": class_name,
+        "name": event_name,
+        "x": x,
+        "y": y,
+        "z": z,
+        "radius": radius,
+        "count": max(1, min(250, safe_int(payload.get("dayz_scenario_count"), safe_int(preset.get("count"), 1)))),
+        "permanent": "1" if safe_bool(payload.get("dayz_scenario_permanent"), event_type == "vehicle_spawn") else "0",
+        "restarts": 0 if safe_bool(payload.get("dayz_scenario_permanent"), event_type == "vehicle_spawn") else max(1, min(365, safe_int(payload.get("dayz_scenario_restarts"), 1))),
+        "visual_marker": "1" if event_type == "airdrop" and safe_bool(payload.get("dayz_scenario_visual_marker"), True) else "0",
+    }
+    return {
+        "id": ai_agent_new_id("dayz-scenario"),
+        "name": event_name,
+        "map": clean_map,
+        "event_type": event_type,
+        "preset": preset_id,
+        "class_name": class_name,
+        "x": x,
+        "y": y,
+        "z": z,
+        "radius": radius,
+        "files": files,
+        "apply_payload": apply_payload,
+        "can_apply": bool(guild_id),
+        "warning": "Applying this plan creates the event on the selected server and requests the bot's guarded Nitrado workflow. It will download current CE files, back them up, validate the merged result, and may require a server restart. Review the settings first.",
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+
 def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = "") -> dict[str, Any]:
     payload = payload if isinstance(payload, dict) else {}
     project_type = str(payload.get("project_type") or "auto").strip().lower()
     requested_target = payload.get("dayz_file_target") or payload.get("target_path")
     target_path = ai_agent_dayz_target_path(requested_target)
     lower = " ".join([str(objective or ""), str(requested_target or ""), project_type]).lower()
-    is_dayz_request = project_type == "dayz_files" or bool(requested_target) or any(
+    is_dayz_request = project_type == "dayz_files" or bool(requested_target) or bool(payload.get("dayz_scenario_type")) or any(
         term in lower
-        for term in ("dayz", "types.xml", "cfgweather", "weather.xml", "cfggameplay", "eventspawns", "spawnabletypes", "central economy")
+        for term in (
+            "dayz", "types.xml", "cfgweather", "weather.xml", "cfggameplay", "eventspawns", "spawnabletypes",
+            "central economy", "messages.xml", "on-screen message", "mapgroupproto", "mapgrouppos",
+            "spawnpoints", "territories.xml", "cfgignorelist", "limitsdefinition", "randompresets", "undergroundtriggers",
+        )
     )
     if not is_dayz_request:
         return {}
@@ -21572,6 +21975,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         source_text = source_text[:AI_AGENT_DAYZ_SOURCE_MAX_CHARS]
         source_mode = "fragment"
     spec = dayz_file_spec_for_path(target_path) if target_path else None
+    reference = ai_agent_dayz_reference_for_request(target_path, payload.get("dayz_map"), payload)
     validation_ok: bool | None = None
     validation_message = ""
     if source_text.strip() and target_path and source_mode == "complete":
@@ -21583,6 +21987,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
 
     return {
         "enabled": True,
+        "support_mode": str(payload.get("dayz_support_mode") or "ask").strip().lower()[:40],
         "target_path": target_path,
         "target_error": "" if target_path or not requested_target else validation_message,
         "map": normalize_dayz_reference_map_key(payload.get("dayz_map")),
@@ -21592,6 +21997,10 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "source_excerpt": ai_agent_compact_text(source_text, 900),
         "source_error": source_error,
         "source_validation": {"ok": validation_ok, "message": validation_message},
+        "error_text": ai_agent_compact_text(payload.get("dayz_error_text"), 4000),
+        "error_diagnosis": ai_agent_dayz_error_diagnosis(payload.get("dayz_error_text")),
+        "reference": reference,
+        "scenario": ai_agent_dayz_scenario_from_payload(payload, payload.get("dayz_map")),
         "file_kind": spec.kind if spec else "",
         "expected_root": spec.xml_root if spec and spec.kind == "xml" else "",
         "description": spec.description if spec else "",
@@ -21610,6 +22019,10 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
         "source_chars": context.get("source_chars"),
         "source_error": context.get("source_error"),
         "source_validation": context.get("source_validation"),
+        "error_text": context.get("error_text"),
+        "error_diagnosis": context.get("error_diagnosis"),
+        "reference": context.get("reference"),
+        "scenario": context.get("scenario"),
         "file_kind": context.get("file_kind"),
         "expected_root": context.get("expected_root"),
         "description": context.get("description"),
@@ -21699,6 +22112,66 @@ def ai_agent_dayz_draft_summaries(state: dict[str, Any]) -> list[dict[str, Any]]
     return summaries[:20]
 
 
+def ai_agent_dayz_reference_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for task in state.get("tasks", []) if isinstance(state.get("tasks"), list) else []:
+        if not isinstance(task, dict):
+            continue
+        context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+        reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+        if reference.get("error") or not reference.get("target_path") or reference.get("validation") != "passed":
+            continue
+        summaries.append(
+            {
+                "task_id": str(task.get("id") or ""),
+                "target_path": str(reference.get("target_path") or ""),
+                "map": str(reference.get("map") or "chernarus"),
+                "label": ai_agent_compact_text(reference.get("label"), 160),
+                "mode": str(reference.get("mode") or "vanilla"),
+                "content_chars": safe_int(reference.get("content_chars"), 0),
+                "download_name": str(reference.get("download_name") or os.path.basename(str(reference.get("target_path") or "dayz-reference.txt"))),
+            }
+        )
+    return summaries[:20]
+
+
+def ai_agent_dayz_reference_content(context: Any) -> tuple[str, str, str]:
+    if not isinstance(context, dict):
+        return "", "", "DayZ reference request is missing."
+    reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+    target_path = str(reference.get("target_path") or context.get("target_path") or "")
+    map_key = normalize_dayz_reference_map_key(reference.get("map") or context.get("map"))
+    mode = str(reference.get("mode") or "").lower()
+    try:
+        if mode == "preset":
+            built = build_dayz_preset_file(map_key, reference.get("preset_id"))
+            return str(built.get("content") or ""), str(built.get("download_name") or os.path.basename(target_path)), ""
+        if mode == "vanilla":
+            parts = tuple(part for part in target_path.replace("\\", "/").split("/") if part)
+            content = load_dayz_reference_text(map_key, *parts)
+            if not content:
+                return "", "", f"No bundled vanilla {target_path} reference is available for {map_key}."
+            return content, str(reference.get("download_name") or f"{map_key}_vanilla_{os.path.basename(target_path)}"), ""
+    except ValueError as error:
+        return "", "", str(error)
+    return "", "", "DayZ reference request is not available."
+
+
+def ai_agent_dayz_scenario_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for task in state.get("tasks", []) if isinstance(state.get("tasks"), list) else []:
+        if not isinstance(task, dict):
+            continue
+        context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+        scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+        if scenario.get("error") or not scenario.get("id"):
+            continue
+        summary = dict(scenario)
+        summary["task_id"] = str(task.get("id") or "")
+        summaries.append(summary)
+    return summaries[:20]
+
+
 def ai_agent_public_task(task: dict[str, Any]) -> dict[str, Any]:
     public = dict(task)
     context = public.get("dayz_context")
@@ -21706,6 +22179,11 @@ def ai_agent_public_task(task: dict[str, Any]) -> dict[str, Any]:
         public_context = dict(context)
         public_context.pop("source_text", None)
         public_context.pop("source_excerpt", None)
+        reference = public_context.get("reference")
+        if isinstance(reference, dict):
+            public_reference = dict(reference)
+            public_reference.pop("preview", None)
+            public_context["reference"] = public_reference
         public["dayz_context"] = public_context
     draft = public.get("dayz_draft")
     if isinstance(draft, dict):
@@ -21733,6 +22211,18 @@ def ai_agent_dayz_fallback_reply(task: dict[str, Any]) -> str:
             lines.append(f"The supplied current file needs attention before drafting: {source_validation.get('message') or 'validation failed.'}")
     else:
         lines.append("Paste the complete current file for a full replacement, or select ‘relevant section’ for an XML merge patch.")
+    if context.get("error_diagnosis"):
+        lines.append("Error check: " + " ".join(str(item) for item in context.get("error_diagnosis", [])[:3]))
+    reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+    if reference.get("error"):
+        lines.append(f"Reference request: {reference.get('error')}")
+    elif reference.get("validation") == "passed":
+        lines.append(f"A validated {reference.get('label') or 'DayZ reference'} is ready in the DayZ References panel for download.")
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if scenario.get("error"):
+        lines.append(f"Scenario check: {scenario.get('error')}")
+    elif scenario.get("id"):
+        lines.append(f"A {scenario.get('event_type', 'DayZ')} event plan is ready. It will manage: {', '.join(scenario.get('files', [])[:6])}.")
     lines.append("A model backend is still needed to write the requested draft; the built-in planner can safely plan and validate only.")
     lines.append("Any resulting draft remains a download/review item. It will not be uploaded to a live DayZ server automatically.")
     return "\n".join(lines)
@@ -22395,11 +22885,17 @@ def ai_agent_llm_reply_for_task(
         "Use the supplied memory as durable project context. Add learning only for stable facts, owner decisions, "
         "incidents, approved patterns or blocked patterns that will help future work; never store passwords, API keys, "
         "tokens, secrets or private customer data. "
-        "When dayz_file_context is supplied, act as a DayZ server-file specialist. Use only the selected target file; "
-        "do not invent a file path, a DayZ version-specific setting, or a live server result. Explain the exact file and "
-        "setting being changed. types.xml controls CE loot values such as nominal, min, lifetime and restock; "
-        "cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; cfgweather.xml controls weather; "
-        "cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml. "
+        "When dayz_file_context is supplied, act as a careful DayZ server-file specialist for users who may be new to development. "
+        "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
+        "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
+        "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
+        "cfgweather.xml controls weather; cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml; "
+        "mapgroupproto.xml defines group loot prototypes while mapgrouppos.xml places groups; messages.xml controls scheduled on-screen messages; "
+        "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml controls CE cleanup exceptions; cfglimitsdefinition XML files define CE categories/tags/usages; "
+        "cfgrandompresets.xml controls random cargo groups; cfgundergroundtriggers.json controls underground area triggers; "
+        "cfgenvironment.xml and territory files control environment references and zones. Use the supplied bundled reference or preset only when it matches the selected map and target file. "
+        "When error_text is supplied, interpret the reported line/column and the surrounding source; do not pretend to have fixed it unless you return a validated draft. "
+        "When a scenario plan is supplied, explain that the dashboard's event engine creates the linked CE package from current server files, not isolated replacement snippets. "
         "A fragment is never a full replacement. Only return a full_file draft if complete_current_file source is supplied and "
         "valid. Return a patch only for supported named-record XML files, wrap it in its real XML root, and label it as merge-only. "
         "Never claim a DayZ draft was uploaded; protected live upload requires a backup, diff and explicit owner confirmation. "
@@ -23353,7 +23849,7 @@ def public_setup_guide_download_text() -> str:
         "---------------------",
         "Never post Nitrado API tokens, FTP details, dashboard passwords, or account passwords in Discord. Use the private /setup flow and owner dashboard only.",
         "",
-        "Need help? Use the Wandering Bot support Discord after inviting the bot.",
+        f"Need help? Join the Wandering Bot support Discord: {SUPPORT_DISCORD_URL}" if SUPPORT_DISCORD_URL else "Need help? Use the Wandering Bot support Discord after inviting the bot.",
         "",
     ])
     return "\n".join(lines)
@@ -23544,6 +24040,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
         related_pages=related_pages,
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
+        support_email=PUBLIC_SUPPORT_EMAIL,
         pwa_theme_color=PWA_THEME_COLOR,
     )
 
@@ -30644,7 +31141,9 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_sandbox_jobs=ai_agent_state.get("sandbox_jobs", []),
         ai_agent_chat_messages=ai_agent_state.get("chat_messages", []),
         ai_agent_dayz_drafts=ai_agent_dayz_draft_summaries(ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)),
+        ai_agent_dayz_references=ai_agent_dayz_reference_summaries(ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)),
         ai_agent_dayz_targets=AI_AGENT_DAYZ_TARGETS,
+        ai_agent_dayz_presets=DAYZ_PRESET_FILES,
         ai_agent_runs=ai_agent_runs[:20],
         ai_agent_active_run=ai_agent_active_run or {},
         ai_agent_run_counts=ai_agent_run_counts(ai_agent_state),
@@ -35426,6 +35925,8 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
         "memory": ai_agent_memory_snapshot(state, 12) if auth.get("kind") == "owner" else ai_agent_memory_snapshot(state, 4),
         "tasks": [ai_agent_public_task(item) for item in visible_state.get("tasks", [])[:30] if isinstance(item, dict)],
         "dayz_drafts": ai_agent_dayz_draft_summaries(visible_state),
+        "dayz_references": ai_agent_dayz_reference_summaries(visible_state),
+        "dayz_scenarios": ai_agent_dayz_scenario_summaries(visible_state),
         "runs": visible_runs[:30],
         "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
         "run_counts": ai_agent_run_counts(visible_state),
@@ -35477,6 +35978,97 @@ def api_ai_agent_dayz_draft(draft_id: str):
             download_name=os.path.basename(target_path),
         )
     return jsonify({"ok": False, "error": "DayZ draft not found or no longer available."}), 404
+
+
+@APP.get("/api/ai-agent/dayz-reference/<task_id>")
+def api_ai_agent_dayz_reference(task_id: str):
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    visible_state = ai_agent_visible_state(state, auth, access)
+    task = ai_agent_find_by_id(visible_state.get("tasks", []), task_id)
+    context = task.get("dayz_context") if isinstance(task, dict) and isinstance(task.get("dayz_context"), dict) else {}
+    reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+    if not reference or reference.get("validation") != "passed":
+        return jsonify({"ok": False, "error": "DayZ reference not found or is no longer valid."}), 404
+    content, download_name, build_error = ai_agent_dayz_reference_content(context)
+    if build_error or not content:
+        return jsonify({"ok": False, "error": build_error or "Could not build that DayZ reference."}), 400
+    target_path = str(reference.get("target_path") or context.get("target_path") or "")
+    valid, validation_message = validate_dayz_upload_text(target_path, content)
+    if not valid:
+        return jsonify({"ok": False, "error": f"Reference validation failed: {validation_message}"}), 400
+    mimetype = "application/json" if target_path.lower().endswith(".json") else "application/xml"
+    return send_file(
+        io.BytesIO(content.encode("utf-8")),
+        mimetype=mimetype,
+        as_attachment=True,
+        download_name=os.path.basename(download_name),
+    )
+
+
+@APP.get("/api/ai-agent/dayz-scenario/<task_id>")
+def api_ai_agent_dayz_scenario(task_id: str):
+    auth, access, state, error = require_ai_agent_permission("read")
+    if error:
+        return error
+    visible_state = ai_agent_visible_state(state, auth, access)
+    task = ai_agent_find_by_id(visible_state.get("tasks", []), task_id)
+    context = task.get("dayz_context") if isinstance(task, dict) and isinstance(task.get("dayz_context"), dict) else {}
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if scenario.get("error") or not scenario.get("id"):
+        return jsonify({"ok": False, "error": "DayZ event plan not found or is no longer valid."}), 404
+    manifest = {
+        "warning": scenario.get("warning"),
+        "event": {key: scenario.get(key) for key in ("name", "map", "event_type", "preset", "class_name", "x", "y", "z", "radius")},
+        "managed_files": scenario.get("files", []),
+        "dashboard_event_payload": scenario.get("apply_payload", {}),
+        "apply_notes": [
+            "This is an event plan, not standalone XML to upload over an existing server file.",
+            "Use the guarded dashboard action to download current CE files, make backups, merge records, validate, and request a restart when required.",
+        ],
+    }
+    text = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+    filename = f"{re.sub(r'[^a-z0-9]+', '-', str(scenario.get('name') or 'dayz-event').lower()).strip('-') or 'dayz-event'}-plan.json"
+    return send_file(
+        io.BytesIO(text.encode("utf-8")),
+        mimetype="application/json",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@APP.post("/api/ai-agent/dayz-scenario-applied")
+def api_ai_agent_dayz_scenario_applied():
+    auth, access, state, error = require_ai_agent_permission("edit")
+    if error:
+        return error
+    payload = strip_dashboard_control_fields(request_payload() or {})
+    task_id = str(payload.get("task_id") or "").strip()
+    subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
+    task = ai_agent_find_by_id(state.get("tasks", []), task_id)
+    if not task or (auth.get("kind") != "owner" and str(task.get("run_id") or "") not in {str(item.get("id") or "") for item in ai_agent_runs_for_subject(state, subject_key)}):
+        return jsonify({"ok": False, "error": "DayZ event plan not found."}), 404
+    context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if not scenario.get("id"):
+        return jsonify({"ok": False, "error": "DayZ event plan not found."}), 404
+    if scenario.get("applied_event_id"):
+        return jsonify({"ok": False, "error": "This DayZ event plan has already been applied. Check Live Events before creating another."}), 409
+    scenario["applied_event_id"] = safe_int(payload.get("event_id"), 0)
+    scenario["applied_at"] = datetime.now(UTC).isoformat()
+    scenario["upload_started"] = safe_bool(payload.get("upload_started"), False)
+    context["scenario"] = scenario
+    task["dayz_context"] = context
+    ai_agent_activity(
+        state,
+        "DayZ event plan applied",
+        f"{scenario.get('name')}: dashboard event {scenario.get('applied_event_id')}",
+        access.get("label") or dashboard_audit_actor(auth),
+        {"task_id": task.get("id"), "scenario_id": scenario.get("id"), "event_id": scenario.get("applied_event_id")},
+    )
+    save_ai_agent_state(state)
+    return jsonify({"ok": True, "scenario": ai_agent_dayz_scenario_summaries({"tasks": [task]})[0]})
 
 
 @APP.get("/api/ai-agent/events")

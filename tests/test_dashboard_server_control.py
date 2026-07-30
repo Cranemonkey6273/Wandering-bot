@@ -794,6 +794,75 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("private current file", task["dayz_context"]["source_text"])
         self.assertEqual("private draft", task["dayz_draft"]["content"])
 
+    def test_dayz_workbench_offers_validated_bundled_weather_presets(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "cfgweather.xml",
+                "dayz_map": "livonia",
+                "dayz_reference_mode": "preset",
+                "dayz_preset_id": "cfgweather_dry",
+            },
+            "Give me a mostly dry weather file.",
+        )
+        content, download_name, error = dashboard.ai_agent_dayz_reference_content(context)
+
+        self.assertEqual("passed", context["reference"]["validation"])
+        self.assertEqual("", error)
+        self.assertIn("cfgweather_dry", download_name)
+        self.assertTrue(content.startswith("<?xml") or content.startswith("<weather"))
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgweather.xml", content))
+
+    def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
+        scenario = dashboard.ai_agent_dayz_scenario_from_payload(
+            {
+                "dayz_scenario_type": "vehicle_spawn",
+                "dayz_scenario_preset": "m3s",
+                "dayz_scenario_name": "Trader Truck",
+                "dayz_scenario_x": "4481",
+                "dayz_scenario_z": "10355",
+                "dayz_scenario_radius": "10",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "cherno",
+            },
+            "chernarus",
+        )
+        invalid = dashboard.ai_agent_dayz_scenario_from_payload(
+            {"dayz_scenario_type": "airdrop", "dayz_scenario_x": "999999", "dayz_scenario_z": "10"},
+            "chernarus",
+        )
+
+        self.assertEqual("vehicle_spawn", scenario["event_type"])
+        self.assertIn("db/events.xml", scenario["files"])
+        self.assertIn("cfgspawnabletypes.xml", scenario["files"])
+        self.assertTrue(scenario["can_apply"])
+        self.assertIn("map bounds", invalid["error"])
+        self.assertIn('name="dayz_error_text"', dashboard.PAGE_TEMPLATE)
+        self.assertIn('name="dayz_scenario_type"', dashboard.PAGE_TEMPLATE)
+        self.assertIn("AI can be wrong", dashboard.PAGE_TEMPLATE)
+
+    def test_ai_agent_dayz_targets_cover_standard_dayz_support_files(self):
+        targets = {target for target, _label in dashboard.AI_AGENT_DAYZ_TARGETS}
+        self.assertTrue({
+            "cfgplayerspawnpoints.xml",
+            "cfgignorelist.xml",
+            "cfglimitsdefinition.xml",
+            "cfglimitsdefinitionuser.xml",
+            "cfgrandompresets.xml",
+            "cfgundergroundtriggers.json",
+            "env/zombie_territories.xml",
+            "env/bear_territories.xml",
+        }.issubset(targets))
+
+    def test_public_setup_guide_uses_the_support_discord_invite(self):
+        self.assertTrue(dashboard.SUPPORT_DISCORD_URL)
+        self.assertIn(dashboard.SUPPORT_DISCORD_URL, dashboard.public_setup_guide_download_text())
+
+    def test_public_homepage_has_discord_and_email_support_routes(self):
+        self.assertIn("Join support Discord", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("mailto:{{ support_email }}", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertTrue(dashboard.PUBLIC_SUPPORT_EMAIL)
+
 
 if __name__ == "__main__":
     unittest.main()

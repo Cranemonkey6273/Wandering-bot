@@ -17,7 +17,7 @@ WANDERING_ANDROID_SHA256_FINGERPRINTS=AA:BB:CC:...
 6. Set the public support email:
 
 ```text
-WANDERING_SUPPORT_EMAIL=support@dayzwanderingbot.com
+WANDERING_SUPPORT_EMAIL=dayzwanderingbot@gmail.com
 ```
 
 7. Check this URL returns JSON with your fingerprint:
