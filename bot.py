@@ -93,6 +93,7 @@ GUILD_CONFIG_FILE = data_path("guild_configs.json")
 GUILD_DATA_FOLDER = data_path("guild_data")
 GUILD_CONFIG_FOLDER = os.path.join(GUILD_DATA_FOLDER, "guilds")
 DASHBOARD_AUDIT_QUEUE_FILE = data_path("dashboard_audit_queue.json")
+BILLING_PLAN_SELECTION_QUEUE_FILE = data_path("billing_plan_selection_queue.json")
 DASHBOARD_LIVE_FEEDS_FILE = data_path("dashboard_live_feeds.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
@@ -444,25 +445,39 @@ DEFAULT_CHANNEL_NAMES = {
     "company_announcements": "📢・wandering-company-announcements・📢"
 }
 
-CHANNEL_NAME_STYLE_CHARS = {
+# These are kept only to recognise channels created by older bot versions.
+# New/default names must use normal Discord text so they render in the user's
+# selected Discord font. Emoji suffixes are intentionally not transformed.
+LEGACY_CHANNEL_NAME_STYLE_CHARS = {
     "A": "Α", "B": "Β", "C": "С", "D": "Ꭰ", "E": "Ε", "F": "Ϝ",
     "G": "Ԍ", "H": "Η", "I": "Ι", "J": "Ј", "K": "Κ", "L": "Ꮮ",
     "M": "Μ", "N": "Ν", "O": "Ο", "P": "Ρ", "R": "Ꭱ", "S": "Ѕ",
     "T": "Τ", "U": "Ս", "V": "Ѵ", "W": "Ԝ", "X": "Χ", "Y": "Υ",
     "Z": "Ζ",
 }
-CHANNEL_NAME_STYLE_MAP = str.maketrans(CHANNEL_NAME_STYLE_CHARS)
-CHANNEL_NAME_STYLE_REVERSE_MAP = str.maketrans({
-    styled: plain for plain, styled in CHANNEL_NAME_STYLE_CHARS.items()
+LEGACY_CHANNEL_NAME_STYLE_MAP = str.maketrans(LEGACY_CHANNEL_NAME_STYLE_CHARS)
+LEGACY_CHANNEL_NAME_STYLE_REVERSE_MAP = str.maketrans({
+    styled: plain for plain, styled in LEGACY_CHANNEL_NAME_STYLE_CHARS.items()
 })
 
 
 def styled_channel_name(text):
-    return str(text or "").translate(CHANNEL_NAME_STYLE_MAP)
+    """Return normal text for all newly-created bot channel names.
+
+    The function name is retained so existing callers do not need a risky
+    broad rewrite. It deliberately no longer substitutes look-alike Unicode
+    characters that Discord renders as a different font.
+    """
+    return str(text or "")
 
 
 def unstyled_channel_name(text):
-    return str(text or "").translate(CHANNEL_NAME_STYLE_REVERSE_MAP)
+    """Normalise legacy stylised channel names for backward-compatible lookup."""
+    return str(text or "").translate(LEGACY_CHANNEL_NAME_STYLE_REVERSE_MAP)
+
+
+def is_legacy_styled_channel_name(text):
+    return any(char in LEGACY_CHANNEL_NAME_STYLE_CHARS.values() for char in str(text or ""))
 
 
 DEFAULT_CHANNEL_NAMES.update({
@@ -8590,6 +8605,69 @@ async def repair_guild_display_names(guild, config):
 
     save_guild_configs()
     return repaired
+
+
+async def restore_legacy_styled_channel_names(guild, config):
+    """Restore plain lettering for bot channels made with the retired style.
+
+    Only channels whose name resolves to a known bot default are changed. A
+    saved custom route is left untouched, while trailing emoji remain part of
+    the desired name exactly as configured in ``DEFAULT_CHANNEL_NAMES``.
+    """
+    config = config if isinstance(config, dict) else {}
+    channels = config.setdefault("channels", {})
+    restored = 0
+
+    for channel in getattr(guild, "text_channels", []) or []:
+        current_name = str(getattr(channel, "name", "") or "")
+        if not is_legacy_styled_channel_name(current_name):
+            continue
+
+        key = default_channel_key_for_name(current_name)
+        if not key or is_channel_key_disabled(config, key) or is_channel_key_custom_routed(config, key):
+            continue
+
+        saved_id = _safe_channel_id(channels.get(key))
+        if saved_id and int(getattr(channel, "id", 0) or 0) != saved_id:
+            continue
+
+        desired_name = DEFAULT_CHANNEL_NAMES.get(key)
+        if not desired_name or current_name == desired_name:
+            continue
+
+        try:
+            await channel.edit(name=desired_name)
+            channels[key] = channel.id
+            restored += 1
+        except Exception as error:
+            print(f"CHANNEL FONT RESTORE ERROR {getattr(guild, 'id', 'unknown')} #{current_name}: {error}")
+
+    return restored
+
+
+async def restore_legacy_styled_channel_names_for_active_guilds():
+    """Run the one-way plain-text channel migration after configuration loads."""
+    changed = False
+
+    for guild in bot.guilds:
+        base_config = guild_configs.get(str(guild.id))
+        if not isinstance(base_config, dict):
+            continue
+
+        configs = [base_config]
+        configs.extend(
+            profile
+            for _, profile in enabled_server_profile_items(base_config)
+            if isinstance(profile, dict)
+        )
+        for config in configs:
+            restored = await restore_legacy_styled_channel_names(guild, config)
+            if restored:
+                changed = True
+                print(f"CHANNEL FONT RESTORE {guild.id}: {restored}")
+
+    if changed:
+        save_guild_configs()
 
 
 def env_truthy(name, default=""):
@@ -21151,6 +21229,22 @@ def save_dashboard_audit_queue(queue):
         print(f"[DASHBOARD AUDIT] save failed: {error}")
 
 
+def load_billing_plan_selection_queue():
+    try:
+        loaded = load_json(BILLING_PLAN_SELECTION_QUEUE_FILE)
+    except Exception as error:
+        print(f"[BILLING SELECTION] load failed: {error}")
+        return []
+    return loaded if isinstance(loaded, list) else []
+
+
+def save_billing_plan_selection_queue(queue):
+    try:
+        save_json(BILLING_PLAN_SELECTION_QUEUE_FILE, list(queue or []))
+    except Exception as error:
+        print(f"[BILLING SELECTION] save failed: {error}")
+
+
 def dashboard_audit_timestamp(value):
     try:
         text = str(value or "").replace("Z", "+00:00")
@@ -21882,6 +21976,51 @@ async def dashboard_audit_loop():
                     continue
             remaining.append(event)
         save_dashboard_audit_queue(remaining)
+
+
+def billing_plan_selection_notification_description(event):
+    plan_name = dashboard_audit_line_value(event.get("plan_name") or event.get("plan_id") or "Unknown plan", 120)
+    plan_id = dashboard_audit_line_value(event.get("plan_id") or "unknown", 80)
+    price = dashboard_audit_line_value(event.get("price_text") or "Price not configured", 80)
+    source = dashboard_audit_line_value(event.get("source") or "website", 80)
+    account_kind = dashboard_audit_line_value(event.get("account_kind") or "visitor", 40)
+    selected_ts = dashboard_audit_timestamp(event.get("selected_at"))
+    return (
+        f"**Plan:** {plan_name} (`{plan_id}`)\n"
+        f"**Price shown:** {price}\n"
+        f"**Source:** {source}\n"
+        f"**Visitor type:** {account_kind}\n"
+        f"**Action:** Checkout opened (payment not yet confirmed)\n"
+        f"**When:** <t:{selected_ts}:F>"
+    )
+
+
+@tasks.loop(seconds=20)
+async def billing_plan_selection_loop():
+    queue = load_billing_plan_selection_queue()
+    if not queue:
+        return
+
+    sent_ids = set()
+    for event in queue[:20]:
+        if not isinstance(event, dict):
+            continue
+        event_id = str(event.get("id") or "")
+        if not event_id:
+            sent_ids.add(event_id)
+            continue
+        sent = await send_owner_notification(
+            "💳 Plan Checkout Opened",
+            billing_plan_selection_notification_description(event),
+        )
+        if sent:
+            sent_ids.add(event_id)
+
+    if sent_ids:
+        latest = load_billing_plan_selection_queue()
+        save_billing_plan_selection_queue(
+            [event for event in latest if str(event.get("id") or "") not in sent_ids]
+        )
 
 # =========================================================
 # SWEAR JAR
@@ -22623,14 +22762,14 @@ async def send_owner_notification(title, description):
     try:
 
         if not BOT_OWNER_CHANNEL_ID:
-            return
+            return False
 
         owner_channel = bot.get_channel(
             int(BOT_OWNER_CHANNEL_ID)
         )
 
         if not owner_channel:
-            return
+            return False
 
         embed = discord.Embed(
             title=title,
@@ -22645,11 +22784,15 @@ async def send_owner_notification(title, description):
         )
 
         await owner_channel.send(
-            embed=style_embed(embed)
+            embed=style_embed(embed),
+            allowed_mentions=discord.AllowedMentions.none(),
         )
+
+        return True
 
     except Exception as error:
         print(error)
+        return False
 
 
 
@@ -31068,6 +31211,9 @@ async def start_background_tasks():
 
         if not dashboard_audit_loop.is_running():
             dashboard_audit_loop.start()
+
+        if not billing_plan_selection_loop.is_running():
+            billing_plan_selection_loop.start()
 
         if not rpt_event_tracker_loop.is_running():
             rpt_event_tracker_loop.start()
@@ -54783,6 +54929,7 @@ async def on_ready():
     load_processed_kill_events()
     load_online_players()
     bootstrap_runtime_from_connected_guilds()
+    await restore_legacy_styled_channel_names_for_active_guilds()
     await repair_display_names_for_active_guilds()
     await ensure_pve_channels_for_active_guilds()
     load_player_stats()

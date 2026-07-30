@@ -1011,9 +1011,26 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual(killfeed_name, bot.DEFAULT_CHANNEL_NAMES["killfeed"])
         self.assertEqual(leaderboard_name, bot.DEFAULT_CHANNEL_NAMES["leaderboards"])
-        self.assertNotEqual("kiLLFeeD\U0001f480", killfeed_name)
+        self.assertEqual("kiLLFeeD\U0001f480", killfeed_name)
+        self.assertEqual("LeADeRBoARD\U0001f4ca", leaderboard_name)
         self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel(killfeed_name, 501), "killfeed"))
         self.assertTrue(bot.channel_matches_bot_default_name(FakeChannel(leaderboard_name, 502), "leaderboards"))
+
+    def test_legacy_styled_channel_name_is_restored_with_its_emoji(self):
+        legacy_name = "kiLLFeeD".translate(bot.LEGACY_CHANNEL_NAME_STYLE_MAP) + "\U0001f480"
+        channel = FakeChannel(legacy_name, 501)
+        guild = FakeGuild([channel])
+
+        restored = asyncio.run(
+            bot.restore_legacy_styled_channel_names(
+                guild,
+                {"channels": {"killfeed": "501"}},
+            )
+        )
+
+        self.assertEqual(1, restored)
+        self.assertEqual("kiLLFeeD\U0001f480", channel.name)
+        self.assertEqual([{"name": "kiLLFeeD\U0001f480"}], channel.edit_calls)
 
     def test_clean_defaults_do_not_add_server_prefixes(self):
         livo_config = {"server_map": "livonia", "profile_name": "Wandering Around Livo"}

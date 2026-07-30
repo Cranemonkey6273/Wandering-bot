@@ -290,6 +290,52 @@ class DashboardServerControlTests(unittest.TestCase):
             self.assertTrue(dashboard.dashboard_feature_allowed(config, "xml_workshop"))
             self.assertTrue(dashboard.dashboard_feature_allowed(config, "ai_agent"))
 
+    def test_checkout_target_records_selection_before_any_external_payment(self):
+        plan = {"id": "dashboard", "name": "Wandering Bot Basic", "payment_url": "https://payments.example/checkout"}
+
+        target, external = dashboard.dashboard_checkout_target_for_plan(plan)
+
+        self.assertEqual("/checkout/dashboard", target)
+        self.assertFalse(external)
+
+    def test_billing_plan_selection_keeps_plan_and_source_without_payment_data(self):
+        saves = {}
+        fake_request = types.SimpleNamespace(
+            args={"source": "Google Ads"},
+            referrer="https://www.google.com/search?q=wandering+bot",
+        )
+
+        def fake_save(key, value):
+            saves[key] = value
+
+        with (
+            patch.object(dashboard, "request", fake_request),
+            patch.object(dashboard, "current_auth", return_value=None),
+            patch.object(dashboard, "load_store", return_value=[]),
+            patch.object(dashboard, "save_store", side_effect=fake_save),
+        ):
+            event = dashboard.record_billing_plan_selection(
+                {"id": "dashboard_ai", "name": "Wandering Bot Pro", "price_text": "£12/month", "payment_url": "https://secret.example"}
+            )
+
+        self.assertEqual("dashboard_ai", event["plan_id"])
+        self.assertEqual("google-ads", event["source"])
+        self.assertEqual("checkout_opened", event["status"])
+        self.assertNotIn("payment_url", event)
+        self.assertEqual(event, saves["billing_plan_selections"][0])
+        self.assertEqual(event, saves["billing_plan_selection_queue"][0])
+
+    def test_public_checkout_link_preserves_the_acquisition_source(self):
+        fake_request = types.SimpleNamespace(
+            args={},
+            referrer="https://www.google.com/search?q=wandering+bot",
+        )
+
+        with patch.object(dashboard, "request", fake_request):
+            url = dashboard.billing_plan_selection_url("dashboard")
+
+        self.assertEqual("/checkout/dashboard?source=www.google.com", url)
+
     def test_dashboard_feature_allowed_uses_plan_for_missing_feature_keys(self):
         plans = list(dashboard.default_billing_plan_map().values())
         config = {

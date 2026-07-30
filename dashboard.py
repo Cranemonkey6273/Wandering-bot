@@ -988,6 +988,8 @@ FILES = {
     "wages": "wages.json",
     "delivery_queue": "delivery_queue.json",
     "dashboard_audit_queue": "dashboard_audit_queue.json",
+    "billing_plan_selections": "billing_plan_selections.json",
+    "billing_plan_selection_queue": "billing_plan_selection_queue.json",
     "dashboard_admin": "dashboard_admin.json",
     "dashboard_live_feeds": "dashboard_live_feeds.json",
     "heatmap": "heatmap.json",
@@ -19387,17 +19389,12 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
         public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ""
         if plan_id == "free_bot":
             public_plan["public_cta"] = "Add Wandering Bot"
-            public_plan["public_checkout_url"] = dashboard_bot_invite_url()
-            public_plan["public_external_checkout"] = True
-            public_plan["public_primary_cta"] = True
-        elif public_plan.get("payment_url"):
-            public_plan["public_cta"] = "Subscribe"
-            public_plan["public_checkout_url"] = str(public_plan.get("payment_url") or "")
-            public_plan["public_external_checkout"] = True
+            public_plan["public_checkout_url"] = billing_plan_selection_url(plan_id)
+            public_plan["public_external_checkout"] = False
             public_plan["public_primary_cta"] = True
         elif has_checkout:
             public_plan["public_cta"] = "Subscribe"
-            public_plan["public_checkout_url"] = f"/checkout/{urllib.parse.quote(plan_id)}"
+            public_plan["public_checkout_url"] = billing_plan_selection_url(plan_id)
             public_plan["public_external_checkout"] = False
             public_plan["public_primary_cta"] = True
         else:
@@ -19555,13 +19552,79 @@ def dashboard_plan_rank(plan_id: Any) -> int:
 
 def dashboard_checkout_target_for_plan(plan: dict[str, Any]) -> tuple[str, bool]:
     plan_id = str(plan.get("id") or "")
-    if plan_id == "free_bot":
-        return dashboard_bot_invite_url(), True
-    if plan.get("payment_url"):
-        return str(plan.get("payment_url") or ""), True
-    if plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key"):
+    if plan_id == "free_bot" or plan.get("payment_url") or (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")):
         return f"/checkout/{urllib.parse.quote(plan_id)}", False
     return "", False
+
+
+def billing_plan_selection_source() -> str:
+    """Return a compact, non-identifying source label for a checkout click."""
+    try:
+        args = getattr(request, "args", {}) or {}
+    except RuntimeError:
+        return "website"
+    for key in ("source", "app_source", "utm_source", "ref"):
+        try:
+            value = args.get(key, "")
+        except Exception:
+            value = ""
+        clean = re.sub(r"[^a-z0-9_.-]+", "-", str(value or "").strip().lower()).strip("-._")
+        if clean:
+            return clean[:80]
+
+    referrer = str(getattr(request, "referrer", "") or "").strip()
+    try:
+        host = urllib.parse.urlparse(referrer).hostname or ""
+    except Exception:
+        host = ""
+    clean_host = re.sub(r"[^a-z0-9.-]+", "", host.lower()).strip(".-")
+    return clean_host[:80] or "website"
+
+
+def billing_plan_selection_url(plan_id: Any) -> str:
+    """Build the internal checkout link and carry public acquisition source."""
+    target = f"/checkout/{urllib.parse.quote(str(plan_id or ''))}"
+    source = billing_plan_selection_source()
+    if source and source != "website":
+        return f"{target}?{urllib.parse.urlencode({'source': source})}"
+    return target
+
+
+def record_billing_plan_selection(plan: dict[str, Any]) -> dict[str, Any]:
+    """Persist a checkout-opened event for owner reporting.
+
+    This records an intentional plan choice, never a payment result, and keeps
+    no IP address, payment details, or checkout URL in the record.
+    """
+    plan_id = canonical_billing_plan_id(plan.get("id"), plan)
+    if not plan_id:
+        raise ValueError("Unknown billing plan.")
+
+    auth = current_auth() or {}
+    selected_at = datetime.now(UTC).isoformat()
+    event = {
+        "id": f"plan-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}-{secrets.token_hex(3)}",
+        "plan_id": plan_id,
+        "plan_name": str(plan.get("name") or plan_id).strip()[:80],
+        "price_text": str(plan.get("price_text") or "").strip()[:80],
+        "source": billing_plan_selection_source(),
+        "account_kind": str(auth.get("kind") or "visitor").strip()[:40],
+        "selected_at": selected_at,
+        "status": "checkout_opened",
+    }
+
+    selections = load_store("billing_plan_selections", [])
+    if not isinstance(selections, list):
+        selections = []
+    selections.append(event)
+    save_store("billing_plan_selections", selections[-500:])
+
+    queue = load_store("billing_plan_selection_queue", [])
+    if not isinstance(queue, list):
+        queue = []
+    queue.append(event)
+    save_store("billing_plan_selection_queue", queue[-200:])
+    return event
 
 
 def dashboard_customer_billing_plans(access: Any) -> list[dict[str, Any]]:
@@ -30426,8 +30489,13 @@ def index():
 @APP.get("/checkout/<plan_id>")
 def public_checkout(plan_id: str):
     plan = dashboard_plan_by_id(plan_id)
-    if not plan or str(plan.get("id") or "") == "free_bot" or not safe_bool(plan.get("enabled"), True):
+    if not plan or not safe_bool(plan.get("enabled"), True):
         return redirect("/#pricing")
+
+    record_billing_plan_selection(plan)
+    if str(plan.get("id") or "") == "free_bot":
+        return redirect(dashboard_bot_invite_url())
+
     payment_url = str(plan.get("payment_url") or "").strip()
     if payment_url:
         return redirect(payment_url)
