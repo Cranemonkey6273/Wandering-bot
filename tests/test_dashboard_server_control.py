@@ -705,6 +705,21 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", destination)
         record_selection.assert_called_once_with(free_plan)
 
+    def test_onboarding_emoji_picker_includes_the_selected_servers_custom_emoji(self):
+        server_emoji = {
+            "value": "<:cherno:123456789012345678>",
+            "label": ":cherno: (this server)",
+            "name": "cherno",
+        }
+
+        with patch.object(dashboard, "discord_guild_emojis", return_value=[server_emoji]) as load_emojis:
+            options = dashboard.dashboard_onboarding_emoji_options("guild-1")
+
+        self.assertIn("✅", [option["value"] for option in options])
+        self.assertIn(server_emoji, options)
+        load_emojis.assert_called_once_with("guild-1")
+        self.assertEqual("<:cherno:123456789012345678>", dashboard.normalize_dashboard_onboarding_emoji(server_emoji["value"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -687,6 +687,21 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertTrue(bot.onboarding_emojis_match(FakePartialEmoji(), "\U0001F534"))
 
+    def test_onboarding_custom_emoji_is_kept_and_matches_reaction_payload(self):
+        class FakeCustomEmoji:
+            id = 123456789012345678
+            name = "cherno"
+            animated = False
+
+            def __str__(self):
+                return "<:cherno:123456789012345678>"
+
+        configured = "<:cherno:123456789012345678>"
+        settings = bot.member_onboarding_settings({"member_onboarding": {"reaction_emoji": configured}})
+
+        self.assertEqual(configured, settings["reaction_emoji"])
+        self.assertTrue(bot.onboarding_emojis_match(FakeCustomEmoji(), configured))
+
     def test_onboarding_choice_add_posts_to_configured_welcome_channel(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)

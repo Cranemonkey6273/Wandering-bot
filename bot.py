@@ -4679,6 +4679,7 @@ def gamertag_linked_to_other_user(gamertag, user_id, guild_id=None):
 
 
 ONBOARDING_REACTION_OPTIONS = {"✅", "👍", "🟢", "🛡️", "📜"}
+ONBOARDING_CUSTOM_EMOJI_RE = re.compile(r"^<a?:[A-Za-z0-9_]{1,64}:\d{15,24}>$")
 ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES = {
     "cherno": "Welcome to Wandering Around Cherno. You now have Cherno access. Link your gamertag with /linkgamer and check the Cherno info channels before jumping in.",
     "livo": "Welcome to Wandering Around Livo. You now have Livo access. Link your gamertag with /linkgamer and check the Livo info channels before jumping in.",
@@ -4728,12 +4729,22 @@ ONBOARDING_RULES_ACCEPTANCE_GRACE_LIMIT = 5000
 onboarding_rules_acceptance_dedupe = OrderedDict()
 
 
+def normalize_onboarding_reaction_emoji(value, default="✅"):
+    """Accept standard Unicode or a Discord custom emoji from the configured guild."""
+    emoji = str(value or "").strip()
+    if not emoji:
+        return default
+    if ONBOARDING_CUSTOM_EMOJI_RE.fullmatch(emoji):
+        return emoji
+    if len(emoji) <= 80 and any(ord(character) > 127 for character in emoji) and not any(character in emoji for character in "\r\n<>"):
+        return emoji
+    return default
+
+
 def member_onboarding_settings(config):
     saved = config.get("member_onboarding") if isinstance(config, dict) else {}
     saved = saved if isinstance(saved, dict) else {}
-    reaction = str(saved.get("reaction_emoji") or "✅").strip() or "✅"
-    if reaction not in ONBOARDING_REACTION_OPTIONS:
-        reaction = "✅"
+    reaction = normalize_onboarding_reaction_emoji(saved.get("reaction_emoji"))
     settings = {
         "enabled": bool(saved.get("enabled")),
         "rules_channel_key": str(saved.get("rules_channel_key") or "").strip(),
@@ -5085,15 +5096,25 @@ def onboarding_message_has_reaction(message, reaction_emoji):
 
 
 def onboarding_emoji_text(value):
+    emoji_id = str(getattr(value, "id", "") or "").strip()
+    name = str(getattr(value, "name", "") or "").strip()
+    if emoji_id.isdigit() and name:
+        return f"<{'a' if getattr(value, 'animated', False) else ''}:{name}:{emoji_id}>"
     if hasattr(value, "name"):
-        name = getattr(value, "name", "")
         if name:
             return str(name)
     return str(value or "")
 
 
 def onboarding_emoji_key(value):
-    return onboarding_emoji_text(value).strip().replace("\ufe0f", "").replace("\ufe0e", "")
+    emoji_id = str(getattr(value, "id", "") or "").strip()
+    if emoji_id.isdigit():
+        return f"custom:{emoji_id}"
+    text = onboarding_emoji_text(value).strip()
+    custom = ONBOARDING_CUSTOM_EMOJI_RE.fullmatch(text)
+    if custom:
+        return f"custom:{text.rsplit(':', 1)[-1][:-1]}"
+    return text.replace("\ufe0f", "").replace("\ufe0e", "")
 
 
 def onboarding_emojis_match(left, right):

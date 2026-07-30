@@ -511,6 +511,7 @@ DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_S
 DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_ROLE_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_MEMBER_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
+DISCORD_EMOJI_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
 DISCORD_GUILD_COUNT_CACHE: dict[str, tuple[datetime, int]] = {}
 PUBLIC_SEO_PAGES = {
     "home": {
@@ -7537,10 +7538,12 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Reaction
-              <select name="reaction_emoji">
-                {% for emoji in onboarding_reaction_options %}<option value="{{ emoji }}" {% if emoji == onboarding.reaction_emoji %}selected{% endif %}>{{ emoji }}</option>{% endfor %}
-              </select>
+              <input name="reaction_emoji" value="{{ onboarding.reaction_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
+              <small class="muted">Choose from common reactions or this server's custom emoji. You can also paste any standard Discord emoji.</small>
             </label>
+            <datalist id="onboarding-emoji-options">
+              {% for emoji in onboarding_emoji_options %}<option value="{{ emoji.value }}" label="{{ emoji.label }}">{{ emoji.label }}</option>{% endfor %}
+            </datalist>
             <label>Exact rules message ID
               <input name="rules_message_id" value="{{ onboarding.rules_message_id }}" placeholder="paste the real Discord rules message ID">
               <small class="muted">Members react to this exact rules message only. If blank, the bot will try to use a pinned/existing real rules message and store it; it will not post a second reaction target.</small>
@@ -7599,6 +7602,7 @@ PAGE_TEMPLATE = """
                 <option value="true" {% if onboarding.choice_require_rules %}selected{% endif %}>Yes</option>
                 <option value="false" {% if not onboarding.choice_require_rules %}selected{% endif %}>No</option>
               </select>
+              <small class="muted">Set to No to let members choose a server role without completing the rules reaction.</small>
             </label>
             <label>Choice mode
               <select name="choice_single">
@@ -7607,7 +7611,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Cherno reaction
-              <input name="choice_cherno_emoji" value="{{ onboarding.choice_cherno_emoji }}" placeholder="emoji">
+              <input name="choice_cherno_emoji" value="{{ onboarding.choice_cherno_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
             <label>Cherno role
               <select name="choice_cherno_role_id">
@@ -7623,7 +7627,7 @@ PAGE_TEMPLATE = """
             </label>
             <label class="full">Cherno welcome message <textarea name="choice_cherno_welcome_message">{{ onboarding.choice_cherno_welcome_message }}</textarea></label>
             <label>Livo reaction
-              <input name="choice_livo_emoji" value="{{ onboarding.choice_livo_emoji }}" placeholder="emoji">
+              <input name="choice_livo_emoji" value="{{ onboarding.choice_livo_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
             <label>Livo role
               <select name="choice_livo_role_id">
@@ -7639,7 +7643,7 @@ PAGE_TEMPLATE = """
             </label>
             <label class="full">Livo welcome message <textarea name="choice_livo_welcome_message">{{ onboarding.choice_livo_welcome_message }}</textarea></label>
             <label>Bot reaction
-              <input name="choice_bot_emoji" value="{{ onboarding.choice_bot_emoji }}" placeholder="emoji">
+              <input name="choice_bot_emoji" value="{{ onboarding.choice_bot_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
             <label>Bot role
               <select name="choice_bot_role_id">
@@ -26546,6 +26550,54 @@ def discord_guild_roles(guild_id: str) -> list[dict[str, str]]:
     return roles
 
 
+def discord_guild_emojis(guild_id: str) -> list[dict[str, str]]:
+    """Return the custom emoji this bot can see in one Discord server."""
+    if not DISCORD_TOKEN or not guild_id:
+        return []
+    guild_id = normalize_guild_id(guild_id)
+    if not guild_id:
+        return []
+    now = datetime.now(UTC)
+    cached = DISCORD_EMOJI_CACHE.get(guild_id)
+    if cached and (now - cached[0]).total_seconds() < DISCORD_CHANNEL_CACHE_SECONDS:
+        return cached[1]
+    request_obj = urllib.request.Request(
+        f"https://discord.com/api/v10/guilds/{guild_id}/emojis",
+        headers={"Authorization": f"Bot {DISCORD_TOKEN}", "User-Agent": "WanderingBotDashboard/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request_obj, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    emojis = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        emoji_id = str(item.get("id") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if not emoji_id.isdigit() or not name:
+            continue
+        value = f"<{'a' if item.get('animated') else ''}:{name}:{emoji_id}>"
+        emojis.append({
+            "value": value,
+            "label": f":{name}: (this server{' animated' if item.get('animated') else ''})",
+            "name": name,
+        })
+    emojis.sort(key=lambda emoji: (str(emoji["name"]).lower(), str(emoji["value"])))
+    DISCORD_EMOJI_CACHE[guild_id] = (now, emojis)
+    return emojis
+
+
+def dashboard_onboarding_emoji_options(guild_id: str) -> list[dict[str, str]]:
+    """Offer common Unicode reactions plus only the custom emoji from this guild."""
+    options = [{"value": emoji, "label": emoji} for emoji in ONBOARDING_COMMON_UNICODE_EMOJIS]
+    options.extend(discord_guild_emojis(guild_id))
+    return options
+
+
 def discord_guild_members(guild_id: str, limit: int = 1000) -> list[dict[str, str]]:
     if not DISCORD_TOKEN or not guild_id:
         return []
@@ -27410,6 +27462,27 @@ def dashboard_survival_milestone_settings(config: Any, channels: list[dict[str, 
 
 
 ONBOARDING_REACTION_OPTIONS = ("✅", "👍", "🟢", "🛡️", "📜")
+ONBOARDING_COMMON_UNICODE_EMOJIS = (
+    "✅", "👍", "👋", "🎉", "🔥", "💥", "⚔️", "🛡️", "📜", "🔒", "🔓", "🗺️", "📍", "🧭", "🎮", "🕹️",
+    "🧟", "🐺", "🐻", "🦌", "🏕️", "🏠", "🚗", "🚁", "💰", "🪙", "🛒", "🎁", "📣", "🔔", "🔴", "🟠",
+    "🟡", "🟢", "🔵", "🟣", "⚫", "⚪", "🟤", "💎", "⭐", "🌟", "☠️", "💀", "🧨", "🚨", "❗", "❓",
+    "✔️", "☑️", "✳️", "🆗", "🆕", "🆒", "♻️", "🚫", "⛔", "⚠️", "🏆", "🥇", "🥈", "🥉", "🎯",
+)
+ONBOARDING_CUSTOM_EMOJI_RE = re.compile(r"^<a?:[A-Za-z0-9_]{1,64}:\d{15,24}>$")
+
+
+def normalize_dashboard_onboarding_emoji(value: Any, default: str = "✅") -> str:
+    """Keep standard Unicode and Discord custom reaction markup, reject plain text."""
+    emoji = str(value or "").strip()
+    if not emoji:
+        return default
+    if ONBOARDING_CUSTOM_EMOJI_RE.fullmatch(emoji):
+        return emoji
+    if len(emoji) <= 80 and any(ord(character) > 127 for character in emoji) and not any(character in emoji for character in "\r\n<>"):
+        return emoji
+    return default
+
+
 ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES = {
     "cherno": "Welcome to Wandering Around Cherno. You now have Cherno access. Link your gamertag with /linkgamer and check the Cherno info channels before jumping in.",
     "livo": "Welcome to Wandering Around Livo. You now have Livo access. Link your gamertag with /linkgamer and check the Livo info channels before jumping in.",
@@ -27434,9 +27507,7 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         config = {}
     raw_settings = config.get("member_onboarding")
     settings = raw_settings if isinstance(raw_settings, dict) else {}
-    reaction = str(settings.get("reaction_emoji") or "✅").strip() or "✅"
-    if reaction not in ONBOARDING_REACTION_OPTIONS:
-        reaction = "✅"
+    reaction = normalize_dashboard_onboarding_emoji(settings.get("reaction_emoji"))
     rules_channel_value = dashboard_channel_value(
         config,
         settings.get("rules_channel_id") or settings.get("rules_channel_key") or "rules",
@@ -30136,6 +30207,12 @@ def page(mode: str, auth: dict[str, Any]):
     billing_plans = dashboard_billing_plans()
     native_app_mode = is_native_app_request()
     customer_billing_plans = [] if native_app_mode or mode == "owner" or auth.get("kind") == "agent_account" else dashboard_customer_billing_plans(selected_access)
+    onboarding_emoji_options = dashboard_onboarding_emoji_options(
+        normalize_guild_id(selected_server.get("guild_id") if isinstance(selected_server, dict) else "")
+    ) if active_section == "access" and setup_tool == "onboarding" else [
+        {"value": emoji, "label": emoji}
+        for emoji in ONBOARDING_COMMON_UNICODE_EMOJIS
+    ]
     billing_has_stripe_buy_buttons = False
     return render_template_string(
         PAGE_TEMPLATE,
@@ -30197,7 +30274,7 @@ def page(mode: str, auth: dict[str, Any]):
         visual_reference_name=visual_reference_name,
         visual_reference_detail=visual_reference_detail,
         shop_bundle_rows=shop_bundle_rows,
-        onboarding_reaction_options=ONBOARDING_REACTION_OPTIONS,
+        onboarding_emoji_options=onboarding_emoji_options,
         restart_status=restart_status,
         schedule_status=schedule_status,
         dashboard_reviews=dashboard_reviews,
@@ -31718,9 +31795,7 @@ def api_member_onboarding():
             return ""
         return role_id
 
-    reaction = str(raw_payload.get("reaction_emoji") or "✅").strip() or "✅"
-    if reaction not in ONBOARDING_REACTION_OPTIONS:
-        reaction = "✅"
+    reaction = normalize_dashboard_onboarding_emoji(raw_payload.get("reaction_emoji"))
     settings: dict[str, Any] = {
         "enabled": dashboard_bool(raw_payload.get("enabled"), False),
         "reaction_emoji": reaction,
@@ -31728,13 +31803,13 @@ def api_member_onboarding():
         "choice_message_id": str(raw_payload.get("choice_message_id") or "").strip(),
         "choice_require_rules": dashboard_bool(raw_payload.get("choice_require_rules"), True),
         "choice_single": dashboard_bool(raw_payload.get("choice_single"), False),
-        "choice_cherno_emoji": (str(raw_payload.get("choice_cherno_emoji") or "🔵").strip()[:40] or "🔵"),
+        "choice_cherno_emoji": (normalize_dashboard_onboarding_emoji(raw_payload.get("choice_cherno_emoji"), "🔵")[:80] or "🔵"),
         "choice_cherno_role_id": assignable_role_id(raw_payload.get("choice_cherno_role_id")),
         "choice_cherno_welcome_message": str(raw_payload.get("choice_cherno_welcome_message") or "").strip() or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["cherno"],
-        "choice_livo_emoji": (str(raw_payload.get("choice_livo_emoji") or "🟢").strip()[:40] or "🟢"),
+        "choice_livo_emoji": (normalize_dashboard_onboarding_emoji(raw_payload.get("choice_livo_emoji"), "🟢")[:80] or "🟢"),
         "choice_livo_role_id": assignable_role_id(raw_payload.get("choice_livo_role_id")),
         "choice_livo_welcome_message": str(raw_payload.get("choice_livo_welcome_message") or "").strip() or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["livo"],
-        "choice_bot_emoji": (str(raw_payload.get("choice_bot_emoji") or "🤖").strip()[:40] or "🤖"),
+        "choice_bot_emoji": (normalize_dashboard_onboarding_emoji(raw_payload.get("choice_bot_emoji"), "🤖")[:80] or "🤖"),
         "choice_bot_role_id": assignable_role_id(raw_payload.get("choice_bot_role_id")),
         "choice_bot_welcome_message": str(raw_payload.get("choice_bot_welcome_message") or "").strip() or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["bot"],
         "rules_role_id": assignable_role_id(raw_payload.get("rules_role_id")),
