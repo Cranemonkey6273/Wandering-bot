@@ -1743,6 +1743,8 @@ PUBLIC_LANDING_TEMPLATE = """
     .pricing-features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .38rem .7rem; margin: 0; padding: 0; list-style: none; }
     .pricing-features li { position: relative; padding-left: 1rem; color: #d7e4dc; }
     .pricing-features li::before { content: ""; position: absolute; left: 0; top: .72rem; width: .38rem; height: .38rem; border-radius: 50%; background: var(--green); }
+    .pricing-ai-note { display: grid; gap: .28rem; padding: .72rem; border: 1px solid rgba(103, 245, 231, .26); border-radius: .45rem; background: rgba(103, 245, 231, .07); color: #d7e4dc; line-height: 1.42; }
+    .pricing-ai-note strong { color: #eafffd; }
     .pricing-card .button { width: 100%; align-self: end; }
     .pricing-pill { display: inline-flex; align-items: center; border: 1px solid rgba(236, 161, 64, .36); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .72rem; font-weight: 950; white-space: nowrap; }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
@@ -1995,6 +1997,7 @@ PUBLIC_LANDING_TEMPLATE = """
             <li>{{ feature }}</li>
             {% endfor %}
           </ul>
+          {% if plan.public_ai_agent_summary %}<div class="pricing-ai-note"><strong>What the AI agent does</strong><span>{{ plan.public_ai_agent_summary }}</span></div>{% endif %}
           <a class="button {{ 'primary' if plan.public_primary_cta else '' }}" href="{{ plan.public_checkout_url }}" {% if plan.public_external_checkout %}target="_blank" rel="noopener"{% endif %}>{{ plan.public_cta }}</a>
         </article>
         {% endfor %}
@@ -19982,7 +19985,9 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
         ],
         "dashboard_ultimate": [
             "Everything in Pro dashboard access",
-            "Private AI sandbox access",
+            "Private DayZ AI agent with separate project conversations",
+            "Explain XML/JSON errors, prepare events and draft reviewed DayZ files",
+            f"{AGENT_ULTIMATE_INCLUDED_CREDITS} included AI credits, with secure top-ups when needed",
             "Android and Apple companion application — coming soon",
         ],
     }
@@ -19999,6 +20004,11 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
         public_plan = dict(plan)
         plan_id = str(public_plan.get("id") or "")
         public_plan["public_features"] = public_billing_plan_features(public_plan)
+        public_plan["public_ai_agent_summary"] = (
+            "Ask for help with DayZ files, weather, loot, errors, events or safe configuration changes. "
+            "It can prepare the relevant snippets and downloads, but live uploads always stay review and approval-gated."
+            if plan_id == "dashboard_ultimate" else ""
+        )
         public_plan["public_featured"] = plan_id == "dashboard"
         public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ("App coming soon" if plan_id == "dashboard_ultimate" else "")
         public_plan["public_price_text"] = (

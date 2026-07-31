@@ -735,6 +735,7 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual({"free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate"}, set(public_plans))
         self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
         self.assertIn("Android and Apple companion application — coming soon", public_plans["dashboard_ultimate"]["public_features"])
+        self.assertIn("DayZ files", public_plans["dashboard_ultimate"]["public_ai_agent_summary"])
         self.assertEqual("Get started free", public_plans["free_bot"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard_ai"]["public_cta"])
