@@ -317,6 +317,21 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertFalse(access["allowed"])
         self.assertEqual("ultimate_required", access["status"])
 
+    def test_dayz_ai_capability_matching_covers_events_and_mod_safety(self):
+        event_capabilities = dashboard.ai_agent_dayz_capabilities_for_request(
+            "Create a vehicle airdrop and infected horde event",
+            "cfgeventspawns.xml",
+        )
+        titles = {item["title"] for item in event_capabilities}
+        self.assertIn("Events, object spawns and vehicles", titles)
+
+        mod_capabilities = dashboard.ai_agent_dayz_capabilities_for_request("Set up an NPC airstrike mod")
+        mod_safety = next(item["safety"] for item in mod_capabilities if item["id"] == "mod_integrations")
+        self.assertIn("exact mod", mod_safety)
+
+        self.assertEqual("init.c", dashboard.ai_agent_dayz_target_path("init.c"))
+        self.assertEqual("custom/objectspawner.json", dashboard.ai_agent_dayz_target_path("objectspawner.json"))
+
     def test_ai_agent_workspaces_only_return_the_selected_conversation(self):
         state = {
             "runs": [{"id": "run-one", "task_ids": ["task-one"], "job_ids": [], "approval_ids": []}, {"id": "run-two", "task_ids": ["task-two"], "job_ids": [], "approval_ids": []}],

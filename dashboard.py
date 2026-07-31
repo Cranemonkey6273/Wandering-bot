@@ -3817,6 +3817,10 @@ PAGE_TEMPLATE = """
     .ai-workspace-technical, .ai-workspace-advanced { margin: 0 0 .85rem; border: 1px solid rgba(103,245,231,.17); border-radius: .7rem; padding: .68rem .78rem; background: rgba(2,9,12,.64); }
     .ai-workspace-technical summary, .ai-workspace-advanced summary { cursor: pointer; color: #effcff; font-weight: 850; }
     .ai-workspace-technical > *:not(summary), .ai-workspace-advanced > *:not(summary) { margin-top: .75rem; }
+    .ai-dayz-capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .55rem; }
+    .ai-dayz-capability-card { display: grid; gap: .32rem; border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .65rem; background: rgba(1,8,10,.64); }
+    .ai-dayz-capability-card strong { color: #effcff; }
+    .ai-dayz-capability-card span { color: var(--muted); font-size: .79rem; line-height: 1.42; }
     .ai-credit-balance { display: grid; gap: .3rem; padding: .7rem; border: 1px solid rgba(236,161,64,.32); border-radius: .6rem; background: rgba(236,161,64,.08); }
     .ai-credit-balance strong { color: var(--amber); font-size: 1.25rem; }
     .ai-credit-pack-list, .ai-credit-ledger { display: grid; gap: .45rem; }
@@ -6779,6 +6783,18 @@ PAGE_TEMPLATE = """
             <details class="ai-dayz-workbench">
               <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
               <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you an official vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
+              <details class="ai-workspace-advanced">
+                <summary>Everything this DayZ helper can work on</summary>
+                <div class="ai-dayz-capability-grid">
+                  {% for capability in ai_agent_dayz_capabilities %}
+                  <article class="ai-dayz-capability-card">
+                    <strong>{{ capability.title }}</strong>
+                    <span>{{ capability.summary }}</span>
+                    <span class="tool-note">{{ capability.safety }}</span>
+                  </article>
+                  {% endfor %}
+                </div>
+              </details>
               <div class="ai-codex-options">
                 <label>Help needed
                   <select name="dayz_support_mode">
@@ -20410,6 +20426,7 @@ AI_AGENT_DIFF_MAX_CHARS = 80_000
 AI_AGENT_DAYZ_SOURCE_MAX_CHARS = 90_000
 AI_AGENT_DAYZ_DRAFT_MAX_CHARS = 90_000
 AI_AGENT_DAYZ_TARGETS = (
+    ("init.c", "init.c - mission script and ObjectSpawner hooks"),
     ("db/types.xml", "types.xml - loot economy quantities, lifetime and tiers"),
     ("cfgweather.xml", "cfgweather.xml - rain, fog, wind and storms"),
     ("cfggameplay.json", "cfggameplay.json - gameplay, stamina and world settings"),
@@ -20425,6 +20442,8 @@ AI_AGENT_DAYZ_TARGETS = (
     ("cfgenvironment.xml", "cfgenvironment.xml - environment and territory references"),
     ("cfgareaeffects.xml", "cfgareaeffects.xml - contaminated-area presets"),
     ("cfgeffectarea.json", "cfgeffectarea.json - gas particle settings"),
+    ("cfgplayerspawn.json", "cfgplayerspawn.json - fresh-spawn loadout presets"),
+    ("custom/objectspawner.json", "ObjectSpawner JSON - custom object placements"),
     ("cfgplayerspawnpoints.xml", "cfgplayerspawnpoints.xml - fresh-spawn positions and settings"),
     ("db/messages.xml", "messages.xml - on-screen server messages"),
     ("cfgignorelist.xml", "cfgignorelist.xml - economy cleanup ignore list"),
@@ -20442,6 +20461,60 @@ AI_AGENT_DAYZ_TARGETS = (
     ("env/sheep_goat_territories.xml", "sheep_goat_territories.xml - sheep and goat territory zones"),
     ("env/cattle_territories.xml", "cattle_territories.xml - cattle territory zones"),
     ("env/domestic_animals_territories.xml", "domestic_animals_territories.xml - domestic animal territory zones"),
+)
+
+# DayZ BoosterZ is used as a feature checklist, not as a source of implementation
+# code. This registry gives the assistant a deliberate, testable scope for the
+# major DayZ file jobs owners ask for, including which requests are mod-dependent.
+AI_AGENT_DAYZ_CAPABILITIES = (
+    {
+        "id": "validate_convert",
+        "title": "Validate, repair and convert files",
+        "summary": "Diagnose XML/JSON errors, explain line and column failures, format safely, split JSON, and convert init.c, ObjectSpawner, SpawnObject and MapGroupPos data when the source format is supplied.",
+        "keywords": ("xml", "json", "validator", "split", "convert", "init.c", "spawnobject", "objectspawner", "mapgrouppos"),
+        "targets": ("init.c", "custom/objectspawner.json", "mapgrouppos.xml", "cfgeventspawns.xml"),
+        "safety": "A conversion is only treated as valid after the output format and target file validate; custom scripts need a server-side test.",
+    },
+    {
+        "id": "economy_loot",
+        "title": "Loot economy and item configuration",
+        "summary": "Edit, boost, reduce, organise and explain types.xml; tune nominal, min, lifetime, restock, tiers, categories, usages, values, attachments, cargo, proxies and spawnable types.",
+        "keywords": ("types", "loot", "nominal", "lifetime", "tier", "spawnable", "proxy", "cargo", "classname", "globals"),
+        "targets": ("db/types.xml", "cfgspawnabletypes.xml", "db/globals.xml", "cfglimitsdefinition.xml", "cfglimitsdefinitionuser.xml", "cfgrandompresets.xml"),
+        "safety": "The agent preserves existing records, rejects destructive full-file shrinkage and never guesses a classname.",
+    },
+    {
+        "id": "events_spawns",
+        "title": "Events, object spawns and vehicles",
+        "summary": "Create and organise CE event definitions, positions and groups; prepare airdrop, vehicle, infected horde, animal, bag-fill and gas-event packages; check name/position conflicts and map bounds.",
+        "keywords": ("event", "airdrop", "vehicle", "horde", "bag", "gas", "spawn", "conflict", "eventgroup", "airstrike"),
+        "targets": ("db/events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml", "db/types.xml", "cfgspawnabletypes.xml"),
+        "safety": "Vanilla CE packages are generated from linked files. Airstrikes and NPCs are mod-dependent and require the exact mod, version and its current config.",
+    },
+    {
+        "id": "map_territory_environment",
+        "title": "Map groups, territories and environment",
+        "summary": "Work with MapGroupPos and prototypes, loot/exclusion zones, animal and infected territories, contaminated/gas areas, underground triggers and environment references.",
+        "keywords": ("territory", "environment", "mapgroup", "exclusion", "underground", "area effect", "gas zone", "animal", "infected"),
+        "targets": ("mapgroupproto.xml", "mapgrouppos.xml", "cfgenvironment.xml", "cfgareaeffects.xml", "cfgeffectarea.json", "cfgundergroundtriggers.json", "env/zombie_territories.xml"),
+        "safety": "Coordinates are checked against the selected map; territory and environment edits stay merge-only unless the complete current file was supplied.",
+    },
+    {
+        "id": "server_experience",
+        "title": "Weather, gameplay, messages and player spawning",
+        "summary": "Configure day/night timing, weather, messages, gameplay settings, fresh spawn points, player loadouts, server globals and Nitrado-oriented setup guidance.",
+        "keywords": ("weather", "day", "night", "message", "gameplay", "loadout", "spawn point", "nitrado", "time acceleration"),
+        "targets": ("cfgweather.xml", "cfggameplay.json", "db/messages.xml", "cfgplayerspawnpoints.xml", "cfgplayerspawn.json", "db/globals.xml"),
+        "safety": "It explains the effect before changing it, never requests or stores Nitrado secrets, and asks for the current config before a full-file replacement.",
+    },
+    {
+        "id": "mod_integrations",
+        "title": "Mod-specific integrations",
+        "summary": "Help interpret and prepare compatible configuration for NPC, airstrike, custom object, trader or other mod files when the user provides the mod name, version, documentation and current config.",
+        "keywords": ("npc", "airstrike", "mod", "trader", "expansion", "cfgeffect", "custom"),
+        "targets": (),
+        "safety": "There is no universal vanilla NPC or airstrike file. The agent needs the exact mod and version first and must not invent its schema or classnames.",
+    },
 )
 
 
@@ -22033,6 +22106,38 @@ def ai_agent_dayz_target_path(value: Any) -> str:
     return ""
 
 
+def ai_agent_dayz_capabilities_for_request(objective: Any, target_path: Any = "") -> list[dict[str, str]]:
+    request_text = f"{objective or ''} {target_path or ''}".lower()
+    target_filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    matched: list[dict[str, str]] = []
+    for capability in AI_AGENT_DAYZ_CAPABILITIES:
+        keywords = capability.get("keywords", ())
+        targets = capability.get("targets", ())
+        keyword_match = any(str(keyword).lower() in request_text for keyword in keywords)
+        target_match = any(
+            target_filename and target_filename == os.path.basename(str(candidate)).lower()
+            for candidate in targets
+        )
+        if keyword_match or target_match:
+            matched.append({
+                "id": str(capability["id"]),
+                "title": str(capability["title"]),
+                "summary": str(capability["summary"]),
+                "safety": str(capability["safety"]),
+            })
+    if not matched:
+        matched = [
+            {
+                "id": str(capability["id"]),
+                "title": str(capability["title"]),
+                "summary": str(capability["summary"]),
+                "safety": str(capability["safety"]),
+            }
+            for capability in AI_AGENT_DAYZ_CAPABILITIES
+        ]
+    return matched[:4]
+
+
 def ai_agent_dayz_error_diagnosis(error_text: Any) -> list[str]:
     text = str(error_text or "").strip()
     if not text:
@@ -22200,6 +22305,8 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
             "dayz", "types.xml", "cfgweather", "weather.xml", "cfggameplay", "eventspawns", "spawnabletypes",
             "central economy", "messages.xml", "on-screen message", "mapgroupproto", "mapgrouppos",
             "spawnpoints", "territories.xml", "cfgignorelist", "limitsdefinition", "randompresets", "undergroundtriggers",
+            "init.c", "spawnobject", "objectspawner", "airstrike", "horde", "npc", "cfgareaeffects", "cfgeffectarea",
+            "globals.xml", "nitrado", "loadout", "day night", "day/night", "lifetime", "tier booster", "loot exclusion",
         )
     )
     if not is_dayz_request:
@@ -22242,6 +22349,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "source_validation": {"ok": validation_ok, "message": validation_message},
         "error_text": ai_agent_compact_text(payload.get("dayz_error_text"), 4000),
         "error_diagnosis": ai_agent_dayz_error_diagnosis(payload.get("dayz_error_text")),
+        "capabilities": ai_agent_dayz_capabilities_for_request(objective, target_path),
         "reference": reference,
         "scenario": ai_agent_dayz_scenario_from_payload(payload, payload.get("dayz_map")),
         "file_kind": spec.kind if spec else "",
@@ -22264,6 +22372,7 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
         "source_validation": context.get("source_validation"),
         "error_text": context.get("error_text"),
         "error_diagnosis": context.get("error_diagnosis"),
+        "capabilities": context.get("capabilities", []),
         "reference": context.get("reference"),
         "scenario": context.get("scenario"),
         "file_kind": context.get("file_kind"),
@@ -22456,6 +22565,9 @@ def ai_agent_dayz_fallback_reply(task: dict[str, Any]) -> str:
         lines.append("Paste the complete current file for a full replacement, or select ‘relevant section’ for an XML merge patch.")
     if context.get("error_diagnosis"):
         lines.append("Error check: " + " ".join(str(item) for item in context.get("error_diagnosis", [])[:3]))
+    capabilities = context.get("capabilities") if isinstance(context.get("capabilities"), list) else []
+    if capabilities:
+        lines.append("Relevant DayZ work: " + "; ".join(str(item.get("title") or "DayZ support") for item in capabilities[:3] if isinstance(item, dict)))
     reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
     if reference.get("error"):
         lines.append(f"Reference request: {reference.get('error')}")
@@ -23137,6 +23249,13 @@ def ai_agent_llm_reply_for_task(
         "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml controls CE cleanup exceptions; cfglimitsdefinition XML files define CE categories/tags/usages; "
         "cfgrandompresets.xml controls random cargo groups; cfgundergroundtriggers.json controls underground area triggers; "
         "cfgenvironment.xml and territory files control environment references and zones. Use the supplied bundled reference or preset only when it matches the selected map and target file. "
+        "Cover the complete DayZ file workflow: XML/JSON validation and conversion; types, tiers, nominal, min, lifetime and spawnable-type tuning; "
+        "events, event positions, event groups, object spawns, vehicles, airdrops, hordes, bags and gas zones; "
+        "MapGroupPos/prototype data, territory and environment exclusions, weather/day-night timing, gameplay, messages, spawn points, loadouts, globals and underground settings. "
+        "For init.c and ObjectSpawner/SpawnObject work, identify whether the user has vanilla ObjectSpawner or a mod, preserve the source format, and clearly state that scripts require a server-side test. "
+        "For NPCs, airstrikes, traders or any other mod-dependent feature, ask for the exact mod name/version and current config before writing a schema; there is no universal vanilla NPC or airstrike file. "
+        "When a request touches more than one file, name every target file, explain why each is needed, keep independent snippets clearly separated, and say which are complete files versus merge-only patches. "
+        "Never copy or claim to recreate another service's private implementation; use the supplied request, validated vanilla references and documented file structure. "
         "When error_text is supplied, interpret the reported line/column and the surrounding source; do not pretend to have fixed it unless you return a validated draft. "
         "When a scenario plan is supplied, explain that the dashboard's event engine creates the linked CE package from current server files, not isolated replacement snippets. "
         "A fragment is never a full replacement. Only return a full_file draft if complete_current_file source is supplied and "
@@ -31716,6 +31835,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_dayz_drafts=ai_agent_dayz_draft_summaries(ai_agent_workspace_state),
         ai_agent_dayz_references=ai_agent_dayz_reference_summaries(ai_agent_workspace_state),
         ai_agent_dayz_targets=AI_AGENT_DAYZ_TARGETS,
+        ai_agent_dayz_capabilities=AI_AGENT_DAYZ_CAPABILITIES,
         ai_agent_dayz_presets=DAYZ_PRESET_FILES,
         ai_agent_runs=ai_agent_runs[:20],
         ai_agent_active_run=ai_agent_active_run or {},

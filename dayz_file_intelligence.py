@@ -33,6 +33,7 @@ class DayZFileSpec:
 
 
 DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
+    "init.c": DayZFileSpec("init.c", "script", description="mission initialisation script and ObjectSpawner hooks"),
     "events.xml": DayZFileSpec("events.xml", "xml", "events", ("event",), description="CE event definitions"),
     "cfgeventspawns.xml": DayZFileSpec("cfgeventspawns.xml", "xml", "eventposdef", ("event",), description="CE event positions"),
     "cfgeventgroups.xml": DayZFileSpec("cfgeventgroups.xml", "xml", "eventgroupdef", ("group",), description="CE static event groups"),
@@ -57,6 +58,7 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgundergroundtriggers.json": DayZFileSpec("cfgundergroundtriggers.json", "json", json_root_types=("object",), description="underground area trigger settings"),
     "cfgeffectarea.json": DayZFileSpec("cfgeffectarea.json", "json", json_root_types=("object",), description="gas particle settings"),
     "cfgplayerspawn.json": DayZFileSpec("cfgplayerspawn.json", "json", json_root_types=("object",), description="fresh spawn loadouts"),
+    "objectspawner.json": DayZFileSpec("objectspawner.json", "json", json_root_types=("object",), description="ObjectSpawner object placements"),
 }
 
 DAYZ_TERRITORY_FILE_SPEC = DayZFileSpec(
@@ -341,6 +343,8 @@ def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool
             return False, f"Refusing to upload `{target_path}`: expected JSON root {allowed}, got {root_type}."
         if filename == "cfggameplay.json":
             return _validate_cfggameplay_payload(payload, target_path)
+        if filename == "objectspawner.json":
+            return _validate_object_spawner_payload(payload, target_path)
         return True, ""
 
     if extension == ".xml":

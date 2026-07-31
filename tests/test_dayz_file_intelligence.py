@@ -232,6 +232,24 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("invalid JSON", message)
 
+    def test_init_script_and_named_objectspawner_file_are_recognised(self):
+        init_spec = dayz_file_spec_for_path("/mission/init.c")
+        self.assertIsNotNone(init_spec)
+        self.assertEqual("script", init_spec.kind)
+
+        ok, message = validate_dayz_upload_text("/mission/init.c", "void main() {}")
+        self.assertTrue(ok, message)
+
+        ok, message = validate_dayz_upload_text(
+            "/mission/custom/objectspawner.json",
+            '{"Objects": [{"name": "Land_Wreck_Car3", "pos": [7500, 0, 7500], "ypr": [0, 0, 0]}]}',
+        )
+        self.assertTrue(ok, message)
+
+        ok, message = validate_dayz_upload_text("/mission/custom/objectspawner.json", '{"Objects": [{}]}')
+        self.assertFalse(ok)
+        self.assertIn("missing `name`", message)
+
     def test_custom_cfggameplay_shape_with_spawners_and_spawn_gear_is_valid(self):
         text = """{
           "version": 129,
