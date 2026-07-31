@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_file_spec_for_path, dayz_filename_for_path, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -6828,8 +6828,8 @@ PAGE_TEMPLATE = """
                 <label>Starting point
                   <select name="dayz_reference_mode">
                     <option value="none">Use my current file</option>
-                    <option value="vanilla">Offer bundled vanilla file</option>
-                    <option value="preset">Offer selected safe preset</option>
+                    <option value="vanilla">Use bundled vanilla file as the complete base</option>
+                    <option value="preset">Use selected safe preset as the complete base</option>
                   </select>
                 </label>
                 <label>Vanilla / boosted preset
@@ -6843,7 +6843,7 @@ PAGE_TEMPLATE = """
               </div>
               <label class="full">Current file or relevant section<textarea name="dayz_file_source" spellcheck="false" placeholder="Optional but strongly recommended. Never paste a Nitrado token, password or API key here."></textarea></label>
               <label class="full">XML / JSON error (optional)<textarea name="dayz_error_text" spellcheck="false" placeholder="Paste the exact server, XML, JSON or Nitrado error here — including its line and column if shown."></textarea></label>
-              <p class="tool-note">For <code>types.xml</code>, <code>events.xml</code> and other CE XML files, a fragment becomes a merge-required patch. It cannot be treated as a replacement for the full live file.</p>
+              <p class="tool-note">To create a new complete vanilla/custom file, choose the exact target, map and a vanilla or safe-preset base. The agent preserves that real file structure, changes only the requested settings, and validates the result before offering it for download. A pasted fragment becomes a merge-required patch; it cannot be treated as a complete replacement.</p>
               <details class="ai-dayz-scenario-workbench">
                 <summary>Make a DayZ event plan <span class="tool-note">Airdrop, vehicle, infected, animal or gas event</span></summary>
                 <p class="tool-note">This creates a validated plan for the linked CE files. Adding it to Nitrado is always a separate, warned confirmation that uses the bot’s backup-first upload path.</p>
@@ -18173,6 +18173,14 @@ DAYZ_PRESET_FILES = [
         "tags": ["dry", "low rain"],
     },
     {
+        "id": "cfgweather_sunny_storms",
+        "group": "Weather",
+        "title": "Mostly sunny with occasional rain and thunderstorms",
+        "target_path": "cfgweather.xml",
+        "summary": "A full DayZ weather file: mainly clear skies, occasional rain, and thunder only during heavier overcast.",
+        "tags": ["sunny", "rain", "thunderstorms"],
+    },
+    {
         "id": "types_vanilla",
         "group": "Loot Economy",
         "title": "Vanilla types",
@@ -18450,6 +18458,28 @@ def build_weather_preset(map_key: str, preset_id: str) -> str:
         set_weather_attrs(root, "rain/changelimits", {"min": "0.0", "max": "0.02"})
         set_weather_attrs(root, "rain/thresholds", {"min": "0.98", "max": "1.0", "end": "120"})
         set_weather_attrs(root, "storm", {"density": "0.0", "threshold": "1.0", "timeout": "300"})
+    elif preset_id == "cfgweather_sunny_storms":
+        # Rain is possible only after cloud cover builds. The storm threshold is
+        # deliberately higher than the rain threshold so sunny periods remain
+        # the norm and thunder is an occasional event rather than constant.
+        set_weather_attrs(root, "overcast/current", {"actual": "0.20", "time": "120", "duration": "600"})
+        set_weather_attrs(root, "overcast/limits", {"min": "0.0", "max": "0.75"})
+        set_weather_attrs(root, "overcast/timelimits", {"min": "900", "max": "1800"})
+        set_weather_attrs(root, "overcast/changelimits", {"min": "0.0", "max": "0.25"})
+        set_weather_attrs(root, "fog/current", {"actual": "0.01", "time": "120", "duration": "300"})
+        set_weather_attrs(root, "fog/limits", {"min": "0.0", "max": "0.04"})
+        set_weather_attrs(root, "fog/timelimits", {"min": "900", "max": "1800"})
+        set_weather_attrs(root, "fog/changelimits", {"min": "0.0", "max": "0.08"})
+        set_weather_attrs(root, "rain/current", {"actual": "0.0", "time": "120", "duration": "300"})
+        set_weather_attrs(root, "rain/limits", {"min": "0.0", "max": "0.35"})
+        set_weather_attrs(root, "rain/timelimits", {"min": "900", "max": "1800"})
+        set_weather_attrs(root, "rain/changelimits", {"min": "0.0", "max": "0.18"})
+        set_weather_attrs(root, "rain/thresholds", {"min": "0.55", "max": "0.95", "end": "120"})
+        set_weather_attrs(root, "windMagnitude/current", {"actual": "4.0", "time": "120", "duration": "300"})
+        set_weather_attrs(root, "windMagnitude/limits", {"min": "0.0", "max": "12.0"})
+        set_weather_attrs(root, "windMagnitude/timelimits", {"min": "300", "max": "900"})
+        set_weather_attrs(root, "windMagnitude/changelimits", {"min": "0.0", "max": "5.0"})
+        set_weather_attrs(root, "storm", {"density": "0.25", "threshold": "0.65", "timeout": "300"})
     return dayz_xml_text(root)
 
 
@@ -20425,6 +20455,7 @@ AI_AGENT_CHANGE_LIST_MAX_ITEMS = 140
 AI_AGENT_DIFF_MAX_CHARS = 80_000
 AI_AGENT_DAYZ_SOURCE_MAX_CHARS = 90_000
 AI_AGENT_DAYZ_DRAFT_MAX_CHARS = 90_000
+AI_AGENT_DAYZ_REFERENCE_BASE_MAX_CHARS = 90_000
 AI_AGENT_DAYZ_TARGETS = (
     ("init.c", "init.c - mission script and ObjectSpawner hooks"),
     ("db/types.xml", "types.xml - loot economy quantities, lifetime and tiers"),
@@ -20436,6 +20467,13 @@ AI_AGENT_DAYZ_TARGETS = (
     ("cfgeventgroups.xml", "cfgeventgroups.xml - CE event groups"),
     ("mapgroupproto.xml", "mapgroupproto.xml - map group loot prototypes"),
     ("mapgrouppos.xml", "mapgrouppos.xml - map group placements"),
+    ("mapclusterproto.xml", "mapclusterproto.xml - map cluster prototypes"),
+    ("mapgroupcluster.xml", "mapgroupcluster.xml - map cluster placements"),
+    ("mapgroupcluster01.xml", "mapgroupcluster01.xml - map cluster placements"),
+    ("mapgroupcluster02.xml", "mapgroupcluster02.xml - map cluster placements"),
+    ("mapgroupcluster03.xml", "mapgroupcluster03.xml - map cluster placements"),
+    ("mapgroupcluster04.xml", "mapgroupcluster04.xml - map cluster placements"),
+    ("mapgroupdirt.xml", "mapgroupdirt.xml - terrain group placements"),
     ("db/globals.xml", "globals.xml - CE global variables"),
     ("db/economy.xml", "economy.xml - CE economy switches"),
     ("cfgeconomycore.xml", "cfgeconomycore.xml - central economy file includes"),
@@ -20461,6 +20499,9 @@ AI_AGENT_DAYZ_TARGETS = (
     ("env/sheep_goat_territories.xml", "sheep_goat_territories.xml - sheep and goat territory zones"),
     ("env/cattle_territories.xml", "cattle_territories.xml - cattle territory zones"),
     ("env/domestic_animals_territories.xml", "domestic_animals_territories.xml - domestic animal territory zones"),
+    ("env/fox_territories.xml", "fox_territories.xml - fox territory zones"),
+    ("env/hare_territories.xml", "hare_territories.xml - hare territory zones"),
+    ("env/hen_territories.xml", "hen_territories.xml - hen territory zones"),
 )
 
 # DayZ BoosterZ is used as a feature checklist, not as a source of implementation
@@ -20516,6 +20557,48 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "safety": "There is no universal vanilla NPC or airstrike file. The agent needs the exact mod and version first and must not invent its schema or classnames.",
     },
 )
+
+# Stable vanilla layouts the agent must preserve when it creates a draft. The
+# matching bundled reference remains the source of truth for full files; these
+# notes stop the model confusing files which have similarly named CE concepts.
+AI_AGENT_DAYZ_FORMAT_GUIDES = {
+    "init.c": "Enforce Script mission entry point. Keep a valid void main() flow and existing mod hooks; a custom init.c needs a server-side test.",
+    "types.xml": "XML <types> root with <type name=\"Classname\"> records. Standard values include nominal, lifetime, restock, min, quantmin, quantmax, cost, flags, category, usage and value.",
+    "cfgspawnabletypes.xml": "XML <spawnabletypes> root with <type name=\"Classname\"> records. Attachments and cargo belong inside that type; it does not set overall world nominal loot.",
+    "cfgweather.xml": "XML <weather> root with overcast, fog, rain, windMagnitude, windDirection, snowfall and storm. Rain/storm thresholds depend on overcast; preserve every vanilla section.",
+    "cfggameplay.json": "JSON object. Use the existing version and the correct GeneralData, PlayerData, WorldsData and MapData sections instead of inventing keys.",
+    "events.xml": "XML <events> root with <event name=\"...\"> definitions. Event names must correspond exactly with event-position records where positions are required.",
+    "cfgeventspawns.xml": "XML <eventposdef> root with named <event> position records. Coordinates and the event name must match the companion events.xml definition.",
+    "cfgeventgroups.xml": "XML <eventgroupdef> root containing named static group definitions used by CE events.",
+    "mapgroupproto.xml": "XML <prototype> root for map-group loot prototypes; mapgrouppos.xml places those groups on the map.",
+    "mapgrouppos.xml": "XML <map> root with group placements. Do not confuse it with mapgroupproto.xml, which defines the prototype content.",
+    "mapclusterproto.xml": "XML <prototype> root with <clusters> exports for map-cluster definitions.",
+    "mapgroupcluster.xml": "XML <map> root with map-cluster group placements; preserve the selected map's grouping names and positions.",
+    "globals.xml": "XML <variables> root containing named <var> central-economy values.",
+    "economy.xml": "XML <economy> root for central-economy switches and settings.",
+    "cfgeconomycore.xml": "XML <economycore> root listing the central-economy files and folders DayZ loads.",
+    "cfgenvironment.xml": "XML <env> root containing environment and territory references. Keep paths map-specific and merge additions rather than discarding existing references.",
+    "cfgareaeffects.xml": "XML <areaeffects> root for contaminated-area effect definitions used alongside cfgeffectarea.json where applicable.",
+    "cfgeffectarea.json": "JSON object with the map's existing effect-area schema. Use the bundled/current file as the schema; do not invent particle or trigger keys.",
+    "cfgplayerspawnpoints.xml": "XML <playerspawnpoints> root with a <fresh> configuration, spawn parameters and position bubbles/groups.",
+    "cfgplayerspawn.json": "JSON object for the installed fresh-spawn/loadout system. Its exact keys can vary by server version or mod, so use the actual current file as the schema.",
+    "messages.xml": "XML <messages> root containing <message> records with delay, repeat, onconnect and text values.",
+    "cfgignorelist.xml": "XML <ignore> root listing CE cleanup exceptions. Do not leave temporary reset entries behind after the planned restart flow.",
+    "cfglimitsdefinition.xml": "XML <lists> root defining CE categories, tags and usages; cfglimitsdefinitionuser.xml is the custom user-list counterpart.",
+    "cfgrandompresets.xml": "XML <randompresets> root containing named random cargo preset records.",
+    "cfgundergroundtriggers.json": "JSON object with a Triggers array; retain the current map's trigger schema and coordinates.",
+    "objectspawner.json": "JSON object with an Objects array. Each object needs name and a three-number pos; ypr is a three-number rotation when supplied.",
+    "territories": "XML <territory-type> root containing <territory> records for the relevant animal or infected type.",
+}
+
+
+def ai_agent_dayz_format_guide(target_path: Any) -> str:
+    filename = dayz_filename_for_path(target_path)
+    if filename.endswith("_territories.xml"):
+        return AI_AGENT_DAYZ_FORMAT_GUIDES["territories"]
+    if filename.startswith("mapgroupcluster"):
+        return AI_AGENT_DAYZ_FORMAT_GUIDES["mapgroupcluster.xml"]
+    return AI_AGENT_DAYZ_FORMAT_GUIDES.get(filename, "Use the complete selected vanilla or current file as the schema; custom mod files need their real config or documentation.")
 
 
 def ai_agent_workspace_root_ready() -> bool:
@@ -22326,6 +22409,14 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         source_mode = "fragment"
     spec = dayz_file_spec_for_path(target_path) if target_path else None
     reference = ai_agent_dayz_reference_for_request(target_path, payload.get("dayz_map"), payload)
+    reference_base_text, reference_base_error = ai_agent_dayz_reference_base_content(
+        {
+            "target_path": target_path,
+            "map": normalize_dayz_reference_map_key(payload.get("dayz_map")),
+            "reference": reference,
+        }
+    )
+    reference_is_valid = bool(reference_base_text.strip() and not reference_base_error)
     validation_ok: bool | None = None
     validation_message = ""
     if source_text.strip() and target_path and source_mode == "complete":
@@ -22334,6 +22425,8 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         validation_message = "A section was supplied. It is reference material only and cannot be uploaded as a full file."
     elif requested_target and not target_path:
         validation_message = "Choose one of the protected DayZ file targets before asking the sandbox to create a file."
+    elif reference_is_valid:
+        validation_message = "The selected validated vanilla/preset file can be used as the complete base for a custom draft."
 
     return {
         "enabled": True,
@@ -22351,10 +22444,13 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "error_diagnosis": ai_agent_dayz_error_diagnosis(payload.get("dayz_error_text")),
         "capabilities": ai_agent_dayz_capabilities_for_request(objective, target_path),
         "reference": reference,
+        "reference_base_available": reference_is_valid,
+        "reference_base_error": reference_base_error,
         "scenario": ai_agent_dayz_scenario_from_payload(payload, payload.get("dayz_map")),
         "file_kind": spec.kind if spec else "",
         "expected_root": spec.xml_root if spec and spec.kind == "xml" else "",
         "description": spec.description if spec else "",
+        "format_guide": ai_agent_dayz_format_guide(target_path) if target_path else "",
         "allows_merge_patch": bool(spec and spec.kind == "xml" and spec.required_children),
     }
 
@@ -22362,6 +22458,9 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
 def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
     if not isinstance(context, dict) or not context.get("enabled"):
         return {}
+    reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+    reference_content, reference_base_error = ai_agent_dayz_reference_base_content(context)
+    reference_content_limit = 14000
     return {
         "target_path": context.get("target_path"),
         "target_error": context.get("target_error"),
@@ -22373,11 +22472,20 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
         "error_text": context.get("error_text"),
         "error_diagnosis": context.get("error_diagnosis"),
         "capabilities": context.get("capabilities", []),
-        "reference": context.get("reference"),
+        "reference": {
+            key: value
+            for key, value in reference.items()
+            if key not in {"content", "preview"}
+        },
+        "reference_base_available": bool(context.get("reference_base_available")),
+        "reference_content": reference_content[:reference_content_limit],
+        "reference_content_truncated": len(reference_content) > reference_content_limit,
+        "reference_base_error": reference_base_error,
         "scenario": context.get("scenario"),
         "file_kind": context.get("file_kind"),
         "expected_root": context.get("expected_root"),
         "description": context.get("description"),
+        "format_guide": context.get("format_guide"),
         "allows_merge_patch": context.get("allows_merge_patch"),
         "source_text": context.get("source_text", ""),
     }
@@ -22403,12 +22511,22 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     raw_kind = str(value.get("kind") or value.get("draft_kind") or "").strip().lower().replace("-", "_")
     kind = "patch" if raw_kind in {"patch", "merge", "merge_patch", "snippet"} else "full_file"
     source_mode = str(context.get("source_mode") or "none")
+    current_text = str(context.get("source_text") or "")
+    reference_text, reference_base_error = ai_agent_dayz_reference_base_content(context)
+    reference_is_valid = bool(reference_text.strip() and not reference_base_error)
+    current_file_is_valid = bool(
+        source_mode == "complete"
+        and current_text.strip()
+        and not context.get("source_error")
+        and (context.get("source_validation") or {}).get("ok") is not False
+    )
     if kind == "patch" and not (spec.kind == "xml" and spec.required_children):
         return None, f"No file draft was saved: {target_path} needs a complete current file, not a merge patch."
-    if kind == "full_file" and source_mode != "complete":
-        return None, f"No file draft was saved: a full {target_path} replacement needs the complete current file for comparison."
-    if kind == "full_file" and (not str(context.get("source_text") or "").strip() or context.get("source_error")):
-        return None, f"No file draft was saved: a full {target_path} replacement needs a valid, complete current file."
+    if kind == "full_file" and not (current_file_is_valid or reference_is_valid):
+        return None, (
+            f"No file draft was saved: a full {target_path} replacement needs either the valid complete current file "
+            "or a selected validated vanilla/preset base."
+        )
     source_validation = context.get("source_validation") if isinstance(context.get("source_validation"), dict) else {}
     if kind == "full_file" and source_validation.get("ok") is False:
         return None, f"No file draft was saved: the supplied current {target_path} did not pass validation. {source_validation.get('message') or ''}".strip()
@@ -22416,11 +22534,11 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     if not valid:
         return None, f"No file draft was saved because validation failed: {validation_message}"
     if kind == "full_file":
-        current_text = str(context.get("source_text") or "")
-        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, current_text, content)
+        base_text = current_text if current_file_is_valid else reference_text
+        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, base_text, content)
         if not shrink_ok:
             return None, f"No file draft was saved because it looks destructive: {shrink_message}"
-        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, current_text, content)
+        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, base_text, content)
         if not preserve_ok:
             return None, f"No file draft was saved because it removes existing records: {preserve_message}"
     now = datetime.now(UTC).isoformat()
@@ -22437,6 +22555,49 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
         "created_at": now,
         "updated_at": now,
     }, ""
+
+
+def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    """Return a deterministic full file for only the unambiguous built-in job.
+
+    Most custom DayZ work needs the configured model plus a current file or
+    bundled reference. This small path means a no-model installation can still
+    fulfil the common sunny/rain/storm request with the same checked vanilla
+    structure, without pretending it understands arbitrary custom mod formats.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("target_path") or "") != "cfgweather.xml":
+        return None
+    if str(context.get("source_text") or "").strip():
+        return None
+    request_text = str(prompt or task.get("objective") or "").lower()
+    wants_sunny = any(term in request_text for term in ("sunny", "mostly clear", "mainly clear", "mostly sunny"))
+    wants_rain = "rain" in request_text
+    wants_storm = "storm" in request_text or "thunder" in request_text
+    if not (wants_sunny and wants_rain and wants_storm):
+        return None
+    try:
+        content = build_weather_preset(context.get("map"), "cfgweather_sunny_storms")
+    except ValueError:
+        return None
+    valid, _message = validate_dayz_upload_text("cfgweather.xml", content)
+    if not valid:
+        return None
+    now = datetime.now(UTC).isoformat()
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "cfgweather.xml",
+        "map": str(context.get("map") or "chernarus"),
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content,
+        "content_chars": len(content),
+        "summary": "Full validated weather file: mainly sunny, occasional rain, and thunderstorms only after heavier overcast.",
+        "validation": "passed",
+        "created_at": now,
+        "updated_at": now,
+        "base": "bundled vanilla cfgweather.xml",
+    }
 
 
 def ai_agent_dayz_draft_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -22509,6 +22670,25 @@ def ai_agent_dayz_reference_content(context: Any) -> tuple[str, str, str]:
     return "", "", "DayZ reference request is not available."
 
 
+def ai_agent_dayz_reference_base_content(context: Any) -> tuple[str, str]:
+    """Load a full validated base on demand instead of storing large XML in task state."""
+    content, _download_name, error = ai_agent_dayz_reference_content(context)
+    if error:
+        return "", error
+    if len(content) > AI_AGENT_DAYZ_REFERENCE_BASE_MAX_CHARS:
+        return "", (
+            f"The selected base is {len(content):,} characters, above the {AI_AGENT_DAYZ_REFERENCE_BASE_MAX_CHARS:,}-character "
+            "complete-draft limit. Ask for a merge patch or upload the current file for a scoped edit."
+        )
+    target_path = ""
+    if isinstance(context, dict):
+        target_path = str(context.get("target_path") or "")
+    valid, validation_message = validate_dayz_upload_text(target_path, content)
+    if not valid:
+        return "", validation_message
+    return content, ""
+
+
 def ai_agent_dayz_scenario_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for task in state.get("tasks", []) if isinstance(state.get("tasks"), list) else []:
@@ -22535,6 +22715,7 @@ def ai_agent_public_task(task: dict[str, Any]) -> dict[str, Any]:
         if isinstance(reference, dict):
             public_reference = dict(reference)
             public_reference.pop("preview", None)
+            public_reference.pop("content", None)
             public_context["reference"] = public_reference
         public["dayz_context"] = public_context
     draft = public.get("dayz_draft")
@@ -22561,8 +22742,10 @@ def ai_agent_dayz_fallback_reply(task: dict[str, Any]) -> str:
             lines.append("The pasted content is being treated as a merge-only reference section, never as a complete upload.")
         else:
             lines.append(f"The supplied current file needs attention before drafting: {source_validation.get('message') or 'validation failed.'}")
+    elif context.get("reference_base_available"):
+        lines.append("The selected validated vanilla/preset file is available as the complete structure for a custom draft.")
     else:
-        lines.append("Paste the complete current file for a full replacement, or select ‘relevant section’ for an XML merge patch.")
+        lines.append("Paste the complete current file for a full replacement, choose a validated vanilla/preset base, or select a relevant section for an XML merge patch.")
     if context.get("error_diagnosis"):
         lines.append("Error check: " + " ".join(str(item) for item in context.get("error_diagnosis", [])[:3]))
     capabilities = context.get("capabilities") if isinstance(context.get("capabilities"), list) else []
@@ -22573,12 +22756,22 @@ def ai_agent_dayz_fallback_reply(task: dict[str, Any]) -> str:
         lines.append(f"Reference request: {reference.get('error')}")
     elif reference.get("validation") == "passed":
         lines.append(f"A validated {reference.get('label') or 'DayZ reference'} is ready in the DayZ References panel for download.")
+    if context.get("format_guide"):
+        lines.append("Format: " + str(context.get("format_guide")))
+    if context.get("reference_base_error"):
+        lines.append("Reference base check: " + str(context.get("reference_base_error")))
     scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
     if scenario.get("error"):
         lines.append(f"Scenario check: {scenario.get('error')}")
     elif scenario.get("id"):
         lines.append(f"A {scenario.get('event_type', 'DayZ')} event plan is ready. It will manage: {', '.join(scenario.get('files', [])[:6])}.")
-    lines.append("A model backend is still needed to write the requested draft; the built-in planner can safely plan and validate only.")
+    draft = task.get("dayz_draft") if isinstance(task.get("dayz_draft"), dict) else {}
+    if draft.get("validation") == "passed" and draft.get("content"):
+        lines.append(f"A validated complete {draft.get('target_path')} draft is ready in DayZ File Drafts for download and review.")
+    if draft.get("validation") == "passed" and draft.get("content"):
+        lines.append("The built-in generator created this one deterministic file from the bundled vanilla structure. A configured model is still needed for other customer-specific DayZ file work.")
+    else:
+        lines.append("A model backend is still needed to write the requested draft; the built-in planner can safely plan and validate only.")
     lines.append("Any resulting draft remains a download/review item. It will not be uploaded to a live DayZ server automatically.")
     return "\n".join(lines)
 
@@ -23221,6 +23414,9 @@ def ai_agent_llm_reply_for_task(
         task["llm_status"] = "not_configured"
         task["llm_provider"] = AI_AGENT_LLM_PROVIDER
         task["next_action"] = task.get("next_action") or "Review suggested sandbox commands"
+        builtin_draft = ai_agent_builtin_dayz_draft(task, prompt)
+        if builtin_draft:
+            task["dayz_draft"] = builtin_draft
         fallback = ai_agent_dayz_fallback_reply(task) or ai_agent_assistant_reply_for_task(task, approval)
         return ai_agent_append_command_summary(fallback, task["suggested_commands"])
 
@@ -23258,8 +23454,10 @@ def ai_agent_llm_reply_for_task(
         "Never copy or claim to recreate another service's private implementation; use the supplied request, validated vanilla references and documented file structure. "
         "When error_text is supplied, interpret the reported line/column and the surrounding source; do not pretend to have fixed it unless you return a validated draft. "
         "When a scenario plan is supplied, explain that the dashboard's event engine creates the linked CE package from current server files, not isolated replacement snippets. "
-        "A fragment is never a full replacement. Only return a full_file draft if complete_current_file source is supplied and "
-        "valid. Return a patch only for supported named-record XML files, wrap it in its real XML root, and label it as merge-only. "
+        "The supplied format_guide describes the stable vanilla layout. When reference_base_available is true and reference_content is not truncated, "
+        "you may use that validated vanilla/preset file as the complete structure for a custom full_file draft; otherwise a full_file draft needs a valid complete current file. "
+        "Never delete or omit untouched sections from a reference-based full file. A fragment is never a full replacement. Return a patch only for supported "
+        "named-record XML files, wrap it in its real XML root, and label it as merge-only. "
         "Never claim a DayZ draft was uploaded; protected live upload requires a backup, diff and explicit owner confirmation. "
         "Schema: {\"reply\": string, \"steps\": [{\"agent\": string, \"title\": string, \"detail\": string}], "
         "\"suggested_commands\": [{\"label\": string, \"command\": string, \"reason\": string, \"project_path\": string, \"risk\": string}], "
@@ -23300,6 +23498,9 @@ def ai_agent_llm_reply_for_task(
         task["llm_provider"] = AI_AGENT_LLM_PROVIDER
         task["llm_error"] = ai_agent_compact_text(error, 420)
         ai_agent_activity(state, "AI model fallback", task["llm_error"], access.get("label") or dashboard_audit_actor(auth), {"task_id": task.get("id"), "run_id": run.get("id")})
+        builtin_draft = ai_agent_builtin_dayz_draft(task, prompt)
+        if builtin_draft:
+            task["dayz_draft"] = builtin_draft
         fallback = ai_agent_dayz_fallback_reply(task) or ai_agent_assistant_reply_for_task(task, approval)
         return ai_agent_append_command_summary(fallback + f"\n\nModel note: {task['llm_error']}", task.get("suggested_commands", []))
 

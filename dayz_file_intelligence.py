@@ -39,6 +39,13 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgeventgroups.xml": DayZFileSpec("cfgeventgroups.xml", "xml", "eventgroupdef", ("group",), description="CE static event groups"),
     "mapgroupproto.xml": DayZFileSpec("mapgroupproto.xml", "xml", "prototype", ("group",), description="CE map group loot prototypes"),
     "mapgrouppos.xml": DayZFileSpec("mapgrouppos.xml", "xml", "map", ("group",), description="map group placements"),
+    "mapclusterproto.xml": DayZFileSpec("mapclusterproto.xml", "xml", "prototype", ("clusters",), description="map cluster prototype definitions"),
+    "mapgroupcluster.xml": DayZFileSpec("mapgroupcluster.xml", "xml", "map", ("group",), description="map cluster placements"),
+    "mapgroupcluster01.xml": DayZFileSpec("mapgroupcluster01.xml", "xml", "map", ("group",), description="map cluster placements"),
+    "mapgroupcluster02.xml": DayZFileSpec("mapgroupcluster02.xml", "xml", "map", ("group",), description="map cluster placements"),
+    "mapgroupcluster03.xml": DayZFileSpec("mapgroupcluster03.xml", "xml", "map", ("group",), description="map cluster placements"),
+    "mapgroupcluster04.xml": DayZFileSpec("mapgroupcluster04.xml", "xml", "map", ("group",), description="map cluster placements"),
+    "mapgroupdirt.xml": DayZFileSpec("mapgroupdirt.xml", "xml", "map", description="map dirt/terrain group placements"),
     "cfgspawnabletypes.xml": DayZFileSpec("cfgspawnabletypes.xml", "xml", "spawnabletypes", ("type",), description="attachments and cargo"),
     "cfgenvironment.xml": DayZFileSpec("cfgenvironment.xml", "xml", "env", description="environment/territory references"),
     "zombie_territories.xml": DayZFileSpec("zombie_territories.xml", "xml", "territory-type", ("territory",), description="infected territory zones"),
@@ -300,6 +307,81 @@ def _validate_cfggameplay_payload(payload: Any, target_path: Any) -> tuple[bool,
     return True, ""
 
 
+def _validate_cfgweather_xml(root: ET.Element, target_path: Any) -> tuple[bool, str]:
+    """Keep complete weather drafts close to the vanilla cfgweather structure.
+
+    XML parsing alone cannot catch a weather file with a valid ``<weather>``
+    root but missing the sections DayZ actually reads. This intentionally
+    checks the stable vanilla structure without trying to restrict legitimate
+    numeric tuning choices.
+    """
+    required_children = {
+        "overcast": ("current", "limits", "timelimits", "changelimits"),
+        "fog": ("current", "limits", "timelimits", "changelimits"),
+        "rain": ("current", "limits", "timelimits", "changelimits", "thresholds"),
+        "windMagnitude": ("current", "limits", "timelimits", "changelimits"),
+        "windDirection": ("current", "limits", "timelimits", "changelimits"),
+        "snowfall": ("current", "limits", "timelimits", "changelimits", "thresholds"),
+    }
+    for section_name, child_names in required_children.items():
+        section = root.find(section_name)
+        if section is None:
+            return False, f"Refusing to upload `{target_path}`: cfgweather.xml is missing <{section_name}>."
+        for child_name in child_names:
+            if section.find(child_name) is None:
+                return False, (
+                    f"Refusing to upload `{target_path}`: cfgweather.xml is missing "
+                    f"<{section_name}><{child_name}>."
+                )
+    storm = root.find("storm")
+    if storm is None:
+        return False, f"Refusing to upload `{target_path}`: cfgweather.xml is missing <storm>."
+
+    probability_sections = ("overcast", "fog", "rain", "snowfall")
+    for section_name in probability_sections:
+        section = root.find(section_name)
+        for child_name, attribute_names in (("current", ("actual",)), ("limits", ("min", "max")), ("changelimits", ("min", "max"))):
+            child = section.find(child_name) if section is not None else None
+            for attribute_name in attribute_names:
+                raw_value = child.get(attribute_name) if child is not None else None
+                try:
+                    value = float(str(raw_value))
+                except (TypeError, ValueError):
+                    return False, (
+                        f"Refusing to upload `{target_path}`: <{section_name}><{child_name}> "
+                        f"needs numeric `{attribute_name}`."
+                    )
+                if not 0.0 <= value <= 1.0:
+                    return False, (
+                        f"Refusing to upload `{target_path}`: <{section_name}><{child_name}> "
+                        f"`{attribute_name}` must be between 0 and 1."
+                    )
+        thresholds = section.find("thresholds") if section is not None else None
+        if thresholds is not None:
+            for attribute_name in ("min", "max"):
+                try:
+                    value = float(str(thresholds.get(attribute_name)))
+                except (TypeError, ValueError):
+                    return False, (
+                        f"Refusing to upload `{target_path}`: <{section_name}><thresholds> "
+                        f"needs numeric `{attribute_name}`."
+                    )
+                if not 0.0 <= value <= 1.0:
+                    return False, (
+                        f"Refusing to upload `{target_path}`: <{section_name}><thresholds> "
+                        f"`{attribute_name}` must be between 0 and 1."
+                    )
+
+    for attribute_name in ("density", "threshold"):
+        try:
+            value = float(str(storm.get(attribute_name)))
+        except (TypeError, ValueError):
+            return False, f"Refusing to upload `{target_path}`: <storm> needs numeric `{attribute_name}`."
+        if not 0.0 <= value <= 1.0:
+            return False, f"Refusing to upload `{target_path}`: <storm> `{attribute_name}` must be between 0 and 1."
+    return True, ""
+
+
 def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool, str]:
     """Validate known DayZ XML/JSON files before upload.
 
@@ -330,6 +412,8 @@ def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool
                     f"Refusing to upload `{target_path}`: <{spec.xml_root}> has no {child_text} "
                     "records, which looks like an empty/minimal live file."
                 )
+        if filename == "cfgweather.xml":
+            return _validate_cfgweather_xml(root, target_path)
         return True, ""
 
     if spec and spec.kind == "json":

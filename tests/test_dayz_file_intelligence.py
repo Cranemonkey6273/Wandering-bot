@@ -55,7 +55,15 @@ class DayZFileIntelligenceTests(unittest.TestCase):
     def test_cfgweather_uses_the_protected_weather_root(self):
         ok, message = validate_dayz_upload_text(
             "/dayzxb_missions/dayzOffline.chernarusplus/cfgweather.xml",
-            '<weather reset="0" enable="1"><overcast><current actual="0.4" time="120" duration="600" /></overcast></weather>',
+            '''<weather reset="0" enable="1">
+              <overcast><current actual="0.4" time="120" duration="600" /><limits min="0" max="1" /><timelimits min="60" max="600" /><changelimits min="0" max="1" /></overcast>
+              <fog><current actual="0.1" time="120" duration="600" /><limits min="0" max="1" /><timelimits min="60" max="600" /><changelimits min="0" max="1" /></fog>
+              <rain><current actual="0.0" time="120" duration="600" /><limits min="0" max="1" /><timelimits min="60" max="600" /><changelimits min="0" max="1" /><thresholds min="0.6" max="1" end="60" /></rain>
+              <windMagnitude><current actual="4" time="120" duration="600" /><limits min="0" max="12" /><timelimits min="60" max="600" /><changelimits min="0" max="4" /></windMagnitude>
+              <windDirection><current actual="0" time="120" duration="600" /><limits min="-3.14" max="3.14" /><timelimits min="60" max="600" /><changelimits min="-1" max="1" /></windDirection>
+              <snowfall><current actual="0" time="0" duration="600" /><limits min="0" max="0" /><timelimits min="60" max="600" /><changelimits min="0" max="0" /><thresholds min="1" max="1" end="60" /></snowfall>
+              <storm density="0.2" threshold="0.8" timeout="120" />
+            </weather>''',
         )
 
         self.assertTrue(ok, message)
@@ -106,12 +114,22 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             "cfgeventgroups.xml",
             "mapgroupproto.xml",
             "cfgspawnabletypes.xml",
+            "mapclusterproto.xml",
+            "mapgroupcluster.xml",
+            "mapgroupcluster01.xml",
+            "mapgroupcluster02.xml",
+            "mapgroupcluster03.xml",
+            "mapgroupcluster04.xml",
+            "mapgroupdirt.xml",
             "db/types.xml",
             "db/globals.xml",
             "db/economy.xml",
             "cfgeconomycore.xml",
             "cfgenvironment.xml",
             "env/zombie_territories.xml",
+            "env/fox_territories.xml",
+            "env/hare_territories.xml",
+            "env/hen_territories.xml",
             "cfgareaeffects.xml",
             "cfggameplay.json",
             "cfgeffectarea.json",

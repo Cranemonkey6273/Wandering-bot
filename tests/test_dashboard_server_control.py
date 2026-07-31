@@ -859,7 +859,12 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_dayz_task_state_hides_pasted_file_and_download_content(self):
         task = {
             "id": "ai-1",
-            "dayz_context": {"target_path": "db/types.xml", "source_text": "private current file", "source_excerpt": "private"},
+            "dayz_context": {
+                "target_path": "db/types.xml",
+                "source_text": "private current file",
+                "source_excerpt": "private",
+                "reference": {"content": "private vanilla file", "preview": "private"},
+            },
             "dayz_draft": {"id": "dayz-draft-1", "content": "private draft", "target_path": "db/types.xml"},
         }
 
@@ -867,6 +872,8 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertNotIn("source_text", public["dayz_context"])
         self.assertNotIn("source_excerpt", public["dayz_context"])
+        self.assertNotIn("content", public["dayz_context"]["reference"])
+        self.assertNotIn("preview", public["dayz_context"]["reference"])
         self.assertNotIn("content", public["dayz_draft"])
         self.assertEqual("private current file", task["dayz_context"]["source_text"])
         self.assertEqual("private draft", task["dayz_draft"]["content"])
@@ -889,6 +896,40 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("cfgweather_dry", download_name)
         self.assertTrue(content.startswith("<?xml") or content.startswith("<weather"))
         self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgweather.xml", content))
+
+    def test_dayz_agent_can_make_a_complete_custom_weather_draft_from_a_validated_base(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "cfgweather.xml",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "preset",
+                "dayz_preset_id": "cfgweather_sunny_storms",
+            },
+            "Create a mainly sunny weather file with occasional rain and thunderstorms.",
+        )
+        content, _download_name, reference_error = dashboard.ai_agent_dayz_reference_content(context)
+        draft, draft_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "cfgweather.xml", "kind": "full_file", "content": content, "summary": "Sunny with occasional storms."},
+            context,
+        )
+        root = ET.fromstring(content)
+
+        self.assertEqual("", reference_error)
+        self.assertEqual("", draft_error)
+        self.assertEqual("full_file", draft["kind"])
+        self.assertTrue(context["reference_base_available"])
+        self.assertEqual("0.75", root.find("overcast/limits").get("max"))
+        self.assertEqual("0.25", root.find("storm").get("density"))
+        self.assertIn("<weather>", dashboard.ai_agent_dayz_format_guide("cfgweather.xml"))
+
+        built_in = dashboard.ai_agent_builtin_dayz_draft(
+            {"dayz_context": context},
+            "Produce a mostly sunny weather file with partial rain and thunderstorms.",
+        )
+        self.assertIsNotNone(built_in)
+        self.assertEqual("full_file", built_in["kind"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgweather.xml", built_in["content"]))
 
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(
