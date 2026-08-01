@@ -7159,7 +7159,7 @@ PAGE_TEMPLATE = """
         {% if auth.kind == "owner" %}
         <section class="admin-panel" id="ai-agent-model">
           <h3>AI Model & Learning Setup</h3>
-          <p class="tool-note">This sandbox can run on OpenAI or any OpenAI-compatible model endpoint. You can connect your own hosted model later; training a brand-new model is separate from the dashboard. If no model is configured it stays in planner mode, which can organise work but cannot reason through code with a real LLM.</p>
+          <p class="tool-note">This sandbox uses OpenAI by default. It needs an OpenAI API key stored only in Railway before it can write customer-specific DayZ drafts. If no key is configured it stays in safe planner mode, which can organise work and validate files but cannot reason through a new custom request with a real LLM.</p>
           <div class="ai-agent-plan">
             <div class="ai-agent-step"><strong>Current Brain</strong><span>{{ ai_agent_state.sandbox.llm_provider|default('local_planner') }} / {{ ai_agent_state.sandbox.llm_model|default('planner') }}</span></div>
             <div class="ai-agent-step"><strong>Model Ready</strong><span>{{ 'Yes' if ai_agent_state.sandbox.llm_configured else 'No - add a model key/base URL in Railway' }}</span></div>
@@ -7171,13 +7171,13 @@ PAGE_TEMPLATE = """
           </div>
           <div class="ai-agent-env-grid">
             <div>
-              <strong>Railway OpenAI setup</strong>
+              <strong>Required Railway OpenAI setup</strong>
               <code>WANDERING_AI_AGENT_PROVIDER=openai</code>
               <code>WANDERING_AI_AGENT_API_KEY=sk-...</code>
-              <code>WANDERING_AI_AGENT_MODEL=your-model</code>
+              <code>WANDERING_AI_AGENT_MODEL=gpt-4.1-mini</code>
             </div>
             <div>
-              <strong>Custom model setup</strong>
+              <strong>Optional custom endpoint override</strong>
               <code>WANDERING_AI_AGENT_PROVIDER=custom</code>
               <code>WANDERING_AI_AGENT_BASE_URL=https://your-model-host/v1</code>
               <code>WANDERING_AI_AGENT_API_KEY=optional-provider-key</code>
@@ -20376,16 +20376,9 @@ AI_AGENT_DOCKER_IMAGE = os.getenv("WANDERING_AI_AGENT_DOCKER_IMAGE", "python:3.1
 AI_AGENT_WORKSPACE_ROOT = os.getenv("WANDERING_AI_AGENT_WORKSPACE_ROOT", "").strip()
 AI_AGENT_WORKER_URL = os.getenv("WANDERING_AI_AGENT_WORKER_URL", "").strip().rstrip("/")
 AI_AGENT_WORKER_TOKEN = os.getenv("WANDERING_AI_AGENT_WORKER_TOKEN", "").strip()
-AI_AGENT_LLM_PROVIDER = os.getenv("WANDERING_AI_AGENT_PROVIDER", "").strip().lower()
+AI_AGENT_LLM_PROVIDER = os.getenv("WANDERING_AI_AGENT_PROVIDER", "openai").strip().lower() or "openai"
 AI_AGENT_LLM_BASE_URL = os.getenv("WANDERING_AI_AGENT_BASE_URL", "").strip().rstrip("/")
 AI_AGENT_LLM_API_KEY = os.getenv("WANDERING_AI_AGENT_API_KEY", os.getenv("WANDERING_AI_AGENT_OPENAI_API_KEY", os.getenv("OPENAI_API_KEY", ""))).strip()
-if not AI_AGENT_LLM_PROVIDER:
-    if AI_AGENT_LLM_BASE_URL:
-        AI_AGENT_LLM_PROVIDER = "custom"
-    elif AI_AGENT_LLM_API_KEY:
-        AI_AGENT_LLM_PROVIDER = "openai"
-    else:
-        AI_AGENT_LLM_PROVIDER = "local_planner"
 AI_AGENT_MODEL = os.getenv("WANDERING_AI_AGENT_MODEL", "").strip()
 if not AI_AGENT_MODEL:
     AI_AGENT_MODEL = "gpt-4.1-mini" if AI_AGENT_LLM_PROVIDER == "openai" else "qwen2.5-coder:14b"

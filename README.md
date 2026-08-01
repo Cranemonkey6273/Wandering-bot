@@ -19,9 +19,20 @@ Leave `WANDERING_AI_AGENT_WORKER_URL` blank if you only want planning, approvals
 
 ### AI model backend
 
-Wandering Agent does not require every customer to have an OpenAI/ChatGPT/Codex subscription. The dashboard is the control plane, credits, permissions, memory, audit trail, and worker system. The model backend is swappable.
+Wandering Agent uses the OpenAI API. Customers do not need their own OpenAI/ChatGPT/Codex subscription: the dashboard's owner configures the single server-side OpenAI API key, while credits, permissions, memory, audit trail, and worker controls stay in Wandering Bot.
 
-For your own hosted model, run an OpenAI-compatible server with Ollama, vLLM, LM Studio, or another private model gateway, then set Railway like this:
+Set these Railway variables for the live AI agent:
+
+```env
+WANDERING_AI_AGENT_PROVIDER=openai
+WANDERING_AI_AGENT_MODEL=gpt-4.1-mini
+WANDERING_AI_AGENT_API_KEY=your-openai-api-key
+WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS=45
+```
+
+Do not put the API key in the dashboard, GitHub, Discord, browser code, or a customer-facing setting. It belongs only in Railway's encrypted service variables.
+
+An explicitly configured custom endpoint remains available only if you deliberately choose it, for example for a private model gateway:
 
 ```env
 WANDERING_AI_AGENT_PROVIDER=custom
@@ -32,14 +43,6 @@ WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS=45
 ```
 
 If no model backend is configured, the page still uses the built-in local planner and approval-gated sandbox workflow, but replies will be less intelligent.
-
-If you explicitly want to use an OpenAI-compatible hosted provider instead:
-
-```env
-WANDERING_AI_AGENT_PROVIDER=openai
-WANDERING_AI_AGENT_MODEL=gpt-4.1-mini
-WANDERING_AI_AGENT_API_KEY=your-provider-key
-```
 
 ### Worker machine variables
 
