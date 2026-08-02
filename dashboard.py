@@ -968,6 +968,34 @@ PUBLIC_SEO_GUIDES = {
         ],
         "related": ["dayz-console-airdrop-events", "dayz-nitrado-server-tools", "dayz-server-dashboard"],
     },
+    "dayz-server-files-explained": {
+        "path": "/guides/dayz-server-files-explained",
+        "title": "DayZ XML and JSON Files Explained: types.xml, Events and cfgGameplay",
+        "description": "A practical DayZ server-file guide explaining types.xml, events.xml, cfgeventspawns.xml, cfgGameplay.json, custom JSON, weather, validation, and the file links that must match.",
+        "eyebrow": "DayZ file guide",
+        "headline": "DayZ XML and JSON files explained for server owners",
+        "lead": "A plain-English guide to the DayZ mission files that control loot, events, custom objects, gameplay and weather. It is designed to help console and PC owners understand what a file changes before they upload it.",
+        "category": "DayZ server files",
+        "reading_time": "8 min",
+        "published_at": "2026-08-02",
+        "updated_at": "2026-08-02",
+        "keywords": ["DayZ XML files", "DayZ JSON files", "DayZ types.xml guide", "DayZ events.xml guide", "DayZ cfgGameplay.json", "DayZ custom JSON", "DayZ server file validator"],
+        "sections": [
+            ("Start with the correct mission and map", "Every edit belongs to a specific DayZ mission, map and game version. Keep a clean copy of the live file before changing it, and do not copy a PC mod configuration to a console server unless you have checked that the file and feature are supported there."),
+            ("Loot files work as a chain", "types.xml defines item economy values and loot rules. cfgspawnabletypes.xml can add attachments, cargo and damage rules. Categories and usages must agree with the building data and limits definitions, otherwise an item may look valid but never be eligible to spawn where you expect."),
+            ("Event names must match in both files", "events.xml defines what an event can spawn and how it behaves. cfgeventspawns.xml gives that same named event one or more positions. A new event needs the matching name in both files; a spelling difference means DayZ cannot connect the definition to its spawn points."),
+            ("Gameplay, custom JSON and weather", "cfgGameplay.json can reference custom JSON files, including object spawners and supported world features. The file path, filename and JSON syntax must match exactly. Weather can be controlled with cfgweather.xml or scripting, so check which approach the mission already uses before adding a second weather system."),
+            ("Validate before upload", "One misplaced XML tag, missing quote or trailing JSON comma can stop a file from loading. Validate the exact final file, review the changed block against the correct vanilla map version, then upload only to the intended mission folder. After a restart, read server logs and confirm the expected event, loot or object actually loaded."),
+            ("Use an AI assistant carefully", "A useful DayZ assistant should explain the file relationship, generate a complete file or exact insert, validate the result, and warn when it needs a current vanilla reference or a mod author’s schema. It should not pretend an unknown mod file is vanilla or guess a class name that has not been checked."),
+        ],
+        "faqs": [
+            ("Which DayZ file controls loot?", "types.xml is the main Central Loot Economy item table. It works alongside building loot definitions, category and usage rules, and cfgspawnabletypes.xml when you want item attachments or cargo."),
+            ("Why is my custom event not spawning?", "First check that the event name matches exactly between events.xml and cfgeventspawns.xml, then validate both files, confirm the child class name exists, and check server logs after restart."),
+            ("Where do custom JSON object files go?", "Use the custom mission folder and reference the exact relative path from cfgGameplay.json where that feature uses objectSpawnersArr or another supported file list. Keep the file name, extension and quotes identical."),
+            ("Can one XML or JSON mistake break a DayZ server file?", "Yes. XML and JSON are strict formats. Always validate the completed file and keep a known-good backup before replacing a live mission file."),
+        ],
+        "related": ["dayz-nitrado-server-tools", "dayz-server-dashboard", "dayz-console-airdrop-events"],
+    },
 }
 
 APP = Flask(__name__)
@@ -25451,7 +25479,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
             },
         })
     if page.get("guide_page"):
-        structured_data["@graph"].append({
+        article_node = {
             "@type": "Article",
             "@id": f"{page['canonical_url']}#article",
             "headline": page["headline"],
@@ -25462,7 +25490,12 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
             "author": {"@id": public_page_url("/#organization")},
             "publisher": {"@id": public_page_url("/#organization")},
             "mainEntityOfPage": {"@id": f"{page['canonical_url']}#webpage"},
-        })
+        }
+        if page.get("published_at"):
+            article_node["datePublished"] = str(page["published_at"])
+        if page.get("updated_at"):
+            article_node["dateModified"] = str(page["updated_at"])
+        structured_data["@graph"].append(article_node)
     return render_template_string(
         PUBLIC_LANDING_TEMPLATE,
         page=page,
@@ -33488,23 +33521,29 @@ def robots_txt():
 
 @APP.get("/sitemap.xml")
 def sitemap_xml():
-    lastmod = datetime.now(UTC).strftime("%Y-%m-%d")
+    def lastmod_tag(metadata: dict[str, Any] | None = None) -> str:
+        """Only advertise a sitemap update date when the public content changed."""
+        updated_at = str((metadata or {}).get("updated_at") or "").strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", updated_at):
+            return f"<lastmod>{updated_at}</lastmod>"
+        return ""
+
     entries = []
     for page_data in PUBLIC_SEO_PAGES.values():
         loc = html.escape(public_page_url(str(page_data.get("path") or "/")), quote=True)
         priority = "1.0" if str(page_data.get("path") or "/") == "/" else "0.8"
         entries.append(
-            f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>{priority}</priority></url>"
+            f"  <url><loc>{loc}</loc>{lastmod_tag(page_data)}<changefreq>weekly</changefreq><priority>{priority}</priority></url>"
         )
     for guide_data in PUBLIC_SEO_GUIDES.values():
         loc = html.escape(public_page_url(str(guide_data.get("path") or "/dayz-bot-guides")), quote=True)
         entries.append(
-            f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>"
+            f"  <url><loc>{loc}</loc>{lastmod_tag(guide_data)}<changefreq>weekly</changefreq><priority>0.7</priority></url>"
         )
     for static_path in ("/privacy", "/terms", "/support"):
         loc = html.escape(public_page_url(static_path), quote=True)
         entries.append(
-            f"  <url><loc>{loc}</loc><lastmod>{lastmod}</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>"
+            f"  <url><loc>{loc}</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>"
         )
     body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"

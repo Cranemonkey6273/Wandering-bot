@@ -452,6 +452,37 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("run /setup", download)
         self.assertIn("Never post Nitrado API tokens", download)
 
+    def test_dayz_server_files_guide_is_searchable_and_uses_real_content_dates(self):
+        guide = dashboard.PUBLIC_SEO_GUIDES["dayz-server-files-explained"]
+        rendered = {}
+
+        def fake_render(_template, **kwargs):
+            rendered.update(kwargs)
+            return "guide"
+
+        with (
+            patch.object(dashboard, "DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com"),
+            patch.object(dashboard, "load_review_rows", return_value=[]),
+            patch.object(dashboard, "render_template_string", side_effect=fake_render),
+        ):
+            self.assertEqual("guide", dashboard.public_landing_page(guide_key="dayz-server-files-explained"))
+
+        article = next(node for node in rendered["structured_data"]["@graph"] if node["@type"] == "Article")
+        self.assertEqual("/guides/dayz-server-files-explained", guide["path"])
+        self.assertIn("events.xml", guide["description"])
+        self.assertEqual("2026-08-02", article["datePublished"])
+        self.assertEqual("2026-08-02", article["dateModified"])
+
+        with (
+            patch.object(dashboard, "DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com"),
+            patch.object(dashboard, "Response", side_effect=lambda body, **_kwargs: body),
+        ):
+            sitemap = dashboard.sitemap_xml()
+
+        self.assertIn("https://dayzwanderingbot.com/guides/dayz-server-files-explained", sitemap)
+        self.assertIn("<lastmod>2026-08-02</lastmod>", sitemap)
+        self.assertIn("<loc>https://dayzwanderingbot.com/privacy</loc><changefreq>", sitemap)
+
     def test_player_audit_rows_keep_only_last_24_hours_and_show_last_seen(self):
         now = dashboard.datetime.now(dashboard.UTC)
         store = {
