@@ -22258,12 +22258,18 @@ def billing_plan_selection_notification_description(event):
     source = dashboard_audit_line_value(event.get("source") or "website", 80)
     account_kind = dashboard_audit_line_value(event.get("account_kind") or "visitor", 40)
     selected_ts = dashboard_audit_timestamp(event.get("selected_at"))
+    status = str(event.get("status") or "").strip().lower()
+    status_line = {
+        "payment_confirmed": "Stripe payment confirmed — buyer can now finish self-service activation.",
+        "plan_activated": "Plan activated automatically for the buyer's server.",
+        "subscription_ended": "Stripe subscription ended — server dashboard access was suspended.",
+    }.get(status, "Billing status updated.")
     return (
         f"**Plan:** {plan_name} (`{plan_id}`)\n"
         f"**Price shown:** {price}\n"
         f"**Source:** {source}\n"
         f"**Visitor type:** {account_kind}\n"
-        f"**Action:** Checkout opened (payment not yet confirmed)\n"
+        f"**Action:** {status_line}\n"
         f"**When:** <t:{selected_ts}:F>"
     )
 
@@ -22282,8 +22288,19 @@ async def billing_plan_selection_loop():
         if not event_id:
             sent_ids.add(event_id)
             continue
+        # Link opens are not payments. Drop legacy click records as well so
+        # crawler and browser-prefetch traffic cannot alarm the owner.
+        status = str(event.get("status") or "").strip().lower()
+        if status in {"checkout_opened", "checkout_started"}:
+            sent_ids.add(event_id)
+            continue
+        title = {
+            "payment_confirmed": "💳 Plan Payment Confirmed",
+            "plan_activated": "✅ Plan Activated",
+            "subscription_ended": "⚠️ Subscription Ended",
+        }.get(status, "💳 Billing Update")
         sent = await send_owner_notification(
-            "💳 Plan Checkout Opened",
+            title,
             billing_plan_selection_notification_description(event),
         )
         if sent:

@@ -512,6 +512,9 @@ try:
 except (TypeError, ValueError):
     AGENT_ULTIMATE_INCLUDED_CREDITS = 100
 STRIPE_AGENT_CREDITS_WEBHOOK_SECRET = os.getenv("WANDERING_STRIPE_AGENT_CREDITS_WEBHOOK_SECRET", "").strip()
+# This is deliberately separate from the credit-pack endpoint.  Plan payments
+# unlock server access, while credit packs only add AI prompt credits.
+STRIPE_BILLING_WEBHOOK_SECRET = os.getenv("WANDERING_STRIPE_BILLING_WEBHOOK_SECRET", "").strip()
 try:
     STRIPE_WEBHOOK_TOLERANCE_SECONDS = max(60, min(900, int(float(os.getenv("WANDERING_STRIPE_WEBHOOK_TOLERANCE_SECONDS", "300")))))
 except (TypeError, ValueError):
@@ -1026,6 +1029,7 @@ FILES = {
     "dashboard_audit_queue": "dashboard_audit_queue.json",
     "billing_plan_selections": "billing_plan_selections.json",
     "billing_plan_selection_queue": "billing_plan_selection_queue.json",
+    "billing_plan_purchases": "billing_plan_purchases.json",
     "dashboard_admin": "dashboard_admin.json",
     "dashboard_live_feeds": "dashboard_live_feeds.json",
     "player_audit": "player_audit.json",
@@ -1211,7 +1215,8 @@ DEFAULT_BILLING_PLANS = [
         "description": "Basic Discord bot access while dashboard tools stay locked.",
         "enabled": True,
         "features": {"leaderboards": True, "embeds": True, "server_rules": True},
-        "payment_url": "https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02",
+        "payment_url": "",
+        "stripe_payment_link_id": "",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1239,6 +1244,7 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
         },
         "payment_url": "https://buy.stripe.com/aFaaER9TH6Qf6TY5pNbEA03",
+        "stripe_payment_link_id": "",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1267,6 +1273,7 @@ DEFAULT_BILLING_PLANS = [
             "ai_agent": False,
         },
         "payment_url": "https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04",
+        "stripe_payment_link_id": "",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1295,6 +1302,7 @@ DEFAULT_BILLING_PLANS = [
             "ai_agent": True,
         },
         "payment_url": "https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05",
+        "stripe_payment_link_id": "",
         "stripe_buy_button_id": "",
         "stripe_publishable_key": "",
     },
@@ -1317,7 +1325,10 @@ PUBLIC_FEED_PREVIEW_ITEMS = [
 ]
 STRIPE_BUY_BUTTON_RE = re.compile(r"\b(buy_btn_[A-Za-z0-9_]+)\b")
 STRIPE_PUBLISHABLE_KEY_RE = re.compile(r"\b(pk_(?:test|live)_[A-Za-z0-9_]+)\b")
+STRIPE_PAYMENT_LINK_RE = re.compile(r"\b(plink_[A-Za-z0-9_]+)\b")
 BILLING_PLAN_ORDER = ("free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate")
+BILLING_PURCHASE_CLAIM_COOKIE = "wandering_billing_claim"
+BILLING_PURCHASE_CLAIM_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 BILLING_PLAN_ID_ALIASES = {
     "free": "free_bot",
     "free_bot": "free_bot",
@@ -2080,7 +2091,7 @@ PUBLIC_CHECKOUT_TEMPLATE = """
   <meta name="apple-mobile-web-app-title" content="Wandering Bot">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/brand-image">
-  <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+  {% if not checkout_error and not checkout_url %}<script async src="https://js.stripe.com/v3/buy-button.js"></script>{% endif %}
   <style>
     :root { color-scheme: dark; --bg: #050806; --panel: rgba(10,18,16,.94); --line: rgba(126,204,184,.24); --text: #f2f7ef; --muted: #b9c8bf; --green: #8ee85f; --amber: #eca140; --ink: #030605; }
     * { box-sizing: border-box; }
@@ -2093,6 +2104,8 @@ PUBLIC_CHECKOUT_TEMPLATE = """
     strong { color: var(--amber); font-size: 1.25rem; }
     stripe-buy-button { width: 100%; overflow: hidden; }
     .button { display: inline-flex; justify-content: center; align-items: center; min-height: 2.6rem; border: 1px solid rgba(126,204,184,.36); border-radius: .45rem; padding: .7rem .9rem; color: var(--text); text-decoration: none; font-weight: 950; background: rgba(11,27,23,.86); }
+    .button.primary { background: var(--green); color: var(--ink); }
+    .error { border: 1px solid rgba(236,161,64,.55); border-radius: .45rem; padding: .8rem; color: #ffe0ac; background: rgba(236,161,64,.12); }
   </style>
 </head>
 <body>
@@ -2105,8 +2118,57 @@ PUBLIC_CHECKOUT_TEMPLATE = """
       </div>
     </header>
     <p>{{ plan.description }}</p>
+    {% if checkout_error %}
+    <p class="error">{{ checkout_error }}</p>
+    <p>Payments stay closed until automatic activation is ready, so no customer is charged and left without access.</p>
+    {% elif checkout_url %}
+    <p>Stripe will confirm the payment securely before this plan can unlock a server. After payment, return here to add the bot and finish setup.</p>
+    <a class="button primary" href="{{ checkout_url }}">Continue to secure Stripe checkout</a>
+    {% else %}
     <stripe-buy-button buy-button-id="{{ plan.stripe_buy_button_id }}" publishable-key="{{ plan.stripe_publishable_key }}"></stripe-buy-button>
+    {% endif %}
     <a class="button" href="/#pricing">Back to pricing</a>
+  </main>
+</body>
+</html>
+"""
+
+PUBLIC_BILLING_COMPLETE_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finish your Wandering Bot purchase</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <style>
+    :root { color-scheme: dark; --bg:#050806; --panel:#0b1510; --line:rgba(126,204,184,.25); --text:#f2f7ef; --muted:#bdc9bf; --green:#8ee85f; --amber:#eca140; }
+    * { box-sizing:border-box; } body { margin:0; min-height:100vh; display:grid; place-items:center; padding:1rem; color:var(--text); background:linear-gradient(180deg,#0d1911,var(--bg)); font-family:Inter,ui-sans-serif,system-ui,sans-serif; }
+    main { width:min(100%,42rem); display:grid; gap:.85rem; padding:1.1rem; border:1px solid var(--line); border-radius:.6rem; background:var(--panel); box-shadow:0 1.1rem 3rem rgba(0,0,0,.28); }
+    header { display:flex; gap:.75rem; align-items:center; } img { width:3.25rem; height:3.25rem; object-fit:cover; border-radius:.5rem; border:1px solid var(--line); } h1 { margin:0; font-size:1.45rem; } h2 { margin:.25rem 0; font-size:1.05rem; } p,li { margin:0; color:var(--muted); line-height:1.55; } ol { margin:0; padding-left:1.25rem; display:grid; gap:.45rem; } .notice { padding:.75rem; border:1px solid rgba(142,232,95,.42); border-radius:.45rem; background:rgba(142,232,95,.09); } .waiting { border-color:rgba(236,161,64,.5); background:rgba(236,161,64,.1); } .actions { display:flex; flex-wrap:wrap; gap:.55rem; } .button { display:inline-flex; justify-content:center; align-items:center; min-height:2.55rem; border:1px solid rgba(126,204,184,.38); border-radius:.45rem; padding:.65rem .85rem; color:var(--text); background:#102319; text-decoration:none; font-weight:850; cursor:pointer; } .button.primary { color:#071005; background:var(--green); border-color:var(--green); } form { margin:0; }
+  </style>
+  {% if refresh %}<meta http-equiv="refresh" content="4">{% endif %}
+</head>
+<body>
+  <main>
+    <header><img src="/brand-image" alt="Wandering Bot"><div><h1>Finish your setup</h1><p>{{ purchase.plan_name if purchase else 'Wandering Bot purchase' }}</p></div></header>
+    {% if not purchase %}
+    <section class="notice waiting"><h2>Waiting for Stripe confirmation</h2><p>We could not match a confirmed payment yet. Return using the same browser after Stripe finishes, or wait a moment for the confirmation webhook.</p></section>
+    {% elif purchase.status == 'checkout_started' %}
+    <section class="notice waiting"><h2>Waiting for Stripe confirmation</h2><p>Stripe is still sending the payment confirmation. This page checks again automatically. Do not pay a second time.</p></section>
+    {% elif purchase.status == 'paid_unassigned' %}
+    <section class="notice"><h2>Payment confirmed</h2><p>Your {{ purchase.plan_name }} plan is reserved. There is no manual owner approval step.</p></section>
+    <ol><li>Add Wandering Bot to the Discord server that should receive this plan.</li><li>Run <code>/setup</code> there and finish the connection steps.</li><li>Sign into that new server dashboard in this same browser. The plan is claimed automatically.</li></ol>
+    {% if claim_valid and auth and auth.kind == 'guild' %}<form method="post" action="/purchase/activate"><button class="button primary" type="submit">Activate on {{ auth.label }}</button></form>{% endif %}
+    {% elif purchase.status == 'activated' %}
+    <section class="notice"><h2>Plan active</h2><p>{{ purchase.plan_name }} is now active for your server. You can continue with dashboard setup.</p></section>
+    {% elif purchase.status == 'subscription_ended' %}
+    <section class="notice waiting"><h2>Subscription ended</h2><p>This plan is no longer active. Choose a plan again if you want to restore dashboard access.</p></section>
+    {% else %}
+    <section class="notice waiting"><h2>Purchase status: {{ purchase.status }}</h2><p>Contact support if this remains unchanged after a few minutes.</p></section>
+    {% endif %}
+    <div class="actions"><a class="button primary" href="{{ bot_invite_url }}">Add Wandering Bot</a><a class="button" href="/login">Dashboard login</a><a class="button" href="/setup-guide">Setup guide</a><a class="button" href="{{ support_url }}">Need help?</a></div>
   </main>
 </body>
 </html>
@@ -11903,7 +11965,7 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Plan Setup</h2>
-          <p class="tool-note">Owner-only setup for the four public tiers. This page controls names, prices, checkout buttons and the dashboard features each tier unlocks.</p>
+          <p class="tool-note">Owner-only setup for the four public tiers. Each paid plan needs its Stripe Payment Link URL and matching <code>plink_...</code> ID so a signed Stripe payment can unlock access automatically.</p>
         </div>
         <span class="pill">{{ billing_plans|length }} plan(s)</span>
       </div>
@@ -11945,6 +12007,9 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label class="full">Checkout / payment URL <input name="payment_url" value="{{ plan.payment_url }}" placeholder="Stripe, PayPal, Ko-fi, Tebex, etc"></label>
+            {% if plan.id != 'free_bot' %}
+            <label class="full">Stripe Payment Link ID <input name="stripe_payment_link_id" value="{{ plan.stripe_payment_link_id }}" placeholder="plink_..."><small class="field-help">Find this in Stripe's Payment Links page. It is not a secret. It prevents a lower-priced link being used to unlock a higher plan.</small></label>
+            {% endif %}
             <label>Stripe buy button ID <input name="stripe_buy_button_id" value="{{ plan.stripe_buy_button_id }}" placeholder="buy_btn_..."><small class="field-help">You can paste the full Stripe embed here; the dashboard stores only the buy button ID.</small></label>
             <label>Stripe publishable key <input name="stripe_publishable_key" value="{{ plan.stripe_publishable_key }}" placeholder="pk_test_... or pk_live_..."><small class="field-help">Publishable key only. Never paste a Stripe secret key starting with sk_.</small></label>
             <label class="full">Description <textarea name="description">{{ plan.description }}</textarea></label>
@@ -11962,6 +12027,16 @@ PAGE_TEMPLATE = """
         </article>
         {% endfor %}
       </div>
+      <section class="admin-panel" id="plan-payment-automation">
+        <h3>Automatic paid-plan activation</h3>
+        <ol class="tool-note">
+          <li>For each paid plan, enter the public Stripe URL and its matching <code>plink_...</code> ID above.</li>
+          <li>In Stripe, add a webhook endpoint at <code>/api/stripe/billing-webhook</code> and subscribe to <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>customer.subscription.updated</code>, and <code>customer.subscription.deleted</code>.</li>
+          <li>Set Railway variable <code>WANDERING_STRIPE_BILLING_WEBHOOK_SECRET</code> to that endpoint's <code>whsec_...</code> signing secret.</li>
+          <li>In each Stripe Payment Link's <em>After payment</em> settings, choose redirect and use <code>{{ public_origin }}/purchase/complete?session_id={CHECKOUT_SESSION_ID}</code>.</li>
+        </ol>
+        <p class="tool-note">When a buyer is already signed into a server dashboard, the plan activates on Stripe confirmation. New buyers are returned to this site, add the bot and complete setup, then their first dashboard login claims the paid plan automatically from the same browser. No owner-side manual approval is needed.</p>
+      </section>
       <section class="admin-panel" id="agent-credit-packs">
         <div class="section-head">
           <div>
@@ -19960,6 +20035,11 @@ def stripe_publishable_key_from_text(value: Any) -> str:
     return match.group(1)[:220] if match else ""
 
 
+def stripe_payment_link_id_from_text(value: Any) -> str:
+    match = STRIPE_PAYMENT_LINK_RE.search(str(value or ""))
+    return match.group(1)[:160] if match else ""
+
+
 def dashboard_billing_plans() -> list[dict[str, Any]]:
     admin = load_store("dashboard_admin", {})
     if not isinstance(admin, dict):
@@ -19978,6 +20058,7 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
         features = plan.get("features") if isinstance(plan.get("features"), dict) else base.get("features", {})
         stripe_buy_button_id = plan.get("stripe_buy_button_id", base.get("stripe_buy_button_id", ""))
         stripe_publishable_key = plan.get("stripe_publishable_key", base.get("stripe_publishable_key", ""))
+        stripe_payment_link_id = plan.get("stripe_payment_link_id", base.get("stripe_payment_link_id", ""))
         payment_url = str(plan.get("payment_url") or base.get("payment_url") or "").strip()[:500]
         name = str(plan.get("name") or base.get("name") or clean_id).strip()[:80]
         description = str(plan.get("description") or base.get("description") or "").strip()[:400]
@@ -19991,6 +20072,7 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
             "description": description,
             "payment_url": payment_url,
+            "stripe_payment_link_id": stripe_payment_link_id_from_text(stripe_payment_link_id),
             "stripe_buy_button_id": stripe_buy_button_id_from_text(stripe_buy_button_id),
             "stripe_publishable_key": stripe_publishable_key_from_text(stripe_publishable_key),
             "enabled": safe_bool(plan.get("enabled"), safe_bool(base.get("enabled"), True)),
@@ -20119,12 +20201,16 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Choose one of the four billing plans: free, basic, pro or ultimate.")
     raw_stripe_buy_button = str(plan.get("stripe_buy_button_id") or "").strip()
     raw_stripe_key = str(plan.get("stripe_publishable_key") or "").strip()
+    raw_payment_link_id = str(plan.get("stripe_payment_link_id") or "").strip()
     stripe_buy_button_id = "" if plan_id == "free_bot" else stripe_buy_button_id_from_text(raw_stripe_buy_button)
     stripe_publishable_key = "" if plan_id == "free_bot" else stripe_publishable_key_from_text(raw_stripe_key)
+    stripe_payment_link_id = "" if plan_id == "free_bot" else stripe_payment_link_id_from_text(raw_payment_link_id)
     if plan_id != "free_bot" and raw_stripe_buy_button and not stripe_buy_button_id:
         raise ValueError("Stripe buy button ID must start with buy_btn_.")
     if plan_id != "free_bot" and raw_stripe_key and not stripe_publishable_key:
         raise ValueError("Stripe publishable key must start with pk_test_ or pk_live_. Do not paste secret sk_ keys.")
+    if plan_id != "free_bot" and raw_payment_link_id and not stripe_payment_link_id:
+        raise ValueError("Stripe Payment Link ID must start with plink_. It is safe to store; never paste an sk_ secret key.")
     features = {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS}
     # AI access is a fixed entitlement: Primary Owner plus the Ultimate tier only.
     features["ai_agent"] = plan_id == "dashboard_ultimate"
@@ -20134,6 +20220,7 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "price_text": str(plan.get("price_text") or "").strip()[:80],
         "description": str(plan.get("description") or "").strip()[:400],
         "payment_url": "" if plan_id == "free_bot" else str(plan.get("payment_url") or "").strip()[:500],
+        "stripe_payment_link_id": stripe_payment_link_id,
         "stripe_buy_button_id": stripe_buy_button_id,
         "stripe_publishable_key": stripe_publishable_key,
         "enabled": safe_bool(plan.get("enabled"), True),
@@ -20278,10 +20365,12 @@ def billing_plan_selection_url(plan_id: Any) -> str:
 
 
 def record_billing_plan_selection(plan: dict[str, Any]) -> dict[str, Any]:
-    """Persist a checkout-opened event for owner reporting.
+    """Record a checkout start for aggregate reporting, never as a payment.
 
-    This records an intentional plan choice, never a payment result, and keeps
-    no IP address, payment details, or checkout URL in the record.
+    Checkout starts are deliberately not sent to the owner Discord channel.
+    Browsers, link previews and search crawlers can open a link without a
+    human selecting a plan, so Stripe's signed webhook is the first event that
+    is allowed to produce a payment notification or entitlement.
     """
     plan_id = canonical_billing_plan_id(plan.get("id"), plan)
     if not plan_id:
@@ -20297,7 +20386,7 @@ def record_billing_plan_selection(plan: dict[str, Any]) -> dict[str, Any]:
         "source": billing_plan_selection_source(),
         "account_kind": str(auth.get("kind") or "visitor").strip()[:40],
         "selected_at": selected_at,
-        "status": "checkout_opened",
+        "status": "checkout_started",
     }
 
     selections = load_store("billing_plan_selections", [])
@@ -20306,12 +20395,312 @@ def record_billing_plan_selection(plan: dict[str, Any]) -> dict[str, Any]:
     selections.append(event)
     save_store("billing_plan_selections", selections[-500:])
 
+    return event
+
+
+def billing_plan_checkout_url(payment_url: Any, reference: Any, email: Any = "") -> str:
+    """Append Stripe's non-secret reconciliation parameter to a Payment Link."""
+    parsed = urllib.parse.urlsplit(str(payment_url or "").strip())
+    if parsed.scheme not in {"https", "http"} or not parsed.netloc:
+        return ""
+    query = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in {"client_reference_id", "prefilled_email", "locked_prefilled_email"}
+    ]
+    clean_reference = re.sub(r"[^A-Za-z0-9_-]+", "", str(reference or ""))[:200]
+    if not clean_reference:
+        return ""
+    query.append(("client_reference_id", clean_reference))
+    clean_email = normalize_agent_email(email)
+    if clean_email:
+        query.append(("prefilled_email", clean_email))
+    return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), parsed.fragment))
+
+
+def billing_purchase_claim_value(purchase: dict[str, Any]) -> str:
+    purchase_id = str(purchase.get("id") or "").strip()
+    claim_token = str(purchase.get("claim_token") or "").strip()
+    return f"{purchase_id}.{claim_token}" if purchase_id and claim_token else ""
+
+
+def billing_purchase_claim_from_request() -> tuple[str, str]:
+    try:
+        raw_value = str((request.cookies or {}).get(BILLING_PURCHASE_CLAIM_COOKIE) or "")
+    except RuntimeError:
+        raw_value = ""
+    purchase_id, separator, claim_token = raw_value.partition(".")
+    if not separator:
+        return "", ""
+    if not re.fullmatch(r"billing-[A-Za-z0-9_-]{12,180}", purchase_id):
+        return "", ""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,120}", claim_token):
+        return "", ""
+    return purchase_id, claim_token
+
+
+def billing_purchase_store() -> list[dict[str, Any]]:
+    purchases = load_store("billing_plan_purchases", [])
+    return purchases if isinstance(purchases, list) else []
+
+
+def save_billing_purchase_store(purchases: list[dict[str, Any]]) -> None:
+    clean_rows = [item for item in purchases if isinstance(item, dict)]
+    save_store("billing_plan_purchases", clean_rows[-1000:])
+
+
+def billing_purchase_by_id(purchases: Iterable[Any], purchase_id: Any) -> dict[str, Any] | None:
+    wanted = str(purchase_id or "").strip()
+    for purchase in purchases:
+        if isinstance(purchase, dict) and str(purchase.get("id") or "") == wanted:
+            return purchase
+    return None
+
+
+def billing_purchase_by_stripe_session(purchases: Iterable[Any], session_id: Any) -> dict[str, Any] | None:
+    wanted = str(session_id or "").strip()
+    if not wanted:
+        return None
+    for purchase in purchases:
+        if isinstance(purchase, dict) and str(purchase.get("stripe_session_id") or "") == wanted:
+            return purchase
+    return None
+
+
+def billing_queue_owner_event(purchase: dict[str, Any], status: str) -> None:
+    """Queue only verified payment lifecycle notifications for the bot owner."""
+    status = str(status or "").strip().lower()
+    if status not in {"payment_confirmed", "plan_activated", "subscription_ended"}:
+        return
     queue = load_store("billing_plan_selection_queue", [])
     if not isinstance(queue, list):
         queue = []
+    event = {
+        "id": f"billing-{status}-{purchase.get('id')}-{secrets.token_hex(3)}",
+        "plan_id": str(purchase.get("plan_id") or ""),
+        "plan_name": str(purchase.get("plan_name") or "")[:80],
+        "price_text": str(purchase.get("price_text") or "")[:80],
+        "source": str(purchase.get("source") or "website")[:80],
+        "account_kind": str(purchase.get("account_kind") or "visitor")[:40],
+        "selected_at": str(purchase.get("created_at") or datetime.now(UTC).isoformat()),
+        "status": status,
+        "activation_mode": str(purchase.get("activation_mode") or "")[:40],
+    }
     queue.append(event)
     save_store("billing_plan_selection_queue", queue[-200:])
-    return event
+
+
+def create_billing_plan_checkout(plan: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+    """Create a durable, non-secret record before redirecting to Stripe."""
+    plan_id = canonical_billing_plan_id(plan.get("id"), plan)
+    payment_url = str(plan.get("payment_url") or "").strip()
+    payment_link_id = stripe_payment_link_id_from_text(plan.get("stripe_payment_link_id"))
+    if not plan_id or plan_id == "free_bot":
+        return None, "This plan does not need a paid checkout."
+    if not payment_url:
+        return None, "Checkout is not configured for this plan yet."
+    if not payment_link_id:
+        return None, "This plan is waiting for its Stripe Payment Link ID before payments can be activated safely."
+    if not STRIPE_BILLING_WEBHOOK_SECRET:
+        return None, "Paid-plan activation is being connected. Please try again shortly."
+
+    selection = record_billing_plan_selection(plan)
+    auth = current_auth() or {}
+    now = datetime.now(UTC).isoformat()
+    reference = f"billing-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_urlsafe(12).replace('-', '').replace('_', '')}"
+    purchase = {
+        "id": reference,
+        "claim_token": secrets.token_urlsafe(24),
+        "plan_id": plan_id,
+        "plan_name": str(plan.get("name") or plan_id).strip()[:80],
+        "price_text": str(plan.get("price_text") or "").strip()[:80],
+        "payment_link_id": payment_link_id,
+        "status": "checkout_started",
+        "source": str(selection.get("source") or "website")[:80],
+        "account_kind": str(auth.get("kind") or "visitor")[:40],
+        "guild_id": str(auth.get("guild_id") or "") if auth.get("kind") == "guild" else "",
+        "created_at": now,
+        "paid_at": "",
+        "activated_at": "",
+        "stripe_session_id": "",
+        "stripe_subscription_id": "",
+        "stripe_customer_id": "",
+        "stripe_event_id": "",
+        "activation_mode": "",
+    }
+    purchases = billing_purchase_store()
+    purchases.append(purchase)
+    save_billing_purchase_store(purchases)
+    purchase["checkout_url"] = billing_plan_checkout_url(payment_url, reference)
+    if not purchase["checkout_url"]:
+        return None, "Checkout URL is invalid."
+    return purchase, ""
+
+
+def billing_apply_plan_to_guild(purchase: dict[str, Any], guild_id: Any, activation_mode: str) -> tuple[bool, str]:
+    """Apply one verified plan purchase to the selected server's access block."""
+    clean_guild_id = str(guild_id or "").strip()
+    plan = dashboard_plan_by_id(purchase.get("plan_id"))
+    if not clean_guild_id or not plan:
+        return False, "A server and billing plan are required to activate this purchase."
+    configs = load_store("guild_configs", {})
+    if not isinstance(configs, dict):
+        return False, "Server configuration is unavailable."
+    config = configs.get(clean_guild_id)
+    if not isinstance(config, dict):
+        return False, "That server is not ready yet. Add Wandering Bot and finish /setup first."
+
+    access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    access = dict(access)
+    subscription_id = str(purchase.get("stripe_subscription_id") or "")
+    session_id = str(purchase.get("stripe_session_id") or "")
+    access.update({
+        "enabled": True,
+        "tier": str(plan.get("id") or purchase.get("plan_id") or "dashboard"),
+        "plan_status": "subscription",
+        "feature_mode": "preset",
+        "features": {key: safe_bool((plan.get("features") or {}).get(key), False) for key in DASHBOARD_FEATURE_KEYS},
+        "billing_reference": subscription_id or session_id,
+        "billing_customer": str(purchase.get("stripe_customer_id") or ""),
+        "payment_url": str(plan.get("payment_url") or ""),
+        "billing_purchase_id": str(purchase.get("id") or ""),
+        "billing_checkout_session_id": session_id,
+        "billing_subscription_id": subscription_id,
+        "updated_at": datetime.now(UTC).isoformat(),
+    })
+    config["dashboard"] = access
+    configs[clean_guild_id] = config
+    save_store("guild_configs", configs)
+    purchase.update({
+        "status": "activated",
+        "guild_id": clean_guild_id,
+        "activated_at": datetime.now(UTC).isoformat(),
+        "activation_mode": activation_mode,
+    })
+    return True, "Plan activated for this server."
+
+
+def billing_activate_purchase_claim(auth: dict[str, Any] | None = None) -> tuple[bool, str, dict[str, Any] | None]:
+    auth = auth if isinstance(auth, dict) else current_auth()
+    if not isinstance(auth, dict) or auth.get("kind") != "guild":
+        return False, "Sign into the server dashboard that should receive this plan first.", None
+    purchase_id, claim_token = billing_purchase_claim_from_request()
+    purchases = billing_purchase_store()
+    purchase = billing_purchase_by_id(purchases, purchase_id)
+    if not purchase or not secrets.compare_digest(str(purchase.get("claim_token") or ""), claim_token):
+        return False, "This browser does not have a valid paid-plan claim.", None
+    if str(purchase.get("status") or "") == "activated":
+        return True, "Plan is already active.", purchase
+    if str(purchase.get("status") or "") != "paid_unassigned":
+        return False, "Stripe has not confirmed this payment yet.", purchase
+    activated, message = billing_apply_plan_to_guild(purchase, auth.get("guild_id"), "buyer_login")
+    if not activated:
+        return False, message, purchase
+    save_billing_purchase_store(purchases)
+    billing_queue_owner_event(purchase, "plan_activated")
+    return True, message, purchase
+
+
+def billing_fulfil_plan_checkout(reference: Any, session: dict[str, Any], event_id: Any) -> tuple[bool, str, dict[str, Any] | None]:
+    """Fulfil a Stripe-confirmed plan payment exactly once.
+
+    The expected Payment Link ID prevents a customer from changing a public
+    URL's client_reference_id and using a lower-priced link to claim a higher
+    tier. Browser redirects never grant access; this function is webhook-only.
+    """
+    purchases = billing_purchase_store()
+    purchase = billing_purchase_by_id(purchases, reference)
+    if not purchase:
+        return True, "No matching Wandering Bot plan purchase.", None
+    session_id = str(session.get("id") or "").strip()
+    if not session_id:
+        return False, "Stripe session ID is missing.", purchase
+    payment_link_id = str(session.get("payment_link") or "").strip()
+    expected_link_id = str(purchase.get("payment_link_id") or "").strip()
+    if not expected_link_id or not secrets.compare_digest(expected_link_id, payment_link_id):
+        return False, "Stripe Payment Link did not match the selected plan.", purchase
+    for other in purchases:
+        if not isinstance(other, dict) or other is purchase:
+            continue
+        if str(other.get("stripe_session_id") or "") == session_id:
+            return False, "Stripe session is already linked to another plan purchase.", purchase
+    if str(purchase.get("status") or "") == "activated":
+        return True, "Plan purchase was already activated.", purchase
+    if str(purchase.get("status") or "") == "paid_unassigned" and str(purchase.get("stripe_session_id") or "") == session_id:
+        return True, "Plan payment was already confirmed.", purchase
+
+    customer_details = session.get("customer_details") if isinstance(session.get("customer_details"), dict) else {}
+    purchase.update({
+        "status": "paid_unassigned",
+        "paid_at": str(purchase.get("paid_at") or datetime.now(UTC).isoformat()),
+        "stripe_session_id": session_id,
+        "stripe_subscription_id": str(session.get("subscription") or ""),
+        "stripe_customer_id": str(session.get("customer") or ""),
+        "stripe_customer_email": normalize_agent_email(customer_details.get("email")),
+        "stripe_event_id": str(event_id or ""),
+    })
+    assigned_guild_id = str(purchase.get("guild_id") or "").strip()
+    if assigned_guild_id:
+        activated, message = billing_apply_plan_to_guild(purchase, assigned_guild_id, "signed_in_checkout")
+        if not activated:
+            return False, message, purchase
+        save_billing_purchase_store(purchases)
+        billing_queue_owner_event(purchase, "plan_activated")
+        return True, message, purchase
+    save_billing_purchase_store(purchases)
+    billing_queue_owner_event(purchase, "payment_confirmed")
+    return True, "Payment confirmed. The buyer can now claim the plan after dashboard setup.", purchase
+
+
+def billing_handle_subscription_event(subscription: dict[str, Any]) -> tuple[bool, str]:
+    subscription_id = str(subscription.get("id") or "").strip()
+    if not subscription_id:
+        return True, "No subscription ID."
+    purchases = billing_purchase_store()
+    purchase = next((item for item in purchases if isinstance(item, dict) and str(item.get("stripe_subscription_id") or "") == subscription_id), None)
+    if not purchase:
+        return True, "No matching Wandering Bot subscription."
+    status = str(subscription.get("status") or "").strip().lower()
+    if status not in {"canceled", "unpaid", "incomplete_expired"}:
+        return True, "Subscription remains active."
+    guild_id = str(purchase.get("guild_id") or "").strip()
+    configs = load_store("guild_configs", {})
+    if guild_id and isinstance(configs, dict) and isinstance(configs.get(guild_id), dict):
+        config = configs[guild_id]
+        access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+        if str(access.get("billing_subscription_id") or access.get("billing_reference") or "") == subscription_id:
+            access = dict(access)
+            access.update({"plan_status": "suspended", "enabled": False, "subscription_ends_at": datetime.now(UTC).date().isoformat(), "updated_at": datetime.now(UTC).isoformat()})
+            config["dashboard"] = access
+            configs[guild_id] = config
+            save_store("guild_configs", configs)
+    purchase["status"] = "subscription_ended"
+    purchase["subscription_ended_at"] = datetime.now(UTC).isoformat()
+    save_billing_purchase_store(purchases)
+    billing_queue_owner_event(purchase, "subscription_ended")
+    return True, "Subscription access ended."
+
+
+def billing_completion_purchase_from_request() -> tuple[dict[str, Any] | None, bool]:
+    """Return the completion record and whether this browser can claim it."""
+    purchases = billing_purchase_store()
+    session_id = str(request.args.get("session_id") or "").strip()
+    requested_purchase_id = str(request.args.get("purchase") or "").strip()
+    cookie_purchase_id, claim_token = billing_purchase_claim_from_request()
+    purchase = billing_purchase_by_stripe_session(purchases, session_id) if session_id else None
+    if not purchase and requested_purchase_id:
+        purchase = billing_purchase_by_id(purchases, requested_purchase_id)
+    if not purchase and cookie_purchase_id:
+        purchase = billing_purchase_by_id(purchases, cookie_purchase_id)
+    claim_valid = bool(
+        purchase
+        and str(purchase.get("id") or "") == cookie_purchase_id
+        and claim_token
+        and secrets.compare_digest(str(purchase.get("claim_token") or ""), claim_token)
+    )
+    if purchase and not session_id and not claim_valid:
+        return None, False
+    return purchase, claim_valid
 
 
 def dashboard_customer_billing_plans(access: Any) -> list[dict[str, Any]]:
@@ -24999,6 +25388,7 @@ DASHBOARD_AUDIT_IGNORED_KEYS = {
     "eventgroups_xml",
     "stripe_buy_button_id",
     "stripe_publishable_key",
+    "stripe_payment_link_id",
     "loadout_json",
     "cfggameplay_json",
 }
@@ -31964,6 +32354,7 @@ def page(mode: str, auth: dict[str, Any]):
         dashboard_version=DASHBOARD_VERSION,
         dayz_ce_file_version=DAYZ_CE_FILE_VERSION,
         pwa_theme_color=PWA_THEME_COLOR,
+        public_origin=dashboard_public_origin(),
         section_allowed=section_allowed,
         channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
@@ -32633,16 +33024,53 @@ def public_checkout(plan_id: str):
     plan = dashboard_plan_by_id(plan_id)
     if not plan or not safe_bool(plan.get("enabled"), True):
         return redirect("/#pricing")
-
-    record_billing_plan_selection(plan)
-    payment_url = str(plan.get("payment_url") or "").strip()
-    if payment_url:
-        return redirect(payment_url)
     if str(plan.get("id") or "") == "free_bot":
         return redirect(dashboard_bot_invite_url())
-    if not (plan.get("stripe_buy_button_id") and plan.get("stripe_publishable_key")):
-        return redirect("/#pricing")
-    return render_template_string(PUBLIC_CHECKOUT_TEMPLATE, plan=plan, pwa_theme_color=PWA_THEME_COLOR)
+    purchase, error = create_billing_plan_checkout(plan)
+    if not purchase:
+        return render_template_string(
+            PUBLIC_CHECKOUT_TEMPLATE,
+            plan=plan,
+            checkout_error=error or "Checkout is not available right now.",
+            checkout_url="",
+            pwa_theme_color=PWA_THEME_COLOR,
+        )
+    response = make_response(redirect(str(purchase.get("checkout_url") or "/#pricing")))
+    response.set_cookie(
+        BILLING_PURCHASE_CLAIM_COOKIE,
+        billing_purchase_claim_value(purchase),
+        httponly=True,
+        secure=FORCE_HTTPS,
+        samesite="Lax",
+        max_age=BILLING_PURCHASE_CLAIM_MAX_AGE_SECONDS,
+    )
+    return response
+
+
+@APP.get("/purchase/complete")
+def public_purchase_complete():
+    purchase, claim_valid = billing_completion_purchase_from_request()
+    return render_template_string(
+        PUBLIC_BILLING_COMPLETE_TEMPLATE,
+        purchase=purchase,
+        claim_valid=claim_valid,
+        auth=current_auth(),
+        refresh=not purchase or str(purchase.get("status") or "") == "checkout_started",
+        bot_invite_url=dashboard_bot_invite_url(),
+        support_url=SUPPORT_DISCORD_URL or "/support",
+        pwa_theme_color=PWA_THEME_COLOR,
+    )
+
+
+@APP.post("/purchase/activate")
+def public_purchase_activate():
+    activated, _message, purchase = billing_activate_purchase_claim()
+    session_id = str((purchase or {}).get("stripe_session_id") or "")
+    target = f"/purchase/complete?session_id={urllib.parse.quote(session_id)}" if session_id else "/purchase/complete"
+    response = make_response(redirect(target))
+    if activated:
+        response.delete_cookie(BILLING_PURCHASE_CLAIM_COOKIE)
+    return response
 
 
 @APP.get("/setup-guide/download")
@@ -33046,12 +33474,19 @@ def login_post():
         error = "Dashboard ID or password is incorrect."
         return (mobile_app_welcome(error), 401) if app_return else (login_page(error), 401)
     guild_id, config, credentials, login_kind, temp_login_id = login_match
-    if not dashboard_admin_login_enabled(config):
-        error = "Dashboard access is currently disabled for this server."
-        return (mobile_app_welcome(error), 403) if app_return else (login_page(error), 403)
     if not isinstance(credentials, dict) or not verify_dashboard_password(password, credentials):
         error = "Dashboard ID or password is incorrect."
         return (mobile_app_welcome(error), 401) if app_return else (login_page(error), 401)
+    activated_purchase = False
+    if login_kind == "primary":
+        activated_purchase, _activation_message, _purchase = billing_activate_purchase_claim(
+            {"kind": "guild", "guild_id": guild_id, "label": str(config.get("guild_name") or guild_id)}
+        )
+        if activated_purchase:
+            config = load_store("guild_configs", {}).get(guild_id, config)
+    if not dashboard_admin_login_enabled(config):
+        error = "Dashboard access is currently disabled for this server."
+        return (mobile_app_welcome(error), 403) if app_return else (login_page(error), 403)
     response = make_response(redirect(app_return or "/admin"))
     session_cookie = (
         make_temp_session_cookie(guild_id, temp_login_id, credentials)
@@ -33066,6 +33501,11 @@ def login_post():
         samesite="Lax",
         max_age=60 * 60 * 24 * 30,
     )
+    # A buyer who checked out before their server dashboard existed can finish
+    # /setup, log in here, and have the verified purchase applied without an
+    # owner needing to touch the access controls.
+    if activated_purchase:
+        response.delete_cookie(BILLING_PURCHASE_CLAIM_COOKIE)
     return response
 
 
@@ -33239,6 +33679,42 @@ def api_stripe_agent_credits_webhook():
     if not fulfilled:
         return jsonify({"ok": False, "error": message}), 400
     return jsonify({"ok": True, "note": message, "credits_remaining": balance})
+
+
+@APP.post("/api/stripe/billing-webhook")
+def api_stripe_billing_webhook():
+    """Use Stripe's signed event, never a browser redirect, for plan access."""
+    raw_payload = request.get_data(cache=False)
+    signature = request.headers.get("Stripe-Signature") or ""
+    if not STRIPE_BILLING_WEBHOOK_SECRET:
+        return jsonify({"ok": False, "error": "Billing webhook is not configured."}), 503
+    if not stripe_webhook_signature_is_valid(raw_payload, signature, STRIPE_BILLING_WEBHOOK_SECRET):
+        return jsonify({"ok": False, "error": "Invalid Stripe signature."}), 400
+    try:
+        event = json.loads(raw_payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "error": "Invalid Stripe event."}), 400
+    if not isinstance(event, dict):
+        return jsonify({"ok": False, "error": "Invalid Stripe event."}), 400
+    event_type = str(event.get("type") or "")
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    stripe_object = data.get("object") if isinstance(data.get("object"), dict) else {}
+    if event_type in {"checkout.session.completed", "checkout.session.async_payment_succeeded"}:
+        if str(stripe_object.get("payment_status") or "").lower() != "paid":
+            return jsonify({"ok": True, "ignored": True, "reason": "payment_not_paid"})
+        reference = str(stripe_object.get("client_reference_id") or "")
+        if not reference:
+            return jsonify({"ok": True, "ignored": True, "reason": "no_billing_reference"})
+        fulfilled, message, purchase = billing_fulfil_plan_checkout(reference, stripe_object, event.get("id"))
+        if not fulfilled:
+            return jsonify({"ok": False, "error": message}), 400
+        return jsonify({"ok": True, "note": message, "purchase_status": str((purchase or {}).get("status") or "")})
+    if event_type in {"customer.subscription.updated", "customer.subscription.deleted"}:
+        updated, message = billing_handle_subscription_event(stripe_object)
+        if not updated:
+            return jsonify({"ok": False, "error": message}), 400
+        return jsonify({"ok": True, "note": message})
+    return jsonify({"ok": True, "ignored": True})
 
 
 @APP.get("/agent/logout")
@@ -37677,6 +38153,7 @@ def api_owner_billing_plan():
                 "price_text": payload.get("price_text"),
                 "description": payload.get("description"),
                 "payment_url": payload.get("payment_url"),
+                "stripe_payment_link_id": payload.get("stripe_payment_link_id"),
                 "stripe_buy_button_id": payload.get("stripe_buy_button_id"),
                 "stripe_publishable_key": payload.get("stripe_publishable_key"),
                 "enabled": payload.get("enabled"),

@@ -400,10 +400,10 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual("dashboard_ai", event["plan_id"])
         self.assertEqual("google-ads", event["source"])
-        self.assertEqual("checkout_opened", event["status"])
+        self.assertEqual("checkout_started", event["status"])
         self.assertNotIn("payment_url", event)
         self.assertEqual(event, saves["billing_plan_selections"][0])
-        self.assertEqual(event, saves["billing_plan_selection_queue"][0])
+        self.assertNotIn("billing_plan_selection_queue", saves)
 
     def test_public_checkout_link_preserves_the_acquisition_source(self):
         fake_request = types.SimpleNamespace(
@@ -751,11 +751,11 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
         self.assertIn("Android and Apple companion application — coming soon", public_plans["dashboard_ultimate"]["public_features"])
         self.assertIn("DayZ files", public_plans["dashboard_ultimate"]["public_ai_agent_summary"])
-        self.assertEqual("Get started free", public_plans["free_bot"]["public_cta"])
+        self.assertEqual("Add Wandering Bot", public_plans["free_bot"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard_ai"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard_ultimate"]["public_cta"])
-        self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", public_plans["free_bot"]["payment_url"])
+        self.assertEqual("", public_plans["free_bot"]["payment_url"])
         self.assertEqual("https://buy.stripe.com/aFaaER9TH6Qf6TY5pNbEA03", public_plans["dashboard"]["payment_url"])
         self.assertEqual("https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04", public_plans["dashboard_ai"]["payment_url"])
         self.assertEqual("https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05", public_plans["dashboard_ultimate"]["payment_url"])
@@ -773,14 +773,97 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", plans["free_bot"]["payment_url"])
 
-    def test_free_plan_checkout_uses_its_configured_free_stripe_link(self):
+    def test_billing_checkout_url_carries_only_a_nonsecret_stripe_reference(self):
+        url = dashboard.billing_plan_checkout_url(
+            "https://buy.stripe.com/basic?utm_source=website",
+            "billing-abc123456789",
+        )
+
+        self.assertIn("client_reference_id=billing-abc123456789", url)
+        self.assertIn("utm_source=website", url)
+        self.assertNotIn("claim_token", url)
+        self.assertNotIn("sk_", url)
+
+    def test_signed_billing_payment_activates_only_the_matching_plan_link(self):
+        plan = {
+            "id": "dashboard",
+            "name": "Wandering Bot Basic",
+            "payment_url": "https://buy.stripe.com/basic",
+            "features": {"leaderboards": True, "server_control": True},
+        }
+        purchase = {
+            "id": "billing-abc123456789",
+            "claim_token": "A" * 32,
+            "plan_id": "dashboard",
+            "plan_name": "Wandering Bot Basic",
+            "price_text": "€5.99 / month",
+            "payment_link_id": "plink_basic",
+            "status": "checkout_started",
+            "guild_id": "guild-1",
+            "created_at": "2026-08-02T10:00:00+00:00",
+        }
+        stores = {
+            "billing_plan_purchases": [purchase],
+            "guild_configs": {"guild-1": {"guild_name": "Test server", "dashboard": {"enabled": False, "plan_status": "none"}}},
+            "billing_plan_selection_queue": [],
+        }
+
+        def load(name, default):
+            return stores.get(name, default)
+
+        def save(name, value):
+            stores[name] = value
+
+        session = {
+            "id": "cs_paid_123",
+            "payment_link": "plink_basic",
+            "subscription": "sub_123",
+            "customer": "cus_123",
+            "customer_details": {"email": "buyer@example.com"},
+        }
+        with (
+            patch.object(dashboard, "load_store", side_effect=load),
+            patch.object(dashboard, "save_store", side_effect=save),
+            patch.object(dashboard, "dashboard_plan_by_id", return_value=plan),
+        ):
+            fulfilled, message, result = dashboard.billing_fulfil_plan_checkout(purchase["id"], session, "evt_123")
+
+        self.assertTrue(fulfilled, message)
+        self.assertEqual("activated", result["status"])
+        access = stores["guild_configs"]["guild-1"]["dashboard"]
+        self.assertTrue(access["enabled"])
+        self.assertEqual("dashboard", access["tier"])
+        self.assertEqual("subscription", access["plan_status"])
+        self.assertTrue(access["features"]["server_control"])
+        self.assertFalse(access["features"]["ai_agent"])
+        self.assertEqual("cs_paid_123", result["stripe_session_id"])
+        self.assertEqual("plan_activated", stores["billing_plan_selection_queue"][0]["status"])
+
+    def test_billing_payment_rejects_a_different_stripe_payment_link(self):
+        purchase = {
+            "id": "billing-abc123456789",
+            "plan_id": "dashboard_ultimate",
+            "payment_link_id": "plink_ultimate",
+            "status": "checkout_started",
+        }
+        with patch.object(dashboard, "load_store", return_value=[purchase]):
+            fulfilled, message, _result = dashboard.billing_fulfil_plan_checkout(
+                purchase["id"],
+                {"id": "cs_paid_123", "payment_link": "plink_basic"},
+                "evt_123",
+            )
+
+        self.assertFalse(fulfilled)
+        self.assertIn("did not match", message)
+
+    def test_free_plan_checkout_goes_directly_to_the_bot_invite(self):
         free_plan = dashboard.default_billing_plan_map()["free_bot"]
 
         with patch.object(dashboard, "dashboard_plan_by_id", return_value=free_plan), patch.object(dashboard, "record_billing_plan_selection") as record_selection:
             destination = dashboard.public_checkout("free_bot")
 
-        self.assertEqual("https://buy.stripe.com/aFa6oB5Dr3E35PU7xVbEA02", destination)
-        record_selection.assert_called_once_with(free_plan)
+        self.assertEqual(dashboard.dashboard_bot_invite_url(), destination)
+        record_selection.assert_not_called()
 
     def test_onboarding_emoji_picker_includes_the_selected_servers_custom_emoji(self):
         server_emoji = {

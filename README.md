@@ -32,6 +32,26 @@ WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS=45
 
 Do not put the API key in the dashboard, GitHub, Discord, browser code, or a customer-facing setting. It belongs only in Railway's encrypted service variables.
 
+## Stripe plan payments and automatic dashboard activation
+
+The public plan buttons use Stripe Payment Links. A customer opening a link is **not** a payment; Wandering Bot only grants access from a Stripe-signed webhook after its `payment_status` is `paid`.
+
+1. In **Owner Console → Billing**, add each paid plan's public Stripe URL and its matching `plink_...` Payment Link ID.
+2. In Stripe, add the webhook endpoint `https://YOUR-DOMAIN/api/stripe/billing-webhook` and listen for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.updated`, and `customer.subscription.deleted`.
+3. Set this Railway variable from that endpoint's Stripe signing secret:
+
+```env
+WANDERING_STRIPE_BILLING_WEBHOOK_SECRET=whsec_...
+```
+
+4. In each Payment Link's **After payment** settings, select redirect and use:
+
+```text
+https://YOUR-DOMAIN/purchase/complete?session_id={CHECKOUT_SESSION_ID}
+```
+
+Signed-in dashboard customers are activated immediately after Stripe confirms payment. New customers are returned to the setup page, invite the bot, run `/setup`, then sign into the new dashboard in the same browser; their paid plan is claimed automatically. Never give a Stripe secret key to the dashboard or put it in a public link.
+
 An explicitly configured custom endpoint remains available only if you deliberately choose it, for example for a private model gateway:
 
 ```env
