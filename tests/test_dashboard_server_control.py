@@ -331,6 +331,8 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual("init.c", dashboard.ai_agent_dayz_target_path("init.c"))
         self.assertEqual("custom/objectspawner.json", dashboard.ai_agent_dayz_target_path("objectspawner.json"))
+        self.assertEqual("custom/NoLogoutArea.json", dashboard.ai_agent_dayz_target_path("./custom/NoLogoutArea.json"))
+        self.assertEqual("", dashboard.ai_agent_dayz_target_path("../custom/NoLogoutArea.json"))
 
     def test_ai_agent_workspaces_only_return_the_selected_conversation(self):
         state = {
@@ -945,6 +947,31 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIsNone(draft)
         self.assertIn("removes existing records", error)
 
+    def test_dayz_agent_can_create_a_recognised_custom_json_file_without_a_vanilla_base(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "./pra/NoLogoutArea.json",
+                "dayz_map": "sakhal",
+            },
+            "Create a small protected bunker area that moves players to a safe position.",
+        )
+        content = (
+            '{"areaName":"NoLogoutArea","PRABoxes":[[[27,5.2,11],[108,0,0],[2570,15.22,5963.8]]],'
+            '"safePositions3D":[[2575.12,15.25,5954.31]]}'
+        )
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "pra/NoLogoutArea.json", "kind": "full_file", "content": content},
+            context,
+        )
+
+        self.assertEqual("pra/NoLogoutArea.json", context["target_path"])
+        self.assertTrue(context["is_custom_json"])
+        self.assertIn("restricted area", " ".join(context["knowledge"]["known_schemas"]))
+        self.assertIn("custom/ or pra/ JSON", context["format_guide"])
+        self.assertEqual("", error)
+        self.assertEqual("restricted_area", draft["custom_json_schema"])
+
     def test_dayz_file_plan_and_template_include_the_specialist_workbench(self):
         plan = dashboard.ai_agent_plan_from_objective(
             "Make the weather drier but retain storms.",
@@ -956,6 +983,7 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(any(step["agent"] == "DayZ File Specialist" for step in plan["steps"]))
         self.assertIn('value="dayz_files"', dashboard.PAGE_TEMPLATE)
         self.assertIn('name="dayz_file_target"', dashboard.PAGE_TEMPLATE)
+        self.assertIn('name="dayz_custom_target_path"', dashboard.PAGE_TEMPLATE)
         self.assertIn("DayZ File Drafts", dashboard.PAGE_TEMPLATE)
 
     def test_dayz_task_state_hides_pasted_file_and_download_content(self):

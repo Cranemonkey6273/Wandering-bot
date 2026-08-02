@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_file_spec_for_path, dayz_filename_for_path, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -6904,6 +6904,10 @@ PAGE_TEMPLATE = """
                     {% endfor %}
                   </select>
                 </label>
+                <label>Custom JSON path (optional)
+                  <input name="dayz_custom_target_path" placeholder="./custom/MyBase.json or pra/MyArea.json">
+                  <span class="tool-note">Use custom/ or pra/ only. It overrides the file choice above and is limited to recognised vanilla JSON structures.</span>
+                </label>
                 <label>Map
                   <select name="dayz_map">
                     {% for map in dayz_preset_maps %}
@@ -6935,7 +6939,7 @@ PAGE_TEMPLATE = """
               </div>
               <label class="full">Current file or relevant section<textarea name="dayz_file_source" spellcheck="false" placeholder="Optional but strongly recommended. Never paste a Nitrado token, password or API key here."></textarea></label>
               <label class="full">XML / JSON error (optional)<textarea name="dayz_error_text" spellcheck="false" placeholder="Paste the exact server, XML, JSON or Nitrado error here — including its line and column if shown."></textarea></label>
-              <p class="tool-note">To create a new complete vanilla/custom file, choose the exact target, map and a vanilla or safe-preset base. The agent preserves that real file structure, changes only the requested settings, and validates the result before offering it for download. A pasted fragment becomes a merge-required patch; it cannot be treated as a complete replacement.</p>
+              <p class="tool-note">To create a complete vanilla file, choose the exact target, map and a vanilla or safe-preset base. For a new recognised custom JSON, enter its custom/ or pra/ path and say whether it is ObjectSpawner, spawn gear, a restricted area, an effect area or underground triggers. The agent validates the result before offering it for download. A pasted fragment becomes a merge-required patch; it cannot be treated as a complete replacement.</p>
               <details class="ai-dayz-scenario-workbench">
                 <summary>Make a DayZ event plan <span class="tool-note">Airdrop, vehicle, infected, animal or gas event</span></summary>
                 <p class="tool-note">This creates a validated plan for the linked CE files. Adding it to Nitrado is always a separate, warned confirmation that uses the bot’s backup-first upload path.</p>
@@ -20973,6 +20977,10 @@ AI_AGENT_DAYZ_TARGETS = (
     ("cfgeffectarea.json", "cfgeffectarea.json - gas particle settings"),
     ("cfgplayerspawn.json", "cfgplayerspawn.json - fresh-spawn loadout presets"),
     ("custom/objectspawner.json", "ObjectSpawner JSON - custom object placements"),
+    ("custom/spawnGearPreset.json", "Custom JSON - fresh-spawn gear preset"),
+    ("custom/playerRestrictedArea.json", "Custom JSON - player restricted-area definition"),
+    ("custom/cfgEffectArea.json", "Custom JSON - compatible map effect-area definition"),
+    ("custom/cfgundergroundtriggers.json", "Custom JSON - underground trigger definition"),
     ("cfgplayerspawnpoints.xml", "cfgplayerspawnpoints.xml - fresh-spawn positions and settings"),
     ("db/messages.xml", "messages.xml - on-screen server messages"),
     ("cfgignorelist.xml", "cfgignorelist.xml - economy cleanup ignore list"),
@@ -21028,7 +21036,7 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "title": "Map groups, territories and environment",
         "summary": "Work with MapGroupPos and prototypes, loot/exclusion zones, animal and infected territories, contaminated/gas areas, underground triggers and environment references.",
         "keywords": ("territory", "environment", "mapgroup", "exclusion", "underground", "area effect", "gas zone", "animal", "infected"),
-        "targets": ("mapgroupproto.xml", "mapgrouppos.xml", "cfgenvironment.xml", "cfgareaeffects.xml", "cfgeffectarea.json", "cfgundergroundtriggers.json", "env/zombie_territories.xml"),
+        "targets": ("mapgroupproto.xml", "mapgrouppos.xml", "cfgenvironment.xml", "cfgareaeffects.xml", "cfgeffectarea.json", "cfgundergroundtriggers.json", "custom/playerRestrictedArea.json", "env/zombie_territories.xml"),
         "safety": "Coordinates are checked against the selected map; territory and environment edits stay merge-only unless the complete current file was supplied.",
     },
     {
@@ -21036,7 +21044,7 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "title": "Weather, gameplay, messages and player spawning",
         "summary": "Configure day/night timing, weather, messages, gameplay settings, fresh spawn points, player loadouts, server globals and Nitrado-oriented setup guidance.",
         "keywords": ("weather", "day", "night", "message", "gameplay", "loadout", "spawn point", "nitrado", "time acceleration"),
-        "targets": ("cfgweather.xml", "cfggameplay.json", "db/messages.xml", "cfgplayerspawnpoints.xml", "cfgplayerspawn.json", "db/globals.xml"),
+        "targets": ("cfgweather.xml", "cfggameplay.json", "db/messages.xml", "cfgplayerspawnpoints.xml", "cfgplayerspawn.json", "custom/spawnGearPreset.json", "db/globals.xml"),
         "safety": "It explains the effect before changing it, never requests or stores Nitrado secrets, and asks for the current config before a full-file replacement.",
     },
     {
@@ -21079,12 +21087,15 @@ AI_AGENT_DAYZ_FORMAT_GUIDES = {
     "cfgrandompresets.xml": "XML <randompresets> root containing named random cargo preset records.",
     "cfgundergroundtriggers.json": "JSON object with a Triggers array; retain the current map's trigger schema and coordinates.",
     "objectspawner.json": "JSON object with an Objects array. Each object needs name and a three-number pos; ypr is a three-number rotation when supplied.",
+    "custom_json": "A custom/ or pra/ JSON file must be a recognised vanilla structure: ObjectSpawner, spawning gear, player restricted area, effect area, or underground triggers. The filename alone does not identify its schema: state the intended schema and update the matching cfggameplay.json array. Mod JSON requires the actual mod's current config/version.",
     "territories": "XML <territory-type> root containing <territory> records for the relevant animal or infected type.",
 }
 
 
 def ai_agent_dayz_format_guide(target_path: Any) -> str:
     filename = dayz_filename_for_path(target_path)
+    if dayz_is_supported_custom_json_path(target_path):
+        return AI_AGENT_DAYZ_FORMAT_GUIDES["custom_json"]
     if filename.endswith("_territories.xml"):
         return AI_AGENT_DAYZ_FORMAT_GUIDES["territories"]
     if filename.startswith("mapgroupcluster"):
@@ -22673,6 +22684,9 @@ def ai_agent_dayz_target_path(value: Any) -> str:
     for target_path, _label in AI_AGENT_DAYZ_TARGETS:
         if lowered == target_path.lower():
             return target_path
+    custom_path = dayz_custom_json_path(raw)
+    if custom_path:
+        return custom_path
     filename = os.path.basename(lowered)
     for target_path, _label in AI_AGENT_DAYZ_TARGETS:
         if filename == os.path.basename(target_path).lower():
@@ -22743,6 +22757,14 @@ def ai_agent_dayz_reference_for_request(target_path: str, map_key: Any, payload:
     preset_id = str(payload.get("dayz_preset_id") or "").strip()
     if mode not in {"vanilla", "preset"} or not target_path:
         return {}
+    if dayz_is_supported_custom_json_path(target_path):
+        return {
+            "mode": mode,
+            "error": (
+                "A named custom JSON file has no universal vanilla base. Supply its complete current file, "
+                "or create a new file only with one of the recognised vanilla JSON schemas."
+            ),
+        }
     clean_map = normalize_dayz_reference_map_key(map_key)
     try:
         if mode == "preset":
@@ -22870,7 +22892,7 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
 def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = "") -> dict[str, Any]:
     payload = payload if isinstance(payload, dict) else {}
     project_type = str(payload.get("project_type") or "auto").strip().lower()
-    requested_target = payload.get("dayz_file_target") or payload.get("target_path")
+    requested_target = payload.get("dayz_custom_target_path") or payload.get("dayz_file_target") or payload.get("target_path")
     target_path = ai_agent_dayz_target_path(requested_target)
     lower = " ".join([str(objective or ""), str(requested_target or ""), project_type]).lower()
     is_dayz_request = project_type == "dayz_files" or bool(requested_target) or bool(payload.get("dayz_scenario_type")) or any(
@@ -22942,6 +22964,9 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "expected_root": spec.xml_root if spec and spec.kind == "xml" else "",
         "description": spec.description if spec else "",
         "format_guide": ai_agent_dayz_format_guide(target_path) if target_path else "",
+        "knowledge": dayz_agent_file_knowledge(target_path) if target_path else {},
+        "is_custom_json": dayz_is_supported_custom_json_path(target_path),
+        "custom_json_schema": "recognised vanilla schema required" if dayz_is_supported_custom_json_path(target_path) else "",
         "allows_merge_patch": bool(spec and spec.kind == "xml" and spec.required_children),
     }
 
@@ -22977,6 +23002,9 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
         "expected_root": context.get("expected_root"),
         "description": context.get("description"),
         "format_guide": context.get("format_guide"),
+        "knowledge": context.get("knowledge", {}),
+        "is_custom_json": bool(context.get("is_custom_json")),
+        "custom_json_schema": context.get("custom_json_schema"),
         "allows_merge_patch": context.get("allows_merge_patch"),
         "source_text": context.get("source_text", ""),
     }
@@ -23013,7 +23041,8 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     )
     if kind == "patch" and not (spec.kind == "xml" and spec.required_children):
         return None, f"No file draft was saved: {target_path} needs a complete current file, not a merge patch."
-    if kind == "full_file" and not (current_file_is_valid or reference_is_valid):
+    custom_new_file = dayz_is_supported_custom_json_path(target_path)
+    if kind == "full_file" and not (current_file_is_valid or reference_is_valid or custom_new_file):
         return None, (
             f"No file draft was saved: a full {target_path} replacement needs either the valid complete current file "
             "or a selected validated vanilla/preset base."
@@ -23024,14 +23053,23 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     valid, validation_message = validate_dayz_upload_text(target_path, content)
     if not valid:
         return None, f"No file draft was saved because validation failed: {validation_message}"
+    custom_json_schema = ""
+    if custom_new_file:
+        try:
+            custom_json_schema = dayz_json_schema_name(json.loads(content))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            # The protected validator above is authoritative and has already
+            # rejected malformed or unrecognised custom JSON.
+            custom_json_schema = ""
     if kind == "full_file":
         base_text = current_text if current_file_is_valid else reference_text
-        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, base_text, content)
-        if not shrink_ok:
-            return None, f"No file draft was saved because it looks destructive: {shrink_message}"
-        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, base_text, content)
-        if not preserve_ok:
-            return None, f"No file draft was saved because it removes existing records: {preserve_message}"
+        if base_text.strip():
+            shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, base_text, content)
+            if not shrink_ok:
+                return None, f"No file draft was saved because it looks destructive: {shrink_message}"
+            preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, base_text, content)
+            if not preserve_ok:
+                return None, f"No file draft was saved because it removes existing records: {preserve_message}"
     now = datetime.now(UTC).isoformat()
     return {
         "id": ai_agent_new_id("dayz-draft"),
@@ -23043,6 +23081,7 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
         "content_chars": len(content),
         "summary": ai_agent_compact_text(value.get("summary") or value.get("description") or "Validated DayZ draft prepared by the sandbox.", 420),
         "validation": "passed",
+        "custom_json_schema": custom_json_schema,
         "created_at": now,
         "updated_at": now,
     }, ""
@@ -23930,6 +23969,9 @@ def ai_agent_llm_reply_for_task(
         "When dayz_file_context is supplied, act as a careful DayZ server-file specialist for users who may be new to development. "
         "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
         "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
+        "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use the selected map's validated DayZ 1.29 reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
+        "For a new custom/ or pra/ JSON file, create a complete file only when it is clearly one of the recognised vanilla schemas: ObjectSpawner, spawning gear, player restricted area, effect area or underground triggers. State the schema and the matching cfggameplay.json reference that the customer must add. "
+        "Do not infer a mod JSON schema from its filename. PC mods, custom scripts and console server access can differ: vanilla mission XML/JSON is generally portable, but mod/script files require the exact current mod, version and configuration. "
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
         "cfgweather.xml controls weather; cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml; "
         "mapgroupproto.xml defines group loot prototypes while mapgrouppos.xml places groups; messages.xml controls scheduled on-screen messages; "
@@ -23946,7 +23988,7 @@ def ai_agent_llm_reply_for_task(
         "When error_text is supplied, interpret the reported line/column and the surrounding source; do not pretend to have fixed it unless you return a validated draft. "
         "When a scenario plan is supplied, explain that the dashboard's event engine creates the linked CE package from current server files, not isolated replacement snippets. "
         "The supplied format_guide describes the stable vanilla layout. When reference_base_available is true and reference_content is not truncated, "
-        "you may use that validated vanilla/preset file as the complete structure for a custom full_file draft; otherwise a full_file draft needs a valid complete current file. "
+        "you may use that validated vanilla/preset file as the complete structure for a custom full_file draft; otherwise a full_file draft needs a valid complete current file, except for a new recognised custom JSON structure. "
         "Never delete or omit untouched sections from a reference-based full file. A fragment is never a full replacement. Return a patch only for supported "
         "named-record XML files, wrap it in its real XML root, and label it as merge-only. "
         "Never claim a DayZ draft was uploaded; protected live upload requires a backup, diff and explicit owner confirmation. "

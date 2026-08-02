@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from _bot_loader import import_bot_module  # noqa: E402
-from dayz_file_intelligence import dayz_filename_for_path, dayz_file_spec_for_path, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
+from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_custom_json_path, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
 
 bot = import_bot_module()
 
@@ -72,7 +72,7 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             '<weather reset="0" enable="1" />',
         )
         self.assertFalse(ok)
-        self.assertIn("no <overcast>", message)
+        self.assertIn("no weather section", message)
 
     def test_standard_support_files_have_their_real_roots(self):
         cases = {
@@ -268,6 +268,73 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("invalid JSON", message)
+
+    def test_custom_json_paths_are_limited_to_safe_mission_folders(self):
+        self.assertEqual("custom/MyBase.json", dayz_custom_json_path("./custom/MyBase.json"))
+        self.assertEqual("pra/NoLogoutArea.json", dayz_custom_json_path("pra/NoLogoutArea.json"))
+        self.assertEqual("", dayz_custom_json_path("../custom/MyBase.json"))
+        self.assertEqual("", dayz_custom_json_path("custom/../MyBase.json"))
+        self.assertEqual("", dayz_custom_json_path("custom/MyBase.xml"))
+
+        spec = dayz_file_spec_for_path("/mission/custom/MyBase.json")
+        self.assertIsNotNone(spec)
+        self.assertEqual("custom/*.json", spec.filename)
+
+    def test_recognised_custom_json_schemas_validate_without_guessing_mods(self):
+        cases = {
+            "custom/StarterGear.json": (
+                '{"spawnWeight": 1, "characterTypes": ["SurvivorM_Mirek"], '
+                '"attachmentSlotItemSets": [], "discreteUnsortedItemSets": []}',
+                "spawning_gear",
+            ),
+            "pra/NoLogoutArea.json": (
+                '{"areaName": "NoLogoutArea", "PRABoxes": [[[27, 5.2, 11], [108, 0, 0], [2570, 15.22, 5963.8]]], '
+                '"safePositions3D": [[2575.12, 15.25, 5954.31]]}',
+                "restricted_area",
+            ),
+            "custom/MyEffectArea.json": (
+                '{"Areas": [{"AreaName": "Test", "Type": "GeyserArea", "Data": {'
+                '"Pos": [100, 5, 200], "Radius": 2}}]}',
+                "effect_area",
+            ),
+            "custom/MyUnderground.json": (
+                '{"Triggers": [{"Position": [1, 2, 3], "Orientation": [0, 0, 0], '
+                '"Size": [10, 5, 10], "EyeAccommodation": 0.2, "Breadcrumbs": [{"Position": [2, 2, 3]}]}]}',
+                "underground",
+            ),
+        }
+        for target_path, (text, schema) in cases.items():
+            with self.subTest(target_path=target_path):
+                ok, message = validate_dayz_upload_text(f"/mission/{target_path}", text)
+                self.assertTrue(ok, message)
+                self.assertEqual(schema, dayz_json_schema_name(json.loads(text)))
+
+        ok, message = validate_dayz_upload_text("/mission/custom/UnknownModFile.json", '{"madeUpModSetting": true}')
+        self.assertFalse(ok)
+        self.assertIn("recognised", message)
+
+    def test_cfggameplay_references_and_compact_weather_format_are_validated(self):
+        gameplay = """{
+          "PlayerData": {"spawnGearPresetFiles": ["./custom/StarterGear.json"]},
+          "WorldsData": {
+            "objectSpawnersArr": ["./custom/MyBase.json"],
+            "playerRestrictedAreaFiles": ["./pra/NoLogoutArea.json"]
+          }
+        }"""
+        ok, message = validate_dayz_upload_text("/mission/cfggameplay.json", gameplay)
+        self.assertTrue(ok, message)
+
+        compact_weather = """<weather reset="false" enable="true">
+          <rain><limits><min>0</min><max>1</max></limits></rain>
+          <wind maxspeed="0" />
+        </weather>"""
+        ok, message = validate_dayz_upload_text("/mission/cfgweather.xml", compact_weather)
+        self.assertTrue(ok, message)
+
+        knowledge = dayz_agent_file_knowledge("custom/StarterGear.json")
+        self.assertIn("spawning gear", knowledge["known_schemas"])
+        gameplay_knowledge = dayz_agent_file_knowledge("cfggameplay.json")
+        self.assertIn("playerRestrictedAreaFiles", " ".join(gameplay_knowledge["dependencies"]))
 
     def test_init_script_and_named_objectspawner_file_are_recognised(self):
         init_spec = dayz_file_spec_for_path("/mission/init.c")
