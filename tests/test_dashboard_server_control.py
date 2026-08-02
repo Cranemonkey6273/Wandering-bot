@@ -416,6 +416,24 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual("/checkout/dashboard?source=www.google.com", url)
 
+    def test_public_checkout_link_carries_a_safe_promotion_code_to_stripe(self):
+        fake_request = types.SimpleNamespace(args={"promo": "WELCOME20"}, referrer="")
+
+        with patch.object(dashboard, "request", fake_request):
+            internal_url = dashboard.billing_plan_selection_url("dashboard_ai")
+
+        stripe_url = dashboard.billing_plan_checkout_url(
+            "https://buy.stripe.com/example?locale=en",
+            "billing-reference-123",
+            promotion_code="WELCOME20",
+        )
+        self.assertEqual("/checkout/dashboard_ai?promo=WELCOME20", internal_url)
+        self.assertIn("client_reference_id=billing-reference-123", stripe_url)
+        self.assertIn("prefilled_promo_code=WELCOME20", stripe_url)
+        self.assertNotIn("prefilled_promo_code", dashboard.billing_plan_checkout_url(
+            "https://buy.stripe.com/example", "billing-reference-123", promotion_code="NO-DASHES"
+        ))
+
     def test_public_setup_guide_is_available_before_login_and_downloadable(self):
         guide = dashboard.PUBLIC_SEO_GUIDES["wandering-bot-setup"]
         download = dashboard.public_setup_guide_download_text()
@@ -1065,7 +1083,20 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("mailto:{{ support_email }}", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Android + iPhone App", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Activate, monitor and control your server from your phone", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Let your community speak its own language", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Stripe promotion codes and discounts", dashboard.PAGE_TEMPLATE)
         self.assertTrue(dashboard.PUBLIC_SUPPORT_EMAIL)
+
+    def test_pro_plan_includes_automatic_translation_and_anonymised_examples(self):
+        plans = {plan["id"]: plan for plan in dashboard.default_billing_plan_map().values()}
+        public_plans = {plan["id"]: plan for plan in dashboard.public_billing_plans_for_homepage()}
+
+        self.assertEqual("€11.99 / month", plans["dashboard_ai"]["price_text"])
+        self.assertTrue(plans["dashboard_ai"]["features"]["translation"])
+        self.assertTrue(plans["dashboard_ultimate"]["features"]["translation"])
+        self.assertIn("Automatic Discord translation in the same channel or a dedicated translation channel", public_plans["dashboard_ai"]["public_features"])
+        self.assertEqual("Translation included", public_plans["dashboard_ai"]["public_badge"])
+        self.assertEqual(2, len(dashboard.public_translation_preview_items()))
 
 
 if __name__ == "__main__":

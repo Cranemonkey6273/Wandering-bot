@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from _bot_loader import import_bot_module  # noqa: E402
@@ -73,6 +74,20 @@ class TranslationLanguageGuardTests(unittest.TestCase):
             bot.translation_source_matches_text("ok lol", "auto", "de"),
             (True, ""),
         )
+
+
+class TranslationEntitlementTests(unittest.TestCase):
+    def test_pro_or_ultimate_entitlement_allows_translation_setup(self):
+        with patch.object(bot, "load_json", return_value={
+            "guild-pro": {"dashboard": {"tier": "dashboard_ai", "plan_status": "subscription", "features": {"translation": True}}},
+            "guild-ultimate": {"dashboard": {"tier": "dashboard_ultimate", "plan_status": "subscription", "features": {"translation": True}}},
+            "guild-basic": {"dashboard": {"tier": "dashboard", "plan_status": "subscription", "features": {"translation": False}}},
+            "guild-ended": {"dashboard": {"tier": "dashboard_ai", "plan_status": "suspended", "features": {"translation": True}}},
+        }):
+            self.assertTrue(bot.guild_has_translation_access("guild-pro"))
+            self.assertTrue(bot.guild_has_translation_access("guild-ultimate"))
+            self.assertFalse(bot.guild_has_translation_access("guild-basic"))
+            self.assertFalse(bot.guild_has_translation_access("guild-ended"))
 
 
 class _FakeAuthor:

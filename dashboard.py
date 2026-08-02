@@ -530,8 +530,8 @@ PUBLIC_SEO_PAGES = {
     "home": {
         "path": "/",
         "title": "Wandering Bot - DayZ Kill Feed Bot and Server Dashboard",
-        "description": "Wandering Bot is a DayZ kill feed bot and Discord dashboard for PC, PlayStation and Xbox servers with killfeeds, ADM logs, Nitrado tools, heatmaps, raid alerts, animal drops, zombie hordes, scheduled restarts, vehicle resets, economy, trader shops, XML events, and server admin tools.",
-        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ kill feed bot", "DayZ killfeed bot", "DayZ PC bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools"],
+        "description": "Wandering Bot is a DayZ kill feed bot and Discord dashboard for PC, PlayStation and Xbox servers with killfeeds, ADM logs, Nitrado tools, automatic Discord translation, heatmaps, raid alerts, animal drops, zombie hordes, scheduled restarts, vehicle resets, economy, trader shops, XML events, and server admin tools.",
+        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ kill feed bot", "DayZ killfeed bot", "DayZ PC bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools", "Discord translation bot"],
         "eyebrow": "DayZ server control",
         "headline": "Add Wandering Bot to your DayZ server",
         "lead": "Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, airdrops, animal drops, zombie hordes, scheduled server restarts, vehicle resets, XML tools, economy, trader systems, bans, zones, and server setup.",
@@ -542,11 +542,13 @@ PUBLIC_SEO_PAGES = {
             ("Server dashboard", "Create temporary or permanent admin logins for trusted staff, then choose which live events, XML tools, schedules, shops, economy, zones, and moderation tools they can use."),
             ("Restarts and vehicle resets", "Schedule server restarts, raid weekend reminders, base damage windows, container damage windows, and vehicle reset workflows from one control area."),
             ("Nitrado and Discord automation", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible."),
+            ("Automatic Discord translation", "Give international communities readable conversations with original messages and translations posted in the same channel or routed to a dedicated translation channel."),
         ],
         "faqs": [
             ("What is Wandering Bot?", "Wandering Bot is a Discord bot and web dashboard for DayZ PC, PlayStation and Xbox server owners who want kill feeds, killfeeds, Nitrado tools, airdrops, animal drops, zombie hordes, scheduled restarts, vehicle resets, economy tools, zones, and admin workflows in one place."),
             ("Does Wandering Bot work with PC, Xbox and PlayStation DayZ servers?", "Yes. Wandering Bot is built for DayZ communities across PC, Xbox and PlayStation, including servers using Nitrado and ADM-style logs."),
             ("Can owners create dashboard logins for admins?", "Yes. Server owners can create temporary or permanent dashboard logins for trusted admins, then limit those admins to the tools and server pages they are allowed to use."),
+            ("Can Wandering Bot translate Discord messages?", "Yes. Pro and Ultimate include automatic multi-language Discord translation. Admins can keep translations beside the original message or forward them into a chosen channel."),
         ],
         "search_intro": "Wandering Bot is built as a DayZ bot for Discord communities that need kill feed messages, killfeeds, Nitrado tools, dashboards, server feeds, event drops, zombie hordes, scheduled restarts, vehicle resets, and admin workflows for PC, PlayStation and Xbox servers.",
         "search_terms": [
@@ -1063,6 +1065,7 @@ DASHBOARD_FEATURE_LABELS = {
     "server_control": "Server controls",
     "wages": "Economy wages",
     "moderation": "Moderation tools",
+    "translation": "Automatic translation",
     "ai_agent": "AI sandbox",
 }
 DASHBOARD_FEATURE_KEYS = tuple(DASHBOARD_FEATURE_LABELS)
@@ -1251,8 +1254,8 @@ DEFAULT_BILLING_PLANS = [
     {
         "id": "dashboard_ai",
         "name": "Wandering Bot Pro",
-        "price_text": "Set monthly price",
-        "description": "Expanded dashboard access for active communities that need deeper event, moderation and server management tools.",
+        "price_text": "€11.99 / month",
+        "description": "Expanded dashboard access for active communities, including automatic multi-language Discord translation.",
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1270,6 +1273,7 @@ DEFAULT_BILLING_PLANS = [
             "server_control": True,
             "wages": True,
             "moderation": True,
+            "translation": True,
             "ai_agent": False,
         },
         "payment_url": "https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04",
@@ -1299,6 +1303,7 @@ DEFAULT_BILLING_PLANS = [
             "server_control": True,
             "wages": True,
             "moderation": True,
+            "translation": True,
             "ai_agent": True,
         },
         "payment_url": "https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05",
@@ -1741,6 +1746,9 @@ PUBLIC_LANDING_TEMPLATE = """
     .feed-preview-meta strong { color: var(--text); overflow-wrap: anywhere; }
     .feed-preview-meta span { color: var(--amber); font-size: .78rem; font-weight: 950; text-transform: uppercase; }
     .feed-preview-card p { margin: 0; }
+    .translation-section { margin-top: 1rem; padding: 1rem; border: 1px solid rgba(103, 245, 231, .3); border-radius: .5rem; background: linear-gradient(135deg, rgba(53, 212, 194, .09), rgba(10, 18, 16, .9)); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
+    .translation-section .feed-preview-frame { background: #f7f7f8; }
+    .translation-note { margin: .85rem 0 0; color: #d7e4dc; }
     .pricing-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
     .pricing-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
     .pricing-head p { max-width: 42rem; margin: .25rem 0 0; }
@@ -1981,6 +1989,28 @@ PUBLIC_LANDING_TEMPLATE = """
         </article>
         {% endfor %}
       </div>
+    </section>
+    {% endif %}
+    {% if public_translation_previews %}
+    <section class="translation-section" id="translation" aria-label="Automatic Discord translation">
+      <div class="feed-preview-head">
+        <div>
+          <p class="eyebrow">Pro and Ultimate feature</p>
+          <h2>Let your community speak its own language</h2>
+          <p>Wandering Bot can automatically translate Discord conversation in either direction. Keep the translation beside the original message, or send it to a dedicated channel so international players can follow along without losing the source message.</p>
+        </div>
+        <a class="button ghost" href="#pricing">See Pro access</a>
+      </div>
+      <div class="feed-preview-grid">
+        {% for translation in public_translation_previews %}
+        <article class="feed-preview-card">
+          <div class="feed-preview-frame"><img src="{{ translation.url }}" alt="{{ translation.title }} Discord translation example" loading="lazy"></div>
+          <div class="feed-preview-meta"><strong>{{ translation.title }}</strong><span>{{ translation.category }}</span></div>
+          <p>{{ translation.summary }}</p>
+        </article>
+        {% endfor %}
+      </div>
+      <p class="translation-note">Translations are configured by a server administrator. The original remains visible, and public examples on this page have had usernames and avatars blurred for privacy.</p>
     </section>
     {% endif %}
     {% if public_pricing_plans %}
@@ -12036,6 +12066,14 @@ PAGE_TEMPLATE = """
           <li>In each Stripe Payment Link's <em>After payment</em> settings, choose redirect and use <code>{{ public_origin }}/purchase/complete?session_id={CHECKOUT_SESSION_ID}</code>.</li>
         </ol>
         <p class="tool-note">When a buyer is already signed into a server dashboard, the plan activates on Stripe confirmation. New buyers are returned to this site, add the bot and complete setup, then their first dashboard login claims the paid plan automatically from the same browser. No owner-side manual approval is needed.</p>
+        <h4>Stripe promotion codes and discounts</h4>
+        <ol class="tool-note">
+          <li>In Stripe, create a coupon with the amount or percentage off and choose its duration: once, repeating for a chosen number of months, or forever.</li>
+          <li>Create a customer-facing promotion code from that coupon. You can set an expiry date, redemption limit, minimum spend, or first-time-customer rule in Stripe.</li>
+          <li>Edit each Payment Link that should accept it and enable <em>Allow promotion codes</em>. This is a Stripe setting, so the discount is calculated and enforced by Stripe rather than this website.</li>
+          <li>Share a campaign link such as <code>{{ public_origin }}/checkout/dashboard_ai?promo=YOURCODE</code>. Wandering Bot safely pre-fills the code at Stripe checkout and records the code name on verified payment notifications. Customers can still remove or replace it at Stripe.</li>
+        </ol>
+        <p class="tool-note">Use only letters and numbers in a shared code (for example <code>WELCOME20</code>). Do not put secret Stripe keys in a promo link. If a Stripe link has not enabled promotion codes, Stripe will ignore the pre-filled code and checkout still works normally.</p>
       </section>
       <section class="admin-panel" id="agent-credit-packs">
         <div class="section-head">
@@ -18304,6 +18342,20 @@ DAYZ_PRESET_FILES = [
         "tags": ["vehicles", "builder truck", "cargo"],
     },
 ]
+PUBLIC_TRANSLATION_PREVIEW_ITEMS = [
+    {
+        "image": "translation-german-to-english-anonymised.png",
+        "title": "German to English",
+        "category": "Automatic translation",
+        "summary": "Keep the original conversation visible, then post a clear English translation beside it.",
+    },
+    {
+        "image": "translation-english-to-german-anonymised.png",
+        "title": "English to German",
+        "category": "Automatic translation",
+        "summary": "Let international communities read the same Discord chat in the language that works for them.",
+    },
+]
 
 DAYZ_VEHICLE_COMPONENT_NAMES = {
     "boat_01_propeller",
@@ -20055,7 +20107,12 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
         if not clean_id:
             continue
         base = plans.get(clean_id, {"id": clean_id, "features": {}})
-        features = plan.get("features") if isinstance(plan.get("features"), dict) else base.get("features", {})
+        # Saved plans from before a newly introduced entitlement should inherit
+        # its default instead of silently losing it just because that key did
+        # not exist in the older saved JSON record.
+        features = dict(base.get("features") or {})
+        if isinstance(plan.get("features"), dict):
+            features.update(plan["features"])
         stripe_buy_button_id = plan.get("stripe_buy_button_id", base.get("stripe_buy_button_id", ""))
         stripe_publishable_key = plan.get("stripe_publishable_key", base.get("stripe_publishable_key", ""))
         stripe_payment_link_id = plan.get("stripe_payment_link_id", base.get("stripe_payment_link_id", ""))
@@ -20110,6 +20167,7 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
         "dashboard_ai": [
             "Everything in Basic dashboard access",
             "Expanded event, moderation and server-management workflow",
+            "Automatic Discord translation in the same channel or a dedicated translation channel",
         ],
         "dashboard_ultimate": [
             "Everything in Pro dashboard access",
@@ -20139,7 +20197,12 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
             if plan_id == "dashboard_ultimate" else ""
         )
         public_plan["public_featured"] = plan_id == "dashboard"
-        public_plan["public_badge"] = "Popular" if public_plan["public_featured"] else ("App coming soon" if plan_id == "dashboard_ultimate" else "")
+        public_plan["public_badge"] = (
+            "Popular" if public_plan["public_featured"]
+            else "Translation included" if plan_id == "dashboard_ai"
+            else "App coming soon" if plan_id == "dashboard_ultimate"
+            else ""
+        )
         public_plan["public_price_text"] = (
             price_text
             if price_text and price_text.lower() != "set monthly price"
@@ -20185,6 +20248,23 @@ def public_feed_preview_items() -> list[dict[str, str]]:
         row = dict(item)
         row["image"] = filename
         row["url"] = f"/feed-preview/{urllib.parse.quote(filename)}"
+        items.append(row)
+    return items
+
+
+def public_translation_preview_items() -> list[dict[str, str]]:
+    """Return only the anonymised translation examples that are on disk."""
+    items = []
+    for item in PUBLIC_TRANSLATION_PREVIEW_ITEMS:
+        filename = os.path.basename(str(item.get("image") or ""))
+        if not filename:
+            continue
+        path = os.path.join(PUBLIC_FEED_PREVIEW_FOLDER, filename)
+        if not os.path.isfile(path):
+            continue
+        row = dict(item)
+        row["image"] = filename
+        row["url"] = f"/translation-preview/{urllib.parse.quote(filename)}"
         items.append(row)
     return items
 
@@ -20356,12 +20436,33 @@ def billing_plan_selection_source() -> str:
     return clean_host[:80] or "website"
 
 
+def billing_promotion_code_from_request() -> str:
+    """Return a Stripe-compatible public promotion code, never a secret.
+
+    Stripe Payment Links accept alphanumeric promotion codes only.  The code
+    is forwarded as a prefill for a hosted Stripe checkout after the owner has
+    enabled promotion codes on that specific Payment Link.
+    """
+    try:
+        args = getattr(request, "args", {}) or {}
+    except RuntimeError:
+        args = {}
+    value = str(args.get("promo") or args.get("promotion") or args.get("code") or "").strip()
+    return value if re.fullmatch(r"[A-Za-z0-9]{1,64}", value) else ""
+
+
 def billing_plan_selection_url(plan_id: Any) -> str:
-    """Build the internal checkout link and carry public acquisition source."""
+    """Build the internal checkout link with safe campaign/promotion context."""
     target = f"/checkout/{urllib.parse.quote(str(plan_id or ''))}"
     source = billing_plan_selection_source()
+    query: list[tuple[str, str]] = []
     if source and source != "website":
-        return f"{target}?{urllib.parse.urlencode({'source': source})}"
+        query.append(("source", source))
+    promotion_code = billing_promotion_code_from_request()
+    if promotion_code:
+        query.append(("promo", promotion_code))
+    if query:
+        return f"{target}?{urllib.parse.urlencode(query)}"
     return target
 
 
@@ -20385,6 +20486,7 @@ def record_billing_plan_selection(plan: dict[str, Any]) -> dict[str, Any]:
         "plan_name": str(plan.get("name") or plan_id).strip()[:80],
         "price_text": str(plan.get("price_text") or "").strip()[:80],
         "source": billing_plan_selection_source(),
+        "promotion_code": billing_promotion_code_from_request(),
         "account_kind": str(auth.get("kind") or "visitor").strip()[:40],
         "selected_at": selected_at,
         "status": "checkout_started",
@@ -20399,15 +20501,15 @@ def record_billing_plan_selection(plan: dict[str, Any]) -> dict[str, Any]:
     return event
 
 
-def billing_plan_checkout_url(payment_url: Any, reference: Any, email: Any = "") -> str:
-    """Append Stripe's non-secret reconciliation parameter to a Payment Link."""
+def billing_plan_checkout_url(payment_url: Any, reference: Any, email: Any = "", promotion_code: Any = "") -> str:
+    """Append non-secret reconciliation and optional Stripe promotion data."""
     parsed = urllib.parse.urlsplit(str(payment_url or "").strip())
     if parsed.scheme not in {"https", "http"} or not parsed.netloc:
         return ""
     query = [
         (key, value)
         for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
-        if key not in {"client_reference_id", "prefilled_email", "locked_prefilled_email"}
+        if key not in {"client_reference_id", "prefilled_email", "locked_prefilled_email", "prefilled_promo_code"}
     ]
     clean_reference = re.sub(r"[^A-Za-z0-9_-]+", "", str(reference or ""))[:200]
     if not clean_reference:
@@ -20416,6 +20518,9 @@ def billing_plan_checkout_url(payment_url: Any, reference: Any, email: Any = "")
     clean_email = normalize_agent_email(email)
     if clean_email:
         query.append(("prefilled_email", clean_email))
+    clean_promotion = str(promotion_code or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9]{1,64}", clean_promotion):
+        query.append(("prefilled_promo_code", clean_promotion))
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), parsed.fragment))
 
 
@@ -20482,6 +20587,7 @@ def billing_queue_owner_event(purchase: dict[str, Any], status: str) -> None:
         "plan_name": str(purchase.get("plan_name") or "")[:80],
         "price_text": str(purchase.get("price_text") or "")[:80],
         "source": str(purchase.get("source") or "website")[:80],
+        "promotion_code": str(purchase.get("promotion_code") or "")[:64],
         "account_kind": str(purchase.get("account_kind") or "visitor")[:40],
         "selected_at": str(purchase.get("created_at") or datetime.now(UTC).isoformat()),
         "status": status,
@@ -20508,6 +20614,7 @@ def create_billing_plan_checkout(plan: dict[str, Any]) -> tuple[dict[str, Any] |
     selection = record_billing_plan_selection(plan)
     auth = current_auth() or {}
     now = datetime.now(UTC).isoformat()
+    promotion_code = billing_promotion_code_from_request()
     reference = f"billing-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_urlsafe(12).replace('-', '').replace('_', '')}"
     purchase = {
         "id": reference,
@@ -20518,6 +20625,7 @@ def create_billing_plan_checkout(plan: dict[str, Any]) -> tuple[dict[str, Any] |
         "payment_link_id": payment_link_id,
         "status": "checkout_started",
         "source": str(selection.get("source") or "website")[:80],
+        "promotion_code": promotion_code,
         "account_kind": str(auth.get("kind") or "visitor")[:40],
         "guild_id": str(auth.get("guild_id") or "") if auth.get("kind") == "guild" else "",
         "created_at": now,
@@ -20532,7 +20640,7 @@ def create_billing_plan_checkout(plan: dict[str, Any]) -> tuple[dict[str, Any] |
     purchases = billing_purchase_store()
     purchases.append(purchase)
     save_billing_purchase_store(purchases)
-    purchase["checkout_url"] = billing_plan_checkout_url(payment_url, reference)
+    purchase["checkout_url"] = billing_plan_checkout_url(payment_url, reference, promotion_code=promotion_code)
     if not purchase["checkout_url"]:
         return None, "Checkout URL is invalid."
     return purchase, ""
@@ -25182,6 +25290,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
     summary = review_summary(load_review_rows(public_only=True))
     public_pricing_plans = public_billing_plans_for_homepage() if page_key == "home" and not is_guide_page else []
     public_feed_previews = public_feed_preview_items() if page_key == "home" and not is_guide_page else []
+    public_translation_previews = public_translation_preview_items() if page_key == "home" and not is_guide_page else []
     guide_cards = public_guide_cards()
     related_pages = public_related_pages(page.get("related") or [])
     software_node = {
@@ -25309,6 +25418,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
         review_summary=summary,
         public_pricing_plans=public_pricing_plans,
         public_feed_previews=public_feed_previews,
+        public_translation_previews=public_translation_previews,
         guide_cards=guide_cards,
         related_pages=related_pages,
         bot_invite_url=dashboard_bot_invite_url(),
@@ -32753,6 +32863,18 @@ def pwa_manifest():
 def feed_preview_image(filename: str):
     safe_name = os.path.basename(str(filename or ""))
     allowed = {str(item.get("image") or "") for item in PUBLIC_FEED_PREVIEW_ITEMS}
+    if safe_name not in allowed:
+        return Response("Not found", status=404)
+    path = os.path.join(PUBLIC_FEED_PREVIEW_FOLDER, safe_name)
+    if not os.path.isfile(path):
+        return Response("Not found", status=404)
+    return send_file(path)
+
+
+@APP.get("/translation-preview/<filename>")
+def translation_preview_image(filename: str):
+    safe_name = os.path.basename(str(filename or ""))
+    allowed = {str(item.get("image") or "") for item in PUBLIC_TRANSLATION_PREVIEW_ITEMS}
     if safe_name not in allowed:
         return Response("Not found", status=404)
     path = os.path.join(PUBLIC_FEED_PREVIEW_FOLDER, safe_name)

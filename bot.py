@@ -10151,6 +10151,35 @@ def _get_translation_rules(config):
     return []
 
 
+def guild_has_translation_access(guild_id):
+    """Check the latest dashboard entitlement before adding translation rules.
+
+    The dashboard can activate or suspend a subscription while the Discord bot
+    remains running, so this reads the shared config record rather than
+    waiting for a bot restart. Existing rules are left untouched here; this
+    guards the admin command that creates or changes them.
+    """
+    clean_guild_id = str(guild_id or "").strip()
+    if not clean_guild_id:
+        return False
+    try:
+        stored_configs = load_json(GUILD_CONFIG_FILE)
+    except Exception:
+        stored_configs = {}
+    config = stored_configs.get(clean_guild_id) if isinstance(stored_configs, dict) else None
+    if not isinstance(config, dict):
+        config = guild_configs.get(clean_guild_id, {})
+    access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    status = str(access.get("plan_status") or "").strip().lower()
+    if status in {"suspended", "none"}:
+        return False
+    features = access.get("features") if isinstance(access.get("features"), dict) else {}
+    if bool(features.get("translation")):
+        return True
+    tier = str(access.get("tier") or "").strip().lower()
+    return tier in {"dashboard_ai", "dashboard_ultimate", "pro", "ultimate"}
+
+
 def _rule_matches_channel(rule, channel):
     """A rule fires when no source_channel is set (all channels) or the
     incoming message channel matches the rule's source_channel_id."""
@@ -22254,6 +22283,7 @@ async def dashboard_audit_loop():
 def billing_plan_selection_notification_description(event):
     plan_name = dashboard_audit_line_value(event.get("plan_name") or event.get("plan_id") or "Unknown plan", 120)
     plan_id = dashboard_audit_line_value(event.get("plan_id") or "unknown", 80)
+    promotion_code = dashboard_audit_line_value(event.get("promotion_code") or "", 64)
     price = dashboard_audit_line_value(event.get("price_text") or "Price not configured", 80)
     source = dashboard_audit_line_value(event.get("source") or "website", 80)
     account_kind = dashboard_audit_line_value(event.get("account_kind") or "visitor", 40)
@@ -22264,10 +22294,12 @@ def billing_plan_selection_notification_description(event):
         "plan_activated": "Plan activated automatically for the buyer's server.",
         "subscription_ended": "Stripe subscription ended — server dashboard access was suspended.",
     }.get(status, "Billing status updated.")
+    promotion_line = f"**Promo code:** `{promotion_code}`\n" if promotion_code else ""
     return (
         f"**Plan:** {plan_name} (`{plan_id}`)\n"
         f"**Price shown:** {price}\n"
         f"**Source:** {source}\n"
+        f"{promotion_line}"
         f"**Visitor type:** {account_kind}\n"
         f"**Action:** {status_line}\n"
         f"**When:** <t:{selected_ts}:F>"
@@ -46772,6 +46804,13 @@ async def translationconfig(
         return
 
     guild_id = str(interaction.guild.id)
+    if not is_global_bot_owner_id(getattr(getattr(interaction, "user", None), "id", "")) and not guild_has_translation_access(guild_id):
+        await interaction.response.send_message(
+            "Automatic translation is included with **Wandering Bot Pro** and **Ultimate**. "
+            f"Upgrade at {DASHBOARD_PUBLIC_URL.rstrip('/')}/#pricing, then run `/translation config` again.",
+            ephemeral=True,
+        )
+        return
     if guild_id not in guild_configs:
         guild_configs[guild_id] = {
             "guild_name": interaction.guild.name,
