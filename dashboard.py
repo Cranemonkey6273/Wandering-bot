@@ -2875,7 +2875,7 @@ APP_DASHBOARD_TEMPLATE = """
       right: 0;
       bottom: 0;
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       gap: .2rem;
       padding: .42rem .5rem calc(.42rem + env(safe-area-inset-bottom));
       background: rgba(255, 255, 255, .98);
@@ -3183,9 +3183,20 @@ APP_DASHBOARD_TEMPLATE = """
     <section class="page-intro"><h2>DayZ field guide</h2><p>Practical explanations for new server owners, written around safe file handling.</p></section>
     <section class="notice safe-notice"><strong>Golden rule:</strong> download the current live file first, edit a copy, validate the complete file, and only then upload it to the exact mission path.</section>
     <section class="section">
+      <div class="section-head"><h2>How the files work together</h2><details class="info"><summary aria-label="About linked DayZ files">i</summary><div>A DayZ change is often a small package of linked files rather than one isolated snippet. Follow the links below before uploading.</div></details></div>
+      <div class="guide-list">
+        <details class="guide-row" open><summary>Create an event: the names must match</summary><div class="guide-body"><p><code>events.xml</code> defines what spawns, how many, its lifetime and the classname. <code>cfgeventspawns.xml</code> supplies one or more positions. The <code>event name</code> must be identical in both files, including spelling and capital letters.</p><p>For vehicle, static, loot, animal and infected events, also confirm that the classname exists in the selected DayZ version. A complete event package should name every related file before it is uploaded.</p></div></details>
+        <details class="guide-row"><summary>Custom objects, spawn gear and restricted areas</summary><div class="guide-body"><p>A JSON file in <code>custom/</code> or <code>pra/</code> does nothing by itself. Its path needs to be referenced from <code>cfggameplay.json</code>.</p><p><code>WorldsData.objectSpawnersArr</code> points to ObjectSpawner placement files. <code>PlayerData.spawnGearPresetFiles</code> points to fresh-spawn gear files. <code>WorldsData.playerRestrictedAreaFiles</code> points to player restricted-area files. Upload the JSON and the matching gameplay reference together.</p></div></details>
+        <details class="guide-row"><summary>Loot in buildings is a chain</summary><div class="guide-body"><p><code>types.xml</code> controls item quantities and where an item is allowed to appear. <code>cfgspawnabletypes.xml</code> controls attachments and cargo. <code>cfglimitsdefinition.xml</code> defines custom categories, tags and usages. <code>mapgroupproto.xml</code> provides a building's loot points, while <code>mapgrouppos.xml</code> places those groups on the map.</p><p>For an item to spawn in a building, its category and usage must agree with the building's eligible loot definitions. Raising nominal alone does not force an invalid item into a building.</p></div></details>
+        <details class="guide-row"><summary>Weather, gameplay and scripts</summary><div class="guide-body"><p><code>cfgweather.xml</code> is the mission weather file when the server uses file-based weather. A scripted <code>init.c</code> or map world script can also control weather, so do not make two conflicting weather systems.</p><p><code>cfggameplay.json</code> controls gameplay settings and references custom JSON. Keep the map/version's existing sections and never remove unrelated settings when changing one option.</p></div></details>
+      </div>
+    </section>
+    <section class="section">
       <div class="section-head"><h2>Learn the files</h2><details class="info"><summary aria-label="About the field guide">i</summary><div>This area teaches what files do. It does not directly overwrite live server XML.</div></details></div>
       <div class="guide-list">
         <details class="guide-row" open><summary>Safe editing checklist</summary><div class="guide-body"><p>1. Stop and identify the map and mission folder. 2. Download the current live file. 3. Keep one clean backup outside FTP. 4. Edit the complete file, not a loose snippet. 5. Validate XML or JSON. 6. Upload to the exact path. 7. Restart only when the file requires it. 8. Check the newest RPT for errors.</p></div></details>
+        <details class="guide-row"><summary>File quick reference: where to start</summary><div class="guide-body"><p><code>db/types.xml</code> is world-loot quantities; <code>db/events.xml</code> is event behaviour; <code>cfgeventspawns.xml</code> is event positions; <code>cfgspawnabletypes.xml</code> is attachments/cargo; <code>db/globals.xml</code> is global economy values; and <code>db/messages.xml</code> is on-screen server messages.</p><p><code>env/*_territories.xml</code> controls animal/infected zones, <code>cfgplayerspawnpoints.xml</code> controls fresh-spawn locations, <code>cfgareaeffects.xml</code> and <code>cfgeffectarea.json</code> cover applicable contaminated/effect areas, and <code>cfgundergroundtriggers.json</code> covers underground transitions.</p></div></details>
+        <details class="guide-row"><summary>Common XML and JSON mistakes</summary><div class="guide-body"><p>XML needs matching start and end tags. JSON needs double quotes around keys, no comments, no trailing comma, and matching braces and brackets. Coordinates are normally number triples such as <code>[x, y, z]</code>; event position XML normally uses <code>x</code> and <code>z</code> with an optional angle.</p><p>If DayZ reports an error, use the newest RPT from the restart you just made. Check the stated filename, line/column, missing classname and matching event name before changing anything else.</p></div></details>
         <details class="guide-row"><summary>Build anywhere: learn the settings</summary><div class="guide-body"><p>Build anywhere is controlled by <code>cfggameplay.json</code>. Enable that file in <code>serverDZ.cfg</code>, edit a downloaded copy, then upload the complete JSON file to the mission root.</p><div class="learn-flow"><div class="learn-step"><b>1</b><strong>Enable</strong><span>Set enableCfgGameplayFile in serverDZ.cfg.</span></div><div class="learn-step"><b>2</b><strong>Edit</strong><span>Change the HologramData and ConstructionData checks.</span></div><div class="learn-step"><b>3</b><strong>Validate</strong><span>Check the full JSON, upload it, then restart once.</span></div></div><pre class="guide-code">serverDZ.cfg
 enableCfgGameplayFile = 1;
 
@@ -3257,6 +3268,7 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
     <a class="{{ 'active' if app_view == 'events' else '' }}" href="{{ app_urls.events }}">Events</a>
     <a class="{{ 'active' if app_view == 'economy' else '' }}" href="{{ app_urls.economy }}">Economy</a>
     <a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>
+    <a class="{{ 'active' if app_view == 'help' else '' }}" href="{{ app_urls.help }}">Guides</a>
   </nav>
 </body>
 </html>

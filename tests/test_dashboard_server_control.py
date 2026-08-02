@@ -169,7 +169,7 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
         template = dashboard.APP_DASHBOARD_TEMPLATE
 
-        for label in ("Home", "Feeds", "Events", "Economy", "Control"):
+        for label in ("Home", "Feeds", "Events", "Economy", "Control", "Guides"):
             self.assertIn(f">{label}</a>", template)
         self.assertIn("DayZ field guide", template)
         self.assertIn("Airdrop builder", template)
@@ -181,7 +181,11 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('name="spawn_preset"', template)
         self.assertIn("types.xml", template)
         self.assertIn("events.xml", template)
+        self.assertIn("event name</code> must be identical", template)
         self.assertIn("cfgspawnabletypes.xml", template)
+        self.assertIn("playerRestrictedAreaFiles", template)
+        self.assertIn("Loot in buildings is a chain", template)
+        self.assertIn("Common XML and JSON mistakes", template)
         self.assertIn("Build anywhere: learn the settings", template)
         self.assertIn("Stamina: boosted or unlimited", template)
         preset_titles = {str(item.get("title") or "") for item in dashboard.DAYZ_PRESET_FILES}
