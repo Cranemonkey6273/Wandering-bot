@@ -671,8 +671,8 @@ PUBLIC_SEO_PAGES = {
     },
     "dayz-nitrado-server-tools": {
         "path": "/dayz-nitrado-server-tools",
-        "title": "DayZ Nitrado Server Tools and XML Dashboard - Wandering Bot",
-        "description": "DayZ Nitrado server tools for console communities, including restart alerts, CE XML events, airdrops, hordes, animals, loadouts, shop files, and safer dashboard workflows.",
+        "title": "DayZ Nitrado Bot, Server Tools and XML Dashboard - Wandering Bot",
+        "description": "DayZ Nitrado bot and server tools for console communities, including restart alerts, CE XML events, airdrops, hordes, animals, loadouts, shop files, and safer dashboard workflows.",
         "eyebrow": "Nitrado and CE XML tools",
         "headline": "Control DayZ server work from one dashboard",
         "lead": "Use guided tools for Nitrado-connected DayZ console servers: restart schedules, CE XML events, airdrops, hordes, animals, loadouts, economy files, and safer upload workflows with audit visibility.",
@@ -747,11 +747,11 @@ PUBLIC_SEO_PAGES = {
     },
     "dayz-console-airdrop-events": {
         "path": "/dayz-console-airdrop-events",
-        "title": "DayZ Console Airdrop, Horde and Event Builder - Wandering Bot",
+        "title": "DayZ Airdrops, Hordes and Event Builder for Console - Wandering Bot",
         "description": "Build DayZ console airdrops, helicopter crash events, zombie hordes, animal packs, gas zones, convoy scenes, loot drops, and CE XML event snippets from a guided dashboard.",
         "eyebrow": "Airdrops and events",
-        "headline": "Create DayZ console events without living in XML",
-        "lead": "Use the event builder to prepare airdrops, helicopter crash scenes, zombie hordes, animal packs, gas zones, convoy-style scenes, loot drops, and restart-based event uploads.",
+        "headline": "Create DayZ airdrops and console events without living in XML",
+        "lead": "Use the event builder to prepare DayZ airdrops, helicopter crash scenes, zombie hordes, animal packs, gas zones, convoy-style scenes, loot drops, and restart-based event uploads.",
         "focus": "Built for DayZ console server owners who want safer CE event generation and clearer event status in Discord and the dashboard.",
         "features": [
             ("Airdrop builder", "Pick scene type, loot preset, guards, restart count, coordinates, and upload status from one guided form."),
@@ -995,6 +995,31 @@ PUBLIC_SEO_GUIDES = {
             ("Can one XML or JSON mistake break a DayZ server file?", "Yes. XML and JSON are strict formats. Always validate the completed file and keep a known-good backup before replacing a live mission file."),
         ],
         "related": ["dayz-nitrado-server-tools", "dayz-server-dashboard", "dayz-console-airdrop-events"],
+    },
+    "dayz-server-status-discord-bot": {
+        "path": "/guides/dayz-server-status-discord-bot",
+        "title": "DayZ Server Status Discord Bot Guide - Wandering Bot",
+        "description": "Learn what a DayZ server status Discord bot can show: ADM feed health, last log activity, online-player tracking, restart notices, and Nitrado-connected dashboard checks.",
+        "eyebrow": "Server status guide",
+        "headline": "What a DayZ server status Discord bot should show",
+        "lead": "A useful status setup helps staff tell the difference between a quiet server, a delayed log feed and a server that needs attention—without sharing Nitrado access with every Discord administrator.",
+        "category": "Server status",
+        "reading_time": "4 min",
+        "published_at": "2026-08-02",
+        "updated_at": "2026-08-02",
+        "keywords": ["DayZ server status Discord bot", "DayZ Discord server status", "DayZ ADM status", "DayZ Nitrado status bot", "DayZ online player Discord bot"],
+        "sections": [
+            ("Check the feed before calling the server offline", "A DayZ status check should show whether the ADM reader is running and when it last handled server activity. If the server is quiet but the latest log is still being read, the feed can be healthy even when no players are online."),
+            ("Show online-player information carefully", "When supported ADM activity is available, Wandering Bot can track survivors seen by the feed and use that information in server-status messages. Treat that as log-based activity, not continuous GPS tracking or a replacement for the game’s own player list."),
+            ("Keep restart notices separate", "Players need clear restart notices, while staff need feed-health and troubleshooting detail. Route public restart messages and private staff alerts into different Discord channels so technical information does not clutter the player chat."),
+            ("Use the right check for the problem", "Use /admstatus to see the live feed reader and its most recent log processing. Owners can use the Nitrado-connected dashboard for supported server and restart checks. If logs stop moving after a restart, check the selected server profile, FTP details and ADM source before changing file settings."),
+        ],
+        "faqs": [
+            ("Can a DayZ Discord bot show whether the feed is working?", "Yes. Wandering Bot provides /admstatus for administrators so they can check whether the ADM reader is running and when it most recently processed server logs."),
+            ("Can players see server restart notices?", "Yes. Owners can route restart notices to a public Discord channel while keeping diagnostics and staff status messages private."),
+            ("Does server status reveal live player locations?", "No. Status and online-player information is based on supported log activity. It is not continuous player GPS tracking."),
+        ],
+        "related": ["dayz-nitrado-server-tools", "dayz-server-dashboard", "dayz-killfeed-bot"],
     },
 }
 

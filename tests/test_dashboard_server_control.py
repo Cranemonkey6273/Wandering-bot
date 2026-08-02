@@ -483,6 +483,17 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("<lastmod>2026-08-02</lastmod>", sitemap)
         self.assertIn("<loc>https://dayzwanderingbot.com/privacy</loc><changefreq>", sitemap)
 
+    def test_public_pages_cover_the_early_search_console_queries(self):
+        status_guide = dashboard.PUBLIC_SEO_GUIDES["dayz-server-status-discord-bot"]
+        nitrado_page = dashboard.PUBLIC_SEO_PAGES["dayz-nitrado-server-tools"]
+        airdrop_page = dashboard.PUBLIC_SEO_PAGES["dayz-console-airdrop-events"]
+
+        self.assertEqual("/guides/dayz-server-status-discord-bot", status_guide["path"])
+        self.assertIn("dayz server status discord bot", status_guide["title"].lower())
+        self.assertIn("/admstatus", " ".join(body for _title, body in status_guide["sections"]))
+        self.assertIn("DayZ Nitrado Bot", nitrado_page["title"])
+        self.assertIn("DayZ Airdrops", airdrop_page["title"])
+
     def test_player_audit_rows_keep_only_last_24_hours_and_show_last_seen(self):
         now = dashboard.datetime.now(dashboard.UTC)
         store = {
