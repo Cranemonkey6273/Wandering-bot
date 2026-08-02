@@ -1894,16 +1894,16 @@ PUBLIC_LANDING_TEMPLATE = """
     {% if page.app_pitch %}
     <section class="app-section" id="mobile-app" aria-label="Wandering Bot mobile dashboard">
       <header>
-        <p class="eyebrow">Mobile App Ready</p>
-        <h2>Use the dashboard like an app first</h2>
-        <p>Wandering Bot now has the web-app base a native iPhone or Android app would need: mobile metadata, installable dashboard support, and backend-controlled actions. The mobile app should stay as a clean control surface while the bot and server tools continue running on the backend.</p>
+        <p class="eyebrow">Android + iPhone App — Coming Soon</p>
+        <h2>Activate, monitor and control your server from your phone</h2>
+        <p>The Wandering Bot companion app is coming to Android and iPhone. It will bring the same permission-checked controls to a touch screen: activate your server tools, check live feeds and status, run authorised actions, and prepare DayZ file or gameplay changes while you are away from your desktop.</p>
       </header>
       <div class="app-grid">
-        <article class="app-card"><strong>Installable web dashboard</strong><span>Owners and admins can use the dashboard from phone browsers as a home-screen style app without changing how server actions are checked.</span></article>
-        <article class="app-card"><strong>Safe backend control</strong><span>Nitrado tokens, Stripe secret keys, XML uploads, restarts, billing access, and role checks stay on the Wandering Bot backend, never inside a phone app.</span></article>
-        <article class="app-card"><strong>Native app path</strong><span>The later iOS and Android app can call the same permission-checked backend API for live feeds, alerts, server status, customer access, and push notifications.</span></article>
+        <article class="app-card"><strong>Server control on touch</strong><span>Use your phone to check feeds and server status, manage supported dashboard controls, and keep your DayZ community moving without needing a desktop.</span></article>
+        <article class="app-card"><strong>DayZ files and gameplay</strong><span>Prepare and review XML or JSON file changes, adjust supported gameplay settings, and keep every live upload behind the same clear review and approval step.</span></article>
+        <article class="app-card"><strong>Protected mobile access</strong><span>The Android and iPhone app uses the same permission-checked backend as the dashboard, so credentials, billing, file uploads, restarts and staff roles stay protected.</span></article>
       </div>
-      <div class="app-note"><strong>Platform coverage</strong><span>Built for DayZ server owners working across PC, PlayStation and Xbox communities, with mobile access for owners and staff who need to check feeds or server status away from their desktop.</span></div>
+      <div class="app-note"><strong>Included with Ultimate</strong><span>The Android and iPhone companion app will be included with Wandering Bot Ultimate when it launches, for owners and trusted staff who want to control supported server tools, gameplay settings and DayZ file work from their phone.</span></div>
     </section>
     {% endif %}
     {% if page.guide_hub %}
@@ -6844,7 +6844,7 @@ PAGE_TEMPLATE = """
             </details>
             <details class="ai-dayz-workbench">
               <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
-              <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you an official vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
+              <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you a verified DayZ 1.29 vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
               <details class="ai-workspace-advanced">
                 <summary>Everything this DayZ helper can work on</summary>
                 <div class="ai-dayz-capability-grid">
@@ -6890,7 +6890,7 @@ PAGE_TEMPLATE = """
                 <label>Starting point
                   <select name="dayz_reference_mode">
                     <option value="none">Use my current file</option>
-                    <option value="vanilla">Use bundled vanilla file as the complete base</option>
+                    <option value="vanilla">Use bundled DayZ 1.29 vanilla file as the complete base</option>
                     <option value="preset">Use selected safe preset as the complete base</option>
                   </select>
                 </label>
@@ -20117,6 +20117,7 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
             "Explain XML/JSON errors, prepare events and draft reviewed DayZ files",
             f"{AGENT_ULTIMATE_INCLUDED_CREDITS} included AI credits, with secure top-ups when needed",
             "Android and Apple companion application — coming soon",
+            "Activate and control supported server tools, gameplay and DayZ file work from your phone",
         ],
     }
     return list(dict.fromkeys(plan_highlights.get(plan_id, []) + feature_labels))
@@ -22647,7 +22648,7 @@ def ai_agent_dayz_reference_for_request(target_path: str, map_key: Any, payload:
         else:
             parts = tuple(part for part in target_path.replace("\\", "/").split("/") if part)
             content = load_dayz_reference_text(clean_map, *parts)
-            label = f"Vanilla {os.path.basename(target_path)}"
+            label = f"DayZ {DAYZ_CE_FILE_VERSION} vanilla {os.path.basename(target_path)}"
             download_name = f"{clean_map}_vanilla_{os.path.basename(target_path)}"
         if not content.strip():
             return {"mode": mode, "error": f"No bundled {label} reference is available for {clean_map}."}

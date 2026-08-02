@@ -152,6 +152,25 @@ class DayZFileIntelligenceTests(unittest.TestCase):
                     ok, message = validate_dayz_upload_text(f"/mission/{relative_path}", text)
                     self.assertTrue(ok, message)
 
+    def test_every_bundled_vanilla_xml_and_json_reference_validates(self):
+        checked = 0
+        for folder in ("dayzOffline.chernarusplus", "dayzOffline.enoch", "dayzOffline.sakhal"):
+            mission_root = os.path.join(REFERENCE_ROOT, folder)
+            for current_root, _directories, filenames in os.walk(mission_root):
+                for filename in filenames:
+                    if not filename.lower().endswith((".xml", ".json")):
+                        continue
+                    reference_path = os.path.join(current_root, filename)
+                    relative_path = os.path.relpath(reference_path, mission_root).replace(os.sep, "/")
+                    with self.subTest(folder=folder, file=relative_path):
+                        with open(reference_path, "r", encoding="utf-8", errors="ignore") as handle:
+                            content = handle.read()
+                        ok, message = validate_dayz_upload_text(f"/mission/{relative_path}", content)
+                        self.assertTrue(ok, message)
+                    checked += 1
+
+        self.assertGreater(checked, 100)
+
     def test_backup_suffix_keeps_original_filename_identity(self):
         self.assertEqual(
             dayz_filename_for_path("/mission/cfgeventspawns.xml.wanderingbot-backup-latest"),

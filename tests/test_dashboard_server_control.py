@@ -749,6 +749,7 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual({"free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate"}, set(public_plans))
         self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
+        self.assertIn("Activate and control supported server tools, gameplay and DayZ file work from your phone", public_plans["dashboard_ultimate"]["public_features"])
         self.assertIn("Android and Apple companion application — coming soon", public_plans["dashboard_ultimate"]["public_features"])
         self.assertIn("DayZ files", public_plans["dashboard_ultimate"]["public_ai_agent_summary"])
         self.assertEqual("Add Wandering Bot", public_plans["free_bot"]["public_cta"])
@@ -1062,6 +1063,8 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_public_homepage_has_discord_and_email_support_routes(self):
         self.assertIn("Join support Discord", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("mailto:{{ support_email }}", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Android + iPhone App", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Activate, monitor and control your server from your phone", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertTrue(dashboard.PUBLIC_SUPPORT_EMAIL)
 
 
