@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import importlib.util
+import json
 import os
 import sys
 import types
@@ -1550,6 +1551,107 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("not_configured", task["llm_status"])
         self.assertIn("merge-only reference section", reply)
         self.assertNotEqual("Verified DayZ CE event-name linkage guidance.", task.get("summary"))
+
+    def test_full_survivor_spawn_gear_draft_is_complete_and_uses_livonia_classes(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "custom/spawnGearPreset.json",
+                "dayz_map": "livonia",
+                "dayz_source_mode": "complete",
+                "dayz_reference_mode": "none",
+            },
+            "Create a fully equipped full survivor fresh-spawn loadout with an M4A1.",
+        )
+        draft = dashboard.ai_agent_builtin_dayz_draft(
+            {"dayz_context": context},
+            "Create a fully equipped full survivor fresh-spawn loadout with an M4A1, food, medical gear and navigation.",
+        )
+
+        self.assertIsNotNone(draft)
+        self.assertEqual("custom/spawnGearPreset.json", draft["target_path"])
+        self.assertEqual("spawning_gear", draft["custom_json_schema"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(draft["target_path"], draft["content"]))
+        payload = json.loads(draft["content"])
+        self.assertEqual("Wandering Bot Full Survivor", payload["name"])
+        vanilla_names = {
+            node.get("name")
+            for node in ET.fromstring(dashboard.load_dayz_reference_text("livonia", "db", "types.xml")).findall("type")
+        }
+        self.assertTrue(set(dashboard.iter_player_loadout_classnames(payload)).issubset(vanilla_names))
+
+        def item_with_class(value, class_name):
+            if isinstance(value, dict):
+                if value.get("itemType") == class_name:
+                    return value
+                for child in value.values():
+                    found = item_with_class(child, class_name)
+                    if found:
+                        return found
+            if isinstance(value, list):
+                for child in value:
+                    found = item_with_class(child, class_name)
+                    if found:
+                        return found
+            return None
+
+        self.assertEqual(1, item_with_class(payload, "M4A1")["quickBarSlot"])
+        self.assertEqual(2, item_with_class(payload, "FNX45")["quickBarSlot"])
+        self.assertEqual(5, item_with_class(payload, "Canteen")["quickBarSlot"])
+        self.assertIn("PlayerData.spawnGearPresetFiles", draft["cfggameplay_reference"])
+        self.assertIn("./custom/spawnGearPreset.json", draft["cfggameplay_reference"])
+
+        medic_draft = dashboard.ai_agent_builtin_dayz_draft(
+            {"dayz_context": context},
+            "Create a fully equipped medic fresh-spawn loadout with a full medical kit.",
+        )
+        medic_payload = json.loads(medic_draft["content"])
+        self.assertEqual("Wandering Bot Field Medic", medic_payload["name"])
+        self.assertIsNotNone(item_with_class(medic_payload, "BloodBagIV"))
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(medic_draft["target_path"], medic_draft["content"]))
+
+        scout_draft = dashboard.ai_agent_builtin_dayz_draft(
+            {"dayz_context": context},
+            "Create a fully equipped scout fresh-spawn loadout with navigation and survival tools.",
+        )
+        scout_payload = json.loads(scout_draft["content"])
+        self.assertEqual("Wandering Bot Field Scout", scout_payload["name"])
+        self.assertEqual(7, item_with_class(scout_payload, "Binoculars")["quickBarSlot"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(scout_draft["target_path"], scout_draft["content"]))
+
+    def test_invalid_model_dayz_json_is_never_reported_as_a_saved_draft(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "custom/spawnGearPreset.json",
+                "dayz_map": "livonia",
+                "dayz_source_mode": "complete",
+            },
+            "Create a simple starter gear preset.",
+        )
+        task = {"id": "qa-invalid-spawn-gear", "dayz_context": context, "project_type": "dayz_files"}
+        model_reply = {
+            "reply": "Created a complete starter loadout.",
+            "dayz_draft": {
+                "target_path": "custom/spawnGearPreset.json",
+                "kind": "full_file",
+                "content": json.dumps({"starterItems": ["BandageDressing"]}),
+                "summary": "Invalid test draft",
+            },
+        }
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard, "ai_agent_llm_json", return_value=(True, model_reply, "")
+        ):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Create a simple starter gear preset.", False,
+            )
+
+        self.assertNotIn("dayz_draft", task)
+        self.assertIn("failed the protected validator", reply)
+        self.assertNotIn("Created a complete starter loadout", reply)
 
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(

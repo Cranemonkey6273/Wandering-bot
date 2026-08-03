@@ -23664,6 +23664,144 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
     ]
 
 
+def ai_agent_full_survivor_loadout_draft_requested(context: dict[str, Any], prompt: Any) -> bool:
+    """Recognise the one complete vanilla spawn-gear package we can verify locally.
+
+    A customer may ask for any kind of loadout, but a complete advanced
+    survivor preset has enough moving pieces (slot names, nested attachments,
+    magazine quantities and cargo) that it is useful to generate from the same
+    checked structure as the dashboard's visual loadout editor.  Leave custom
+    mod requests and edits to an existing preset for the model/current-file
+    workflow instead of guessing their schema.
+    """
+    if str(context.get("target_path") or "") != "custom/spawnGearPreset.json":
+        return False
+    if str(context.get("source_text") or "").strip():
+        return False
+    text = str(prompt or "").lower()
+    if any(term in text for term in ("mod", "init.c", "objectspawner", "object spawner")):
+        return False
+    asks_for_loadout = any(term in text for term in ("loadout", "spawn gear", "spawngear", "fresh-spawn", "fresh spawn"))
+    asks_for_full_package = any(
+        term in text
+        for term in ("full", "fully equipped", "survivor", "medic", "medical", "scout", "hunter", "all the bells", "all the bangs")
+    )
+    return asks_for_loadout and asks_for_full_package
+
+
+def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    """Build one robust, vanilla-only fresh-spawn preset for offline review.
+
+    The output is a complete recognised spawning-gear JSON file, not a
+    dashboard-only recipe.  Every class is verified against the selected map's
+    bundled DayZ 1.29 ``types.xml`` before a draft is offered.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or not ai_agent_full_survivor_loadout_draft_requested(context, prompt):
+        return None
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    request_text = str(prompt or "").lower()
+    preset_name = "Wandering Bot Full Survivor"
+    profile_rows: list[dict[str, Any]] = []
+    if re.search(r"\bmedic\b", request_text):
+        preset_name = "Wandering Bot Field Medic"
+        profile_rows = [
+            {"item": "FirstAidKit", "quantity_percent": 100},
+            {"item": "BloodBagIV", "quantity": 2, "quantity_percent": 100},
+            {"item": "SalineBagIV", "quantity": 2, "quantity_percent": 100},
+            {"item": "DisinfectantSpray", "quantity_percent": 100},
+            {"item": "CharcoalTablets", "quantity_percent": 100},
+        ]
+    elif "scout" in request_text or "hunter" in request_text:
+        preset_name = "Wandering Bot Field Scout"
+        profile_rows = [
+            {"item": "Binoculars", "quantity_percent": 100, "quickbar_slot": 7},
+            {"item": "Rangefinder", "quantity_percent": 100},
+            {"item": "Heatpack", "quantity": 2, "quantity_percent": 100},
+            {"item": "Machete", "quantity_percent": 100},
+            {"item": "SewingKit", "quantity_percent": 100},
+            {"item": "DuctTape", "quantity_percent": 100},
+        ]
+    rows = [
+        {"item": "BallisticHelmet_Green", "quantity_percent": 100, "slot": "Headgear"},
+        {"item": "NVGoggles", "quantity_percent": 100, "attachment_for": "BallisticHelmet_Green"},
+        {"item": "Battery9V", "quantity_percent": 100, "attachment_for": "NVGoggles"},
+        {"item": "SportGlasses_Black", "quantity_percent": 100, "slot": "Eyewear"},
+        {"item": "BalaclavaMask_Black", "quantity_percent": 100, "slot": "Mask"},
+        {"item": "GorkaEJacket_Autumn", "quantity_percent": 100, "slot": "Body"},
+        {"item": "PlateCarrierVest", "quantity_percent": 100, "slot": "Vest"},
+        {"item": "PlateCarrierPouches", "quantity_percent": 100, "attachment_for": "PlateCarrierVest"},
+        {"item": "PlateCarrierHolster", "quantity_percent": 100, "attachment_for": "PlateCarrierVest"},
+        {"item": "FNX45", "quantity_percent": 100, "attachment_for": "PlateCarrierHolster", "quickbar_slot": 2},
+        {"item": "Mag_FNX45_15Rnd", "quantity_percent": 100, "attachment_for": "FNX45"},
+        {"item": "TacticalGloves_Black", "quantity_percent": 100, "slot": "Gloves"},
+        {"item": "CargoPants_Green", "quantity_percent": 100, "slot": "Legs"},
+        {"item": "MilitaryBoots_Black", "quantity_percent": 100, "slot": "Feet"},
+        {"item": "AliceBag_Black", "quantity_percent": 100, "slot": "Back"},
+        {"item": "Armband_Green", "quantity_percent": 100, "slot": "Armband"},
+        {"item": "M4A1", "quantity_percent": 100, "slot": "shoulderL", "quickbar_slot": 1},
+        {"item": "M4_MPBttstck", "quantity_percent": 100, "attachment_for": "M4A1"},
+        {"item": "M4_RISHndgrd", "quantity_percent": 100, "attachment_for": "M4A1"},
+        {"item": "M4_T3NRDSOptic", "quantity_percent": 100, "attachment_for": "M4A1"},
+        {"item": "Battery9V", "quantity_percent": 100, "attachment_for": "M4_T3NRDSOptic"},
+        {"item": "M4_Suppressor", "quantity_percent": 100, "attachment_for": "M4A1"},
+        {"item": "Mag_STANAG_30Rnd", "quantity_percent": 100, "attachment_for": "M4A1"},
+        {"item": "Mag_STANAG_30Rnd", "quantity": 3, "quantity_percent": 100},
+        {"item": "Mag_FNX45_15Rnd", "quantity_percent": 100},
+        {"item": "AmmoBox_556x45_20Rnd", "quantity_percent": 100},
+        {"item": "AmmoBox_45ACP_25rnd", "quantity_percent": 100},
+        {"item": "CombatKnife", "quantity_percent": 100, "quickbar_slot": 3},
+        {"item": "Compass", "quantity_percent": 100, "quickbar_slot": 4},
+        {"item": "GPSReceiver", "quantity_percent": 100},
+        {"item": "PersonalRadio", "quantity_percent": 100},
+        {"item": "Canteen", "quantity_percent": 100, "quickbar_slot": 5},
+        {"item": "TacticalBaconCan", "quantity": 2, "quantity_percent": 100},
+        {"item": "BandageDressing", "quantity": 3, "quantity_percent": 100, "quickbar_slot": 6},
+        {"item": "TetracyclineAntibiotics", "quantity_percent": 100},
+        {"item": "Morphine", "quantity_percent": 100},
+        {"item": "Epinephrine", "quantity_percent": 100},
+        {"item": "M67Grenade", "quantity_percent": 100},
+        {"item": "Matchbox", "quantity_percent": 100},
+        {"item": "Lockpick", "quantity_percent": 100},
+        *profile_rows,
+    ]
+    payload = build_player_loadout_json({"name": preset_name, "items": rows})
+    class_names = set(iter_player_loadout_classnames(payload))
+    try:
+        types_root = ET.fromstring(load_dayz_reference_text(map_key, "db", "types.xml"))
+    except ET.ParseError:
+        return None
+    available_classes = {str(node.get("name") or "") for node in types_root.findall("type")}
+    missing_classes = sorted(name for name in class_names if name not in available_classes)
+    if missing_classes:
+        return None
+    content = json.dumps(payload, indent=2, ensure_ascii=False)
+    valid, validation_message = validate_dayz_upload_text("custom/spawnGearPreset.json", content)
+    if not valid:
+        return None
+    now = datetime.now(UTC).isoformat()
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "custom/spawnGearPreset.json",
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content + "\n",
+        "content_chars": len(content),
+        "summary": (
+            f"Complete validated vanilla fresh-spawn {preset_name.removeprefix('Wandering Bot ').lower()} preset: slot-based clothing, a full M4A1 package, "
+            "FNX45 sidearm, NVGs, medical supplies, food, water, navigation and spare ammunition. "
+            "Every classname was checked against the selected map's bundled DayZ 1.29 types.xml."
+        ),
+        "validation": "passed",
+        "custom_json_schema": "spawning_gear",
+        "cfggameplay_reference": "Add ./custom/spawnGearPreset.json to PlayerData.spawnGearPresetFiles in the existing cfggameplay.json.",
+        "base": f"built-in DayZ {DAYZ_CE_FILE_VERSION} {map_key} vanilla class catalogue",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
     """Return a deterministic full file for only the unambiguous built-in job.
 
@@ -23675,6 +23813,9 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     context = task.get("dayz_context") if isinstance(task, dict) else None
     if not isinstance(context, dict):
         return None
+    full_survivor_draft = ai_agent_builtin_full_survivor_loadout_draft(task, prompt)
+    if full_survivor_draft:
+        return full_survivor_draft
     types_draft = ai_agent_build_types_boost_profile(context, prompt)
     if types_draft:
         return types_draft
@@ -24794,7 +24935,15 @@ def ai_agent_llm_reply_for_task(
         review_note = "Merge-only patch: use the protected XML merge workflow; do not upload it as a full live file." if dayz_draft.get("merge_required") else "Complete-file draft: review its diff and use the protected upload workflow with a backup."
         reply += f"\n\nDayZ draft ready for download: {dayz_draft.get('target_path')}. {review_note}"
     elif dayz_draft_error:
-        reply += f"\n\nDayZ draft check: {dayz_draft_error}"
+        # A model can describe a file confidently while still returning JSON or
+        # XML that fails our protected validator.  Never leave that successful
+        # sounding prose beside the rejection: it could be mistaken for a
+        # downloadable, safe-to-use server file.
+        reply = (
+            "No usable DayZ draft was created or saved. Do not use or upload the proposed file: "
+            "it failed the protected validator and is not available for download.\n\n"
+            f"Reason: {dayz_draft_error}"
+        )
     return ai_agent_append_command_summary(reply, merged_suggestions)
 
 
@@ -28423,6 +28572,11 @@ def player_loadout_item_entry(
     item: dict[str, Any], quickbar_slot: int = -1, *, include_spawn_weight: bool = True,
 ) -> dict[str, Any]:
     """Build one official DayZ ``DiscreteItemSet`` / child entry."""
+    if quickbar_slot < 0:
+        requested_quickbar_slot = safe_int(item.get("quickbar_slot"), -1)
+        # DayZ's quickbar slots are zero-based.  Do not allow an arbitrary
+        # supplied number to turn a valid JSON loadout into an unusable preset.
+        quickbar_slot = requested_quickbar_slot if 0 <= requested_quickbar_slot <= 9 else -1
     entry = {
         "itemType": safe_dayz_class(item.get("item")),
         "attributes": loadout_item_attributes(item),
