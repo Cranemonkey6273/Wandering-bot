@@ -1011,6 +1011,8 @@ class ChannelMatchingTests(unittest.TestCase):
             asyncio.run(bot.dashboard_scenario_upload_loop())
 
             self.assertEqual(["guild-a:cherno", "guild-a:livo"], calls)
+            self.assertTrue(bot.guild_configs["guild-a"]["server_profiles"]["cherno"]["scenario_upload_worker_status"]["last_checked_at"])
+            self.assertTrue(bot.guild_configs["guild-a"]["server_profiles"]["livo"]["scenario_upload_worker_status"]["last_checked_at"])
             self.assertEqual(
                 "guild-a:cherno",
                 bot.guild_configs["guild-a"]["server_profiles"]["cherno"]["scenario_events"][0]["id"],

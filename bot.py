@@ -1042,6 +1042,7 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "scenario_event_discord_notices",
     "scenario_event_discord_notice_recent_signatures",
     "scenario_events",
+    "scenario_upload_worker_status",
     "scenario_events_cleanup_completed_at",
     "scenario_events_cleanup_error",
     "scenario_events_cleanup_pending",
@@ -43878,6 +43879,34 @@ def mark_server_control_scheduler_status(config, now_utc, error=""):
     return changed
 
 
+def mark_dashboard_scenario_upload_worker_status(config, now_utc, error=""):
+    """Persist a heartbeat for the durable dashboard event-upload worker."""
+    if not isinstance(config, dict):
+        return False
+    status = config.setdefault("scenario_upload_worker_status", {})
+    if not isinstance(status, dict):
+        status = {}
+        config["scenario_upload_worker_status"] = status
+
+    changed = False
+    last_checked = _parse_schedule_datetime(status.get("last_checked_at"))
+    if not last_checked or (now_utc - last_checked) >= timedelta(minutes=5):
+        status["last_checked_at"] = now_utc.isoformat()
+        changed = True
+
+    error_text = str(error or "").strip()
+    if error_text:
+        if status.get("last_error") != error_text:
+            status["last_error"] = error_text[:500]
+            status["last_error_at"] = now_utc.isoformat()
+            changed = True
+    elif status.get("last_error"):
+        status["last_error"] = ""
+        changed = True
+
+    return changed
+
+
 def _vehicle_reset_schedule_timezone(schedule):
     try:
         return ZoneInfo(str(schedule.get("timezone") or "Europe/Dublin"))
@@ -45115,6 +45144,7 @@ async def server_control_watchdog_loop():
     restarted = False
     restarted |= ensure_task_loop_running(scheduled_restart_loop, "scheduled_restart_loop")
     restarted |= ensure_task_loop_running(restart_delivery_processor, "restart_delivery_processor")
+    restarted |= ensure_task_loop_running(dashboard_scenario_upload_loop, "dashboard_scenario_upload_loop")
     if restarted:
         for guild_id, config in active_adm_config_items():
             try:
@@ -45363,9 +45393,10 @@ async def dashboard_scenario_upload_loop():
     if migrated:
         save_guild_configs()
         changed = True
+    now = datetime.now(UTC)
     for guild_id, config in active_adm_config_items():
         try:
-            runtime_changed = False
+            runtime_changed = mark_dashboard_scenario_upload_worker_status(config, now)
             if await process_dashboard_scenario_xml_upload(guild_id, config):
                 runtime_changed = True
             if await process_scenario_event_discord_notices(guild_id, config):
@@ -45375,6 +45406,9 @@ async def dashboard_scenario_upload_loop():
                 changed = True
         except Exception as error:
             print(f"DASHBOARD SCENARIO XML LOOP ERROR {guild_id}: {error}")
+            if mark_dashboard_scenario_upload_worker_status(config, now, error):
+                persist_server_profile_runtime_config(config)
+                changed = True
     if changed:
         save_guild_configs()
 

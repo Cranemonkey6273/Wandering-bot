@@ -9022,7 +9022,7 @@ PAGE_TEMPLATE = """
             <div class="mini-card"><span class="muted">Total</span><strong>{{ server.scenario_events|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Active</span><strong>{{ server.scenario_events|selectattr('enabled')|list|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Uploaded</span><strong>{{ scenario_summary.uploaded|default(0) }}</strong><span>{% if scenario_summary.last_uploaded_at %}Last {{ scenario_summary.last_uploaded_at[:16]|replace('T', ' ') }}{% else %}No upload yet{% endif %}</span></div>
-            <div class="mini-card"><span class="muted">Pending</span><strong>{{ scenario_summary.pending|default(0) }}</strong><span>{% if scenario_summary.cleanup_pending %}Cleanup queued{% else %}Worker queue{% endif %}</span></div>
+            <div class="mini-card"><span class="muted">Pending</span><strong>{{ scenario_summary.pending|default(0) }}</strong><span>{% if scenario_summary.worker_error %}Worker error — retry after it recovers{% elif scenario_summary.cleanup_pending %}Cleanup queued{% elif scenario_summary.worker_last_checked_at %}Worker checked {{ scenario_summary.worker_last_checked_at[:16]|replace('T', ' ') }}{% else %}Waiting for bot worker heartbeat{% endif %}</span></div>
             <div class="mini-card"><span class="muted">Failed</span><strong>{{ scenario_summary.failed|default(0) }}</strong><span>{% if scenario_summary.cleanup_error %}Cleanup needs attention{% else %}Upload failures{% endif %}</span></div>
             <div class="mini-card"><span class="muted">RPT Tracker</span><strong>{{ scenario_tracker.live_count|default(0) }}</strong><span>{{ scenario_tracker.diagnostics_count|default(0) }} status item(s)</span></div>
           </div>
@@ -31861,6 +31861,9 @@ def pve_summary(challenges: Any, campaigns: Any, schedules: Any, guild_id: str, 
 
 
 def scenario_upload_summary(config: Any, events: list[dict[str, Any]]) -> dict[str, Any]:
+    worker = config.get("scenario_upload_worker_status") if isinstance(config, dict) else {}
+    if not isinstance(worker, dict):
+        worker = {}
     summary = {
         "uploaded": 0,
         "pending": 0,
@@ -31870,6 +31873,8 @@ def scenario_upload_summary(config: Any, events: list[dict[str, Any]]) -> dict[s
         "cleanup_pending": bool(config.get("scenario_events_cleanup_pending")) if isinstance(config, dict) else False,
         "cleanup_error": str(config.get("scenario_events_cleanup_error") or "") if isinstance(config, dict) else "",
         "last_uploaded_at": "",
+        "worker_last_checked_at": str(worker.get("last_checked_at") or ""),
+        "worker_error": str(worker.get("last_error") or ""),
     }
     for event in events or []:
         if not isinstance(event, dict):
