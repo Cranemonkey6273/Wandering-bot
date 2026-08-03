@@ -32398,9 +32398,6 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server = dict(selected_server)
         selected_server["config"] = selected_dayz_profile.get("server_control_config") or selected_dayz_profile.get("config") or {}
         selected_server["channels"] = selected_dayz_profile.get("server_control_channels") or selected_dayz_profile.get("channels") or []
-        selected_server["guild_name"] = (
-            f"{selected_server.get('guild_name') or 'Server'} - {selected_dayz_profile.get('name') or selected_dayz_profile_id}"
-        )
         selected_server["server_control_runtime_id"] = selected_dayz_profile.get("runtime_id") or ""
         state = dict(state)
         server_rows = list(state.get("servers") or [])
@@ -32421,7 +32418,6 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server["scenario_events"] = redact(profile_events)
         selected_server["scenario_summary"] = redact(scenario_upload_summary(profile_config, profile_events))
         selected_server["scenario_tracker"] = redact(scenario_tracker_summary(load_store("rpt_event_tracker", {}), profile_runtime_id))
-        selected_server["guild_name"] = f"{selected_server.get('guild_name') or 'Server'} - {selected_dayz_profile.get('name') or selected_dayz_profile_id}"
         selected_server["dayz_name"] = str(selected_dayz_profile.get("name") or selected_dayz_profile_id or selected_server.get("dayz_name") or "")
         selected_server["map"] = profile_map
         selected_server["map_key"] = map_key_for(profile_map)
@@ -32464,7 +32460,6 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server["channels"] = profile_channels
         selected_server["safe_zones"] = redact(profile_config.get("safe_zones") if isinstance(profile_config.get("safe_zones"), list) else [])
         selected_server["zones"] = redact(normalized_zones(profile_config, profile_map, profile_factions, profile_channels))
-        selected_server["guild_name"] = f"{selected_server.get('guild_name') or 'Server'} - {selected_dayz_profile.get('name') or selected_dayz_profile_id}"
         selected_server["dayz_name"] = str(selected_dayz_profile.get("name") or selected_dayz_profile_id or selected_server.get("dayz_name") or "")
         selected_server["map"] = profile_map
         selected_server["map_key"] = map_key_for(profile_map)
