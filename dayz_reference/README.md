@@ -1,6 +1,6 @@
 DayZ vanilla mission references for Wandering Bot.
 
-Source: user-provided DayZ 1.29 vanilla mission zips for:
+Bundled source: user-provided DayZ 1.29.163451 vanilla mission zips for:
 - dayzOffline.chernarusplus
 - dayzOffline.enoch
 - dayzOffline.sakhal
@@ -14,3 +14,4 @@ Verification:
 - The stored references match the supplied 1.29 mission archives after normalising Windows/Linux line endings and the optional final newline.
 - Every bundled XML and JSON reference is checked by the automated test suite for valid syntax and the expected DayZ file root/schema before release.
 - The AI may use a selected matching-map reference as a complete draft base, but it must validate every output and never automatically upload it to a live server.
+- The owner dashboard can store later official DayZ mission ZIPs as separate, versioned reference overlays. Activating one changes only the dashboard's reference source; it never overwrites the bundled files or any live Nitrado server file.

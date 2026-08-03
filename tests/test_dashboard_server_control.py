@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import unittest
 import importlib.util
+import io
 import json
 import os
 import sys
+import tempfile
 import types
+import zipfile
 import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
@@ -1726,6 +1729,55 @@ class DashboardServerControlTests(unittest.TestCase):
             "env/zombie_territories.xml",
             "env/bear_territories.xml",
         }.issubset(targets))
+
+    def test_versioned_owner_reference_overlay_keeps_bundled_files_and_can_be_activated(self):
+        class UploadedZip:
+            filename = "dayzOffline.chernarusplus-1.29.163451.zip"
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def read(self, _limit=None):
+                return self.payload
+
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("release/dayzOffline.chernarusplus/db/types.xml", "<?xml version='1.0'?><types><type name='NewHotfixWeapon'/></types>")
+            archive.writestr("release/dayzOffline.chernarusplus/cfggameplay.json", '{"version": 119}')
+            archive.writestr("release/dayzOffline.chernarusplus/areaflags.map", b"binary-map-data")
+
+        original_data_root = dashboard.DATA_ROOT
+        original_library_folder = dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER
+        with tempfile.TemporaryDirectory() as temp_root:
+            try:
+                dashboard.DATA_ROOT = temp_root
+                dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = os.path.join(temp_root, "reference-library")
+                release = dashboard.store_dayz_reference_archive(
+                    "chernarus", "1.29.163451", UploadedZip(archive_bytes.getvalue()), "official hotfix"
+                )
+                self.assertEqual("1.29.163451", release["version"])
+                self.assertEqual(2, release["file_count"])
+                self.assertEqual(1, release["ignored_file_count"])
+
+                library = dashboard.load_dayz_reference_library()
+                entry = library["maps"].setdefault("chernarus", {"active_release_id": "", "releases": []})
+                entry["releases"].append(release)
+                entry["active_release_id"] = release["id"]
+                dashboard.save_dayz_reference_library(library)
+
+                self.assertEqual("1.29.163451", dashboard.dayz_reference_version_for_map("chernarus"))
+                self.assertIn("NewHotfixWeapon", dashboard.load_dayz_reference_text("chernarus", "db", "types.xml"))
+                self.assertTrue(os.path.exists(os.path.join(
+                    dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER,
+                    "chernarus",
+                    release["id"],
+                    "dayzOffline.chernarusplus",
+                    "db",
+                    "types.xml",
+                )))
+            finally:
+                dashboard.DATA_ROOT = original_data_root
+                dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = original_library_folder
 
     def test_public_setup_guide_uses_the_support_discord_invite(self):
         self.assertTrue(dashboard.SUPPORT_DISCORD_URL)

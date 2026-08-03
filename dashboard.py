@@ -23,6 +23,7 @@ import tempfile
 import time
 import traceback
 import zipfile
+import stat
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,6 +50,15 @@ BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_
 PUBLIC_FEED_PREVIEW_FOLDER = os.path.join(APP_ROOT, "public_feed_previews")
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
+DAYZ_REFERENCE_LIBRARY_FOLDER = os.getenv(
+    "WANDERING_DAYZ_REFERENCE_LIBRARY_DIR",
+    os.path.join(DATA_ROOT, "dayz_reference_library"),
+)
+DAYZ_REFERENCE_MAX_ARCHIVE_BYTES = 45 * 1024 * 1024
+DAYZ_REFERENCE_MAX_UNPACKED_BYTES = 120 * 1024 * 1024
+DAYZ_REFERENCE_MAX_FILE_BYTES = 12 * 1024 * 1024
+DAYZ_REFERENCE_MAX_FILES = 850
+DAYZ_REFERENCE_TEXT_EXTENSIONS = {".xml", ".json", ".c", ".txt", ".md"}
 DAYZ_REFERENCE_MAP_FOLDERS = {
     "chernarus": "dayzOffline.chernarusplus",
     "livonia": "dayzOffline.enoch",
@@ -71,7 +81,7 @@ BUILD_COMMIT = (
     or ""
 )
 DASHBOARD_VERSION = os.getenv("WANDERING_DASHBOARD_VERSION", "1.26")
-DAYZ_CE_FILE_VERSION = os.getenv("WANDERING_DAYZ_CE_FILE_VERSION", "1.29")
+DAYZ_CE_FILE_VERSION = os.getenv("WANDERING_DAYZ_CE_FILE_VERSION", "1.29.163451")
 SCENARIO_AIRDROP_MARKER_CLASS = "Wreck_Mi8_Crashed"
 SCENARIO_AIRDROP_SCENE_MARKERS = {
     "compact_crater": SCENARIO_AIRDROP_MARKER_CLASS,
@@ -1128,6 +1138,7 @@ FILES = {
     "agent_credit_packs": "agent_credit_packs.json",
     "rpt_event_tracker": "rpt_event_tracker.json",
     "reviews": "reviews.json",
+    "dayz_reference_library": "dayz_reference_library.json",
 }
 
 DASHBOARD_FEATURE_LABELS = {
@@ -6687,6 +6698,72 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
         </article>
+        <article class="admin-panel full" id="dayz-reference-library">
+          <div class="section-head">
+            <div>
+              <h3>DayZ Vanilla Reference Library</h3>
+              <p class="tool-note">Add each official DayZ mission ZIP as its own version — for example <code>1.29.163451</code>. Uploading only stores and validates that release. It never replaces a prior version or changes a live server. Make a release active only when you want the AI, vanilla downloads and generators to use its files; every missing file safely falls back to the bundled reference.</p>
+            </div>
+          </div>
+          <form method="post" action="/api/owner/dayz-reference" enctype="multipart/form-data" class="admin-form" data-html-submit="true">
+            <input class="hidden-field" name="dashboard_mode" value="owner">
+            <input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library">
+            <input class="hidden-field" name="action" value="upload">
+            <label>Map
+              <select name="map">
+                {% for reference_map in dayz_reference_library %}
+                <option value="{{ reference_map.key }}">{{ reference_map.label }} ({{ reference_map.mission if reference_map.mission else reference_map.key }})</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>DayZ file version
+              <input name="version" value="{{ dayz_ce_file_version }}" placeholder="1.29.163451" pattern="[0-9]+([.][0-9]+){1,3}([._-][A-Za-z0-9]+){0,4}" required>
+            </label>
+            <label>Vanilla mission ZIP
+              <input type="file" name="reference_zip" accept=".zip,application/zip" required>
+            </label>
+            <label>Release note <input name="notes" maxlength="500" placeholder="Official hotfix files / source date"></label>
+            <label class="check full"><input type="checkbox" name="activate_now" value="1"> Make this version active after its files pass validation</label>
+            <div class="full toolbar"><button type="submit">Add DayZ Reference Version</button><span class="muted">ZIP limit: 45 MB. It must include the selected <code>dayzOffline...</code> folder.</span></div>
+          </form>
+          <div class="owner-server-list" style="margin-top:.85rem">
+            {% for reference_map in dayz_reference_library %}
+            <div class="owner-server-card">
+              <div>
+                <h4>{{ reference_map.label }} reference files</h4>
+                <div class="owner-server-meta">
+                  <span class="pill">Bundled: {{ reference_map.built_in_version }}</span>
+                  <span class="pill {{ 'ok' if reference_map.active_release_id else 'warn' }}">Active: {{ reference_map.active_version }}{% if not reference_map.active_release_id %} (bundled){% endif %}</span>
+                </div>
+              </div>
+              <div class="owner-server-actions">
+                {% if reference_map.active_release_id %}
+                <form method="post" action="/api/owner/dayz-reference" onsubmit="return window.confirm('Switch {{ reference_map.label }} back to the bundled reference? Your uploaded versions will be kept.');">
+                  <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="use_bundled"><input class="hidden-field" name="map" value="{{ reference_map.key }}">
+                  <button type="submit">Use Bundled {{ reference_map.built_in_version }}</button>
+                </form>
+                {% endif %}
+              </div>
+              <div class="full stack">
+                {% for release in reference_map.releases %}
+                <div class="notification">
+                  <strong>DayZ {{ release.version }}{% if release.active %} · Active{% endif %}</strong>
+                  <span>{{ release.file_count }} files · {{ release.xml_count }} XML · {{ release.json_count }} JSON · added {{ release.uploaded_label }}{% if release.contains_types %} · includes types.xml{% endif %}{% if release.notes %}<br>{{ release.notes }}{% endif %}</span>
+                  {% if not release.active %}
+                  <form method="post" action="/api/owner/dayz-reference" style="margin-top:.45rem">
+                    <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="activate"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}">
+                    <button type="submit">Make DayZ {{ release.version }} Active</button>
+                  </form>
+                  {% endif %}
+                </div>
+                {% else %}
+                <p class="muted">No uploaded {{ reference_map.label }} versions yet. The bundled DayZ {{ reference_map.built_in_version }} files remain available.</p>
+                {% endfor %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
         <article class="admin-panel">
           <h3>All Server Dashboards</h3>
           <div class="owner-server-list">
@@ -6999,7 +7076,7 @@ PAGE_TEMPLATE = """
             </details>
             <details class="ai-dayz-workbench">
               <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
-              <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you a verified DayZ 1.29 vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
+              <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you a verified DayZ {{ dayz_ce_file_version }} vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
               <details class="ai-workspace-advanced">
                 <summary>Everything this DayZ helper can work on</summary>
                 <div class="ai-dayz-capability-grid">
@@ -7049,7 +7126,7 @@ PAGE_TEMPLATE = """
                 <label>Starting point
                   <select name="dayz_reference_mode">
                     <option value="none">Use my current file</option>
-                    <option value="vanilla">Use bundled DayZ 1.29 vanilla file as the complete base</option>
+                    <option value="vanilla">Use active DayZ {{ dayz_ce_file_version }} vanilla file as the complete base</option>
                     <option value="preset">Use selected safe preset as the complete base</option>
                   </select>
                 </label>
@@ -12359,8 +12436,7 @@ PAGE_TEMPLATE = """
   <div class="command-status-bar" aria-label="Command connection status">
     <span class="command-status-primary">UK Time: <strong>{{ generated_at }}</strong></span>
     <span class="command-status-meta">Dashboard: <strong>{{ dashboard_version }}</strong></span>
-    <span class="command-status-meta">DayZ Files: <strong>{{ dayz_ce_file_version }}</strong></span>
-    <span class="command-status-primary">{{ server.platform_label if server else 'Xbox' }} · <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
+    <span class="command-status-primary">{{ server.platform_label if server else 'Xbox' }} · <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong> · DayZ files: <strong>{{ dayz_reference_version }}</strong></span>
     <span class="command-status-primary"><span class="ok">Database connected</span> · <span class="ok">Nitrado connected</span></span>
     <span class="command-status-meta">DayZ: <strong>{{ (server.online|length) if server else summary.online }}</strong> online</span>
     <span class="command-status-meta">Discord: <strong>{{ server.discord_member_count if server else summary.discord_members }}</strong> members</span>
@@ -14899,7 +14975,7 @@ PAGE_TEMPLATE = """
           const mapKey = button.dataset.mapKey || state.mapKey || "chernarus";
           try {
             const bodyJson = await fetchFactoryTypes(mapKey);
-            downloadTextFile(bodyJson.xml_text || "", `${mapKey}_vanilla_types_${bodyJson.dayz_version || "1.29"}.xml`);
+            downloadTextFile(bodyJson.xml_text || "", `${mapKey}_vanilla_types_${bodyJson.dayz_version || "{{ dayz_ce_file_version }}"}.xml`);
           } catch (error) {
             setTypesAlert(error.message || String(error), "error");
           }
@@ -18439,9 +18515,105 @@ def normalize_dayz_reference_map_key(map_key: Any) -> str:
     return "chernarus"
 
 
+def dayz_reference_library_default() -> dict[str, Any]:
+    return {"schema_version": 1, "maps": {}}
+
+
+def load_dayz_reference_library() -> dict[str, Any]:
+    """Return the owner-managed DayZ reference overlay manifest.
+
+    Bundled references remain the safe fallback.  The manifest only points at
+    versioned folders on the persistent data volume, so activating a new DayZ
+    release can never overwrite the shipped/reference release.
+    """
+    raw = read_json_file(FILES["dayz_reference_library"], dayz_reference_library_default())
+    data = raw if isinstance(raw, dict) else dayz_reference_library_default()
+    maps = data.get("maps") if isinstance(data.get("maps"), dict) else {}
+    normalized_maps: dict[str, dict[str, Any]] = {}
+    for requested_map, entry in maps.items():
+        map_key = normalize_dayz_reference_map_key(requested_map)
+        if not isinstance(entry, dict):
+            continue
+        releases = entry.get("releases") if isinstance(entry.get("releases"), list) else []
+        clean_releases = []
+        for release in releases:
+            if not isinstance(release, dict):
+                continue
+            release_id = str(release.get("id") or "").strip()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{5,110}", release_id):
+                continue
+            clean_release = dict(release)
+            clean_release["id"] = release_id
+            clean_releases.append(clean_release)
+        active_release_id = str(entry.get("active_release_id") or "").strip()
+        if active_release_id not in {item["id"] for item in clean_releases}:
+            active_release_id = ""
+        normalized_maps[map_key] = {
+            "active_release_id": active_release_id,
+            "releases": clean_releases,
+        }
+    return {"schema_version": 1, "maps": normalized_maps}
+
+
+def save_dayz_reference_library(data: dict[str, Any]) -> None:
+    save_store("dayz_reference_library", data)
+
+
+def dayz_reference_active_release(map_key: Any) -> dict[str, Any] | None:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    entry = load_dayz_reference_library().get("maps", {}).get(clean_map, {})
+    if not isinstance(entry, dict):
+        return None
+    wanted = str(entry.get("active_release_id") or "")
+    for release in entry.get("releases", []):
+        if isinstance(release, dict) and str(release.get("id") or "") == wanted:
+            return release
+    return None
+
+
+def dayz_reference_version_for_map(map_key: Any) -> str:
+    release = dayz_reference_active_release(map_key)
+    version = str((release or {}).get("version") or "").strip()
+    return version or DAYZ_CE_FILE_VERSION
+
+
+def dayz_reference_safe_parts(parts: tuple[str, ...]) -> tuple[str, ...] | None:
+    clean_parts: list[str] = []
+    for raw_part in parts:
+        candidate = str(raw_part or "").replace("\\", "/")
+        for part in candidate.split("/"):
+            if not part:
+                continue
+            if part in {".", ".."} or ":" in part or "\x00" in part:
+                return None
+            clean_parts.append(part)
+    return tuple(clean_parts) if clean_parts else None
+
+
+def dayz_reference_override_path(map_key: Any, *parts: str) -> str:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    release = dayz_reference_active_release(clean_map)
+    safe_parts = dayz_reference_safe_parts(tuple(parts))
+    if not release or not safe_parts:
+        return ""
+    release_id = str(release.get("id") or "")
+    mission_folder = DAYZ_REFERENCE_MAP_FOLDERS[clean_map]
+    root = os.path.abspath(os.path.join(DAYZ_REFERENCE_LIBRARY_FOLDER, clean_map, release_id, mission_folder))
+    candidate = os.path.abspath(os.path.join(root, *safe_parts))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return ""
+    except ValueError:
+        return ""
+    return candidate if os.path.isfile(candidate) else ""
+
+
 def dayz_reference_path(map_key: Any, *parts: str) -> str:
     clean_map = normalize_dayz_reference_map_key(map_key)
     folder = DAYZ_REFERENCE_MAP_FOLDERS.get(clean_map, DAYZ_REFERENCE_MAP_FOLDERS["chernarus"])
+    override = dayz_reference_override_path(clean_map, *parts)
+    if override:
+        return override
     return os.path.join(DAYZ_REFERENCE_FOLDER, folder, *parts)
 
 
@@ -18465,7 +18637,7 @@ DAYZ_PRESET_FILES = [
         "group": "Gameplay",
         "title": "Vanilla cfggameplay",
         "target_path": "cfggameplay.json",
-        "summary": "Clean 1.29 reference gameplay file for the selected map.",
+        "summary": "Clean active vanilla gameplay reference file for the selected map.",
         "tags": ["vanilla", "safe backup"],
     },
     {
@@ -18505,7 +18677,7 @@ DAYZ_PRESET_FILES = [
         "group": "Weather",
         "title": "Vanilla weather",
         "target_path": "cfgweather.xml",
-        "summary": "Clean 1.29 reference weather file for the selected map.",
+        "summary": "Clean active vanilla weather reference file for the selected map.",
         "tags": ["vanilla", "weather"],
     },
     {
@@ -19037,9 +19209,9 @@ def build_dayz_preset_file(map_key: Any, preset_id: Any) -> dict[str, Any]:
         "preset": preset,
         "content": content,
         "mimetype": mimetype,
-        "download_name": f"{clean_map}_{clean_preset_id}_{DAYZ_CE_FILE_VERSION}.{extension}",
+        "download_name": f"{clean_map}_{clean_preset_id}_{dayz_reference_version_for_map(clean_map)}.{extension}",
         "target_path": target_path,
-        "dayz_version": DAYZ_CE_FILE_VERSION,
+        "dayz_version": dayz_reference_version_for_map(clean_map),
     }
 
 
@@ -19208,9 +19380,9 @@ def factory_vanilla_types_payload(requested_map: Any) -> dict[str, Any]:
         "ok": True,
         "success": True,
         "map": map_key,
-        "dayz_version": DAYZ_CE_FILE_VERSION,
+        "dayz_version": dayz_reference_version_for_map(map_key),
         "filename": f"{DAYZ_REFERENCE_MAP_FOLDERS[map_key]}/db/types.xml",
-        "download_name": f"{map_key}_vanilla_types_{DAYZ_CE_FILE_VERSION}.xml",
+        "download_name": f"{map_key}_vanilla_types_{dayz_reference_version_for_map(map_key)}.xml",
         "item_count": item_count,
         "rows": types_editor_rows(root),
         "stats": types_editor_stats(root),
@@ -19257,6 +19429,175 @@ def write_json_file(filename: str, data: Any) -> None:
                 os.remove(temp_path)
             except OSError:
                 pass
+
+
+def normalize_dayz_reference_release_version(value: Any) -> str:
+    version = str(value or "").strip().lower().replace("dayz", "").strip()
+    version = re.sub(r"\s+", "", version)
+    if version.startswith("v"):
+        version = version[1:]
+    if not re.fullmatch(r"\d+(?:\.\d+){1,3}(?:[-._][a-z0-9]+){0,4}", version):
+        raise ValueError("Use a DayZ version such as 1.30 or 1.30.154000.")
+    return version[:64]
+
+
+def dayz_reference_archive_relative_path(member_name: Any, mission_folder: str) -> tuple[str, ...] | None:
+    """Return a safe relative mission path from a ZIP member, or None to skip it."""
+    name = str(member_name or "").replace("\\", "/")
+    if not name or name.startswith("/") or "\x00" in name:
+        raise ValueError("The uploaded archive contains an unsafe file path.")
+    parts = name.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("The uploaded archive contains an unsafe file path.")
+    target = mission_folder.lower()
+    matching_indexes = [index for index, part in enumerate(parts) if part.lower() == target]
+    if not matching_indexes:
+        return None
+    relative = tuple(parts[matching_indexes[-1] + 1:])
+    if not relative:
+        return None
+    if any(":" in part for part in relative):
+        raise ValueError("The uploaded archive contains an unsafe file path.")
+    return relative
+
+
+def validate_dayz_reference_archive_file(relative_path: str, raw: bytes) -> str:
+    """Validate only the syntax that can be verified for a reference overlay."""
+    if len(raw) > DAYZ_REFERENCE_MAX_FILE_BYTES:
+        raise ValueError(f"{relative_path} is too large for the reference library.")
+    extension = os.path.splitext(relative_path)[1].lower()
+    if extension not in DAYZ_REFERENCE_TEXT_EXTENSIONS:
+        return "ignored"
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{relative_path} is not UTF-8 text.") from error
+    if extension == ".xml":
+        if "<!DOCTYPE" in text.upper():
+            raise ValueError(f"{relative_path} contains a DTD, which is not allowed in a reference upload.")
+        try:
+            ET.fromstring(text)
+        except ET.ParseError as error:
+            raise ValueError(f"{relative_path} is not valid XML: {error}") from error
+        return "xml"
+    if extension == ".json":
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{relative_path} is not valid JSON: {error}") from error
+        return "json"
+    return "text"
+
+
+def store_dayz_reference_archive(map_key: Any, version: Any, uploaded_file: Any, notes: Any = "") -> dict[str, Any]:
+    """Store a validated, versioned mission overlay without changing the active one.
+
+    The upload is deliberately ZIP-only.  It gives the owner one reviewable,
+    atomic DayZ release record and keeps every prior reference folder intact.
+    """
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    clean_version = normalize_dayz_reference_release_version(version)
+    if not uploaded_file or not getattr(uploaded_file, "filename", ""):
+        raise ValueError("Choose the official DayZ mission ZIP first.")
+    filename = str(uploaded_file.filename or "").strip()
+    if not filename.lower().endswith(".zip"):
+        raise ValueError("Upload a ZIP containing the selected vanilla mission folder.")
+    archive_data = uploaded_file.read(DAYZ_REFERENCE_MAX_ARCHIVE_BYTES + 1)
+    if not archive_data:
+        raise ValueError("The ZIP file is empty.")
+    if len(archive_data) > DAYZ_REFERENCE_MAX_ARCHIVE_BYTES:
+        raise ValueError("The ZIP is too large. Keep the reference package below 45 MB.")
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(archive_data))
+    except zipfile.BadZipFile as error:
+        raise ValueError("That file is not a readable ZIP archive.") from error
+
+    mission_folder = DAYZ_REFERENCE_MAP_FOLDERS[clean_map]
+    files: dict[str, bytes] = {}
+    kinds: dict[str, int] = {"xml": 0, "json": 0, "text": 0}
+    ignored_file_count = 0
+    unpacked_bytes = 0
+    try:
+        members = [item for item in archive.infolist() if not item.is_dir()]
+        if len(members) > DAYZ_REFERENCE_MAX_FILES:
+            raise ValueError("The ZIP contains too many files for one reference release.")
+        for member in members:
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                raise ValueError("The ZIP contains a symbolic-link entry, which is not allowed.")
+            relative_parts = dayz_reference_archive_relative_path(member.filename, mission_folder)
+            if not relative_parts:
+                continue
+            relative_path = "/".join(relative_parts)
+            if relative_path in files:
+                raise ValueError(f"The ZIP contains {relative_path} more than once.")
+            if os.path.splitext(relative_path)[1].lower() not in DAYZ_REFERENCE_TEXT_EXTENSIONS:
+                # Full official mission ZIPs include binary map data such as
+                # areaflags.map. It is not a readable AI/reference schema, so
+                # leave it in the uploaded archive and do not store it.
+                ignored_file_count += 1
+                continue
+            if member.file_size < 0 or member.file_size > DAYZ_REFERENCE_MAX_FILE_BYTES:
+                raise ValueError(f"{relative_path} is too large for the reference library.")
+            unpacked_bytes += member.file_size
+            if unpacked_bytes > DAYZ_REFERENCE_MAX_UNPACKED_BYTES:
+                raise ValueError("The unpacked reference files are too large.")
+            raw = archive.read(member)
+            if len(raw) != member.file_size:
+                raise ValueError(f"Could not safely read {relative_path} from the ZIP.")
+            kind = validate_dayz_reference_archive_file(relative_path, raw)
+            if kind == "ignored":
+                ignored_file_count += 1
+                continue
+            files[relative_path] = raw
+            kinds[kind] += 1
+    finally:
+        archive.close()
+    if not files:
+        raise ValueError(
+            f"The ZIP does not contain {mission_folder}. Choose the {clean_map.title()} vanilla mission folder."
+        )
+
+    # An overlay may intentionally contain only one hotfixed file, but it must
+    # contain a real DayZ config rather than an arbitrary text archive.
+    recognised = [
+        path for path in files
+        if path in {"cfggameplay.json", "cfgspawnabletypes.xml", "cfgweather.xml", "init.c", "mapgrouppos.xml", "mapgroupproto.xml"}
+        or path.startswith("db/")
+        or path.startswith("env/")
+    ]
+    if not recognised:
+        raise ValueError("No DayZ mission XML, JSON, db or env files were found in the selected mission folder.")
+
+    created_at = datetime.now(UTC).isoformat()
+    release_id = f"{clean_version}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(4)}".lower()
+    mission_root = os.path.abspath(os.path.join(DAYZ_REFERENCE_LIBRARY_FOLDER, clean_map, release_id, mission_folder))
+    for relative_path, raw in files.items():
+        target = os.path.abspath(os.path.join(mission_root, *relative_path.split("/")))
+        try:
+            if os.path.commonpath([mission_root, target]) != mission_root:
+                raise ValueError("The upload resolved outside its reference folder.")
+        except ValueError:
+            raise ValueError("The upload resolved outside its reference folder.")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as output:
+            output.write(raw)
+
+    return {
+        "id": release_id,
+        "version": clean_version,
+        "map": clean_map,
+        "mission_folder": mission_folder,
+        "archive_name": os.path.basename(filename)[:160],
+        "uploaded_at": created_at,
+        "notes": str(notes or "").strip()[:500],
+        "file_count": len(files),
+        "xml_count": kinds["xml"],
+        "json_count": kinds["json"],
+        "text_count": kinds["text"],
+        "ignored_file_count": ignored_file_count,
+        "contains_types": "db/types.xml" in files,
+    }
 
 
 def split_guild_config_id(guild_id: Any) -> str:
@@ -22932,6 +23273,36 @@ def ai_agent_dayz_target_path(value: Any) -> str:
     return ""
 
 
+def dayz_reference_library_rows() -> list[dict[str, Any]]:
+    """A small, presentation-ready owner view of bundled and uploaded files."""
+    library = load_dayz_reference_library()
+    rows: list[dict[str, Any]] = []
+    for map_key in DAYZ_REFERENCE_MAP_FOLDERS:
+        entry = library.get("maps", {}).get(map_key, {})
+        releases = entry.get("releases", []) if isinstance(entry, dict) else []
+        active_id = str(entry.get("active_release_id") or "") if isinstance(entry, dict) else ""
+        release_rows = []
+        for release in sorted(
+            (item for item in releases if isinstance(item, dict)),
+            key=lambda item: str(item.get("uploaded_at") or ""),
+            reverse=True,
+        ):
+            item = dict(release)
+            item["active"] = str(item.get("id") or "") == active_id
+            item["uploaded_label"] = str(item.get("uploaded_at") or "").replace("T", " ")[:19] or "unknown"
+            release_rows.append(item)
+        rows.append({
+            "key": map_key,
+            "label": map_key.title(),
+            "mission": DAYZ_REFERENCE_MAP_FOLDERS[map_key],
+            "built_in_version": DAYZ_CE_FILE_VERSION,
+            "active_version": dayz_reference_version_for_map(map_key),
+            "active_release_id": active_id,
+            "releases": release_rows,
+        })
+    return rows
+
+
 def ai_agent_dayz_capabilities_for_request(objective: Any, target_path: Any = "") -> list[dict[str, str]]:
     request_text = f"{objective or ''} {target_path or ''}".lower()
     target_filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
@@ -23016,7 +23387,7 @@ def ai_agent_dayz_reference_for_request(target_path: str, map_key: Any, payload:
         else:
             parts = tuple(part for part in target_path.replace("\\", "/").split("/") if part)
             content = load_dayz_reference_text(clean_map, *parts)
-            label = f"DayZ {DAYZ_CE_FILE_VERSION} vanilla {os.path.basename(target_path)}"
+            label = f"DayZ {dayz_reference_version_for_map(clean_map)} vanilla {os.path.basename(target_path)}"
             download_name = f"{clean_map}_vanilla_{os.path.basename(target_path)}"
         if not content.strip():
             return {"mode": mode, "error": f"No bundled {label} reference is available for {clean_map}."}
@@ -23724,7 +24095,7 @@ def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: A
 
     The output is a complete recognised spawning-gear JSON file, not a
     dashboard-only recipe.  Every class is verified against the selected map's
-    bundled DayZ 1.29 ``types.xml`` before a draft is offered.
+    active DayZ reference ``types.xml`` before a draft is offered.
     """
     context = task.get("dayz_context") if isinstance(task, dict) else None
     if not isinstance(context, dict) or not ai_agent_full_survivor_loadout_draft_requested(context, prompt):
@@ -23821,7 +24192,7 @@ def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: A
         "summary": (
             f"Complete validated vanilla fresh-spawn {preset_name.removeprefix('Wandering Bot ').lower()} preset: slot-based clothing, a full M4A1 package, "
             "FNX45 sidearm, NVGs, medical supplies, food, water, navigation and spare ammunition. "
-            "Every classname was checked against the selected map's bundled DayZ 1.29 types.xml."
+            "Every classname was checked against the selected map's active DayZ reference types.xml."
         ),
         "validation": "passed",
         "custom_json_schema": "spawning_gear",
@@ -24843,7 +25214,7 @@ def ai_agent_llm_reply_for_task(
         "When dayz_file_context is supplied, act as a careful DayZ server-file specialist for users who may be new to development. "
         "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
         "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
-        "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use dayz_file_context.dependency_plan before proposing any file output. The plan distinguishes changed, checked, conditional and preserved files: report that distinction explicitly, generate every genuinely linked file/snippet, and never promote a conditional file to changed without evidence from the selected current file. Use the selected map's validated DayZ 1.29 reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
+        "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use dayz_file_context.dependency_plan before proposing any file output. The plan distinguishes changed, checked, conditional and preserved files: report that distinction explicitly, generate every genuinely linked file/snippet, and never promote a conditional file to changed without evidence from the selected current file. Use the selected map's validated active DayZ reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
         "For a new custom/ or pra/ JSON file, create a complete file only when it is clearly one of the recognised vanilla schemas: ObjectSpawner, spawning gear, player restricted area, effect area or underground triggers. State the schema and the matching cfggameplay.json reference that the customer must add. "
         "Do not infer a mod JSON schema from its filename. PC mods, custom scripts and console server access can differ: vanilla mission XML/JSON is generally portable, but mod/script files require the exact current mod, version and configuration. "
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
@@ -33595,7 +33966,9 @@ def page(mode: str, auth: dict[str, Any]):
         setup_tool=setup_tool,
         dashboard_theme=dashboard_theme,
         dashboard_version=DASHBOARD_VERSION,
-        dayz_ce_file_version=DAYZ_CE_FILE_VERSION,
+        dayz_ce_file_version=dayz_reference_version_for_map(server_map),
+        dayz_reference_version=dayz_reference_version_for_map(server_map),
+        dayz_reference_library=dayz_reference_library_rows() if auth.get("kind") == "owner" else [],
         pwa_theme_color=PWA_THEME_COLOR,
         public_origin=dashboard_public_origin(),
         section_allowed=section_allowed,
@@ -39155,6 +39528,77 @@ def api_owner_ai_agent_approval():
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action=action, approval_id=approval.get("id"))
     return dashboard_api_response(raw_payload, {"ok": True, "approval": approval, "job": job, "note": f"Approval {approval['status']}."}, "ai-agent", "#ai-agent-approvals")
+
+
+@APP.post("/api/owner/dayz-reference")
+def api_owner_dayz_reference():
+    """Add or select a versioned DayZ vanilla-reference overlay.
+
+    This endpoint never contacts Nitrado and never changes a customer server.
+    It only changes the local reference source used by downloads, generators and
+    the AI file workspace after an owner deliberately activates a release.
+    """
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = dict(payload or {})
+    action = str(raw_payload.get("action") or "upload").strip().lower()
+    map_key = normalize_dayz_reference_map_key(raw_payload.get("map"))
+    library = load_dayz_reference_library()
+    maps = library.setdefault("maps", {})
+    entry = maps.setdefault(map_key, {"active_release_id": "", "releases": []})
+    if not isinstance(entry.get("releases"), list):
+        entry["releases"] = []
+    actor = dashboard_audit_actor(current_auth())
+
+    if action == "upload":
+        release = store_dayz_reference_archive(
+            map_key,
+            raw_payload.get("version"),
+            request.files.get("reference_zip"),
+            raw_payload.get("notes"),
+        )
+        entry["releases"].append(release)
+        if safe_bool(raw_payload.get("activate_now"), False):
+            entry["active_release_id"] = release["id"]
+            note = f"DayZ {release['version']} {map_key.title()} reference added and made active."
+        else:
+            note = f"DayZ {release['version']} {map_key.title()} reference added. It is stored safely but not active yet."
+        body = {"ok": True, "release": release, "note": note}
+    elif action == "activate":
+        release_id = str(raw_payload.get("release_id") or "").strip()
+        release = next(
+            (item for item in entry["releases"] if isinstance(item, dict) and str(item.get("id") or "") == release_id),
+            None,
+        )
+        if not release:
+            return jsonify({"ok": False, "error": "DayZ reference release not found."}), 404
+        mission_root = os.path.join(
+            DAYZ_REFERENCE_LIBRARY_FOLDER,
+            map_key,
+            release_id,
+            DAYZ_REFERENCE_MAP_FOLDERS[map_key],
+        )
+        if not os.path.isdir(mission_root):
+            return jsonify({"ok": False, "error": "The stored reference files are missing. Upload that release again."}), 409
+        entry["active_release_id"] = release_id
+        body = {"ok": True, "release": release, "note": f"DayZ {release.get('version')} {map_key.title()} reference is now active."}
+    elif action in {"use_bundled", "restore_bundled"}:
+        entry["active_release_id"] = ""
+        body = {"ok": True, "note": f"{map_key.title()} now uses the bundled DayZ {DAYZ_CE_FILE_VERSION} reference. Uploaded releases were kept."}
+    else:
+        return jsonify({"ok": False, "error": "Unsupported DayZ reference action."}), 400
+
+    maps[map_key] = entry
+    save_dayz_reference_library(library)
+    g.dashboard_audit_payload = {
+        "guild_id": "global",
+        "action": f"dayz_reference_{action}",
+        "map": map_key,
+        "release_id": str((body.get("release") or {}).get("id") or raw_payload.get("release_id") or ""),
+        "actor": actor,
+    }
+    return dashboard_api_response(raw_payload, body, "owner", "#dayz-reference-library")
 
 
 @APP.post("/api/owner/ai-agent-job-action")
