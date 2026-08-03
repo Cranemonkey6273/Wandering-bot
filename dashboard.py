@@ -34414,7 +34414,12 @@ def page(mode: str, auth: dict[str, Any]):
         "permissions": {},
         "subject_key": ai_agent_subject_for_auth(auth),
     }
-    if auth.get("kind") in {"owner", "agent_account"}:
+    # Work out the Ultimate entitlement before building the navigation.  Guild
+    # accounts used to do this only after opening the AI section, which meant
+    # the AI link was hidden from an eligible Ultimate customer in the first
+    # place.  The empty state is enough here because guild entitlement comes
+    # from its dashboard plan; the full state is loaded only when needed.
+    if auth.get("kind") in {"owner", "agent_account", "guild"}:
         ai_agent_access = ai_agent_access_for_auth(auth, {})
     ai_agent_runs: list[dict[str, Any]] = []
     ai_agent_active_run: dict[str, Any] | None = None
