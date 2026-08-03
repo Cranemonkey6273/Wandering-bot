@@ -15711,8 +15711,8 @@ PAGE_TEMPLATE = """
         brief = "Open details for the technical reason.";
         state = "bad";
       } else if (["waiting_for_bot_upload", "queued", "uploading", "starting"].includes(uploadStatus) || combined.includes("upload starting") || combined.includes("upload requested")) {
-        title = "Upload queued";
-        brief = "The bot worker is processing it.";
+        title = "Uploading now";
+        brief = "Writing the guarded XML to Nitrado.";
         state = "warn";
       } else if (uploadStatus === "removed") {
         title = "Removed";
@@ -19684,8 +19684,8 @@ def scenario_status_display(event: Any) -> dict[str, str]:
             brief = f"Saved in the dashboard, but the bot upload worker has not processed it after {queued_minutes} min."
             state = "warn"
         else:
-            title = "Upload queued"
-            brief = "Saved in the dashboard; waiting for the bot process to write the XML."
+            title = "Uploading now"
+            brief = "Writing the guarded XML to Nitrado."
             state = "warn"
     elif upload_status == "removed":
         title = "Removed"

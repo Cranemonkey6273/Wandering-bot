@@ -949,6 +949,28 @@ class DashboardServerControlTests(unittest.TestCase):
         finally:
             dashboard.CUSTOM_STATE_PROVIDER = old_provider
 
+    def test_schedule_starts_an_upload_thread_immediately(self):
+        old_provider = dashboard.CUSTOM_STATE_PROVIDER
+        started = []
+
+        class FakeThread:
+            def __init__(self, target, name, daemon):
+                self.target = target
+                self.name = name
+                self.daemon = daemon
+
+            def start(self):
+                started.append((self.name, self.daemon))
+
+        try:
+            dashboard.CUSTOM_STATE_PROVIDER = lambda: {"scenario_xml_uploader": lambda *_args: {"ok": True}}
+            with patch.object(dashboard, "Thread", FakeThread):
+                self.assertTrue(dashboard.schedule_runtime_scenario_xml_upload("guild-1", 37))
+        finally:
+            dashboard.CUSTOM_STATE_PROVIDER = old_provider
+
+        self.assertEqual([("scenario-upload-guild-1-37", True)], started)
+
     def test_runtime_scenario_upload_passes_event_id_to_bot_uploader(self):
         old_provider = dashboard.CUSTOM_STATE_PROVIDER
         calls = []
