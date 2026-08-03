@@ -1522,6 +1522,35 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, {item["target_path"] for item in task["dayz_drafts"]})
         self.assertIn("Four-core-file CE audit passed", reply)
 
+    def test_event_position_edit_is_not_reduced_to_plain_event_link_guidance(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "cfgeventspawns.xml",
+                "dayz_map": "livonia",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": (
+                    '<eventposdef><event name="VehicleQA_NorthConvoy">'
+                    '<pos x="7000" z="9000" a="0.000000"/>'
+                    "</event></eventposdef>"
+                ),
+            },
+            "Add three matching CE positions for VehicleQA_NorthConvoy in cfgeventspawns.xml.",
+        )
+        task = {"id": "qa-spawn-points", "dayz_context": context, "project_type": "dayz_files"}
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=False):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Add matching positions in cfgeventspawns.xml; the event name must match events.xml.",
+                False,
+            )
+
+        self.assertEqual("not_configured", task["llm_status"])
+        self.assertIn("merge-only reference section", reply)
+        self.assertNotEqual("Verified DayZ CE event-name linkage guidance.", task.get("summary"))
+
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(
             {

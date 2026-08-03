@@ -24580,10 +24580,12 @@ def ai_agent_llm_reply_for_task(
     dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
     scenario = dayz_context.get("scenario") if isinstance(dayz_context.get("scenario"), dict) else {}
     # The short event-name answer is useful for a plain question, but it must
-    # never swallow a configured scenario.  A scenario carries coordinates,
-    # preset and selected map, and has a deterministic linked-file generator
-    # immediately below this guard.
-    verified_dayz_reply = "" if scenario.get("id") else ai_agent_verified_dayz_event_link_reply(prompt)
+    # never swallow a configured scenario or a real file-edit request.  Those
+    # inputs carry a map, source content and/or an edit mode that must reach
+    # the draft generator or the configured model below.
+    support_mode = str(dayz_context.get("support_mode") or "").strip().lower()
+    is_dayz_edit_request = bool(str(dayz_context.get("source_text") or "").strip()) or support_mode in {"fix_error", "edit_file"}
+    verified_dayz_reply = "" if scenario.get("id") or is_dayz_edit_request else ai_agent_verified_dayz_event_link_reply(prompt)
     if verified_dayz_reply:
         # Do not spend a model call (or present unrelated project commands) for
         # this stable, safety-critical CE relationship.
