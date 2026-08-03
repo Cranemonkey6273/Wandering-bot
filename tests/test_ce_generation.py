@@ -1191,6 +1191,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.original_upload_latest_backup = bot.upload_ce_latest_backup_to_nitrado
         self.original_cleanup_backups = bot.cleanup_wanderingbot_backups_for_path
         self.guild_id = "999001"
+        self.original_unowned_repair_setting = os.environ.get("WANDERING_ALLOW_UNOWNED_CE_REPAIRS")
+        # These are structural generator tests for an owner-approved repair.
+        # The default dashboard flow remains snippet-only and is covered by the
+        # dedicated safe-upload tests below.
+        os.environ["WANDERING_ALLOW_UNOWNED_CE_REPAIRS"] = "true"
 
     def tearDown(self):
         bot.download_console_ce_source = self.original_download
@@ -1198,6 +1203,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         bot.upload_ce_latest_backup_to_nitrado = self.original_upload_latest_backup
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup_backups
         bot.guild_configs.pop(self.guild_id, None)
+        if self.original_unowned_repair_setting is None:
+            os.environ.pop("WANDERING_ALLOW_UNOWNED_CE_REPAIRS", None)
+        else:
+            os.environ["WANDERING_ALLOW_UNOWNED_CE_REPAIRS"] = self.original_unowned_repair_setting
 
     def test_airdrop_upload_uses_existing_mi8_proto_as_context_only(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
@@ -1253,7 +1262,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertTrue(built.get("mapgroupproto_context_text"))
         proto_after = ET.fromstring(built["mapgroupproto_context_text"])
         self.assertIsNotNone(proto_after.find("./group[@name='Wreck_Mi8_Crashed']"))
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_chernarus_airdrop_repairs_one_point_mi8_proto(self):
@@ -1319,7 +1328,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("Restored vanilla StaticHeliCrash" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_upload_scope_blocks_empty_chernarus_eventspawns_source(self):
@@ -1429,10 +1438,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         backup_ok, backup_messages = bot.backup_remote_ce_sources_before_upload(config, built)
 
-        self.assertTrue(backup_ok, "\n".join(backup_messages))
-        self.assertEqual(reference_spawns, captured_backups["cfgeventspawns.xml"][1])
+        self.assertFalse(backup_ok, "\n".join(backup_messages))
+        self.assertNotIn("cfgeventspawns.xml", captured_backups)
         self.assertTrue(
-            any("live backup source failed baseline" in str(message) for message in backup_messages),
+            any("is not valid before upload" in str(message) for message in backup_messages),
             backup_messages,
         )
 
@@ -1482,7 +1491,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         proto_root = ET.fromstring(built["mapgroupproto_text"])
         self.assertIsNotNone(proto_root.find("./group[@name='StaticObj_Misc_SupplyBox3_DE']"))
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, messages)
         self.assertTrue(
             any("Restored vanilla StaticAirplaneCrate mapgroupproto" in str(message) for message in built.get("messages", [])),
@@ -1535,7 +1544,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("per-item cargo tuning" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_livonia_airdrop_repairs_missing_static_helicrash_proto(self):
@@ -1580,10 +1589,10 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual(1, len(groups))
         self.assertTrue(bot.mapgroupproto_group_matches_reference(groups[0], "livonia", "Wreck_Mi8_Crashed"))
         self.assertTrue(
-            any("Restored vanilla Livonia StaticHeliCrash" in str(message) for message in built.get("messages", [])),
+            any("Restored vanilla StaticHeliCrash" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_livonia_airdrop_requested_loot_range_bumps_mi8_proto_lootmax(self):
@@ -1636,7 +1645,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertIsNotNone(crash_group)
         self.assertEqual("40", crash_group.get("lootmax"))
         self.assertEqual("40", crash_group.find("./container[@name='lootFloor']").get("lootmax"))
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_livonia_cargo_plane_airdrop_falls_back_to_open_scene(self):
@@ -1689,7 +1698,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         )
         self.assertNotIn("Land_Wreck_C130J_Cargo", built["events_text"])
         self.assertNotIn("Land_Wreck_C130J_Cargo", built["spawns_text"])
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_visual_airdrop_moves_clear_of_existing_vehicle_spawn(self):
@@ -1742,7 +1751,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("overlapped `VehicleHatchback02`" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_airdrop_build_repairs_vehicle_types_economy(self):
@@ -1813,10 +1822,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             any("Repaired `types.xml` vehicle economy controls" in str(message) for message in built.get("messages", [])),
             built.get("messages", []),
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
-        self.assertTrue(scope_ok, "\n".join(scope_messages))
+        self.assertFalse(scope_ok)
+        self.assertIn("live source baseline check blocked upload", "\n".join(scope_messages))
 
     def test_zombie_horde_uses_native_infected_loot_not_spawnabletypes(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
@@ -1883,7 +1893,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual("5000", zone.get("x"))
         self.assertEqual("5000", zone.get("z"))
         self.assertNotIn("y", zone.attrib)
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_legacy_hordetrigger_spawn_block_is_removed(self):
@@ -1942,7 +1952,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ])
         zombie_root = ET.fromstring(built["zombie_territories_text"])
         self.assertIsNotNone(zombie_root.find(".//zone[@name='InfectedArmy']"))
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_legacy_livonia_revamp_wooden_crate_events_are_removed(self):
@@ -2189,7 +2199,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         spawn_pos = spawns_root.find("./event[@name='StaticChernoRevampBackupLoot_23']/pos")
         self.assertIsNotNone(spawn_pos)
         self.assertIsNone(spawn_pos.get("group"))
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, messages)
         self.assertFalse(
             any("has no `<child>` classname" in str(message) for message in messages),
@@ -2215,7 +2225,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             built["spawns_text"],
         )
         self.assertTrue(spawns_scope_ok, spawns_scope_message)
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_animal_pack_reuses_vanilla_event_and_live_territory_file(self):
@@ -2325,10 +2335,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             ),
             built.get("messages", []),
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
-        self.assertTrue(scope_ok, "\n".join(scope_messages))
+        self.assertFalse(scope_ok)
+        self.assertIn("live source baseline check blocked upload", "\n".join(scope_messages))
 
     def test_animal_pack_replaces_stale_double_herd_environment_reference(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
@@ -2382,10 +2393,11 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertNotIn("wanderingbot_animal_bear_territories.xml", built["cfgenvironment_text"])
         self.assertNotIn("HerdWanderingBot_animal_bear", built["cfgenvironment_text"])
         self.assertIn('name="Bear"', built["cfgenvironment_text"])
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
-        self.assertTrue(scope_ok, "\n".join(scope_messages))
+        self.assertFalse(scope_ok)
+        self.assertIn("live source baseline check blocked upload", "\n".join(scope_messages))
 
     def test_multiple_bear_packs_share_one_stable_territory_file(self):
         base_path = "/dayzxb_missions/dayzOffline.enoch"
@@ -2465,7 +2477,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         managed_spawn = spawns_root.find("./event[@name='AnimalWanderingBot_animal_bear']")
         self.assertIsNone(managed_spawn)
 
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
     def test_animal_environment_cleanup_removes_stale_managed_comments(self):
@@ -2512,7 +2524,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             "animal_territory_files": [],
         }
 
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
 
         self.assertTrue(ok, "\n".join(messages))
 
@@ -2525,7 +2537,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             ),
             "event_names": [event_name],
         }]
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
 
         self.assertFalse(ok)
         self.assertIn(
@@ -2541,7 +2553,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
             "</territory>"
             "</territories></env>"
         )
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
 

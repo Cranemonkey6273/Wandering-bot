@@ -6880,11 +6880,11 @@ PAGE_TEMPLATE = """
       <div class="ai-codex-workbench">
         <aside class="ai-conversation-nav" aria-label="AI conversations" data-ai-run-list>
           <h3>Conversations</h3>
-          <a class="ai-conversation-new" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}{{ auth_qs }}">+ New conversation</a>
+          <a class="ai-conversation-new" href="{{ dashboard_path }}?section=ai-agent&new_conversation=1{{ server_qs }}{{ profile_qs }}{{ auth_qs }}">+ New conversation</a>
           <span class="tool-note">Each conversation keeps its own messages, plan, files and DayZ drafts.</span>
           <div class="ai-conversation-list">
             {% for run in ai_agent_runs[:30] %}
-            <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
+            <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ profile_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
               <strong>{{ run.title or 'Untitled conversation' }}</strong>
               <span>{{ run.status|replace('_', ' ')|title }} · {{ run.updated_at[:16]|replace('T', ' ') if run.updated_at else 'New' }}</span>
             </a>
@@ -6937,7 +6937,7 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
           <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true">
-            <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}#ai-agent-chat">
+            <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}{{ profile_qs }}#ai-agent-chat">
             <input class="hidden-field" name="guild_id" value="global">
             <input class="hidden-field" name="run_id" data-ai-run-select value="{{ ai_agent_active_run.id if ai_agent_active_run else '' }}">
             <label class="full">What do you need help with?<textarea name="prompt" placeholder="For example: explain this types.xml error; make an airdrop at these coordinates; or help me understand cfgweather.json..." required></textarea></label>
@@ -13370,35 +13370,88 @@ PAGE_TEMPLATE = """
       setOutputLines(output, VEHICLE_INVENTORY_PRESETS[presetKey]);
     }
     function buildLoadoutPreview(form, items) {
-      const bySlot = {};
-      const unsorted = [];
-      items.forEach((item) => {
+      const slotNames = {
+        head: "Headgear", headgear: "Headgear", eyes: "Eyewear", eyewear: "Eyewear", glasses: "Eyewear",
+        mask: "Mask", body: "Body", torso: "Body", vest: "Vest", back: "Back", backpack: "Back",
+        hips: "Hips", belt: "Hips", legs: "Legs", feet: "Feet", hands: "Hands",
+        "left shoulder": "shoulderL", shoulder1: "shoulderL", shoulderl: "shoulderL",
+        "right shoulder": "shoulderR", shoulder2: "shoulderR", shoulderr: "shoulderR",
+        gloves: "Gloves", armband: "Armband"
+      };
+      const dayzSlot = (slot) => slotNames[String(slot || "").trim().toLowerCase()] || "";
+      const itemEntry = (item, includeSpawnWeight = true) => {
         const entry = {
           itemType: item.item,
-          spawnWeight: item.quantity,
           attributes: {healthMin: 1.0, healthMax: 1.0},
+          quickBarSlot: -1,
         };
         if (item.quantityPercent >= 0) {
           entry.attributes.quantityMin = item.quantityPercent / 100;
           entry.attributes.quantityMax = item.quantityPercent / 100;
         }
-        if (item.attachmentFor) entry.attachmentFor = item.attachmentFor;
-        if (item.slot) {
-          (bySlot[item.slot] ||= []).push(entry);
-        } else {
-          unsorted.push(entry);
+        if (includeSpawnWeight) entry.spawnWeight = 1;
+        return entry;
+      };
+      const bySlot = {};
+      const attachmentsByParent = {};
+      const cargo = [];
+      items.forEach((item) => {
+        if (item.attachmentFor) {
+          (attachmentsByParent[String(item.attachmentFor).toLowerCase()] ||= []).push(item);
+          return;
         }
+        const slot = dayzSlot(item.slot);
+        if (slot) {
+          (bySlot[slot] ||= []).push(item);
+        } else {
+          cargo.push(item);
+        }
+      });
+      const consumedAttachments = new Set();
+      const nestedItemEntry = (item, includeSpawnWeight = true) => {
+        const entry = itemEntry(item, includeSpawnWeight);
+        const key = String(item.item || "").toLowerCase();
+        const children = (attachmentsByParent[key] || []).filter((child) => !consumedAttachments.has(child));
+        if (children.length) {
+          children.forEach((child) => consumedAttachments.add(child));
+          entry.complexChildrenTypes = children.map((child) => {
+            const childEntry = nestedItemEntry(child, false);
+            const copies = Math.max(1, Number(child.quantity || 1) || 1);
+            for (let index = 1; index < copies; index += 1) cargo.push({...child, quantity: 1});
+            return childEntry;
+          });
+        }
+        return entry;
+      };
+      const attachmentSlotItemSets = Object.keys(bySlot).sort().map((slot) => ({
+        slotName: slot,
+        discreteItemSets: bySlot[slot].map((item) => {
+          const entry = nestedItemEntry(item);
+          const copies = Math.max(1, Number(item.quantity || 1) || 1);
+          for (let index = 1; index < copies; index += 1) cargo.push({...item, quantity: 1});
+          return entry;
+        })
+      }));
+      Object.values(attachmentsByParent).flat()
+        .filter((item) => !consumedAttachments.has(item))
+        .forEach((item) => cargo.push(item));
+      const cargoChildren = cargo.flatMap((item) => {
+        const copies = Math.max(1, Number(item.quantity || 1) || 1);
+        return Array.from({length: copies}, () => nestedItemEntry(item, false));
       });
       const preset = {
         spawnWeight: 1,
         name: form?.elements.recipe_name?.value || "Wandering Bot Loadout",
         characterTypes: [],
-        attachmentSlotItemSets: Object.keys(bySlot).sort().map((slot) => ({
-          slotName: slot,
-          discreteItemSets: [{spawnWeight: 1, items: bySlot[slot]}],
-        })),
+        attachmentSlotItemSets,
       };
-      if (unsorted.length) preset.discreteUnsortedItemSets = [{spawnWeight: 1, items: unsorted}];
+      if (cargoChildren.length) {
+        preset.discreteUnsortedItemSets = [{
+          name: `${preset.name} Cargo`, spawnWeight: 1,
+          attributes: {healthMin: 1.0, healthMax: 1.0, quantityMin: 1.0, quantityMax: 1.0},
+          complexChildrenTypes: cargoChildren,
+        }];
+      }
       return JSON.stringify(preset, null, 2);
     }
     function safeXmlName(value, fallback) {
@@ -27887,36 +27940,129 @@ def loadout_item_attributes(item: dict[str, Any]) -> dict[str, Any]:
     return attrs
 
 
+PLAYER_LOADOUT_SLOT_NAMES = {
+    "head": "Headgear", "headgear": "Headgear",
+    "eyes": "Eyewear", "eyewear": "Eyewear", "glasses": "Eyewear",
+    "mask": "Mask", "body": "Body", "torso": "Body", "vest": "Vest",
+    "back": "Back", "backpack": "Back", "hips": "Hips", "belt": "Hips",
+    "legs": "Legs", "feet": "Feet", "hands": "Hands",
+    "left shoulder": "shoulderL", "shoulder1": "shoulderL", "shoulderl": "shoulderL",
+    "right shoulder": "shoulderR", "shoulder2": "shoulderR", "shoulderr": "shoulderR",
+    "gloves": "Gloves", "armband": "Armband",
+}
+
+
+def player_loadout_slot_name(value: Any) -> str:
+    """Translate the dashboard's friendly labels to DayZ CfgSlots names."""
+    text = str(value or "").strip()
+    return PLAYER_LOADOUT_SLOT_NAMES.get(text.lower(), text if text in set(PLAYER_LOADOUT_SLOT_NAMES.values()) else "")
+
+
+def player_loadout_item_entry(
+    item: dict[str, Any], quickbar_slot: int = -1, *, include_spawn_weight: bool = True,
+) -> dict[str, Any]:
+    """Build one official DayZ ``DiscreteItemSet`` / child entry."""
+    entry = {
+        "itemType": safe_dayz_class(item.get("item")),
+        "attributes": loadout_item_attributes(item),
+        "quickBarSlot": quickbar_slot,
+    }
+    if include_spawn_weight:
+        entry["spawnWeight"] = 1
+    return entry
+
+
 def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
+    """Create an official DayZ spawn-gear preset from flat dashboard rows.
+
+    DayZ uses ``complexChildrenTypes`` for an item attached to another item and
+    ``discreteUnsortedItemSets`` for cargo.  The old preview used dashboard-only
+    ``attachmentFor`` and ``items`` fields, which parsed as JSON but were not the
+    documented DayZ spawn-gear structure.
+    """
     slot_items: dict[str, list[dict[str, Any]]] = {}
-    unsorted = []
-    for item in record.get("items", []):
-        if not isinstance(item, dict):
-            continue
-        entry = {
-            "itemType": item.get("item"),
-            "spawnWeight": max(1, safe_int(item.get("quantity"), 1)),
-            "attributes": loadout_item_attributes(item),
-        }
-        attachment_for = str(item.get("attachment_for") or "")
+    attachment_rows: dict[str, list[dict[str, Any]]] = {}
+    cargo_rows: list[dict[str, Any]] = []
+    rows = [item for item in record.get("items", []) if isinstance(item, dict) and safe_dayz_class(item.get("item"))]
+    for item in rows:
+        attachment_for = safe_dayz_class(item.get("attachment_for"))
         if attachment_for:
-            entry["attachmentFor"] = attachment_for
-        slot = str(item.get("slot") or "").strip()
+            attachment_rows.setdefault(attachment_for.lower(), []).append(item)
+            continue
+        slot = player_loadout_slot_name(item.get("slot"))
         if slot:
-            slot_items.setdefault(slot, []).append(entry)
+            slot_items.setdefault(slot, []).append(item)
         else:
-            unsorted.append(entry)
+            cargo_rows.append(item)
+
+    consumed_attachment_ids: set[int] = set()
+    extra_attachment_cargo_rows: list[dict[str, Any]] = []
+
+    def nested_item_entry(item: dict[str, Any], *, include_spawn_weight: bool = True) -> dict[str, Any]:
+        """Build an item and consume rows explicitly attached to it once."""
+        entry = player_loadout_item_entry(item, include_spawn_weight=include_spawn_weight)
+        item_key = str(entry["itemType"]).lower()
+        children = [
+            child for child in attachment_rows.get(item_key, [])
+            if id(child) not in consumed_attachment_ids
+        ]
+        if children:
+            consumed_attachment_ids.update(id(child) for child in children)
+            nested_children = []
+            for child in children:
+                nested_children.append(nested_item_entry(child, include_spawn_weight=False))
+                extra_attachment_cargo_rows.extend(
+                    {**child, "quantity": 1}
+                    for _copy in range(max(0, safe_int(child.get("quantity"), 1) - 1))
+                )
+            entry["complexChildrenTypes"] = nested_children
+        return entry
+
+    attachment_slots = []
+    for slot, items in sorted(slot_items.items()):
+        discrete_items = []
+        for item in items:
+            discrete_items.append(nested_item_entry(item))
+        if discrete_items:
+            attachment_slots.append({"slotName": slot, "discreteItemSets": discrete_items})
+
     preset: dict[str, Any] = {
         "spawnWeight": 1,
         "name": record.get("name") or "Wandering Bot Loadout",
         "characterTypes": [],
-        "attachmentSlotItemSets": [
-            {"slotName": slot, "discreteItemSets": [{"spawnWeight": 1, "items": items}]}
-            for slot, items in sorted(slot_items.items())
-        ],
+        "attachmentSlotItemSets": attachment_slots,
     }
-    if unsorted:
-        preset["discreteUnsortedItemSets"] = [{"spawnWeight": 1, "items": unsorted}]
+    cargo_children = [
+        nested_item_entry(item, include_spawn_weight=False)
+        for item in cargo_rows
+        for _copy in range(max(1, safe_int(item.get("quantity"), 1)))
+    ]
+    # A CfgSlot can hold one item. Preserve any requested extra copies as cargo
+    # rather than wrongly using a quantity as a random preset selection weight.
+    cargo_children.extend(
+        nested_item_entry(item, include_spawn_weight=False)
+        for items in slot_items.values()
+        for item in items
+        for _copy in range(max(0, safe_int(item.get("quantity"), 1) - 1))
+    )
+    cargo_children.extend(
+        nested_item_entry(item, include_spawn_weight=False)
+        for children in attachment_rows.values()
+        for item in children
+        if id(item) not in consumed_attachment_ids
+        for _copy in range(max(1, safe_int(item.get("quantity"), 1)))
+    )
+    cargo_children.extend(
+        nested_item_entry(item, include_spawn_weight=False)
+        for item in extra_attachment_cargo_rows
+    )
+    if cargo_children:
+        preset["discreteUnsortedItemSets"] = [{
+            "name": f"{preset['name']} Cargo",
+            "spawnWeight": 1,
+            "attributes": {"healthMin": 1.0, "healthMax": 1.0, "quantityMin": 1.0, "quantityMax": 1.0},
+            "complexChildrenTypes": cargo_children,
+        }]
     return preset
 
 
@@ -32594,7 +32740,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
         ai_agent_visible = ai_agent_visible_state(ai_agent_state, auth, ai_agent_access)
         ai_agent_runs = ai_agent_visible.get("runs", []) if isinstance(ai_agent_visible.get("runs"), list) else []
-        ai_agent_active_run = ai_agent_selected_run(ai_agent_visible, request.args.get("agent_run"))
+        new_conversation = safe_bool(request.args.get("new_conversation"), False)
+        ai_agent_active_run = None if new_conversation else ai_agent_selected_run(ai_agent_visible, request.args.get("agent_run"))
         ai_agent_workspace_state = ai_agent_state_for_run(ai_agent_visible, ai_agent_active_run.get("id") if ai_agent_active_run else "")
         if ai_agent_access.get("allowed") and auth.get("kind") in {"agent_account", "guild"}:
             credit_account = agent_credit_account_for_auth(auth, create=auth.get("kind") == "guild")

@@ -76,6 +76,35 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_player_loadout_export_uses_official_dayz_spawn_gear_structure(self):
+        payload = dashboard.build_player_loadout_json({
+            "name": "QA Survivor",
+            "items": [
+                {"item": "M4A1", "quantity": 2, "quantity_percent": -1, "slot": "Left Shoulder"},
+                {"item": "Mag_STANAG_30Rnd", "quantity": 2, "quantity_percent": 100, "attachment_for": "M4A1"},
+                {"item": "M4_MPBttstck", "quantity": 1, "quantity_percent": -1, "attachment_for": "M4A1"},
+                {"item": "BandageDressing", "quantity": 3, "quantity_percent": -1, "slot": ""},
+            ],
+        })
+
+        shoulder = next(row for row in payload["attachmentSlotItemSets"] if row["slotName"] == "shoulderL")
+        weapon = shoulder["discreteItemSets"][0]
+        self.assertEqual("M4A1", weapon["itemType"])
+        self.assertEqual(1, weapon["spawnWeight"])
+        self.assertNotIn("attachmentFor", weapon)
+        self.assertEqual(
+            ["Mag_STANAG_30Rnd", "M4_MPBttstck"],
+            [row["itemType"] for row in weapon["complexChildrenTypes"]],
+        )
+        self.assertTrue(all("spawnWeight" not in row for row in weapon["complexChildrenTypes"]))
+
+        cargo = payload["discreteUnsortedItemSets"][0]
+        self.assertEqual("QA Survivor Cargo", cargo["name"])
+        self.assertEqual(
+            ["BandageDressing", "BandageDressing", "BandageDressing", "M4A1", "Mag_STANAG_30Rnd"],
+            [row["itemType"] for row in cargo["complexChildrenTypes"]],
+        )
+
     def test_xml_workshop_legacy_state_only_falls_back_to_matching_map_profile(self):
         base_config = {
             "server_map": "chernarus",

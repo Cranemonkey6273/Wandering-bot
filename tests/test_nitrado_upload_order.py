@@ -213,10 +213,10 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         ok, messages = bot.backup_remote_ce_sources_before_upload({}, built)
 
-        self.assertTrue(ok)
-        self.assertEqual(SPAWNS_XML, built["restore_texts"][spawns_path])
-        self.assertTrue(any("in-memory restore copy" in message for message in messages))
-        self.assertEqual(["download", "backup"], self.calls)
+        self.assertFalse(ok)
+        self.assertNotIn(spawns_path, built.get("restore_texts", {}))
+        self.assertTrue(any("failed baseline before upload" in message for message in messages))
+        self.assertEqual(["download"], self.calls)
 
     def test_backup_uses_build_source_when_required_redownload_is_empty(self):
         spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
@@ -244,10 +244,11 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         ok, messages = bot.backup_remote_ce_sources_before_upload({}, built)
 
-        self.assertTrue(ok, messages)
-        self.assertEqual(SPAWNS_XML, built["restore_texts"][spawns_path])
+        self.assertFalse(ok, messages)
+        self.assertNotIn(spawns_path, built.get("restore_texts", {}))
         self.assertTrue(any("backup re-download was empty" in message for message in messages))
-        self.assertEqual(["download", "backup", "cleanup"], self.calls)
+        self.assertTrue(any("failed baseline before upload" in message for message in messages))
+        self.assertEqual(["download"], self.calls)
 
     def test_backup_still_blocks_empty_redownload_when_build_source_was_fallback(self):
         spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
@@ -838,7 +839,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("only WanderingBot-managed", message)
 
-    def test_scope_guard_success_messages_do_not_fail_bundle_validation(self):
+    def test_structural_bundle_validation_can_skip_live_scope_baseline(self):
         events_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <events>
     <event name="StaticVanillaThing"><nominal>1</nominal></event>
@@ -857,10 +858,9 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             "source_fallbacks": [],
         }
 
-        ok, messages = bot.validate_console_ce_xml_bundle(built)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
 
         self.assertTrue(ok)
-        self.assertTrue(any("snippet scope guard confirmed" in message for message in messages))
         self.assertTrue(any("Validated" in message for message in messages))
 
     def test_final_bundle_redownload_failure_is_warning_after_individual_verification(self):

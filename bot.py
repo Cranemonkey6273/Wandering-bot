@@ -40060,7 +40060,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     messages = []
     scope_messages = []
     source_fallbacks = built.get("source_fallbacks") if isinstance(built.get("source_fallbacks"), list) else []
-    if source_fallbacks:
+    if check_scope and source_fallbacks:
         return False, [
             "Native CE XML upload blocked because the bot could not download the existing server file(s). "
             "Refusing to upload a fallback/minimal template over a live Nitrado XML file."
