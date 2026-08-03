@@ -119,9 +119,12 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     },
     "objectspawner.json": {
         "purpose": "Places supported DayZ objects via an Objects array.",
-        "dependencies": ["Add the JSON file path to WorldsData.objectSpawnersArr in cfggameplay.json."],
-        "variants": "Objects use name, pos [x,y,z], optional ypr [yaw,pitch,roll], optional scale and enabled fields. Use the current file for any extra fields.",
-        "safety": "Do not use ObjectSpawner for weapon loot. Confirm classnames and true terrain height; test a small placement batch first.",
+        "dependencies": [
+            "Add the JSON file path to WorldsData.objectSpawnersArr in cfggameplay.json.",
+            "A separate cfgEffectArea.json can provide static smoke, contamination or visual effects near the scene; it is not linked through objectSpawnersArr.",
+        ],
+        "variants": "Objects use name, pos [x,y,z], optional ypr [yaw,pitch,roll], optional scale and enabled fields. A static airdrop/staging scene is an ObjectSpawner placement; a dynamic repeatable CE airdrop instead needs events.xml and cfgeventspawns.xml. Use the current file for any extra fields.",
+        "safety": "Do not use ObjectSpawner for weapon loot or call a static scene a dynamic CE event. Confirm classnames and true terrain height; test a small placement batch first.",
     },
     "spawning_gear": {
         "purpose": "Starting gear presets for fresh spawns.",
@@ -137,8 +140,11 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     },
     "cfgeffectarea.json": {
         "purpose": "Map effect areas such as contaminated areas and map-specific effects.",
-        "dependencies": ["cfgareaeffects.xml may define related effect presets for the selected mission."],
-        "variants": "The Area schema varies by map and version (for example particle/contaminated areas versus Sakhal geyser and volcanic area data). Empty {} is the documented way to disable static areas on installations that support it.",
+        "dependencies": [
+            "cfgareaeffects.xml may define related effect presets for the selected mission.",
+            "An adjacent ObjectSpawner build remains a separate custom JSON file that must be linked in cfggameplay.json; do not add cfgEffectArea.json to objectSpawnersArr.",
+        ],
+        "variants": "The Area schema varies by map and version (for example particle/contaminated areas versus Sakhal geyser and volcanic area data). Static smoke around an airdrop scene can coexist with its ObjectSpawner file, but it is not a substitute for a dynamic CE airdrop event. Empty {} is the documented way to disable static areas on installations that support it.",
         "safety": "Never convert one map's area schema into another map's schema. Preserve the current map's fields and validate every coordinate vector.",
     },
     "cfgundergroundtriggers.json": {

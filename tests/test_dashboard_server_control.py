@@ -1497,6 +1497,73 @@ class DashboardServerControlTests(unittest.TestCase):
         public = dashboard.ai_agent_public_task({"dayz_drafts": drafts})
         self.assertTrue(all("content" not in item for item in public["dayz_drafts"]))
 
+    def test_builtin_dayz_draft_matrix_validates_across_supported_maps(self):
+        maps = ("chernarus", "livonia", "sakhal")
+        for map_key in maps:
+            weather_context = dashboard.ai_agent_dayz_file_context(
+                {
+                    "project_type": "dayz_files",
+                    "dayz_file_target": "cfgweather.xml",
+                    "dayz_map": map_key,
+                    "dayz_reference_mode": "preset",
+                    "dayz_preset_id": "cfgweather_sunny_storms",
+                },
+                "Produce a mostly sunny weather file with partial rain and thunderstorms.",
+            )
+            weather_draft = dashboard.ai_agent_builtin_dayz_draft(
+                {"dayz_context": weather_context},
+                "Produce a mostly sunny weather file with partial rain and thunderstorms.",
+            )
+            self.assertIsNotNone(weather_draft, map_key)
+            self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgweather.xml", weather_draft["content"]))
+
+            for profile in ("full survivor", "medic", "scout"):
+                loadout_context = dashboard.ai_agent_dayz_file_context(
+                    {
+                        "project_type": "dayz_files",
+                        "dayz_file_target": "custom/spawnGearPreset.json",
+                        "dayz_map": map_key,
+                    },
+                    f"Create a fully equipped {profile} fresh-spawn loadout.",
+                )
+                loadout_draft = dashboard.ai_agent_builtin_dayz_draft(
+                    {"dayz_context": loadout_context},
+                    f"Create a fully equipped {profile} fresh-spawn loadout with an M4A1.",
+                )
+                self.assertIsNotNone(loadout_draft, f"{map_key} {profile}")
+                self.assertEqual(
+                    (True, ""),
+                    dashboard.validate_dayz_upload_text("custom/spawnGearPreset.json", loadout_draft["content"]),
+                )
+
+            for preset_id in dashboard.SCENARIO_VEHICLE_PRESETS:
+                payload = {
+                    "project_type": "dayz_files",
+                    "dayz_file_target": "db/events.xml",
+                    "dayz_map": map_key,
+                    "dayz_scenario_type": "vehicle_spawn",
+                    "dayz_scenario_preset": preset_id,
+                    "dayz_scenario_name": f"QA {preset_id} {map_key}",
+                    "dayz_scenario_x": "5000",
+                    "dayz_scenario_z": "5000",
+                    "dayz_scenario_guild_id": "qa",
+                    "dayz_scenario_profile_id": "qa",
+                }
+                if preset_id == "custom_vehicle":
+                    payload["dayz_scenario_class"] = "OffroadHatchback"
+                context = dashboard.ai_agent_dayz_file_context(payload, "Create a personal vehicle spawn event for offline review.")
+                drafts = dashboard.ai_agent_builtin_vehicle_event_drafts({"dayz_context": context})
+                self.assertEqual(2, len(drafts), f"{map_key} {preset_id}")
+                by_path = {draft["target_path"]: draft for draft in drafts}
+                for target_path, draft in by_path.items():
+                    self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(target_path, draft["content"]))
+                event_name = by_path["db/events.xml"]["scenario_event_name"]
+                event_root = ET.fromstring(by_path["db/events.xml"]["content"])
+                spawns_root = ET.fromstring(by_path["cfgeventspawns.xml"]["content"])
+                self.assertIsNotNone(event_root.find(f"./event[@name='{event_name}']"))
+                self.assertIsNotNone(spawns_root.find(f"./event[@name='{event_name}']"))
+                self.assertTrue(all(check["valid"] for check in by_path["db/events.xml"]["event_package"]["checks"]))
+
     def test_vehicle_scenario_is_not_reduced_to_plain_event_link_guidance(self):
         context = dashboard.ai_agent_dayz_file_context(
             {

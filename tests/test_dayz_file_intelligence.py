@@ -494,6 +494,47 @@ https://discord.gg/U2sfF55rSD</text>
         self.assertFalse(ok)
         self.assertIn("unsafe weapon class", message)
 
+    def test_static_airdrop_scene_keeps_object_spawner_and_effect_area_workflows_separate(self):
+        object_spawner = json.dumps({
+            "Objects": [
+                {
+                    "name": "Land_Roadblock_WoodenCrate",
+                    "pos": [2016.79, 229.58, 9816.60],
+                    "ypr": [0.0, 0.0, 0.0],
+                }
+            ]
+        })
+        gameplay = json.dumps({"WorldsData": {"objectSpawnersArr": ["custom/AD18.json"]}})
+        effect_area = json.dumps({
+            "Areas": [
+                {
+                    "AreaName": "AirdropSmoke",
+                    "Type": "ContaminatedArea_Static",
+                    "TriggerType": "EffectTrigger",
+                    "Data": {"Pos": [2016.79, 229.58, 9816.60], "Radius": 0},
+                }
+            ]
+        })
+
+        self.assertEqual((True, ""), validate_dayz_upload_text("/mission/custom/AD18.json", object_spawner))
+        self.assertEqual((True, ""), validate_dayz_upload_text("/mission/cfggameplay.json", gameplay))
+        self.assertEqual((True, ""), validate_dayz_upload_text("/mission/cfgEffectArea.json", effect_area))
+        invalid, message = validate_dayz_upload_text("/mission/custom/AD18.json", "f" + object_spawner)
+        self.assertFalse(invalid)
+        self.assertIn("invalid JSON", message)
+
+        plan = dayz_dependency_plan_for_request(
+            "Create a static airdrop crate staging scene using ObjectSpawner and link it through cfgGameplay.",
+            "custom/AD18.json",
+        )
+        paths = {item["path"]: item for item in plan["files"]}
+        self.assertEqual("object_spawner", plan["workflow"])
+        self.assertEqual("changed", paths["custom/AD18.json"]["action"])
+        self.assertEqual("changed", paths["cfggameplay.json"]["action"])
+        self.assertEqual("preserved", paths["mapgrouppos.xml"]["action"])
+        self.assertIn("dynamic repeatable CE airdrop", dayz_agent_file_knowledge("objectspawner.json")["variants"])
+        self.assertIn("do not add cfgEffectArea.json to objectSpawnersArr", dayz_agent_file_knowledge("cfgEffectArea.json")["dependencies"][1])
+
     def test_live_style_custom_types_and_events_roots_are_valid(self):
         types_text = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <types>
