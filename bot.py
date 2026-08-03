@@ -40284,7 +40284,12 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 continue
             if max(safe_int(child.get("lootmax"), 0), safe_int(child.get("max"), 0)) > 0:
                 required_proto_names.add(child_type)
-    if normalize_dayz_reference_map_key(map_key) in {"chernarus", "livonia", "sakhal"} and mapgroupproto_uploading:
+    requires_static_helicrash_proto = "Wreck_Mi8_Crashed" in required_proto_names
+    if (
+        requires_static_helicrash_proto
+        and normalize_dayz_reference_map_key(map_key) in {"chernarus", "livonia", "sakhal"}
+        and mapgroupproto_uploading
+    ):
         heli_groups = mapgroupproto_groups_named(mapgroupproto_root, "Wreck_Mi8_Crashed")
         if len(heli_groups) != 1:
             messages.append(
