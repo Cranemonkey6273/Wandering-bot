@@ -1308,6 +1308,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Free",
         "price_text": "Free",
         "description": "Basic Discord bot access while dashboard tools stay locked.",
+        "server_limit": 1,
         "enabled": True,
         "features": {"leaderboards": True, "embeds": True, "server_rules": True},
         "payment_url": "",
@@ -1320,6 +1321,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Basic",
         "price_text": "€5.99 / month",
         "description": "Full server dashboard with economy, shop, maps, XML tools, events and server controls.",
+        "server_limit": 2,
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1348,6 +1350,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Pro",
         "price_text": "€11.99 / month",
         "description": "Expanded dashboard access for active communities, including automatic multi-language Discord translation.",
+        "server_limit": 3,
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1378,6 +1381,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Ultimate",
         "price_text": "Set monthly price",
         "description": "Top tier dashboard access with every server tool plus private AI sandbox access.",
+        "server_limit": 4,
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1404,6 +1408,16 @@ DEFAULT_BILLING_PLANS = [
         "stripe_publishable_key": "",
     },
 ]
+DEFAULT_SERVER_SLOT_ADDON = {
+    "id": "server_slot",
+    "name": "Additional DayZ Server Slot",
+    "price_text": "Set monthly price",
+    "description": "Adds one DayZ server slot to the active dashboard while the add-on subscription remains active.",
+    "slots": 1,
+    "enabled": False,
+    "payment_url": "",
+    "stripe_payment_link_id": "",
+}
 PUBLIC_FEED_PREVIEW_ITEMS = [
     {"image": "connected.png", "title": "Survivor connected", "category": "Player activity", "summary": "Show who has just spawned in and how many survivors are online."},
     {"image": "disconnected.png", "title": "Survivor disconnected", "category": "Player activity", "summary": "Keep staff aware when players leave and where they were last seen."},
@@ -1426,6 +1440,8 @@ STRIPE_PAYMENT_LINK_RE = re.compile(r"\b(plink_[A-Za-z0-9_]+)\b")
 BILLING_PLAN_ORDER = ("free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate")
 BILLING_PURCHASE_CLAIM_COOKIE = "wandering_billing_claim"
 BILLING_PURCHASE_CLAIM_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+AGENT_CREDIT_CHECKOUT_COOKIE = "wandering_agent_credit_checkout"
+AGENT_CREDIT_CHECKOUT_MAX_AGE_SECONDS = 60 * 60 * 6
 BILLING_PLAN_ID_ALIASES = {
     "free": "free_bot",
     "free_bot": "free_bot",
@@ -2291,6 +2307,34 @@ PUBLIC_BILLING_COMPLETE_TEMPLATE = """
     <section class="notice waiting"><h2>Purchase status: {{ purchase.status }}</h2><p>Contact support if this remains unchanged after a few minutes.</p></section>
     {% endif %}
     <div class="actions"><a class="button primary" href="{{ bot_invite_url }}">Add Wandering Bot</a><a class="button" href="/login">Dashboard login</a><a class="button" href="/setup-guide">Setup guide</a><a class="button" href="{{ support_url }}">Need help?</a></div>
+  </main>
+</body>
+</html>
+"""
+
+PAYMENT_PROGRESS_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="{{ pwa_theme_color }}">
+  <title>{{ title }} - Wandering Bot</title>
+  {% if refresh %}<meta http-equiv="refresh" content="3">{% endif %}
+  <style>
+    :root { color-scheme:dark; --bg:#050806; --panel:#0b1510; --line:rgba(126,204,184,.25); --text:#f2f7ef; --muted:#bdc9bf; --green:#8ee85f; --amber:#eca140; }
+    * { box-sizing:border-box; } body { margin:0; min-height:100vh; display:grid; place-items:center; padding:1rem; background:linear-gradient(180deg,#0d1911,var(--bg)); color:var(--text); font-family:Inter,ui-sans-serif,system-ui,sans-serif; }
+    main { width:min(100%,38rem); display:grid; gap:.85rem; padding:1.1rem; border:1px solid var(--line); border-radius:.6rem; background:var(--panel); box-shadow:0 1.1rem 3rem rgba(0,0,0,.28); }
+    header { display:flex; gap:.75rem; align-items:center; } img { width:3.25rem; height:3.25rem; object-fit:cover; border-radius:.5rem; border:1px solid var(--line); } h1,h2,p { margin:0; } h1 { font-size:1.35rem; } p { color:var(--muted); line-height:1.55; } .notice { padding:.8rem; border:1px solid rgba(142,232,95,.42); border-radius:.45rem; background:rgba(142,232,95,.09); } .waiting { border-color:rgba(236,161,64,.5); background:rgba(236,161,64,.1); } .button { display:inline-flex; align-items:center; justify-content:center; min-height:2.55rem; padding:.65rem .85rem; border:1px solid rgba(126,204,184,.38); border-radius:.45rem; background:#102319; color:var(--text); text-decoration:none; font-weight:850; }
+  </style>
+</head>
+<body>
+  <main>
+    <header><img src="/brand-image" alt="Wandering Bot"><div><h1>{{ title }}</h1><p>{{ subtitle }}</p></div></header>
+    <section class="notice {{ 'waiting' if refresh else '' }}"><h2>{{ heading }}</h2><p>{{ message }}</p></section>
+    {% if refresh %}<p>Checking Stripe confirmation again automatically…</p>{% endif %}
+    <a class="button" href="{{ return_url }}">Return to dashboard</a>
   </main>
 </body>
 </html>
@@ -5332,6 +5376,9 @@ PAGE_TEMPLATE = """
     .lb-value { display: inline-block; border: 1px solid #3f4255; background: #292b3a; color: #f4f4f5; border-radius: .35rem; padding: .05rem .32rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 500; }
     .lb-empty { color: #d8d8dc; font-style: italic; }
     .tool-note { color: var(--muted); font-size: .9rem; line-height: 1.45; }
+    #plan-payment-automation .billing-guide { display: block; margin: .55rem 0 0; padding-left: 1.3rem; }
+    #plan-payment-automation .billing-guide li { display: list-item; margin: .45rem 0; padding-left: .1rem; overflow-wrap: anywhere; }
+    #plan-payment-automation .billing-guide code { white-space: normal; overflow-wrap: anywhere; }
     .field-help { display: block; margin-top: .3rem; color: color-mix(in srgb, var(--muted) 72%, #ffffff); font-size: .78rem; line-height: 1.35; font-weight: 500; }
     .option-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; }
     .option-card { border: 1px solid var(--line); border-radius: .5rem; padding: .8rem; background: #070b08; }
@@ -11851,6 +11898,15 @@ PAGE_TEMPLATE = """
         <article class="admin-panel full" id="server-profiles">
           <h3>DayZ Server Profiles</h3>
           <p class="tool-note">Use this when one Discord runs more than one DayZ server. The shared Nitrado API token above can be reused; each profile keeps its own service ID, map, FTP details and feed routes.</p>
+          <div class="billing-link-row">
+            {% if server_slot_entitlement.unlimited %}
+            <span class="pill ok">Unlimited DayZ server slots (owner)</span>
+            {% else %}
+            <span class="pill {{ 'bad' if server_slot_entitlement.over_limit else 'ok' }}">DayZ server slots: {{ server_slot_entitlement.used }} / {{ server_slot_entitlement.limit }}</span>
+            <small class="tool-note">{{ server_slot_entitlement.plan_name }} includes {{ server_slot_entitlement.base_limit }}. {% if server_slot_entitlement.addon_slots %}+{{ server_slot_entitlement.addon_slots }} confirmed add-on slot{{ '' if server_slot_entitlement.addon_slots == 1 else 's' }}.{% endif %}</small>
+            {% if auth.kind == 'guild' and server_slot_addon.enabled and server_slot_addon.payment_url and server_slot_addon.stripe_payment_link_id %}<a class="button-link" href="/server-slots/checkout">Buy another server slot{% if server_slot_addon.price_text %} · {{ server_slot_addon.price_text }}{% endif %}</a>{% endif %}
+            {% endif %}
+          </div>
           <form class="admin-form grid-form" method="post" action="/api/admin/dayz-server-profile" data-route="/api/admin/dayz-server-profile">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=servers&guild_id={{ server.guild_id if server else '' }}#server-profiles">
@@ -12290,6 +12346,7 @@ PAGE_TEMPLATE = """
             <label>Plan ID <input name="plan_id" value="{{ plan.id }}" autocomplete="off"></label>
             <label>Name <input name="name" value="{{ plan.name }}"></label>
             <label>Price label <input name="price_text" value="{{ plan.price_text }}" placeholder="£9.99 / month"></label>
+            <label>Included DayZ servers <input name="server_limit" type="number" min="1" max="50" value="{{ plan.server_limit|default(1, true) }}"><small class="field-help">The base allowance. Confirmed additional-slot subscriptions are added automatically.</small></label>
             <label>Enabled
               <select name="enabled">
                 <option value="true" {% if plan.enabled %}selected{% endif %}>On</option>
@@ -12319,7 +12376,7 @@ PAGE_TEMPLATE = """
       </div>
       <section class="admin-panel" id="plan-payment-automation">
         <h3>Automatic paid-plan activation</h3>
-        <ol class="tool-note">
+        <ol class="tool-note billing-guide">
           <li>For each paid plan, enter the public Stripe URL and its matching <code>plink_...</code> ID above.</li>
           <li>In Stripe, add a webhook endpoint at <code>/api/stripe/billing-webhook</code> and subscribe to <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>customer.subscription.updated</code>, and <code>customer.subscription.deleted</code>.</li>
           <li>Set Railway variable <code>WANDERING_STRIPE_BILLING_WEBHOOK_SECRET</code> to that endpoint's <code>whsec_...</code> signing secret.</li>
@@ -12327,13 +12384,29 @@ PAGE_TEMPLATE = """
         </ol>
         <p class="tool-note">When a buyer is already signed into a server dashboard, the plan activates on Stripe confirmation. New buyers are returned to this site, add the bot and complete setup, then their first dashboard login claims the paid plan automatically from the same browser. No owner-side manual approval is needed.</p>
         <h4>Stripe promotion codes and discounts</h4>
-        <ol class="tool-note">
+        <ol class="tool-note billing-guide">
           <li>In Stripe, create a coupon with the amount or percentage off and choose its duration: once, repeating for a chosen number of months, or forever.</li>
           <li>Create a customer-facing promotion code from that coupon. You can set an expiry date, redemption limit, minimum spend, or first-time-customer rule in Stripe.</li>
           <li>Edit each Payment Link that should accept it and enable <em>Allow promotion codes</em>. This is a Stripe setting, so the discount is calculated and enforced by Stripe rather than this website.</li>
           <li>Share a campaign link such as <code>{{ public_origin }}/checkout/dashboard_ai?promo=YOURCODE</code>. Wandering Bot safely pre-fills the code at Stripe checkout and records the code name on verified payment notifications. Customers can still remove or replace it at Stripe.</li>
         </ol>
         <p class="tool-note">Use only letters and numbers in a shared code (for example <code>WELCOME20</code>). Do not put secret Stripe keys in a promo link. If a Stripe link has not enabled promotion codes, Stripe will ignore the pre-filled code and checkout still works normally.</p>
+        <section class="admin-panel" id="server-slot-addon">
+          <h3>Additional DayZ Server Slot</h3>
+          <p class="tool-note">Customers can buy this recurring add-on from Admin Center. Stripe confirmation adds the slot automatically; a cancelled or unpaid add-on removes it automatically. Use one recurring Stripe Payment Link per slot purchase.</p>
+          <form class="admin-form plan-edit-form" method="post" action="/api/owner/server-slot-addon" data-route="/api/owner/server-slot-addon">
+            <input class="hidden-field" name="return_to" value="/owner?section=billing#server-slot-addon">
+            <label>Name <input name="name" value="{{ server_slot_addon.name }}"></label>
+            <label>Price label <input name="price_text" value="{{ server_slot_addon.price_text }}" placeholder="€2.99 / month"></label>
+            <label>Slots per purchase <input name="slots" type="number" min="1" max="10" value="{{ server_slot_addon.slots }}"><small class="field-help">Keep this at 1 for a simple one-server add-on.</small></label>
+            <label>Enabled<select name="enabled"><option value="true" {% if server_slot_addon.enabled %}selected{% endif %}>On</option><option value="false" {% if not server_slot_addon.enabled %}selected{% endif %}>Off</option></select></label>
+            <label class="full">Stripe Payment Link URL <input name="payment_url" value="{{ server_slot_addon.payment_url }}" placeholder="https://buy.stripe.com/..."></label>
+            <label class="full">Stripe Payment Link ID <input name="stripe_payment_link_id" value="{{ server_slot_addon.stripe_payment_link_id }}" placeholder="plink_..."><small class="field-help">Use a recurring Stripe price. This is not secret; it verifies that a payment came from this exact add-on link.</small></label>
+            <label class="full">Description <textarea name="description">{{ server_slot_addon.description }}</textarea></label>
+            <div class="full"><button type="submit">Save server-slot add-on</button> <span class="result muted"></span></div>
+          </form>
+          <p class="tool-note">Set the Stripe link’s after-payment redirect to <code>{{ public_origin }}/server-slots/complete?session_id={CHECKOUT_SESSION_ID}</code>. It returns the customer to a confirmation screen that refreshes their dashboard allowance.</p>
+        </section>
       </section>
       <section class="admin-panel" id="agent-credit-packs">
         <div class="section-head">
@@ -12361,7 +12434,7 @@ PAGE_TEMPLATE = """
           </article>
           {% endfor %}
         </div>
-        <p class="tool-note">Stripe webhook endpoint: <code>/api/stripe/agent-credits-webhook</code>. Set <code>WANDERING_STRIPE_AGENT_CREDITS_WEBHOOK_SECRET</code> in Railway from Stripe’s signing secret. Subscribe to <code>checkout.session.completed</code> and <code>checkout.session.async_payment_succeeded</code>.</p>
+        <p class="tool-note">Stripe webhook endpoint: <code>/api/stripe/agent-credits-webhook</code>. Set <code>WANDERING_STRIPE_AGENT_CREDITS_WEBHOOK_SECRET</code> in Railway from Stripe’s signing secret. Subscribe to <code>checkout.session.completed</code> and <code>checkout.session.async_payment_succeeded</code>. In each top-up Payment Link set the after-payment redirect to <code>{{ public_origin }}/agent/credits/complete?session_id={CHECKOUT_SESSION_ID}</code>; the confirmation page refreshes the credit balance automatically.</p>
       </section>
     </section>
     {% endif %}
@@ -20708,6 +20781,7 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             "name": name,
             "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
             "description": description,
+            "server_limit": max(1, min(50, safe_int(plan.get("server_limit"), safe_int(base.get("server_limit"), 1)))),
             "payment_url": payment_url,
             "stripe_payment_link_id": stripe_payment_link_id_from_text(stripe_payment_link_id),
             "stripe_buy_button_id": stripe_buy_button_id_from_text(stripe_buy_button_id),
@@ -20722,9 +20796,11 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
 
 def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
     plan_id = canonical_billing_plan_id(plan.get("id"), plan)
+    server_limit = max(1, safe_int(plan.get("server_limit"), 1))
     if plan_id == "free_bot":
         return [
             "Free Wandering Bot invite",
+            f"{server_limit} DayZ server{'s' if server_limit != 1 else ''} included",
             "Private /setup guidance and ADM connection checks",
             "Core Discord player and server activity feeds",
             "Leaderboards, Discord setup and server rules",
@@ -20741,16 +20817,19 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
     plan_highlights = {
         "dashboard": [
             "Everything in free bot access",
+            f"Up to {server_limit} DayZ servers included",
             "Full web dashboard for trusted staff",
             "Live survivor map and 24-hour player audit",
         ],
         "dashboard_ai": [
             "Everything in Basic dashboard access",
+            f"Up to {server_limit} DayZ servers included",
             "Expanded event, moderation and server-management workflow",
             "Automatic Discord translation in the same channel or a dedicated translation channel",
         ],
         "dashboard_ultimate": [
             "Everything in Pro dashboard access",
+            f"Up to {server_limit} DayZ servers included",
             "Private DayZ AI agent with separate project conversations",
             "Explain XML/JSON errors, prepare events and draft reviewed DayZ files",
             f"{AGENT_ULTIMATE_INCLUDED_CREDITS} included AI credits, with secure top-ups when needed",
@@ -20880,6 +20959,7 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "name": str(plan.get("name") or plan_id).strip()[:80],
         "price_text": str(plan.get("price_text") or "").strip()[:80],
         "description": str(plan.get("description") or "").strip()[:400],
+        "server_limit": max(1, min(50, safe_int(plan.get("server_limit"), safe_int(dashboard_plan_by_id(plan_id).get("server_limit"), 1)))),
         "payment_url": "" if plan_id == "free_bot" else str(plan.get("payment_url") or "").strip()[:500],
         "stripe_payment_link_id": stripe_payment_link_id,
         "stripe_buy_button_id": stripe_buy_button_id,
@@ -20892,6 +20972,50 @@ def save_dashboard_billing_plan(plan: dict[str, Any]) -> dict[str, Any]:
         if existing_id != plan_id and canonical_billing_plan_id(existing_id, plans.get(existing_id)) == plan_id:
             plans.pop(existing_id, None)
     plans[plan_id] = record
+    save_store("dashboard_admin", admin)
+    return record
+
+
+def server_slot_addon() -> dict[str, Any]:
+    """Return the single customer-facing recurring DayZ server-slot add-on."""
+    admin = load_store("dashboard_admin", {})
+    saved = admin.get("server_slot_addon") if isinstance(admin, dict) else {}
+    addon = dict(DEFAULT_SERVER_SLOT_ADDON)
+    if isinstance(saved, dict):
+        addon.update({
+            "name": str(saved.get("name") or addon["name"]).strip()[:80],
+            "price_text": str(saved.get("price_text") or addon["price_text"]).strip()[:80],
+            "description": str(saved.get("description") or addon["description"]).strip()[:400],
+            "slots": max(1, min(10, safe_int(saved.get("slots"), addon["slots"]))),
+            "enabled": safe_bool(saved.get("enabled"), False),
+            "payment_url": str(saved.get("payment_url") or "").strip()[:500],
+            "stripe_payment_link_id": stripe_payment_link_id_from_text(saved.get("stripe_payment_link_id")),
+            "updated_at": str(saved.get("updated_at") or ""),
+        })
+    return addon
+
+
+def save_server_slot_addon(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = payload if isinstance(payload, dict) else {}
+    raw_link_id = str(payload.get("stripe_payment_link_id") or "").strip()
+    link_id = stripe_payment_link_id_from_text(raw_link_id)
+    if raw_link_id and not link_id:
+        raise ValueError("Stripe Payment Link ID must start with plink_. It is safe to store; never paste an sk_ secret key.")
+    record = {
+        "id": "server_slot",
+        "name": str(payload.get("name") or DEFAULT_SERVER_SLOT_ADDON["name"]).strip()[:80],
+        "price_text": str(payload.get("price_text") or DEFAULT_SERVER_SLOT_ADDON["price_text"]).strip()[:80],
+        "description": str(payload.get("description") or DEFAULT_SERVER_SLOT_ADDON["description"]).strip()[:400],
+        "slots": max(1, min(10, safe_int(payload.get("slots"), 1))),
+        "enabled": safe_bool(payload.get("enabled"), False),
+        "payment_url": str(payload.get("payment_url") or "").strip()[:500],
+        "stripe_payment_link_id": link_id,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    admin = load_store("dashboard_admin", {})
+    if not isinstance(admin, dict):
+        admin = {}
+    admin["server_slot_addon"] = record
     save_store("dashboard_admin", admin)
     return record
 
@@ -21226,6 +21350,109 @@ def create_billing_plan_checkout(plan: dict[str, Any]) -> tuple[dict[str, Any] |
     return purchase, ""
 
 
+def create_server_slot_checkout(guild_id: Any) -> tuple[dict[str, Any] | None, str]:
+    """Start one authenticated recurring server-slot purchase."""
+    clean_guild_id = normalize_guild_id(guild_id)
+    addon = server_slot_addon()
+    payment_url = str(addon.get("payment_url") or "").strip()
+    payment_link_id = stripe_payment_link_id_from_text(addon.get("stripe_payment_link_id"))
+    if not clean_guild_id:
+        return None, "A dashboard server is required before you can buy an additional slot."
+    if not safe_bool(addon.get("enabled"), False):
+        return None, "Additional server slots are not on sale yet."
+    if not payment_url or not payment_link_id:
+        return None, "Additional server slot checkout is still being configured."
+    if not STRIPE_BILLING_WEBHOOK_SECRET:
+        return None, "Additional server slots are waiting for Stripe activation to be connected."
+    now = datetime.now(UTC).isoformat()
+    reference = f"server-slot-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_urlsafe(12).replace('-', '').replace('_', '')}"
+    purchase = {
+        "id": reference,
+        "purchase_kind": "server_slot",
+        "plan_id": "server_slot",
+        "plan_name": str(addon.get("name") or "Additional DayZ Server Slot")[:80],
+        "price_text": str(addon.get("price_text") or "")[:80],
+        "slots": max(1, min(10, safe_int(addon.get("slots"), 1))),
+        "payment_link_id": payment_link_id,
+        "status": "checkout_started",
+        "source": "dashboard_server_slots",
+        "promotion_code": billing_promotion_code_from_request(),
+        "account_kind": "guild",
+        "guild_id": clean_guild_id,
+        "created_at": now,
+        "paid_at": "",
+        "activated_at": "",
+        "stripe_session_id": "",
+        "stripe_subscription_id": "",
+        "stripe_customer_id": "",
+        "stripe_event_id": "",
+        "activation_mode": "",
+    }
+    purchases = billing_purchase_store()
+    purchases.append(purchase)
+    save_billing_purchase_store(purchases)
+    purchase["checkout_url"] = billing_plan_checkout_url(
+        payment_url,
+        reference,
+        promotion_code=purchase["promotion_code"],
+    )
+    if not purchase["checkout_url"]:
+        return None, "Checkout URL is invalid."
+    return purchase, ""
+
+
+def billing_apply_server_slot_to_guild(purchase: dict[str, Any], guild_id: Any, activation_mode: str) -> tuple[bool, str]:
+    """Grant confirmed recurring add-on slots without changing the base plan."""
+    clean_guild_id = normalize_guild_id(guild_id)
+    subscription_id = str(purchase.get("stripe_subscription_id") or "").strip()
+    if not clean_guild_id:
+        return False, "A dashboard server is required to activate this additional slot."
+    if not subscription_id:
+        return False, "Additional server slots must use a recurring Stripe subscription price."
+    configs = load_store("guild_configs", {})
+    if not isinstance(configs, dict) or not isinstance(configs.get(clean_guild_id), dict):
+        return False, "That dashboard server could not be found."
+    config = configs[clean_guild_id]
+    access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    access = dict(access)
+    records = access.get("server_slot_addons") if isinstance(access.get("server_slot_addons"), list) else []
+    records = [record for record in records if isinstance(record, dict)]
+    purchase_id = str(purchase.get("id") or "")
+    slots = max(1, min(10, safe_int(purchase.get("slots"), 1)))
+    record = next(
+        (
+            item for item in records
+            if str(item.get("purchase_id") or "") == purchase_id
+            or str(item.get("stripe_subscription_id") or "") == subscription_id
+        ),
+        None,
+    )
+    if record is None:
+        record = {}
+        records.append(record)
+    record.update({
+        "purchase_id": purchase_id,
+        "stripe_subscription_id": subscription_id,
+        "stripe_session_id": str(purchase.get("stripe_session_id") or ""),
+        "slots": slots,
+        "status": "active",
+        "activated_at": str(record.get("activated_at") or datetime.now(UTC).isoformat()),
+        "updated_at": datetime.now(UTC).isoformat(),
+    })
+    access["server_slot_addons"] = records[-100:]
+    access["updated_at"] = datetime.now(UTC).isoformat()
+    config["dashboard"] = access
+    configs[clean_guild_id] = config
+    save_store("guild_configs", configs)
+    purchase.update({
+        "status": "activated",
+        "guild_id": clean_guild_id,
+        "activated_at": datetime.now(UTC).isoformat(),
+        "activation_mode": activation_mode,
+    })
+    return True, f"{slots} additional DayZ server slot{'s' if slots != 1 else ''} activated."
+
+
 def billing_apply_plan_to_guild(purchase: dict[str, Any], guild_id: Any, activation_mode: str) -> tuple[bool, str]:
     """Apply one verified plan purchase to the selected server's access block."""
     clean_guild_id = str(guild_id or "").strip()
@@ -21301,6 +21528,8 @@ def billing_fulfil_plan_checkout(reference: Any, session: dict[str, Any], event_
     purchase = billing_purchase_by_id(purchases, reference)
     if not purchase:
         return True, "No matching Wandering Bot plan purchase.", None
+    if str(purchase.get("purchase_kind") or "") == "server_slot":
+        return billing_fulfil_server_slot_checkout(purchases, purchase, session, event_id)
     session_id = str(session.get("id") or "").strip()
     if not session_id:
         return False, "Stripe session ID is missing.", purchase
@@ -21341,6 +21570,46 @@ def billing_fulfil_plan_checkout(reference: Any, session: dict[str, Any], event_
     return True, "Payment confirmed. The buyer can now claim the plan after dashboard setup.", purchase
 
 
+def billing_fulfil_server_slot_checkout(
+    purchases: list[dict[str, Any]],
+    purchase: dict[str, Any],
+    session: dict[str, Any],
+    event_id: Any,
+) -> tuple[bool, str, dict[str, Any] | None]:
+    """Fulfil a verified server-slot checkout once, then bind it to its subscription."""
+    session_id = str(session.get("id") or "").strip()
+    if not session_id:
+        return False, "Stripe session ID is missing.", purchase
+    expected_link_id = str(purchase.get("payment_link_id") or "").strip()
+    payment_link_id = str(session.get("payment_link") or "").strip()
+    if not expected_link_id or not secrets.compare_digest(expected_link_id, payment_link_id):
+        return False, "Stripe Payment Link did not match the additional server slot.", purchase
+    subscription_id = str(session.get("subscription") or "").strip()
+    if not subscription_id:
+        return False, "The additional server slot must be sold as a recurring Stripe subscription.", purchase
+    for other in purchases:
+        if not isinstance(other, dict) or other is purchase:
+            continue
+        if str(other.get("stripe_session_id") or "") == session_id:
+            return False, "Stripe session is already linked to another purchase.", purchase
+    if str(purchase.get("status") or "") == "activated":
+        return True, "Additional server slot was already activated.", purchase
+    purchase.update({
+        "status": "paid",
+        "paid_at": str(purchase.get("paid_at") or datetime.now(UTC).isoformat()),
+        "stripe_session_id": session_id,
+        "stripe_subscription_id": subscription_id,
+        "stripe_customer_id": str(session.get("customer") or ""),
+        "stripe_event_id": str(event_id or ""),
+    })
+    activated, message = billing_apply_server_slot_to_guild(purchase, purchase.get("guild_id"), "signed_in_checkout")
+    if not activated:
+        return False, message, purchase
+    save_billing_purchase_store(purchases)
+    billing_queue_owner_event(purchase, "server_slot_activated")
+    return True, message, purchase
+
+
 def billing_handle_subscription_event(subscription: dict[str, Any]) -> tuple[bool, str]:
     subscription_id = str(subscription.get("id") or "").strip()
     if not subscription_id:
@@ -21352,6 +21621,28 @@ def billing_handle_subscription_event(subscription: dict[str, Any]) -> tuple[boo
     status = str(subscription.get("status") or "").strip().lower()
     if status not in {"canceled", "unpaid", "incomplete_expired"}:
         return True, "Subscription remains active."
+    if str(purchase.get("purchase_kind") or "") == "server_slot":
+        guild_id = normalize_guild_id(purchase.get("guild_id"))
+        configs = load_store("guild_configs", {})
+        if guild_id and isinstance(configs, dict) and isinstance(configs.get(guild_id), dict):
+            config = configs[guild_id]
+            access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+            access = dict(access)
+            records = access.get("server_slot_addons") if isinstance(access.get("server_slot_addons"), list) else []
+            for record in records:
+                if isinstance(record, dict) and str(record.get("stripe_subscription_id") or "") == subscription_id:
+                    record["status"] = "cancelled"
+                    record["ended_at"] = datetime.now(UTC).isoformat()
+            access["server_slot_addons"] = records
+            access["updated_at"] = datetime.now(UTC).isoformat()
+            config["dashboard"] = access
+            configs[guild_id] = config
+            save_store("guild_configs", configs)
+        purchase["status"] = "subscription_ended"
+        purchase["subscription_ended_at"] = datetime.now(UTC).isoformat()
+        save_billing_purchase_store(purchases)
+        billing_queue_owner_event(purchase, "server_slot_ended")
+        return True, "Additional server slot ended."
     guild_id = str(purchase.get("guild_id") or "").strip()
     configs = load_store("guild_configs", {})
     if guild_id and isinstance(configs, dict) and isinstance(configs.get(guild_id), dict):
@@ -25904,6 +26195,32 @@ def agent_create_credit_checkout(account_id: str, pack: dict[str, Any], email: s
     save_agent_accounts(store)
     checkout["checkout_url"] = agent_credit_checkout_url(payment_url, reference, normalize_agent_email(email))
     return checkout, ""
+
+
+def agent_credit_checkout_for_request() -> dict[str, Any] | None:
+    """Find only the top-up belonging to the signed-in credit account."""
+    auth = current_ai_agent_auth()
+    if not auth:
+        return None
+    account = agent_credit_account_for_auth(auth, create=False)
+    account_id = str((account or {}).get("id") or "")
+    if not account_id:
+        return None
+    try:
+        cookie_id = str((request.cookies or {}).get(AGENT_CREDIT_CHECKOUT_COOKIE) or "")
+    except RuntimeError:
+        cookie_id = ""
+    session_id = str(request.args.get("session_id") or "").strip()
+    store = load_agent_accounts()
+    checkouts = store.get("credit_checkouts") if isinstance(store.get("credit_checkouts"), list) else []
+    for checkout in checkouts:
+        if not isinstance(checkout, dict) or str(checkout.get("account_id") or "") != account_id:
+            continue
+        if session_id and str(checkout.get("stripe_session_id") or "") == session_id:
+            return checkout
+        if not session_id and cookie_id and str(checkout.get("id") or "") == cookie_id:
+            return checkout
+    return None
 
 
 def stripe_webhook_signature_is_valid(raw_payload: bytes, signature_header: str, endpoint_secret: str) -> bool:
@@ -30803,6 +31120,124 @@ def dashboard_server_profile_store(config: Any, create: bool = False) -> dict[st
     return profiles
 
 
+def dashboard_server_slot_keys_for_config(
+    config: Any,
+    guild_id: Any,
+    prospective_profile: dict[str, Any] | None = None,
+) -> set[str]:
+    """Identify real DayZ services without double-counting a legacy base/profile pair.
+
+    A service ID is the safest identity.  Before a user has entered one, each
+    saved server record reserves a separate slot so an unfinished profile
+    cannot be used to bypass the entitlement check.
+    """
+    config = config if isinstance(config, dict) else {}
+    clean_guild_id = normalize_guild_id(guild_id) or "unknown"
+    records: list[tuple[str, dict[str, Any]]] = [("base", config)]
+    profiles = dashboard_server_profile_store(config)
+    for profile_id, profile in profiles.items():
+        if isinstance(profile, dict):
+            records.append((normalize_server_profile_id(profile_id, "") or str(profile_id), profile))
+    if isinstance(prospective_profile, dict):
+        prospective_id = normalize_server_profile_id(prospective_profile.get("profile_id") or prospective_profile.get("id"), "")
+        if prospective_id and prospective_id not in profiles:
+            records.append((prospective_id, prospective_profile))
+
+    keys: set[str] = set()
+    for profile_id, record in records:
+        service_id = str(record.get("service_id") or "").strip()
+        if service_id:
+            keys.add(f"service:{service_id}")
+        else:
+            keys.add(f"record:{clean_guild_id}:{profile_id or 'base'}")
+    return keys
+
+
+def dashboard_active_server_slot_addons(access: Any) -> int:
+    access = access if isinstance(access, dict) else {}
+    records = access.get("server_slot_addons")
+    if not isinstance(records, list):
+        return 0
+    slots = 0
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if str(record.get("status") or "").strip().lower() not in {"active", "paid"}:
+            continue
+        slots += max(1, min(10, safe_int(record.get("slots"), 1)))
+    return min(250, slots)
+
+
+def dashboard_server_slot_entitlement(
+    guild_configs: Any,
+    primary_guild_id: Any,
+    prospective_profile: dict[str, Any] | None = None,
+    prospective_linked_guild_id: Any = "",
+    owner_bypass: bool = False,
+) -> dict[str, Any]:
+    """Return the enforced DayZ server allowance for one dashboard login."""
+    configs = guild_configs if isinstance(guild_configs, dict) else {}
+    primary_id = normalize_guild_id(primary_guild_id)
+    primary_config = configs.get(primary_id) if primary_id else None
+    primary_config = primary_config if isinstance(primary_config, dict) else {}
+    access = primary_config.get("dashboard") if isinstance(primary_config.get("dashboard"), dict) else {}
+    plan_id = dashboard_access_tier(access)
+    plan = dashboard_plan_by_id(plan_id)
+    if not plan:
+        plan = dashboard_plan_by_id("free_bot")
+        plan_id = str(plan.get("id") or "free_bot")
+    base_limit = max(1, min(50, safe_int(plan.get("server_limit"), 1)))
+    addon_slots = dashboard_active_server_slot_addons(access)
+    linked_ids = linked_guild_ids_for_config(primary_config, primary_id) if primary_id else []
+    extra_linked = normalize_guild_id(prospective_linked_guild_id)
+    if extra_linked and extra_linked not in linked_ids:
+        linked_ids.append(extra_linked)
+    used_keys: set[str] = set()
+    for guild_id in linked_ids:
+        config = configs.get(guild_id)
+        if not isinstance(config, dict):
+            continue
+        used_keys.update(
+            dashboard_server_slot_keys_for_config(
+                config,
+                guild_id,
+                prospective_profile if guild_id == primary_id else None,
+            )
+        )
+    # A freshly created dashboard may not have been saved to the global store
+    # yet; it still starts with one base-server slot.
+    if not used_keys and primary_id:
+        used_keys.add(f"record:{primary_id}:base")
+    # Only the actual owner dashboard bypasses customer subscription limits.
+    # A server record's editable tier must never become a customer-side bypass.
+    unlimited = bool(owner_bypass)
+    limit = None if unlimited else base_limit + addon_slots
+    used = len(used_keys)
+    return {
+        "plan_id": plan_id,
+        "plan_name": str(plan.get("name") or plan_id),
+        "base_limit": base_limit,
+        "addon_slots": addon_slots,
+        "limit": limit,
+        "used": used,
+        "remaining": None if limit is None else max(0, limit - used),
+        "unlimited": unlimited,
+        "over_limit": False if limit is None else used > limit,
+        "can_add": unlimited or used < (limit or 0),
+    }
+
+
+def dashboard_server_slot_limit_error(entitlement: dict[str, Any]) -> str:
+    limit = entitlement.get("limit")
+    used = safe_int(entitlement.get("used"), 0)
+    if limit is None:
+        return ""
+    return (
+        f"This dashboard is using {used} of {limit} DayZ server slots. "
+        "Remove a saved server, upgrade the plan, or purchase an additional server slot before adding another."
+    )
+
+
 def dashboard_enabled_server_profile_items(config: Any) -> list[tuple[str, dict[str, Any]]]:
     profiles = dashboard_server_profile_store(config)
     return [
@@ -33947,6 +34382,22 @@ def page(mode: str, auth: dict[str, Any]):
         "guild_id": normalize_guild_id(selected_review_guild_id),
     }
     billing_plans = dashboard_billing_plans()
+    slot_guild_configs = load_store("guild_configs", {})
+    if not isinstance(slot_guild_configs, dict):
+        slot_guild_configs = {}
+    slot_guild_id = normalize_guild_id(
+        selected_server.get("guild_id") if isinstance(selected_server, dict) else auth.get("guild_id")
+    )
+    server_slot_entitlement = dashboard_server_slot_entitlement(
+        slot_guild_configs,
+        slot_guild_id,
+        owner_bypass=auth.get("kind") == "owner",
+    ) if slot_guild_id else {
+        "plan_id": "free_bot", "plan_name": "Wandering Bot Free", "base_limit": 1,
+        "addon_slots": 0, "limit": 1, "used": 0, "remaining": 1,
+        "unlimited": auth.get("kind") == "owner", "over_limit": False, "can_add": True,
+    }
+    active_server_slot_addon = server_slot_addon()
     native_app_mode = is_native_app_request()
     customer_billing_plans = [] if native_app_mode or mode == "owner" or auth.get("kind") == "agent_account" else dashboard_customer_billing_plans(selected_access)
     onboarding_emoji_options = dashboard_onboarding_emoji_options(
@@ -34051,6 +34502,8 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_credit_ledger=agent_credit_ledger_for_account(agent_credit_account_id_for_auth(auth), 12) if auth.get("kind") in {"agent_account", "guild"} else [],
         ai_agent_credits=ai_agent_credits,
         billing_plans=billing_plans,
+        server_slot_entitlement=server_slot_entitlement,
+        server_slot_addon=active_server_slot_addon,
         customer_billing_plans=customer_billing_plans,
         native_app_mode=native_app_mode,
         billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
@@ -34690,6 +35143,66 @@ def public_purchase_complete():
     )
 
 
+@APP.get("/server-slots/checkout")
+def server_slot_checkout():
+    auth = current_auth()
+    if not auth:
+        return redirect("/login")
+    if auth.get("kind") != "guild" or auth.get("temporary_login_id"):
+        return redirect("/admin?section=access&setup_tool=servers#server-profiles")
+    guild_id = normalize_guild_id(auth.get("guild_id"))
+    configs = load_store("guild_configs", {})
+    config = configs.get(guild_id) if isinstance(configs, dict) else None
+    if not isinstance(config, dict) or not dashboard_admin_login_enabled(config):
+        return redirect("/admin?section=access&setup_tool=servers#server-profiles")
+    addon = server_slot_addon()
+    purchase, error = create_server_slot_checkout(guild_id)
+    if not purchase:
+        return render_template_string(
+            PUBLIC_CHECKOUT_TEMPLATE,
+            plan=addon,
+            checkout_error=error or "Additional server-slot checkout is unavailable.",
+            checkout_url="",
+            pwa_theme_color=PWA_THEME_COLOR,
+        )
+    return redirect(str(purchase.get("checkout_url") or "/admin?section=access&setup_tool=servers#server-profiles"))
+
+
+@APP.get("/server-slots/complete")
+def server_slot_complete():
+    auth = current_auth()
+    return_url = "/admin?section=access&setup_tool=servers#server-profiles"
+    session_id = str(request.args.get("session_id") or "").strip()
+    purchase = billing_purchase_by_stripe_session(billing_purchase_store(), session_id) if session_id else None
+    if not auth or auth.get("kind") != "guild":
+        purchase = None
+    elif purchase and normalize_guild_id(purchase.get("guild_id")) != normalize_guild_id(auth.get("guild_id")):
+        purchase = None
+    status = str((purchase or {}).get("status") or "").lower()
+    if status == "activated":
+        slots = max(1, safe_int(purchase.get("slots"), 1))
+        return render_template_string(
+            PAYMENT_PROGRESS_TEMPLATE,
+            title="DayZ server slot added",
+            subtitle="Wandering Bot dashboard",
+            heading="Additional server slot active",
+            message=f"{slots} additional DayZ server slot{'s' if slots != 1 else ''} {'are' if slots != 1 else 'is'} now active on this dashboard.",
+            return_url=return_url,
+            refresh=False,
+            pwa_theme_color=PWA_THEME_COLOR,
+        )
+    return render_template_string(
+        PAYMENT_PROGRESS_TEMPLATE,
+        title="Confirming server slot",
+        subtitle="Wandering Bot dashboard",
+        heading="Waiting for Stripe confirmation",
+        message="Stripe is still sending the verified recurring add-on confirmation. Do not pay again; this screen checks automatically and then updates the server-slot allowance.",
+        return_url=return_url,
+        refresh=True,
+        pwa_theme_color=PWA_THEME_COLOR,
+    )
+
+
 @APP.post("/purchase/activate")
 def public_purchase_activate():
     activated, _message, purchase = billing_activate_purchase_claim()
@@ -35266,7 +35779,16 @@ def ai_agent_credit_checkout_response(pack_id: str):
     checkout, error = agent_create_credit_checkout(str((account or {}).get("id") or ""), pack, str(auth.get("email") or ""))
     if error or not checkout:
         return redirect("/agent?section=ai-agent#ai-agent-credits" if auth.get("kind") == "agent_account" else "/admin?section=ai-agent#ai-agent-credits")
-    return redirect(str(checkout.get("checkout_url") or ""))
+    response = make_response(redirect(str(checkout.get("checkout_url") or "")))
+    response.set_cookie(
+        AGENT_CREDIT_CHECKOUT_COOKIE,
+        str(checkout.get("id") or ""),
+        httponly=True,
+        secure=FORCE_HTTPS,
+        samesite="Lax",
+        max_age=AGENT_CREDIT_CHECKOUT_MAX_AGE_SECONDS,
+    )
+    return response
 
 
 @APP.get("/ai-agent/credits/checkout/<pack_id>")
@@ -35277,6 +35799,37 @@ def ai_agent_credit_checkout(pack_id: str):
 @APP.get("/agent/credits/checkout/<pack_id>")
 def agent_credit_checkout(pack_id: str):
     return ai_agent_credit_checkout_response(pack_id)
+
+
+@APP.get("/agent/credits/complete")
+def agent_credit_complete():
+    auth = current_ai_agent_auth()
+    return_url = "/agent?section=ai-agent#ai-agent-credits" if auth and auth.get("kind") == "agent_account" else "/admin?section=ai-agent#ai-agent-credits"
+    checkout = agent_credit_checkout_for_request()
+    status = str((checkout or {}).get("status") or "").lower()
+    if status == "fulfilled":
+        response = make_response(render_template_string(
+            PAYMENT_PROGRESS_TEMPLATE,
+            title="AI credits added",
+            subtitle="Wandering Bot AI Agent",
+            heading="Top-up complete",
+            message=f"Your balance is now {safe_int(checkout.get('balance_after'), 0)} credits. The dashboard has been updated.",
+            return_url=return_url,
+            refresh=False,
+            pwa_theme_color=PWA_THEME_COLOR,
+        ))
+        response.delete_cookie(AGENT_CREDIT_CHECKOUT_COOKIE)
+        return response
+    return render_template_string(
+        PAYMENT_PROGRESS_TEMPLATE,
+        title="Confirming AI credit top-up",
+        subtitle="Wandering Bot AI Agent",
+        heading="Waiting for Stripe confirmation",
+        message="Stripe is still sending the verified payment confirmation. Do not pay again; this screen refreshes the balance automatically.",
+        return_url=return_url,
+        refresh=True,
+        pwa_theme_color=PWA_THEME_COLOR,
+    )
 
 
 @APP.post("/api/stripe/agent-credits-webhook")
@@ -37598,6 +38151,13 @@ def api_link_server():
         linked = []
         dashboard["linked_guild_ids"] = linked
     if target_guild_id not in [str(item) for item in linked]:
+        entitlement = dashboard_server_slot_entitlement(
+            guild_configs,
+            primary_guild_id,
+            prospective_linked_guild_id=target_guild_id,
+        )
+        if not entitlement.get("can_add"):
+            return jsonify({"ok": False, "error": dashboard_server_slot_limit_error(entitlement), "server_slots": entitlement}), 403
         linked.append(target_guild_id)
     dashboard["linked_updated_at"] = datetime.now(UTC).isoformat()
     save_store("guild_configs", guild_configs)
@@ -37741,6 +38301,19 @@ def api_dayz_server_profile():
             "access",
             "#server-profiles",
         )
+
+    if profile_id not in profiles and not (auth and auth.get("kind") == "owner"):
+        prospective_profile = {
+            "profile_id": profile_id,
+            "service_id": str(raw_payload.get("service_id") or "").strip(),
+        }
+        entitlement = dashboard_server_slot_entitlement(
+            guild_configs,
+            guild_id,
+            prospective_profile=prospective_profile,
+        )
+        if not entitlement.get("can_add"):
+            return jsonify({"ok": False, "error": dashboard_server_slot_limit_error(entitlement), "server_slots": entitlement}), 403
 
     profile = profiles.setdefault(profile_id, {"channels": {}})
     if not isinstance(profile, dict):
@@ -39965,6 +40538,7 @@ def api_owner_billing_plan():
                 "name": payload.get("name"),
                 "price_text": payload.get("price_text"),
                 "description": payload.get("description"),
+                "server_limit": payload.get("server_limit"),
                 "payment_url": payload.get("payment_url"),
                 "stripe_payment_link_id": payload.get("stripe_payment_link_id"),
                 "stripe_buy_button_id": payload.get("stripe_buy_button_id"),
@@ -39980,6 +40554,25 @@ def api_owner_billing_plan():
         {"ok": True, "plan": record, "note": "Saved billing plan."},
         "billing",
         "#billing",
+    )
+
+
+@APP.post("/api/owner/server-slot-addon")
+def api_owner_server_slot_addon():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    try:
+        addon = save_server_slot_addon(payload)
+    except ValueError as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "server_slot_addon": addon, "note": "Saved the additional DayZ server-slot add-on."},
+        "billing",
+        "#server-slot-addon",
     )
 
 
