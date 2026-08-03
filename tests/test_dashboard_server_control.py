@@ -168,6 +168,16 @@ class DashboardServerControlTests(unittest.TestCase):
         action.assert_not_called()
         self.assertIn('name="server_action_confirmed" value="true" required', dashboard.PAGE_TEMPLATE)
 
+    def test_live_event_queue_requires_selected_server_confirmation(self):
+        payload = {"guild_id": "guild-1", "event_type": "airdrop"}
+
+        with patch.object(dashboard, "require_admin", return_value=(payload, None)):
+            response, status = dashboard.api_scenario_event()
+
+        self.assertEqual(400, status)
+        self.assertIn("confirmation", response["args"][0]["error"].lower())
+        self.assertIn('name="confirmed_profile" value="true" required', dashboard.PAGE_TEMPLATE)
+
     def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
         base_config = {
             "server_map": "chernarus",

@@ -9004,6 +9004,7 @@ PAGE_TEMPLATE = """
             <label>Guard count <input name="guard_count" type="number" value="{{ edit_event.guard_count }}"></label>
             <label>Guard radius <input name="guard_radius" type="number" value="{{ edit_event.guard_radius }}"></label>
             <div class="full embed-preview"><strong>Status</strong><span>Save queues direct bridge XML when the DayZ bridge is installed; otherwise it uses guarded native CE XML. Max 250 spawns per event.</span></div>
+            <label class="check full"><input type="checkbox" name="confirmed_profile" value="true" required> I checked the selected DayZ server, map, and event location.</label>
             <div class="full modal-actions"><button type="submit">Save / Queue Event</button>{% if edit_event_key %}<a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}#pve-workshop">Close</a>{% endif %} <span class="result muted"></span></div>
           </form>
           <p class="tool-note" style="margin-top:.75rem">Events save to bot config. Bridge deployments and console CE XML both apply after a server restart.</p>
@@ -35518,6 +35519,8 @@ def api_scenario_event():
     allowed_types = {"airdrop", "animal_pack", "zombie_horde", "loot_crate", "vehicle_spawn", "vehicle_reset_point", "vehicle_reset_all", "gas_zone"}
     if event_type not in allowed_types:
         return jsonify({"ok": False, "error": "unsupported scenario event type"}), 400
+    if not safe_bool(payload.get("confirmed_profile"), False):
+        return jsonify({"ok": False, "error": "Tick the selected-server confirmation before queueing a live DayZ event."}), 400
 
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
