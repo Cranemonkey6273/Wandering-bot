@@ -32349,34 +32349,47 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
     return scoped
 
 
+def dashboard_xml_workshop_redirect_path(mode: str, xml_tool: str, params: dict[str, Any], anchor: str) -> str:
+    """Route legacy XML tools without dropping their selected server profile."""
+    query = dict(params or {})
+    query["section"] = "xml-workshop"
+    query["xml_tool"] = xml_tool
+    return f"/{mode}?{urllib.parse.urlencode(query)}#{anchor}"
+
+
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
     valid_sections = {"overview", "leaderboards", "live-feeds", "player-audit", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "presets", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if active_section == "visual-loadout":
-        guild_qs = ""
-        focused = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
-        if focused:
-            guild_qs = f"&guild_id={urllib.parse.quote(focused)}"
-        return redirect(f"/{mode}?section=xml-workshop&xml_tool=player-loadout{guild_qs}#player-loadout-builder")
+        # Keep the selected DayZ profile when routing old loadout URLs into the
+        # consolidated workshop. Dropping it silently opened the base server
+        # (usually Chernarus), which is unsafe for map-specific file work.
+        return redirect(
+            dashboard_xml_workshop_redirect_path(
+                mode,
+                "player-loadout",
+                request.args.to_dict(flat=True),
+                "player-loadout-builder",
+            )
+        )
     consolidated_xml_sections = {
         "loot-engine": "loot",
         "bulk-economy": "loot",
         "dayz-converter": "loot",
     }
     if active_section in consolidated_xml_sections:
-        params = {
-            "section": "xml-workshop",
-            "xml_tool": consolidated_xml_sections[active_section],
-        }
-        focused = normalize_guild_id(str(request.args.get("guild_id") or "").strip())
-        token = str(request.args.get("token") or "").strip()
-        if focused:
-            params["guild_id"] = focused
-        if token:
-            params["token"] = token
-        return redirect(f"/{mode}?{urllib.parse.urlencode(params)}#xml-workshop")
+        # Preserve profile and other safe context on legacy URLs; otherwise a
+        # Livonia/Sakhal request is redirected into Chernarus XML defaults.
+        return redirect(
+            dashboard_xml_workshop_redirect_path(
+                mode,
+                consolidated_xml_sections[active_section],
+                request.args.to_dict(flat=True),
+                "xml-workshop",
+            )
+        )
     if active_section in ADMIN_CENTER_SECTION_TO_TOOL:
         params = request.args.to_dict(flat=True)
         params["section"] = "access"

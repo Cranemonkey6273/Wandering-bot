@@ -206,6 +206,18 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else \'\' }}"', template)
         self.assertIn('selected_audit_total = selected_dayz_profile.player_audit_total', template)
 
+    def test_legacy_xml_and_loadout_redirects_keep_the_selected_profile(self):
+        args = {"section": "dayz-converter", "guild_id": "guild-1", "server_profile_id": "livo", "token": "safe-token"}
+        redirect_path = dashboard.dashboard_xml_workshop_redirect_path("admin", "loot", args, "xml-workshop")
+        loadout_path = dashboard.dashboard_xml_workshop_redirect_path("admin", "player-loadout", args, "player-loadout-builder")
+
+        self.assertIn("server_profile_id=livo", redirect_path)
+        self.assertIn("guild_id=guild-1", redirect_path)
+        self.assertIn("xml_tool=loot", redirect_path)
+        self.assertTrue(redirect_path.endswith("#xml-workshop"))
+        self.assertIn("xml_tool=player-loadout", loadout_path)
+        self.assertTrue(loadout_path.endswith("#player-loadout-builder"))
+
     def test_live_server_actions_require_selected_server_confirmation(self):
         payload = {"guild_id": "guild-1", "server_action": "restart"}
         configs = {"guild-1": {"channels": {}}}
