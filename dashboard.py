@@ -4269,13 +4269,13 @@ PAGE_TEMPLATE = """
     }
     .command-logo {
       display: grid;
-      gap: .75rem;
-      margin-bottom: .8rem;
+      gap: .55rem;
+      margin-bottom: .55rem;
     }
     .command-logo-frame {
       position: relative;
       width: 100%;
-      aspect-ratio: 1 / 1;
+      aspect-ratio: 16 / 9;
       contain: layout paint size;
       overflow: hidden;
       border: 1px solid rgba(255,255,255,.58);
@@ -4355,14 +4355,14 @@ PAGE_TEMPLATE = """
       text-align: center;
     }
     .command-login-actions a:hover { border-color: rgba(103,245,231,.34); color: #effcff; }
-    .command-side-nav { display: grid; gap: .35rem; margin-top: .55rem; }
+    .command-side-nav { display: grid; gap: .25rem; margin-top: .35rem; }
     .command-side-nav a,
     .command-quick a {
       display: flex;
       align-items: center;
       gap: .58rem;
-      min-height: 2.45rem;
-      padding: .55rem .7rem;
+      min-height: 2.25rem;
+      padding: .46rem .62rem;
       border: 1px solid transparent;
       border-radius: .45rem;
       color: #cbdadd;
@@ -4373,10 +4373,10 @@ PAGE_TEMPLATE = """
     .command-side-nav a.active,
     .command-side-nav a:hover,
     .command-quick a:hover {
-      border-color: var(--orange-line);
-      background: linear-gradient(90deg, rgba(255,159,67,.18), rgba(21,205,198,.24), rgba(18,32,38,.45));
+      border-color: rgba(255,159,67,.62);
+      background: linear-gradient(90deg, rgba(255,159,67,.26), rgba(21,205,198,.17), rgba(18,32,38,.45));
       color: #effcff;
-      box-shadow: inset 3px 0 0 var(--orange);
+      box-shadow: inset 3px 0 0 var(--orange), 0 0 0 1px rgba(255,159,67,.08);
     }
     .command-quick {
       display: grid;
@@ -4523,9 +4523,14 @@ PAGE_TEMPLATE = """
       background: linear-gradient(180deg, rgba(255,159,67,.22), rgba(18,49,56,.62));
       text-shadow: 0 0 18px rgba(255,159,67,.18);
     }
+    /* The sidebar is the main desktop navigation. Keeping a second full row
+       of the same links made every page feel busier without adding a route. */
+    @media (min-width: 721px) {
+      body[data-theme="command"] .section-nav { display: none; }
+    }
     .command-metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: .65rem;
     }
     .command-metric {
@@ -4534,10 +4539,12 @@ PAGE_TEMPLATE = """
       border: 1px solid rgba(103,245,231,.14);
       border-radius: .5rem;
       background: linear-gradient(180deg, rgba(21,35,42,.88), rgba(8,17,21,.98));
+      box-shadow: inset 0 .14rem 0 rgba(255,159,67,.58);
     }
     .command-metric span { display: block; color: #94a7ac; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
     .command-metric strong { display: block; margin-top: .25rem; color: var(--orange); font-size: 1.9rem; line-height: 1; text-shadow: 0 0 20px rgba(255,159,67,.12); }
     .command-metric small { display: block; margin-top: .35rem; color: #8ded63; }
+    .command-metric-secondary { display: none; }
     .command-grid {
       display: grid;
       grid-template-columns: minmax(0, 1.28fr) minmax(31rem, .82fr);
@@ -4643,6 +4650,23 @@ PAGE_TEMPLATE = """
       border-radius: .35rem;
       font-size: .78rem;
     }
+    .command-card .button:hover,
+    .command-card .button:focus-visible {
+      border-color: rgba(255,159,67,.66);
+      background: rgba(255,159,67,.16);
+      color: #fff5e8;
+    }
+    .command-empty-state {
+      display: grid;
+      gap: .45rem;
+      min-height: 8.6rem;
+      align-content: center;
+      padding: 1rem;
+      background: linear-gradient(110deg, rgba(255,159,67,.08), rgba(6,17,21,.66) 46%, rgba(103,245,231,.05));
+    }
+    .command-empty-state strong { color: #fff2df; font-size: .9rem; letter-spacing: .035em; }
+    .command-empty-state p { margin: 0; color: #aebfc3; font-size: .83rem; line-height: 1.45; }
+    .command-empty-state .command-mini-actions { margin-top: .15rem; }
     .command-loadout {
       display: grid;
       grid-template-columns: minmax(8.5rem, .65fr) minmax(13.5rem, .92fr) minmax(8.5rem, .65fr);
@@ -4899,6 +4923,7 @@ PAGE_TEMPLATE = """
     }
     body[data-theme="command"] .command-status-bar strong { color: var(--orange); }
     body[data-theme="command"] .command-status-bar .ok { color: #8ded63; }
+    body[data-theme="command"] .command-status-meta { display: none; }
     body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
       grid-template-columns: minmax(18rem, .7fr) minmax(34rem, 1.5fr) minmax(22rem, .85fr);
     }
@@ -6207,12 +6232,12 @@ PAGE_TEMPLATE = """
       {% set active_event_count = (server.scenario_events|selectattr('enabled')|list|length) if server else 0 %}
       {% set zone_count = (server.zones|length) if server else 0 %}
       <div class="command-metrics">
-        <div class="command-metric"><span>DayZ Online</span><strong>{{ (server.online|length) if server else summary.online }} / {{ server.discord_member_count if server else summary.discord_members }}</strong><small>Discord members</small></div>
-        <div class="command-metric"><span>Uptime</span><strong>Live</strong><small>{{ generated_at }}</small></div>
+        <div class="command-metric"><span>DayZ Online</span><strong>{{ (server.online|length) if server else summary.online }}</strong><small>{{ server.discord_member_count if server else summary.discord_members }} Discord members</small></div>
+        <div class="command-metric command-metric-secondary"><span>Uptime</span><strong>Live</strong><small>{{ generated_at }}</small></div>
         <div class="command-metric"><span>PVE Events</span><strong>{{ server.scenario_events|length if server else 0 }}</strong><small>{{ active_event_count }} active</small></div>
         <div class="command-metric"><span>Zones</span><strong>{{ zone_count }}</strong><small>{{ zone_count }} mapped</small></div>
         <div class="command-metric"><span>Shop Items</span><strong>{{ summary.shop_items }}</strong><small>Economy ready</small></div>
-        <div class="command-metric"><span>Last Refresh</span><strong>{{ generated_clock }}</strong><small>Dashboard sync</small></div>
+        <div class="command-metric command-metric-secondary"><span>Last Refresh</span><strong>{{ generated_clock }}</strong><small>Dashboard sync</small></div>
       </div>
 
       <div class="command-grid">
@@ -6221,6 +6246,7 @@ PAGE_TEMPLATE = """
             <h2>Live Event Manager</h2>
             <a class="button" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}#pve-workshop">Open Events</a>
           </div>
+          {% if server and server.scenario_events %}
           <div class="command-table-scroll">
           <table class="command-table">
             <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Actions</th></tr></thead>
@@ -6239,12 +6265,17 @@ PAGE_TEMPLATE = """
                 <td><span class="command-badge {{ 'ok' if status_label in ['Done', 'Running'] else ('bad' if status_label == 'Failed' else 'warn') }}" title="{{ status_text }}">{{ status_label }}</span></td>
                 <td><div class="command-mini-actions"><a href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}#pve-workshop">Edit</a><a href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}#pve-workshop">View</a></div></td>
               </tr>
-              {% else %}
-              <tr><td colspan="8">No live events queued yet.</td></tr>
               {% endfor %}
             </tbody>
           </table>
           </div>
+          {% else %}
+          <div class="command-empty-state">
+            <strong>No live events queued</strong>
+            <p>Your server is clear. Build an airdrop, horde, vehicle or gas-zone plan when you are ready; nothing is uploaded until you approve it.</p>
+            <div class="command-mini-actions"><a class="button" href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}#pve-workshop">Create event</a></div>
+          </div>
+          {% endif %}
         </article>
 
         <article class="command-card">
@@ -12326,14 +12357,13 @@ PAGE_TEMPLATE = """
   </aside>
   {% endif %}
   <div class="command-status-bar" aria-label="Command connection status">
-    <span>UK Time: <strong>{{ generated_at }}</strong></span>
-    <span>Dashboard: <strong>{{ dashboard_version }}</strong></span>
-    <span>DayZ Files: <strong>{{ dayz_ce_file_version }}</strong></span>
-    <span>Platform: <strong>{{ server.platform_label if server else 'Xbox' }}</strong></span>
-    <span>Map: <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
-    <span><span class="ok">Database: Connected</span> | <span class="ok">Nitrado: Connected</span></span>
-    <span>DayZ: <strong>{{ (server.online|length) if server else summary.online }}</strong> online</span>
-    <span>Discord: <strong>{{ server.discord_member_count if server else summary.discord_members }}</strong> members</span>
+    <span class="command-status-primary">UK Time: <strong>{{ generated_at }}</strong></span>
+    <span class="command-status-meta">Dashboard: <strong>{{ dashboard_version }}</strong></span>
+    <span class="command-status-meta">DayZ Files: <strong>{{ dayz_ce_file_version }}</strong></span>
+    <span class="command-status-primary">{{ server.platform_label if server else 'Xbox' }} · <strong>{{ server.map|capitalize if server else 'Chernarus' }}</strong></span>
+    <span class="command-status-primary"><span class="ok">Database connected</span> · <span class="ok">Nitrado connected</span></span>
+    <span class="command-status-meta">DayZ: <strong>{{ (server.online|length) if server else summary.online }}</strong> online</span>
+    <span class="command-status-meta">Discord: <strong>{{ server.discord_member_count if server else summary.discord_members }}</strong> members</span>
   </div>
   <script>
     const DASHBOARD_PUBLIC_URL = "{{ public_url }}";
