@@ -10091,7 +10091,7 @@ PAGE_TEMPLATE = """
                     <small class="field-help">Loadout JSON spawns these as pristine items.</small>
                   </label>
                 </div>
-                <div><button type="submit">Save Player Loadout</button> <span class="result muted"></span></div>
+                <div><button type="submit">Save Player Loadout</button> <button type="submit" formaction="/api/admin/xml-workshop-recipe-action" name="action" value="clear_draft" onclick="return window.confirm('Clear this local loadout draft? No live DayZ files will be changed.');">Clear Draft</button> <span class="result muted"></span></div>
               </div>
               <aside class="xml-output-panel">
                 <div class="mini-grid">
@@ -10209,6 +10209,15 @@ PAGE_TEMPLATE = """
               <strong>Player: {{ recipe.name }}</strong>
               <span class="muted">{{ recipe.custom_path or recipe.cfggameplay_reference }}</span>
               <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if item.slot %} -> {{ item.slot }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+              <form class="inline-action" method="post" action="/api/admin/xml-workshop-recipe-action" onsubmit="return window.confirm('Remove this saved player loadout draft? It will not change the live server files.');">
+                <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+                <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&amp;xml_tool=saved&amp;guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}">
+                <input class="hidden-field" name="action" value="delete">
+                <input class="hidden-field" name="recipe_kind" value="player_loadout">
+                <input class="hidden-field" name="recipe_id" value="{{ recipe.id }}">
+                <button type="submit">Remove draft</button>
+              </form>
             </div>
             {% endfor %}
             {% for recipe in (server.xml_workshop.container_recipes if server else []) %}
@@ -10216,6 +10225,15 @@ PAGE_TEMPLATE = """
               <strong>Container: {{ recipe.name }}</strong>
               <span class="muted">{{ recipe.container_class }} · {{ recipe.damage }}</span>
               <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+              <form class="inline-action" method="post" action="/api/admin/xml-workshop-recipe-action" onsubmit="return window.confirm('Remove this saved container draft? It will not change the live server files.');">
+                <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+                <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&amp;xml_tool=saved&amp;guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}">
+                <input class="hidden-field" name="action" value="delete">
+                <input class="hidden-field" name="recipe_kind" value="container">
+                <input class="hidden-field" name="recipe_id" value="{{ recipe.id }}">
+                <button type="submit">Remove draft</button>
+              </form>
             </div>
             {% endfor %}
             {% for recipe in (server.xml_workshop.airdrop_recipes if server else []) %}
@@ -10223,6 +10241,15 @@ PAGE_TEMPLATE = """
               <strong>Airdrop: {{ recipe.name }}</strong>
               <span class="muted">{{ recipe.event_name }} · {{ recipe.container_class }} · {{ recipe.positions|length }} position(s)</span>
               <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+              <form class="inline-action" method="post" action="/api/admin/xml-workshop-recipe-action" onsubmit="return window.confirm('Remove this saved airdrop draft? It will not change the live server files.');">
+                <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+                <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&amp;xml_tool=saved&amp;guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}">
+                <input class="hidden-field" name="action" value="delete">
+                <input class="hidden-field" name="recipe_kind" value="airdrop">
+                <input class="hidden-field" name="recipe_id" value="{{ recipe.id }}">
+                <button type="submit">Remove draft</button>
+              </form>
             </div>
             {% endfor %}
             {% for recipe in (server.xml_workshop.vehicle_loadouts if server else []) %}
@@ -10230,6 +10257,15 @@ PAGE_TEMPLATE = """
               <strong>Vehicle: {{ recipe.name }}</strong>
               <span class="muted">{{ recipe.vehicle_class }} · {{ recipe.vehicle_mode }}</span>
               <div>{% for item in recipe.items[:10] %}{{ item.quantity }}x {{ item.item }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+              <form class="inline-action" method="post" action="/api/admin/xml-workshop-recipe-action" onsubmit="return window.confirm('Remove this saved vehicle loadout draft? It will not change the live server files.');">
+                <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+                <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+                <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&amp;xml_tool=saved&amp;guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}">
+                <input class="hidden-field" name="action" value="delete">
+                <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
+                <input class="hidden-field" name="recipe_id" value="{{ recipe.id }}">
+                <button type="submit">Remove draft</button>
+              </form>
             </div>
             {% endfor %}
           </div>
@@ -18292,6 +18328,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/loadout-package": "xml_workshop",
     "/api/admin/xml-workshop-loadout-add": "xml_workshop",
     "/api/admin/xml-workshop-loadout-download": "xml_workshop",
+    "/api/admin/xml-workshop-recipe-action": "xml_workshop",
     "/api/admin/visual-loadout-draft": "xml_workshop",
     "/api/admin/loadout-package-inject": "xml_workshop",
     "/api/admin/dayz-converter-inject": "xml_workshop",
@@ -32574,6 +32611,17 @@ def page(mode: str, auth: dict[str, Any]):
         )
     if not isinstance(xml_workshop_config, dict):
         xml_workshop_config = {}
+    if active_section == "xml-workshop" and selected_dayz_profile_id and isinstance(selected_server, dict):
+        # The selected DayZ profile is already the active workspace above.  The
+        # saved-recipes panel must use that same isolated workshop state rather
+        # than the old shared (usually Chernarus) summary.
+        selected_server = dict(selected_server)
+        selected_server["xml_workshop"] = redact(xml_workshop_summary({"xml_workshop": xml_workshop_config}))
+        state = dict(state)
+        server_rows = list(state.get("servers") or [])
+        if server_rows:
+            server_rows[0] = selected_server
+            state["servers"] = server_rows
     player_loadout_draft = xml_workshop_config.get("player_loadout_draft", {})
     if not isinstance(player_loadout_draft, dict):
         player_loadout_draft = {}
@@ -35503,6 +35551,78 @@ def api_xml_workshop():
     return dashboard_api_response(
         raw_payload,
         {"ok": True, "recipe": record, "note": workshop["status"]},
+        "xml-workshop",
+        "#xml-workshop",
+    )
+
+
+@APP.post("/api/admin/xml-workshop-recipe-action")
+def api_xml_workshop_recipe_action():
+    """Remove a local workshop draft without touching any live DayZ files."""
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    action = str(payload.get("action") or "").strip().lower()
+    kind = str(payload.get("recipe_kind") or "").strip().lower()
+    if action not in {"delete", "clear_draft"}:
+        return jsonify({"ok": False, "success": False, "error": "unsupported recipe action"}), 400
+    if action == "clear_draft" and kind != "player_loadout":
+        return jsonify({"ok": False, "success": False, "error": "only player loadout drafts can be cleared"}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    base_config = guild_configs.setdefault(guild_id, {"channels": {}})
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or not isinstance(config, dict):
+        return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+    workshop = dashboard_prepare_xml_workshop_for_profile(base_config, config, profile_id) if profile_id else config.setdefault("xml_workshop", {})
+    if not isinstance(workshop, dict):
+        return jsonify({"ok": False, "success": False, "error": "No workshop drafts exist for this server."}), 404
+
+    now_text = datetime.now(UTC).isoformat()
+    if action == "clear_draft":
+        if "player_loadout_draft" not in workshop:
+            return jsonify({"ok": False, "success": False, "error": "No player loadout draft exists for this server."}), 404
+        workshop.pop("player_loadout_draft", None)
+        workshop["updated_at"] = now_text
+        workshop["status"] = "Player loadout draft cleared. No live DayZ files were changed."
+        save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "success": True, "note": workshop["status"]},
+            "xml-workshop",
+            "#player-loadout-builder",
+        )
+
+    target_key = {
+        "airdrop": "airdrops",
+        "container": "containers",
+        "player_loadout": "players",
+        "vehicle_loadout": "vehicles",
+    }.get(kind)
+    recipe_id = str(payload.get("recipe_id") or "").strip()
+    if not target_key or not recipe_id:
+        return jsonify({"ok": False, "success": False, "error": "recipe_kind and recipe_id are required"}), 400
+    recipes = workshop.get("recipes") if isinstance(workshop.get("recipes"), dict) else {}
+    collection = recipes.get(target_key) if isinstance(recipes.get(target_key), list) else []
+    remaining = [row for row in collection if not isinstance(row, dict) or str(row.get("id") or "") != recipe_id]
+    if len(remaining) == len(collection):
+        return jsonify({"ok": False, "success": False, "error": "That saved recipe was not found for the selected server."}), 404
+    recipes[target_key] = remaining
+    workshop["recipes"] = recipes
+    workshop["updated_at"] = now_text
+    workshop["status"] = "Recipe draft removed. No live DayZ files were changed."
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "success": True, "note": workshop["status"]},
         "xml-workshop",
         "#xml-workshop",
     )

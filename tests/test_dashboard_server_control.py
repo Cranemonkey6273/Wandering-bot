@@ -132,6 +132,60 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("Livonia-only rules", livonia_workshop["settings"]["notes"])
         self.assertNotIn("xml_workshop", configs["guild-1"]["server_profiles"]["cherno"])
 
+    def test_player_loadout_recipe_is_saved_and_removed_only_on_selected_profile(self):
+        configs = {
+            "guild-1": {
+                "server_map": "chernarus",
+                "xml_workshop": {"recipes": {"players": [{"id": "cherno_loadout", "name": "Cherno loadout"}]}},
+                "server_profiles": {
+                    "cherno": {"server_map": "chernarus"},
+                    "livo": {"server_map": "livonia"},
+                },
+            }
+        }
+        save_payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "livo",
+            "recipe_kind": "player_loadout",
+            "recipe_name": "Livonia QA Loadout",
+            "custom_path": "./custom/Livonia_QA_Loadout.json",
+            "items": "BallisticHelmet, 1, -1, pristine, Head",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(save_payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_xml_workshop()
+
+        livo_workshop = configs["guild-1"]["server_profiles"]["livo"]["xml_workshop"]
+        livo_recipes = livo_workshop["recipes"]["players"]
+        self.assertEqual(["Livonia QA Loadout"], [row["name"] for row in livo_recipes])
+        self.assertEqual("BallisticHelmet", livo_recipes[0]["items"][0]["item"])
+        self.assertEqual(["Cherno loadout"], [row["name"] for row in configs["guild-1"]["xml_workshop"]["recipes"]["players"]])
+
+        delete_payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "livo",
+            "recipe_kind": "player_loadout",
+            "recipe_id": "livonia_qa_loadout",
+            "action": "delete",
+        }
+        with (
+            patch.object(dashboard, "require_admin", return_value=(delete_payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_xml_workshop_recipe_action()
+
+        self.assertEqual([], livo_workshop["recipes"]["players"])
+        self.assertEqual(["Cherno loadout"], [row["name"] for row in configs["guild-1"]["xml_workshop"]["recipes"]["players"]])
+
     def test_heatmap_summary_reads_the_profile_runtime_key(self):
         heatmap = {
             "guild-1": {"NWAF": 99},
