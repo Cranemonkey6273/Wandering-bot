@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from _bot_loader import import_bot_module  # noqa: E402
-from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_custom_json_path, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
+from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
 
 bot = import_bot_module()
 
@@ -18,6 +18,40 @@ REFERENCE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "
 
 
 class DayZFileIntelligenceTests(unittest.TestCase):
+    def test_dependency_plan_distinguishes_map_groups_from_object_spawner(self):
+        map_group = dayz_dependency_plan_for_request(
+            "Place a new loot-bearing static building and set up its loot points",
+            "mapgrouppos.xml",
+        )
+        map_group_paths = {item["path"]: item for item in map_group["files"]}
+
+        self.assertEqual("map_group_placement", map_group["workflow"])
+        self.assertEqual("changed", map_group_paths["mapgrouppos.xml"]["action"])
+        self.assertEqual("changed", map_group_paths["mapgroupproto.xml"]["action"])
+        self.assertEqual("checked", map_group_paths["db/types.xml"]["action"])
+        self.assertEqual("conditional", map_group_paths["cfglimitsdefinition.xml"]["action"])
+
+        object_spawner = dayz_dependency_plan_for_request(
+            "Create an ObjectSpawner base at these coordinates",
+            "custom/my_base.json",
+        )
+        object_paths = {item["path"]: item for item in object_spawner["files"]}
+        self.assertEqual("object_spawner", object_spawner["workflow"])
+        self.assertEqual("changed", object_paths["custom/my_base.json"]["action"])
+        self.assertEqual("changed", object_paths["cfggameplay.json"]["action"])
+        self.assertEqual("preserved", object_paths["mapgrouppos.xml"]["action"])
+        self.assertEqual("preserved", object_paths["mapgroupproto.xml"]["action"])
+
+    def test_dependency_plan_uses_ambient_territories_not_fixed_event_positions(self):
+        plan = dayz_dependency_plan_for_request("Create an ambient fox spawner zone", "env/fox_territories.xml")
+        files = {item["path"]: item for item in plan["files"]}
+
+        self.assertEqual("ambient_spawner", plan["workflow"])
+        self.assertEqual("changed", files["env/*_territories.xml"]["action"])
+        self.assertEqual("changed", files["db/events.xml"]["action"])
+        self.assertEqual("checked", files["cfgenvironment.xml"]["action"])
+        self.assertEqual("preserved", files["cfgeventspawns.xml"]["action"])
+
     def test_known_vanilla_xml_roots_are_detected_from_paths(self):
         self.assertEqual(
             dayz_xml_root_for_path("/dayzxb_missions/dayzOffline.enoch/db/events.xml"),
@@ -335,6 +369,11 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertIn("spawning gear", knowledge["known_schemas"])
         gameplay_knowledge = dayz_agent_file_knowledge("cfggameplay.json")
         self.assertIn("playerRestrictedAreaFiles", " ".join(gameplay_knowledge["dependencies"]))
+        prototype_knowledge = dayz_agent_file_knowledge("mapgroupproto.xml")
+        self.assertIn("mapgrouppos.xml", " ".join(prototype_knowledge["dependencies"]))
+        self.assertIn("DayZ:Diag_Menu", " ".join(prototype_knowledge["official_sources"]))
+        territory_knowledge = dayz_agent_file_knowledge("env/fox_territories.xml")
+        self.assertIn("Ambient_Spawner", " ".join(territory_knowledge["official_sources"]))
 
     def test_init_script_and_named_objectspawner_file_are_recognised(self):
         init_spec = dayz_file_spec_for_path("/mission/init.c")

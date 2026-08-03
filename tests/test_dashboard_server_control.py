@@ -1288,8 +1288,31 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(context["is_custom_json"])
         self.assertIn("restricted area", " ".join(context["knowledge"]["known_schemas"]))
         self.assertIn("custom/ or pra/ JSON", context["format_guide"])
+        self.assertEqual("player_restricted_area", context["dependency_plan"]["workflow"])
+        self.assertEqual(
+            ["pra/NoLogoutArea.json", "cfggameplay.json"],
+            [item["path"] for item in context["dependency_plan"]["files"]],
+        )
         self.assertEqual("", error)
         self.assertEqual("restricted_area", draft["custom_json_schema"])
+
+    def test_dayz_context_supplies_map_group_dependency_plan_to_the_model(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "mapgrouppos.xml",
+                "dayz_map": "livonia",
+            },
+            "Place a new loot-bearing static building with working loot points.",
+        )
+        model_context = dashboard.ai_agent_dayz_context_for_model(context)
+        plan = model_context["dependency_plan"]
+        files = {item["path"]: item for item in plan["files"]}
+
+        self.assertEqual("map_group_placement", plan["workflow"])
+        self.assertEqual("changed", files["mapgrouppos.xml"]["action"])
+        self.assertEqual("changed", files["mapgroupproto.xml"]["action"])
+        self.assertEqual("conditional", files["cfglimitsdefinition.xml"]["action"])
 
     def test_dayz_file_plan_and_template_include_the_specialist_workbench(self):
         plan = dashboard.ai_agent_plan_from_objective(

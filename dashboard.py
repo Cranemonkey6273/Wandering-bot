@@ -35,7 +35,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -23236,6 +23236,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "description": spec.description if spec else "",
         "format_guide": ai_agent_dayz_format_guide(target_path) if target_path else "",
         "knowledge": dayz_agent_file_knowledge(target_path) if target_path else {},
+        "dependency_plan": dayz_dependency_plan_for_request(objective, target_path),
         "is_custom_json": dayz_is_supported_custom_json_path(target_path),
         "custom_json_schema": "recognised vanilla schema required" if dayz_is_supported_custom_json_path(target_path) else "",
         "allows_merge_patch": bool(spec and spec.kind == "xml" and spec.required_children),
@@ -23274,6 +23275,7 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
         "description": context.get("description"),
         "format_guide": context.get("format_guide"),
         "knowledge": context.get("knowledge", {}),
+        "dependency_plan": context.get("dependency_plan", {}),
         "is_custom_json": bool(context.get("is_custom_json")),
         "custom_json_schema": context.get("custom_json_schema"),
         "allows_merge_patch": context.get("allows_merge_patch"),
@@ -24662,13 +24664,13 @@ def ai_agent_llm_reply_for_task(
         "When dayz_file_context is supplied, act as a careful DayZ server-file specialist for users who may be new to development. "
         "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
         "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
-        "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use the selected map's validated DayZ 1.29 reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
+        "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use dayz_file_context.dependency_plan before proposing any file output. The plan distinguishes changed, checked, conditional and preserved files: report that distinction explicitly, generate every genuinely linked file/snippet, and never promote a conditional file to changed without evidence from the selected current file. Use the selected map's validated DayZ 1.29 reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
         "For a new custom/ or pra/ JSON file, create a complete file only when it is clearly one of the recognised vanilla schemas: ObjectSpawner, spawning gear, player restricted area, effect area or underground triggers. State the schema and the matching cfggameplay.json reference that the customer must add. "
         "Do not infer a mod JSON schema from its filename. PC mods, custom scripts and console server access can differ: vanilla mission XML/JSON is generally portable, but mod/script files require the exact current mod, version and configuration. "
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
         "cfgweather.xml controls weather; cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml; "
         "every CE event plan must audit events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml together. A group= position must refer to a real event group, and a loot-bearing static object/group child must have a matching usable mapgroupproto group. Do not manufacture an event group or prototype for a simple vehicle event that does not reference one; clearly report it as checked and preserved instead. Event names should use the correct family prefix (Vehicle, Static, Loot, Item, Infected or Animal) and position rotations should be written with six decimal places. "
-        "mapgroupproto.xml defines group loot prototypes while mapgrouppos.xml places groups; messages.xml controls scheduled on-screen messages; "
+        "mapgroupproto.xml defines reusable group structure and loot points while mapgrouppos.xml places matching group names on the selected map. A map-group placement request can therefore need both files plus types.xml and, only for new named loot rules, a CE limits-definition file. ObjectSpawner JSON instead needs its exact cfggameplay.json objectSpawnersArr reference and must not be converted into MapGroup files. Ambient animals are territory-driven: use the territory file plus its matching db/events.xml record and cfgenvironment.xml reference rather than assuming cfgeventspawns.xml. messages.xml controls scheduled on-screen messages; "
         "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml controls CE cleanup exceptions; cfglimitsdefinition XML files define CE categories/tags/usages; "
         "cfgrandompresets.xml controls random cargo groups; cfgundergroundtriggers.json controls underground area triggers; "
         "cfgenvironment.xml and territory files control environment references and zones. Use the supplied bundled reference or preset only when it matches the selected map and target file. "
@@ -24677,7 +24679,7 @@ def ai_agent_llm_reply_for_task(
         "MapGroupPos/prototype data, territory and environment exclusions, weather/day-night timing, gameplay, messages, spawn points, loadouts, globals and underground settings. "
         "For init.c and ObjectSpawner/SpawnObject work, identify whether the user has vanilla ObjectSpawner or a mod, preserve the source format, and clearly state that scripts require a server-side test. "
         "For NPCs, airstrikes, traders or any other mod-dependent feature, ask for the exact mod name/version and current config before writing a schema; there is no universal vanilla NPC or airstrike file. "
-        "When a request touches more than one file, name every target file, explain why each is needed, keep independent snippets clearly separated, and say which are complete files versus merge-only patches. "
+        "When a request touches more than one file, name every planned target file, explain why each is changed/checked/conditional/preserved, keep independent snippets clearly separated, and say which are complete files versus merge-only patches. If the requested feature could use two different DayZ mechanisms, explain both and ask which mechanism the customer uses before drafting. "
         "Never copy or claim to recreate another service's private implementation; use the supplied request, validated vanilla references and documented file structure. "
         "When error_text is supplied, interpret the reported line/column and the surrounding source; do not pretend to have fixed it unless you return a validated draft. "
         "When a scenario plan is supplied, explain that the dashboard's event engine creates the linked CE package from current server files, not isolated replacement snippets. "

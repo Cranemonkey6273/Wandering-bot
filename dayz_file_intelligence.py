@@ -153,6 +153,30 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
         "variants": "Vehicle, Static, Loot, Item, Infected and Animal events have different CE semantics; choose the appropriate current event pattern.",
         "safety": "Treat a linked event package as multiple files. Merge named records instead of replacing a live events.xml.",
     },
+    "cfgeventspawns.xml": {
+        "purpose": "Central Economy event positions and optional named event-group references.",
+        "dependencies": ["Each <event name=...> must exactly match a db/events.xml event name.", "A pos group=... reference must match a cfgeventgroups.xml group name."],
+        "variants": "Direct vehicle, infected and animal events normally use positions without a group reference. Static scenes may use a group, depending on the selected vanilla pattern.",
+        "safety": "Coordinates belong here, not in events.xml. Use X/Z map coordinates and a six-decimal rotation; do not add a group= attribute unless the matching group is present.",
+    },
+    "cfgeventgroups.xml": {
+        "purpose": "Reusable Central Economy static event-group definitions.",
+        "dependencies": ["Only needed when cfgeventspawns.xml uses a matching pos group=... reference.", "Loot-bearing child classes need compatible mapgroupproto.xml definitions and types/categories/usages."],
+        "variants": "A group is not a mandatory fourth event file. Direct native vehicle, animal and infected events do not need a synthetic group.",
+        "safety": "Keep every group name and child classname exact. Do not fabricate an event group just to make a package look complete.",
+    },
+    "mapgroupproto.xml": {
+        "purpose": "Reusable map-group prototypes, including compatible CE loot points, categories, usages and tiers for static objects/buildings.",
+        "dependencies": ["mapgrouppos.xml places a matching group on the selected map.", "types.xml item categories/usages must be compatible with the prototype's loot definitions.", "cfglimitsdefinition.xml or cfglimitsdefinitionuser.xml defines any custom category, tag or usage named by the prototype."],
+        "variants": "A group can be inspected or preserved without being changed. It is required for a static loot-bearing group/object, not for a normal working vehicle or an ObjectSpawner JSON placement.",
+        "safety": "Do not confuse prototypes with map placements. Preserve the selected map's existing group names, point structure and loot rules; never add loot points to an unrelated object just because a request mentions loot.",
+    },
+    "mapgrouppos.xml": {
+        "purpose": "Selected-map placements of map-group prototypes, including group name, position and rotation.",
+        "dependencies": ["Each placement group must have a compatible mapgroupproto.xml prototype.", "A prototype's categories/usages ultimately need compatible types.xml loot records."],
+        "variants": "Use this for map-native group placement data. A custom JSON ObjectSpawner placement instead needs custom/<file>.json plus cfggameplay.json, not mapgrouppos.xml.",
+        "safety": "Do not copy a placement from another map or change a group name without its matching prototype. Confirm terrain height and map bounds from the selected map before upload.",
+    },
     "types.xml": {
         "purpose": "Central Economy item quantities, lifetime, restock, tiers, categories, usages and flags.",
         "dependencies": ["cfgspawnabletypes.xml controls spawned attachments/cargo.", "cfglimitsdefinition XML and map group prototypes must agree on categories/usages."],
@@ -165,11 +189,47 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
         "variants": "Nested cargo and attachment structures are supported in modern DayZ; preserve the current schema and use matching item class names.",
         "safety": "Do not confuse attachment/cargo definitions with types.xml nominal world-loot settings.",
     },
+    "cfgeconomycore.xml": {
+        "purpose": "Central Economy root configuration, persistence/backup settings and optional custom CE XML include folders.",
+        "dependencies": ["A custom CE include declares the exact folder/file and its type (types, spawnabletypes, globals, economy, events or messages).", "Included partial files follow override/append rules rather than replacing the full vanilla mission file."],
+        "variants": "Core settings are map/mission-specific. Custom terrains and modded missions can have additional root classes and include structures.",
+        "safety": "Do not use a partial include as a full-file replacement. Keep every file type and include path exact, then validate the resulting mission after restart.",
+    },
+    "globals.xml": {
+        "purpose": "Global Central Economy limits and cleanup behaviour, including broader infected/animal and persistence-related limits.",
+        "dependencies": ["Event and territory populations remain constrained by applicable global limits."],
+        "variants": "Existing variable types are part of the schema and must be preserved; selected-map values may differ.",
+        "safety": "A higher event/territory count will not override an incompatible global maximum. Change one scoped value at a time and measure server performance.",
+    },
+    "economy.xml": {
+        "purpose": "Central Economy switches controlling initialisation, loading, respawning and saving for entity groups.",
+        "dependencies": ["The enabled economy groups determine whether corresponding CE data can initialise, load, respawn and persist."],
+        "variants": "Dynamic loot, animals, zombies, vehicles, custom objects, buildings and player data have separate switches.",
+        "safety": "All flags for an edited economy element must be retained. Treat a persistence change as a server-wide behaviour change and back up first.",
+    },
     "territories": {
-        "purpose": "Animal and infected spawn zone definitions.",
-        "dependencies": ["cfgenvironment.xml references the relevant environment territory files."],
-        "variants": "Territory records can use dynamic/static minimums and maximums; herd and behaviour fields vary by animal file.",
-        "safety": "Use map coordinates and conservative population values. A very large static infected count can affect performance.",
+        "purpose": "Animal and infected spawn zone definitions, including ambient living-entity zones.",
+        "dependencies": ["cfgenvironment.xml references the relevant environment territory files.", "Ambient zones use a matching db/events.xml event family; that event's distance/cleanup/restock controls activation and cooldown behaviour."],
+        "variants": "Territory records can use dynamic/static minimums and maximums; herd and behaviour fields vary by animal file. Ambient animals use territory dmin/dmax and event child min values as type weights.",
+        "safety": "Use map coordinates and conservative population values. A very large static infected count can affect performance. Do not use cfgeventspawns.xml for an ambient territory zone unless the selected vanilla pattern also has a separate fixed event.",
+    },
+    "cfglimitsdefinition.xml": {
+        "purpose": "Central Economy category, tag and usage definitions used by types.xml and map-group loot rules.",
+        "dependencies": ["types.xml and mapgroupproto.xml can only refer to category/usage/tag names that are defined for the mission."],
+        "variants": "Use cfglimitsdefinitionuser.xml for custom user definitions where the selected mission/version supports that split; preserve the current file's root and list sections.",
+        "safety": "Adding a new loot item does not automatically require a new category or usage. Add one only when the requested loot logic genuinely needs a new named definition.",
+    },
+    "cfgplayerspawnpoints.xml": {
+        "purpose": "Fresh-spawn positions and selected spawn/loadout settings.",
+        "dependencies": ["A JSON spawn-gear preset is separately referenced by PlayerData.spawnGearPresetFiles in cfggameplay.json."],
+        "variants": "Spawn locations and gear are separate systems; do not treat cfgplayerspawnpoints.xml as a generic loadout JSON file.",
+        "safety": "Use the selected map's spawn pattern and test with a new character. Do not put player inventory XML into map or CE files.",
+    },
+    "messages.xml": {
+        "purpose": "Server on-screen message schedule and text.",
+        "dependencies": ["No CE map/prototype dependency; validate it independently as a messages XML file."],
+        "variants": "Message count, duration, colour and scheduler layout must follow the selected current/vanilla file.",
+        "safety": "Keep user-facing text separate from XML markup and preserve existing message records when making a merge patch.",
     },
     "init.c": {
         "purpose": "Enforce Script mission entry point and optional script-driven behaviour.",
@@ -233,6 +293,151 @@ def dayz_file_spec_for_path(target_path: Any) -> DayZFileSpec | None:
     return None
 
 
+def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> dict[str, Any]:
+    """Return the linked DayZ files a request must *consider* before drafting.
+
+    This is an intentionally conservative planning layer, not an instruction to
+    edit every listed file.  ``changed`` means the workflow normally needs that
+    file, ``checked`` means it must be inspected for a named relationship, and
+    ``conditional`` means it changes only when the supplied current file proves
+    the relationship exists.  The distinction prevents an assistant from
+    making up unrelated CE groups, map prototypes or gameplay references.
+    """
+    raw_path = str(target_path or "").replace("\\", "/").strip()
+    filename = dayz_filename_for_path(raw_path)
+    custom_path = dayz_custom_json_path(raw_path)
+    text = f"{objective or ''} {raw_path}".lower()
+
+    def entry(path: str, action: str, reason: str) -> dict[str, str]:
+        return {"path": path, "action": action, "reason": reason}
+
+    def plan(workflow: str, summary: str, files: list[dict[str, str]], guard: str) -> dict[str, Any]:
+        return {"workflow": workflow, "summary": summary, "files": files, "guard": guard}
+
+    ambient_terms = ("ambient spawner", "ambient animal", "ambient hen", "ambient fox", "ambient wildlife")
+    map_group_terms = ("mapgrouppos", "mapgroupproto", "map group", "mapgroup", "loot point", "lootpoint")
+    object_spawner_terms = ("objectspawner", "object spawner", "spawnobject", "spawn object")
+    spawn_gear_terms = ("spawn gear", "starting gear", "starter gear", "spawngear", "loadout json")
+    restricted_terms = ("restricted area", "player restricted", "safe position", "safepositions3d")
+    category_terms = ("custom category", "custom usage", "custom tag", "cfglimitsdefinition")
+
+    if any(term in text for term in ambient_terms):
+        return plan(
+            "ambient_spawner",
+            "Ambient living entities are territory-driven: the zone and the matching CE event work together; they are not fixed cfgeventspawns positions.",
+            [
+                entry("env/*_territories.xml", "changed", "Add or adjust the zone's X/Z/radius and dmin/dmax population."),
+                entry("db/events.xml", "changed", "Define or adjust the matching Ambient/Animal event: global max, distance radius, cleanup radius, restock and child weights."),
+                entry("cfgenvironment.xml", "checked", "Confirm the selected map references the territory file and review the zone cooldown setting."),
+                entry("cfgeventspawns.xml", "preserved", "Ambient territory zones do not use fixed event-position records unless a separate selected pattern explicitly does."),
+            ],
+            "Validate that the event's global max, the territory dmin/dmax and child min weights are compatible; child weights should describe the intended type distribution.",
+        )
+
+    if filename in {"mapgrouppos.xml", "mapgroupproto.xml"} or any(term in text for term in map_group_terms):
+        placement_action = "changed" if filename == "mapgrouppos.xml" or any(term in text for term in ("place", "placement", "move", "position", "new building", "new group")) else "checked"
+        prototype_action = "changed" if filename == "mapgroupproto.xml" or any(term in text for term in ("loot point", "lootpoint", "new building", "new group", "prototype")) else "checked"
+        return plan(
+            "map_group_placement",
+            "MapGroupPos places a named group on one map; MapGroupProto defines that group's reusable structure and loot points. They must be considered together, but either one may remain unchanged.",
+            [
+                entry("mapgrouppos.xml", placement_action, "Placement group name, map coordinates and rotation must match the selected map/prototype relationship."),
+                entry("mapgroupproto.xml", prototype_action, "Prototype group name, containers and loot points must match the placement and requested loot behaviour."),
+                entry("db/types.xml", "checked", "Any item expected to spawn from those loot points must have compatible categories/usages and a valid selected-map classname."),
+                entry("cfglimitsdefinition.xml", "conditional", "Only add a user/category/usage/tag definition if the requested loot rule introduces a new named definition."),
+                entry("cfglimitsdefinitionuser.xml", "conditional", "Use only when the selected mission's current structure stores custom CE definitions here."),
+            ],
+            "Do not use MapGroup files for a normal ObjectSpawner JSON base. Do not add a prototype or loot points unless the placement/event actually requires them.",
+        )
+
+    if filename == "objectspawner.json" or any(term in text for term in object_spawner_terms):
+        json_path = custom_path or "custom/objectspawner.json"
+        return plan(
+            "object_spawner",
+            "ObjectSpawner uses a complete JSON object list and an explicit cfgGameplay WorldsData.objectSpawnersArr reference; it is not a MapGroupPos/Proto workflow.",
+            [
+                entry(json_path, "changed", "Complete ObjectSpawner JSON containing Objects entries with valid classname/model path and position/orientation vectors."),
+                entry("cfggameplay.json", "changed", "Add the exact relative JSON path to WorldsData.objectSpawnersArr while preserving existing references."),
+                entry("init.c", "checked", "Only inspect if the server uses script-based spawning or customString handling; do not rewrite it for ordinary ObjectSpawner JSON."),
+                entry("mapgrouppos.xml", "preserved", "ObjectSpawner placement is not map-group placement data."),
+                entry("mapgroupproto.xml", "preserved", "Only a separate request for CE loot points needs a map-group prototype."),
+            ],
+            "Validate the JSON separately, confirm terrain height and classnames, and test a small placement batch before adding a large build.",
+        )
+
+    if custom_path and any(term in text for term in restricted_terms):
+        return plan(
+            "player_restricted_area",
+            "A player-restricted area is a custom JSON plus a matching cfgGameplay WorldsData reference.",
+            [
+                entry(custom_path, "changed", "Complete restricted-area JSON with PRABoxes and safePositions3D vectors."),
+                entry("cfggameplay.json", "changed", "Add the exact relative path to WorldsData.playerRestrictedAreaFiles."),
+            ],
+            "Check every Y coordinate, keep JSON comments out of the upload, and never replace existing gameplay path arrays.",
+        )
+
+    if custom_path and any(term in text for term in spawn_gear_terms):
+        return plan(
+            "spawn_gear",
+            "Spawn gear presets are custom JSON files enabled through cfgGameplay; player spawn locations are a separate configuration.",
+            [
+                entry(custom_path, "changed", "Complete recognised spawning-gear preset JSON."),
+                entry("cfggameplay.json", "changed", "Add the exact relative path to PlayerData.spawnGearPresetFiles."),
+                entry("cfgplayerspawnpoints.xml", "checked", "Only change this for fresh-spawn location/group rules, not to insert JSON inventory."),
+                entry("init.c", "checked", "Inspect only because StartingEquipSetup or CreateCharacter overrides can conflict with spawn-gear presets."),
+            ],
+            "Use the selected map/current preset schema and test with a newly created character; mod or script loadouts need their actual configuration.",
+        )
+
+    if filename in {"types.xml", "cfgspawnabletypes.xml"} or any(term in text for term in ("boost loot", "loot boost", "nominal", "restock", "lifetime", "attachments", "cargo")):
+        return plan(
+            "central_economy_loot",
+            "Types controls world-loot eligibility and quantities; spawnable types controls nested attachments/cargo. Map-group and limit files only enter the package when the request changes building eligibility or named CE definitions.",
+            [
+                entry("db/types.xml", "changed" if filename == "types.xml" or "loot" in text else "checked", "Review classnames, nominal/min/lifetime/restock, flags, tiers, categories and usages."),
+                entry("cfgspawnabletypes.xml", "changed" if filename == "cfgspawnabletypes.xml" or any(term in text for term in ("attachment", "cargo", "preset", "loadout")) else "checked", "Review nested cargo, attachments, quantities and damage only when requested."),
+                entry("mapgroupproto.xml", "conditional", "Needed only if the requested item must become eligible at specific static building/group loot points."),
+                entry("cfglimitsdefinition.xml", "conditional", "Needed only for a new custom category, usage or tag."),
+            ],
+            "Changing nominal alone cannot make an item spawn in a building whose group/category/usage rules do not allow it.",
+        )
+
+    if filename in {"cfglimitsdefinition.xml", "cfglimitsdefinitionuser.xml"} or any(term in text for term in category_terms):
+        return plan(
+            "central_economy_definitions",
+            "Custom CE categories, usages and tags must be defined before types or map prototypes reference their exact names.",
+            [
+                entry("cfglimitsdefinition.xml", "changed" if filename == "cfglimitsdefinition.xml" else "checked", "Use the selected mission's primary CE definition file and preserve existing lists."),
+                entry("cfglimitsdefinitionuser.xml", "conditional", "Use only where the selected mission/version stores custom definitions separately."),
+                entry("db/types.xml", "checked", "Confirm every item uses the exact defined category/usage/tag name."),
+                entry("mapgroupproto.xml", "checked", "Confirm static building/group loot rules use the same exact names where applicable."),
+            ],
+            "A definition name is case-sensitive project data: do not add it in one file and assume other CE files will discover it automatically.",
+        )
+
+    if filename.endswith("_territories.xml") or "territory" in text or "infected zone" in text or "animal zone" in text:
+        return plan(
+            "territory_zone",
+            "Animal/infected territory zones and their environment references form a linked configuration; fixed CE event positions are a different workflow.",
+            [
+                entry("env/*_territories.xml", "changed", "Add or adjust the correct selected animal/infected territory records."),
+                entry("cfgenvironment.xml", "checked", "Confirm the selected map/environment includes the territory file."),
+                entry("db/events.xml", "conditional", "Needed for ambient/dynamic event behaviour, not for every ordinary territory edit."),
+            ],
+            "Use conservative dmin/dmax values and selected-map coordinates. Prefer an ambient-spawner plan when the request is explicitly on-demand wildlife.",
+        )
+
+    spec = dayz_file_spec_for_path(raw_path)
+    target = raw_path or (spec.filename if spec else "the selected DayZ file")
+    dependencies = dayz_agent_file_knowledge(raw_path).get("dependencies", []) if raw_path else []
+    return plan(
+        "single_file_or_unknown",
+        "Start with the selected current/vanilla file and identify references before generating a complete replacement.",
+        [entry(target, "changed" if raw_path else "checked", "The selected target must use its real map/version schema.")],
+        "Related references to inspect: " + ("; ".join(str(item) for item in dependencies) if dependencies else "none can be safely assumed; request the complete current file or exact feature details."),
+    )
+
+
 def dayz_xml_root_for_path(target_path: Any) -> str:
     spec = dayz_file_spec_for_path(target_path)
     return spec.xml_root if spec and spec.kind == "xml" else ""
@@ -259,11 +464,27 @@ def dayz_agent_file_knowledge(target_path: Any) -> dict[str, Any]:
         }
     guidance = dict(DAYZ_AGENT_FILE_KNOWLEDGE.get(key) or {})
     if guidance:
-        guidance["official_sources"] = [
+        common_sources = [
             "https://community.bistudio.com/wiki/DayZ:Central_Economy_Configuration",
             "https://community.bistudio.com/wiki/DayZ:Gameplay_Settings",
-            "https://community.bistudio.com/wiki/DayZ:Weather_Configuration",
         ]
+        focused_sources = {
+            "cfgweather.xml": ["https://community.bistudio.com/wiki/DayZ:Weather_Configuration"],
+            "objectspawner.json": ["https://community.bistudio.com/wiki/DayZ:Object_Spawner"],
+            "cfggameplay.json": ["https://community.bistudio.com/wiki/DayZ:Gameplay_Settings"],
+            "spawning_gear": ["https://community.bistudio.com/wiki/DayZ:Spawning_Gear_Configuration"],
+            "cfgplayerspawnpoints.xml": ["https://community.bistudio.com/wiki/DayZ:Player_Spawning_Configuration"],
+            "cfgundergroundtriggers.json": ["https://community.bistudio.com/wiki/DayZ:Underground_Areas_Configuration"],
+            "cfgeffectarea.json": ["https://community.bistudio.com/wiki/DayZ:Contaminated_Areas_Configuration"],
+            "territories": ["https://community.bistudio.com/wiki/DayZ:CE:_Ambient_Spawner"],
+            "cfgeconomycore.xml": ["https://community.bistudio.com/wiki/DayZ:Central_Economy_mission_files_modding"],
+            "types.xml": ["https://community.bistudio.com/wiki/DayZ:Central_Economy_mission_files_modding"],
+            "cfgspawnabletypes.xml": ["https://community.bistudio.com/wiki/DayZ:Central_Economy_mission_files_modding"],
+            "events.xml": ["https://community.bistudio.com/wiki/DayZ:Central_Economy_mission_files_modding"],
+            "mapgroupproto.xml": ["https://community.bistudio.com/wiki/DayZ:Diag_Menu"],
+            "mapgrouppos.xml": ["https://community.bistudio.com/wiki/DayZ:Diag_Menu"],
+        }
+        guidance["official_sources"] = list(dict.fromkeys([*focused_sources.get(key, []), *common_sources]))
     return guidance
 
 
