@@ -1448,14 +1448,24 @@ class DashboardServerControlTests(unittest.TestCase):
         event_name = by_path["db/events.xml"]["scenario_event_name"]
         event_node = events_root.find(f"./event[@name='{event_name}']")
         spawn_node = spawns_root.find(f"./event[@name='{event_name}']")
+        event_package = by_path["db/events.xml"]["event_package"]
 
         self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, set(by_path))
         self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("db/events.xml", by_path["db/events.xml"]["content"]))
         self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgeventspawns.xml", by_path["cfgeventspawns.xml"]["content"]))
+        self.assertEqual(
+            {"db/events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml", "mapgroupproto.xml"},
+            set(event_package["core_files"]),
+        )
+        self.assertEqual(["db/events.xml", "cfgeventspawns.xml"], event_package["changed_files"])
+        self.assertEqual(["cfgeventgroups.xml", "mapgroupproto.xml"], event_package["preserved_files"])
+        self.assertTrue(all(item["valid"] for item in event_package["checks"]))
+        self.assertEqual(event_name, event_package["linked_event_name"])
         self.assertEqual("OffroadHatchback", event_node.find("./children/child").get("type"))
         self.assertEqual("mixed", event_node.findtext("limit"))
         self.assertEqual("5000", spawn_node.find("pos").get("x"))
         self.assertEqual("5000", spawn_node.find("pos").get("z"))
+        self.assertEqual("0.000000", spawn_node.find("pos").get("a"))
         self.assertEqual(2, len(dashboard.ai_agent_dayz_draft_summaries({"tasks": [{"id": "qa", "dayz_drafts": drafts}]})))
         public = dashboard.ai_agent_public_task({"dayz_drafts": drafts})
         self.assertTrue(all("content" not in item for item in public["dayz_drafts"]))
@@ -1481,6 +1491,14 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual("vehicle_spawn", scenario["event_type"])
         self.assertIn("db/events.xml", scenario["files"])
+        self.assertEqual(
+            ["db/events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml", "mapgroupproto.xml"],
+            scenario["core_files"],
+        )
+        self.assertEqual(["db/events.xml", "cfgeventspawns.xml"], scenario["changed_files"])
+        self.assertEqual(["cfgeventgroups.xml", "mapgroupproto.xml"], scenario["preserved_files"])
+        self.assertEqual("checked", scenario["file_plan"][2]["action"])
+        self.assertIn("no group= reference", scenario["file_plan"][2]["role"])
         self.assertIn("cfgspawnabletypes.xml", scenario["files"])
         self.assertTrue(scenario["can_apply"])
         self.assertIn("map bounds", invalid["error"])

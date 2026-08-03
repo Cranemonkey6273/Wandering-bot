@@ -7036,7 +7036,7 @@ PAGE_TEMPLATE = """
               <p class="tool-note">To create a complete vanilla file, choose the exact target, map and a vanilla or safe-preset base. For a new recognised custom JSON, enter its custom/ or pra/ path and say whether it is ObjectSpawner, spawn gear, a restricted area, an effect area or underground triggers. The agent validates the result before offering it for download. A pasted fragment becomes a merge-required patch; it cannot be treated as a complete replacement.</p>
               <details class="ai-dayz-scenario-workbench">
                 <summary>Make a DayZ event plan <span class="tool-note">Airdrop, vehicle, infected, animal or gas event</span></summary>
-                <p class="tool-note">This creates a validated plan for the linked CE files. Adding it to Nitrado is always a separate, warned confirmation that uses the bot’s backup-first upload path.</p>
+                <p class="tool-note">Every plan audits the four linked CE files: events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml. It generates only the files that genuinely change, and explains any preserved group/prototype file. Adding it to Nitrado is always a separate, warned confirmation that uses the bot’s backup-first upload path.</p>
                 <input class="hidden-field" name="dayz_scenario_guild_id" value="{{ server.guild_id if server else '' }}">
                 <div class="ai-codex-options">
                   <label>Event type
@@ -16686,7 +16686,10 @@ PAGE_TEMPLATE = """
         const title = document.createElement("strong");
         title.textContent = `${scenario.name || "DayZ event"} — ${String(scenario.event_type || "event").replace(/_/g, " ")}`;
         const detail = document.createElement("span");
-        detail.textContent = `${scenario.class_name || "DayZ class"} at X ${scenario.x}, Z ${scenario.z}. Managed files: ${(Array.isArray(scenario.files) ? scenario.files : []).join(", ") || "determined during validation"}.`;
+        const changedFiles = Array.isArray(scenario.changed_files) ? scenario.changed_files : [];
+        const preservedFiles = Array.isArray(scenario.preserved_files) ? scenario.preserved_files : [];
+        const coreFiles = Array.isArray(scenario.core_files) ? scenario.core_files : (Array.isArray(scenario.files) ? scenario.files : []);
+        detail.textContent = `${scenario.class_name || "DayZ class"} at X ${scenario.x}, Z ${scenario.z}. Four-file CE audit: ${coreFiles.join(", ") || "determined during validation"}. Changes: ${changedFiles.join(", ") || "determined by the selected event"}. Checked/preserved: ${preservedFiles.join(", ") || "none"}.`;
         const warning = document.createElement("span");
         warning.className = "tool-note";
         warning.textContent = String(scenario.warning || "Review before requesting a guarded upload.");
@@ -21233,8 +21236,8 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "title": "Events, object spawns and vehicles",
         "summary": "Create and organise CE event definitions, positions and groups; prepare airdrop, vehicle, infected horde, animal, bag-fill and gas-event packages; check name/position conflicts and map bounds.",
         "keywords": ("event", "airdrop", "vehicle", "horde", "bag", "gas", "spawn", "conflict", "eventgroup", "airstrike"),
-        "targets": ("db/events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml", "db/types.xml", "cfgspawnabletypes.xml"),
-        "safety": "Vanilla CE packages are generated from linked files. Airstrikes and NPCs are mod-dependent and require the exact mod, version and its current config.",
+        "targets": ("db/events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml", "mapgroupproto.xml", "db/types.xml", "cfgspawnabletypes.xml"),
+        "safety": "Every CE plan audits events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml together. It only edits the group/prototype files when the event genuinely references them, and validates all linked names before upload. Airstrikes and NPCs are mod-dependent and require the exact mod, version and its current config.",
     },
     {
         "id": "map_territory_environment",
@@ -21271,10 +21274,10 @@ AI_AGENT_DAYZ_FORMAT_GUIDES = {
     "cfgspawnabletypes.xml": "XML <spawnabletypes> root with <type name=\"Classname\"> records. Attachments and cargo belong inside that type; it does not set overall world nominal loot.",
     "cfgweather.xml": "XML <weather> root with overcast, fog, rain, windMagnitude, windDirection, snowfall and storm. Rain/storm thresholds depend on overcast; preserve every vanilla section.",
     "cfggameplay.json": "JSON object. Use the existing version and the correct GeneralData, PlayerData, WorldsData and MapData sections instead of inventing keys.",
-    "events.xml": "XML <events> root with <event name=\"...\"> definitions. Event names must correspond exactly with event-position records where positions are required.",
-    "cfgeventspawns.xml": "XML <eventposdef> root with named <event> position records. Coordinates and the event name must match the companion events.xml definition.",
-    "cfgeventgroups.xml": "XML <eventgroupdef> root containing named static group definitions used by CE events.",
-    "mapgroupproto.xml": "XML <prototype> root for map-group loot prototypes; mapgrouppos.xml places those groups on the map.",
+    "events.xml": "XML <events> root with <event name=\"...\"> definitions. Event names must correspond exactly with event-position records where positions are required. A complete CE review audits this alongside cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml.",
+    "cfgeventspawns.xml": "XML <eventposdef> root with named <event> position records. Coordinates and the event name must match the companion events.xml definition. A group= reference must name a real cfgeventgroups.xml group.",
+    "cfgeventgroups.xml": "XML <eventgroupdef> root containing named static group definitions used by CE events. Only add a group when cfgeventspawns.xml actually references it; group child classes that carry loot need matching mapgroupproto.xml definitions.",
+    "mapgroupproto.xml": "XML <prototype> root for map-group loot prototypes; mapgrouppos.xml places those groups on the map. A loot-bearing static object or event-group child must have a matching prototype group with usable loot points.",
     "mapgrouppos.xml": "XML <map> root with group placements. Do not confuse it with mapgroupproto.xml, which defines the prototype content.",
     "mapclusterproto.xml": "XML <prototype> root with <clusters> exports for map-cluster definitions.",
     "mapgroupcluster.xml": "XML <map> root with map-cluster group placements; preserve the selected map's grouping names and positions.",
@@ -23006,6 +23009,59 @@ def ai_agent_dayz_reference_for_request(target_path: str, map_key: Any, payload:
         return {"mode": mode, "error": str(error)}
 
 
+DAYZ_EVENT_CORE_FILES = (
+    "db/events.xml",
+    "cfgeventspawns.xml",
+    "cfgeventgroups.xml",
+    "mapgroupproto.xml",
+)
+
+
+def ai_agent_dayz_event_file_plan(event_type: Any) -> list[dict[str, str]]:
+    """Describe the four-file CE audit without inventing unnecessary edits.
+
+    A valid vanilla vehicle CE record genuinely needs the event definition and
+    matching position.  It does not need a synthetic event group or map-group
+    prototype.  Adding either just to make up a four-file package risks
+    replacing or conflicting with a server's real custom definitions.  Static
+    loot/group events are different, so the plan makes those dependencies
+    explicit and requires their linked records before upload.
+    """
+    kind = str(event_type or "").strip().lower()
+    plan = [
+        {
+            "path": "db/events.xml",
+            "action": "changed",
+            "role": "The named CE definition: family, classname, counts, lifetime and flags.",
+        },
+        {
+            "path": "cfgeventspawns.xml",
+            "action": "changed",
+            "role": "One or more positions using exactly the same event name as events.xml.",
+        },
+        {
+            "path": "cfgeventgroups.xml",
+            "action": "checked",
+            "role": "Changed only when a position uses group=; that group name and every child must then exist here.",
+        },
+        {
+            "path": "mapgroupproto.xml",
+            "action": "checked",
+            "role": "Changed only when a static object/group needs CE loot points; its prototype group and loot tags must match here.",
+        },
+    ]
+    if kind in {"airdrop", "loot_crate"}:
+        plan[3]["action"] = "conditional"
+        plan[3]["role"] = "Audit the selected loot anchor. Add or repair its prototype only when the static object needs CE loot points."
+    elif kind == "vehicle_spawn":
+        plan[2]["role"] = "Checked and preserved: a single native vehicle event has no group= reference."
+        plan[3]["role"] = "Checked and preserved: a working vehicle is not a static loot prototype."
+    elif kind in {"zombie_horde", "animal_pack", "gas_zone"}:
+        plan[2]["role"] = "Checked and preserved unless this request explicitly creates a static group scene."
+        plan[3]["role"] = "Checked and preserved unless this request adds a loot-bearing static object."
+    return plan
+
+
 def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -> dict[str, Any]:
     event_type = str(payload.get("dayz_scenario_type") or "").strip().lower()
     if not event_type:
@@ -23052,13 +23108,18 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
     event_name = ai_agent_compact_text(payload.get("dayz_scenario_name") or f"AI {str(preset.get('label') or event_type.replace('_', ' ').title())}", 100)
     guild_id = normalize_guild_id(payload.get("dayz_scenario_guild_id"))
     profile_id = normalize_server_profile_id(payload.get("dayz_scenario_profile_id"), "")
-    files = ["db/events.xml", "cfgeventspawns.xml"]
+    core_file_plan = ai_agent_dayz_event_file_plan(event_type)
+    core_files = [str(item["path"]) for item in core_file_plan]
+    changed_files = [str(item["path"]) for item in core_file_plan if item.get("action") == "changed"]
+    preserved_files = [str(item["path"]) for item in core_file_plan if item.get("action") == "checked"]
+    support_files: list[str] = []
     if event_type == "vehicle_spawn":
-        files.extend(["db/types.xml", "cfgspawnabletypes.xml"])
+        support_files.extend(["db/types.xml", "cfgspawnabletypes.xml"])
     elif event_type == "animal_pack":
-        files.extend(["cfgenvironment.xml", "env/*_territories.xml"])
+        support_files.extend(["cfgenvironment.xml", "env/*_territories.xml"])
     elif event_type == "gas_zone":
-        files.extend(["cfgareaeffects.xml", "cfgeffectarea.json"])
+        support_files.extend(["cfgareaeffects.xml", "cfgeffectarea.json"])
+    files = list(dict.fromkeys([*core_files, *support_files]))
     apply_payload = {
         "guild_id": guild_id,
         "server_profile_id": profile_id,
@@ -23087,9 +23148,14 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
         "z": z,
         "radius": radius,
         "files": files,
+        "core_files": core_files,
+        "file_plan": core_file_plan,
+        "changed_files": changed_files,
+        "preserved_files": preserved_files,
+        "support_files": support_files,
         "apply_payload": apply_payload,
         "can_apply": bool(guild_id),
-        "warning": "Applying this plan creates the event on the selected server and requests the bot's guarded Nitrado workflow. It will download current CE files, back them up, validate the merged result, and may require a server restart. Review the settings first.",
+        "warning": "Applying this plan creates the event on the selected server and requests the bot's guarded Nitrado workflow. It will download the current CE files, back them up, validate linked event names/group/prototype records as applicable, and may require a server restart. Review the settings first.",
         "created_at": datetime.now(UTC).isoformat(),
     }
 
@@ -23435,12 +23501,14 @@ def ai_agent_vehicle_event_draft_name(scenario: dict[str, Any]) -> str:
 
 
 def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
-    """Create an offline review pair for an unambiguous vanilla vehicle event.
+    """Create an audited four-core-file review package for a vanilla vehicle.
 
-    These are complete copies of the bundled map references plus one linked
-    event.  They are intentionally never presented as a live-server upload:
-    a real server must merge the pair into its downloaded current files through
-    the guarded Nitrado workflow so custom records are not replaced.
+    The package deliberately writes only the two files a single native vehicle
+    event changes: events.xml and cfgeventspawns.xml.  It nevertheless parses
+    and validates cfgeventgroups.xml and mapgroupproto.xml as part of the same
+    CE audit, then records why those live files must be preserved.  That is
+    safer than fabricating unrelated group/prototype records just to return
+    four downloads.
     """
     context = task.get("dayz_context") if isinstance(task, dict) else None
     if not isinstance(context, dict):
@@ -23461,7 +23529,9 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
         return []
     events_base = load_dayz_reference_text(map_key, "db", "events.xml")
     spawns_base = load_dayz_reference_text(map_key, "cfgeventspawns.xml")
-    if not events_base.strip() or not spawns_base.strip():
+    eventgroups_base = load_dayz_reference_text(map_key, "cfgeventgroups.xml")
+    mapgroupproto_base = load_dayz_reference_text(map_key, "mapgroupproto.xml")
+    if not all(text.strip() for text in (events_base, spawns_base, eventgroups_base, mapgroupproto_base)):
         return []
     event_name = ai_agent_vehicle_event_draft_name(scenario)
     if re.search(rf'<event\s+name="{re.escape(event_name)}"', events_base) or re.search(rf'<event\s+name="{re.escape(event_name)}"', spawns_base):
@@ -23491,27 +23561,76 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
     spawn_block = (
         f"    <!-- Wandering Bot offline review draft: matching position for {event_name} -->\n"
         f"    <event name=\"{event_name}\">\n"
-        f"        <pos x=\"{x}\" z=\"{z}\" a=\"0\"/>\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"0.000000\"/>\n"
         "    </event>\n"
     )
     events_content, events_replacements = re.subn(r"</events>\s*$", event_block + "</events>\n", events_base)
     spawns_content, spawns_replacements = re.subn(r"</eventposdef>\s*$", spawn_block + "</eventposdef>\n", spawns_base)
     if events_replacements != 1 or spawns_replacements != 1:
         return []
-    valid_events, _events_message = validate_dayz_upload_text("db/events.xml", events_content)
-    valid_spawns, _spawns_message = validate_dayz_upload_text("cfgeventspawns.xml", spawns_content)
-    if not valid_events or not valid_spawns:
+    core_sources = {
+        "db/events.xml": events_content,
+        "cfgeventspawns.xml": spawns_content,
+        "cfgeventgroups.xml": eventgroups_base,
+        "mapgroupproto.xml": mapgroupproto_base,
+    }
+    core_actions = {
+        "db/events.xml": "changed",
+        "cfgeventspawns.xml": "changed",
+        "cfgeventgroups.xml": "preserved",
+        "mapgroupproto.xml": "preserved",
+    }
+    core_reasons = {
+        "db/events.xml": "Contains the new Vehicle CE definition.",
+        "cfgeventspawns.xml": "Contains the matching named position.",
+        "cfgeventgroups.xml": "A single native vehicle event does not use a group= position reference.",
+        "mapgroupproto.xml": "A working vehicle is not a static CE loot prototype.",
+    }
+    core_checks: list[dict[str, Any]] = []
+    for target_path, text_content in core_sources.items():
+        valid, message = validate_dayz_upload_text(target_path, text_content)
+        core_checks.append({
+            "path": target_path,
+            "action": core_actions[target_path],
+            "valid": bool(valid),
+            "reason": core_reasons[target_path],
+            "message": str(message or ""),
+        })
+    if not all(item["valid"] for item in core_checks):
         return []
     try:
         event_root = ET.fromstring(events_content)
         spawn_root = ET.fromstring(spawns_content)
+        eventgroups_root = ET.fromstring(eventgroups_base)
+        mapgroupproto_root = ET.fromstring(mapgroupproto_base)
     except ET.ParseError:
         return []
     event_node = event_root.find(f"./event[@name='{event_name}']")
     spawn_node = spawn_root.find(f"./event[@name='{event_name}']")
-    if event_node is None or spawn_node is None or event_node.find("./children/child").get("type") != class_name or spawn_node.find("pos") is None:
+    event_child = event_node.find("./children/child") if event_node is not None else None
+    spawn_pos = spawn_node.find("pos") if spawn_node is not None else None
+    if (
+        event_node is None
+        or spawn_node is None
+        or event_child is None
+        or event_child.get("type") != class_name
+        or spawn_pos is None
+        or spawn_pos.get("group")
+        or str(spawn_pos.get("x") or "") != str(x)
+        or str(spawn_pos.get("z") or "") != str(z)
+        or eventgroups_root.tag != "eventgroupdef"
+        or mapgroupproto_root.tag != "prototype"
+    ):
         return []
     now = datetime.now(UTC).isoformat()
+    event_package = {
+        "core_files": list(DAYZ_EVENT_CORE_FILES),
+        "changed_files": ["db/events.xml", "cfgeventspawns.xml"],
+        "preserved_files": ["cfgeventgroups.xml", "mapgroupproto.xml"],
+        "linked_event_name": event_name,
+        "linked_class_name": class_name,
+        "checks": core_checks,
+    }
     common = {
         "map": map_key,
         "kind": "full_file",
@@ -23519,6 +23638,7 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
         "validation": "passed",
         "base": f"bundled DayZ {DAYZ_CE_FILE_VERSION} {map_key} vanilla CE reference",
         "scenario_event_name": event_name,
+        "event_package": event_package,
         "created_at": now,
         "updated_at": now,
     }
@@ -23529,7 +23649,7 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
             "target_path": "db/events.xml",
             "content": events_content,
             "content_chars": len(events_content),
-            "summary": f"Complete offline review events.xml containing the linked `{event_name}` {class_name} definition.",
+            "summary": f"Four-core-file audit passed. Complete offline review events.xml containing the linked `{event_name}` {class_name} definition.",
         },
         {
             **common,
@@ -23537,7 +23657,7 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
             "target_path": "cfgeventspawns.xml",
             "content": spawns_content,
             "content_chars": len(spawns_content),
-            "summary": f"Complete offline review cfgeventspawns.xml containing the matching `{event_name}` position at X {x}, Z {z}.",
+            "summary": f"Four-core-file audit passed. Complete offline review cfgeventspawns.xml containing the matching `{event_name}` position at X {x}, Z {z}; cfgeventgroups.xml and mapgroupproto.xml were validated and preserved because this vehicle has no group/prototype dependency.",
         },
     ]
 
@@ -23772,7 +23892,12 @@ def ai_agent_dayz_fallback_reply(task: dict[str, Any]) -> str:
     if scenario.get("error"):
         lines.append(f"Scenario check: {scenario.get('error')}")
     elif scenario.get("id"):
-        lines.append(f"A {scenario.get('event_type', 'DayZ')} event plan is ready. It will manage: {', '.join(scenario.get('files', [])[:6])}.")
+        changed = ", ".join(scenario.get("changed_files", [])[:6]) or "the event-specific linked files"
+        preserved = ", ".join(scenario.get("preserved_files", [])[:6]) or "no core files"
+        lines.append(
+            f"A {scenario.get('event_type', 'DayZ')} event plan is ready. Four-core-file audit: "
+            f"it changes {changed}; it checks/preserves {preserved} unless the event adds a real group or loot prototype."
+        )
     draft = task.get("dayz_draft") if isinstance(task.get("dayz_draft"), dict) else {}
     if draft.get("validation") == "passed" and draft.get("content"):
         lines.append(f"A validated complete {draft.get('target_path')} draft is ready in DayZ File Drafts for download and review.")
@@ -24401,11 +24526,12 @@ def ai_agent_append_command_summary(reply: str, suggestions: list[dict[str, Any]
 
 
 def ai_agent_verified_dayz_event_link_reply(prompt: str) -> str:
-    """Answer the one CE linkage fact that should never be left to model inference.
+    """Answer the CE linkage rules that should never be left to model inference.
 
-    These two files are often edited together by new DayZ owners.  A vague or
+    These files are often edited together by new DayZ owners.  A vague or
     cross-game answer about generic IDs is actively unhelpful here: DayZ CE
-    links the records through the exact ``event name`` attribute.
+    links the records through exact names, with group/prototype files added
+    only when a static group or CE loot-bearing object is actually involved.
     """
     text = str(prompt or "").lower()
     mentions_pair = "events.xml" in text and "cfgeventspawns.xml" in text
@@ -24413,10 +24539,12 @@ def ai_agent_verified_dayz_event_link_reply(prompt: str) -> str:
     if not mentions_pair or not asks_about_link:
         return ""
     return (
-        "For a fixed DayZ Central Economy airdrop, the `<event name=\"...\">` value must be identical in both files.\n\n"
+        "For a fixed DayZ Central Economy event, the `<event name=\"...\">` value must be identical in both files.\n\n"
         "- `db/events.xml` defines the event behaviour: counts, lifetime, flags and the child classname(s) to spawn.\n"
-        "- `cfgeventspawns.xml` contains one `<event name=\"the-same-name\">` record with one or more `<pos x=\"...\" z=\"...\" a=\"...\" />` locations.\n\n"
-        "The coordinates only belong in `cfgeventspawns.xml`; they do not need to be copied into `events.xml`. The name is case-sensitive, so even one spelling difference prevents DayZ CE from connecting the definition to its positions. This is read-only guidance: no files or server settings were changed."
+        "- `cfgeventspawns.xml` contains one `<event name=\"the-same-name\">` record with one or more `<pos x=\"...\" z=\"...\" a=\"0.000000\" />` locations.\n"
+        "- `cfgeventgroups.xml` is required only when a position uses `group=\"...\"`; that group name must exist there.\n"
+        "- `mapgroupproto.xml` is required when a static object or group child is intended to provide CE loot; its prototype group must exist and use compatible loot definitions.\n\n"
+        "Use the appropriate event family prefix (`Vehicle`, `Static`, `Loot`, `Item`, `Infected` or `Animal`). The coordinates only belong in `cfgeventspawns.xml`; they do not need to be copied into `events.xml`. The name is case-sensitive, so even one spelling difference prevents DayZ CE from connecting the definition to its positions. This is read-only guidance: no files or server settings were changed."
     )
 
 
@@ -24487,13 +24615,22 @@ def ai_agent_llm_reply_for_task(
                 {"task_id": task.get("id"), "draft_id": draft.get("id"), "target_path": draft.get("target_path")},
             )
         target_names = ", ".join(str(item.get("target_path") or "DayZ file") for item in drafts)
+        event_package = drafts[0].get("event_package") if drafts and isinstance(drafts[0].get("event_package"), dict) else {}
+        core_audit_note = ""
+        if event_package:
+            changed = ", ".join(str(item) for item in event_package.get("changed_files", []))
+            preserved = ", ".join(str(item) for item in event_package.get("preserved_files", []))
+            core_audit_note = (
+                f" Four-core-file CE audit passed: changed {changed}; checked and preserved {preserved} "
+                "because this vehicle has no event-group or static-loot-prototype reference."
+            )
         package_note = (
             "This is an offline complete-file review pair made from bundled vanilla references. It is not a live-server replacement: "
             "a live server must merge both records into its current files through the backup-first dashboard workflow."
             if len(drafts) > 1 else
             "This complete-file draft starts from the bundled vanilla reference. It has not been uploaded to any server."
         )
-        return f"Prepared and validated DayZ draft file(s): {target_names}.\n\n{task['summary']}\n\n{package_note}"
+        return f"Prepared and validated DayZ draft file(s): {target_names}.\n\n{task['summary']}\n\n{package_note}{core_audit_note}"
     wants_inspection = any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
     has_job_context = bool(run_context.get("latest_jobs"))
     if not ai_agent_llm_is_configured():
@@ -24530,6 +24667,7 @@ def ai_agent_llm_reply_for_task(
         "Do not infer a mod JSON schema from its filename. PC mods, custom scripts and console server access can differ: vanilla mission XML/JSON is generally portable, but mod/script files require the exact current mod, version and configuration. "
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
         "cfgweather.xml controls weather; cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml; "
+        "every CE event plan must audit events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml together. A group= position must refer to a real event group, and a loot-bearing static object/group child must have a matching usable mapgroupproto group. Do not manufacture an event group or prototype for a simple vehicle event that does not reference one; clearly report it as checked and preserved instead. Event names should use the correct family prefix (Vehicle, Static, Loot, Item, Infected or Animal) and position rotations should be written with six decimal places. "
         "mapgroupproto.xml defines group loot prototypes while mapgrouppos.xml places groups; messages.xml controls scheduled on-screen messages; "
         "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml controls CE cleanup exceptions; cfglimitsdefinition XML files define CE categories/tags/usages; "
         "cfgrandompresets.xml controls random cargo groups; cfgundergroundtriggers.json controls underground area triggers; "
@@ -38500,10 +38638,16 @@ def api_ai_agent_dayz_scenario(task_id: str):
     manifest = {
         "warning": scenario.get("warning"),
         "event": {key: scenario.get(key) for key in ("name", "map", "event_type", "preset", "class_name", "x", "y", "z", "radius")},
+        "four_core_ce_files": scenario.get("core_files", list(DAYZ_EVENT_CORE_FILES)),
+        "file_audit": scenario.get("file_plan", []),
+        "files_changed_by_this_plan": scenario.get("changed_files", []),
+        "files_checked_and_preserved": scenario.get("preserved_files", []),
+        "additional_support_files": scenario.get("support_files", []),
         "managed_files": scenario.get("files", []),
         "dashboard_event_payload": scenario.get("apply_payload", {}),
         "apply_notes": [
             "This is an event plan, not standalone XML to upload over an existing server file.",
+            "Every plan checks the four linked CE files. A file is only changed when the event actually references it; a simple vehicle must not receive invented event-group or mapgroupproto records.",
             "Use the guarded dashboard action to download current CE files, make backups, merge records, validate, and request a restart when required.",
         ],
     }
