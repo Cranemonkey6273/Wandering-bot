@@ -1587,6 +1587,31 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('name="dayz_scenario_type"', dashboard.PAGE_TEMPLATE)
         self.assertIn("AI can be wrong", dashboard.PAGE_TEMPLATE)
 
+    def test_gas_zone_plan_includes_effect_dependencies_and_keeps_ce_group_files_safe(self):
+        scenario = dashboard.ai_agent_dayz_scenario_from_payload(
+            {
+                "dayz_scenario_type": "gas_zone",
+                "dayz_scenario_preset": "gas_temp",
+                "dayz_scenario_name": "QA South Gas",
+                "dayz_scenario_x": "7000",
+                "dayz_scenario_y": "0",
+                "dayz_scenario_z": "9000",
+                "dayz_scenario_radius": "125",
+                "dayz_scenario_count": "1",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "livo",
+            },
+            "livonia",
+        )
+
+        self.assertEqual("gas_zone", scenario["event_type"])
+        self.assertEqual("ContaminatedArea_Dynamic", scenario["class_name"])
+        self.assertEqual(125, scenario["radius"])
+        self.assertEqual(["db/events.xml", "cfgeventspawns.xml"], scenario["changed_files"])
+        self.assertEqual(["cfgeventgroups.xml", "mapgroupproto.xml"], scenario["preserved_files"])
+        self.assertTrue({"cfgareaeffects.xml", "cfgeffectarea.json"}.issubset(set(scenario["files"])))
+        self.assertTrue(scenario["can_apply"])
+
     def test_ai_agent_dayz_targets_cover_standard_dayz_support_files(self):
         targets = {target for target, _label in dashboard.AI_AGENT_DAYZ_TARGETS}
         self.assertTrue({
