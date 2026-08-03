@@ -954,6 +954,8 @@ class ChannelMatchingTests(unittest.TestCase):
                     "upload_status": "blocked",
                     "upload_attempts": 3,
                     "status": "Native CE source required",
+                    "ce_upload_requested_at": "2026-08-01T10:00:00+00:00",
+                    "ce_upload_request_action": "create",
                 },
                 {"id": 44, "created_by": "manual", "event_type": "airdrop"},
             ],

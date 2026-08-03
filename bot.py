@@ -847,6 +847,16 @@ def discord_safe_content(text, limit=1900):
     return text[: max(0, limit - len(suffix))].rstrip() + suffix
 
 
+def discord_escape_mentions(text):
+    """Escape Discord mentions when the installed discord.py helper is available.
+
+    Keeping the small fallback here lets welcome and audit messages remain safe
+    with lightweight test doubles and during a library compatibility change.
+    """
+    escape = getattr(getattr(discord, "utils", None), "escape_mentions", None)
+    return escape(str(text or "")) if callable(escape) else str(text or "")
+
+
 def trim_embed_field_values(embed, limit=1024):
     """Keep embed fields inside Discord's per-field value limit."""
     for field in getattr(embed, "_fields", []) or []:
@@ -5032,21 +5042,29 @@ async def remove_onboarding_role(member, role_id, reason):
         return False
 
 
-async def send_onboarding_role_issue_notice(guild, config, member, role_id, action_label, target_channel=None):
+async def send_onboarding_role_issue_notice(guild, config, member, role_id, action_label, target_channel=None, *, include_target=True):
     problem = onboarding_role_assignment_problem(member, role_id, action="add")
     if not problem:
         problem = "Discord rejected the role update. Check the bot has Manage Roles and the bot role is above this role."
     print(f"[ONBOARDING] {action_label} failed for {member}: {problem}")
     settings = member_onboarding_settings(config)
-    fallback_channel = (
-        resolve_onboarding_channel(guild, config, settings, "accepted", "")
-        or resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
-        or resolve_onboarding_channel(guild, config, settings, "next", "general_chat")
-    )
+    configured_channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+    audit_channel = resolve_feed_channel(str(getattr(guild, "id", "")), config, "dashboard_audit")
+    if not audit_channel:
+        audit_channel_id = _safe_channel_id(configured_channels.get("dashboard_audit"))
+        if audit_channel_id and guild:
+            audit_channel = guild.get_channel(audit_channel_id)
+    fallback_channel = None
+    if not audit_channel and not target_channel:
+        fallback_channel = (
+            resolve_onboarding_channel(guild, config, settings, "accepted", "")
+            or resolve_onboarding_channel(guild, config, settings, "choice", "general_chat")
+            or resolve_onboarding_channel(guild, config, settings, "next", "general_chat")
+        )
     channels = []
     for channel in (
-        resolve_feed_channel(str(getattr(guild, "id", "")), config, "dashboard_audit"),
-        target_channel,
+        audit_channel,
+        target_channel if include_target or not audit_channel else None,
         fallback_channel,
     ):
         if not channel:
@@ -5317,7 +5335,15 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
         rules_role_problem = onboarding_role_assignment_problem(member, rules_role_id, action="add")
         if not rules_role_problem:
             rules_role_problem = "Discord rejected the role update. Check role hierarchy and Manage Roles permission."
-        await send_onboarding_role_issue_notice(guild, config, member, rules_role_id, "Rules role", target_channel=channel)
+        await send_onboarding_role_issue_notice(
+            guild,
+            config,
+            member,
+            rules_role_id,
+            "Rules role",
+            target_channel=channel,
+            include_target=False,
+        )
     remember_recent_onboarding_rules_acceptance(guild, member)
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot rules accepted")
     linked_data = linked_players.get(str(member.id), {}) if isinstance(linked_players.get(str(member.id)), dict) else {}
@@ -5331,7 +5357,15 @@ async def apply_member_onboarding_rules_acceptance(guild, config, member):
             "Wandering Bot gamertag already linked when rules were accepted",
         )
         if linked_role_id and not (had_linked_role or linked_role_added or member_has_role_id(member, linked_role_id)):
-            await send_onboarding_role_issue_notice(guild, config, member, linked_role_id, "Linked gamer role", target_channel=channel)
+            await send_onboarding_role_issue_notice(
+                guild,
+                config,
+                member,
+                linked_role_id,
+                "Linked gamer role",
+                target_channel=channel,
+                include_target=False,
+            )
     if channel:
         embed = discord.Embed(
             title="RULES ACCEPTED",
@@ -5485,7 +5519,7 @@ def resolve_onboarding_choice_welcome_channel(guild, config, settings, choice):
     if not choice_key:
         return None
     channel = resolve_onboarding_channel(guild, config, settings, f"choice_{choice_key}_welcome", "")
-    if channel:
+    if channel and is_matching_onboarding_choice_welcome_channel(channel, choice_key):
         return channel
     return find_onboarding_choice_welcome_channel(guild, choice_key)
 
@@ -5513,7 +5547,7 @@ async def send_member_onboarding_choice_welcome(guild, config, settings, member,
     ).strip()
     embed = discord.Embed(
         title=f"WELCOME TO {choice_label.upper()}",
-        description=f"{member.mention}\n\n{discord_safe_content(discord.utils.escape_mentions(message), 1200)}",
+        description=f"{member.mention}\n\n{discord_safe_content(discord_escape_mentions(message), 1200)}",
         color=ONBOARDING_CHOICE_WELCOME_COLORS.get(choice_key, 0x1ABC9C),
     )
     embed.add_field(name="Access", value=discord_safe_content(access_text or f"{choice_label} role applied.", 900), inline=False)
@@ -5628,10 +5662,7 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
             f"{choice.get('label') or choice.get('key') or 'Server choice'} role",
             target_channel=choice_channel,
         )
-        access_text = (
-            f"{choice.get('label') or choice.get('key') or 'Server'} selected, "
-            f"but Discord blocked the role update: {problem}"
-        )
+        return True
     await send_member_onboarding_choice_welcome(guild, config, settings, member, choice, access_text=access_text)
     return True
 
@@ -8322,16 +8353,22 @@ def channel_matches_preferred_default_name(channel, key):
 
 
 def preferred_existing_feed_channel(guild, key):
-    matches = [
-        channel for channel in getattr(guild, "text_channels", []) or []
-        if channel_matches_bot_default_name(channel, key)
+    preferred_names = [default_channel_name_for_config(key), *CHANNEL_ALIASES.get(key, [])]
+    normalized_preferred_names = [
+        normalize_discord_name(name)
+        for name in preferred_names
+        if normalize_discord_name(name)
     ]
+    matches = []
+    for channel in getattr(guild, "text_channels", []) or []:
+        channel_name = normalize_discord_name(getattr(channel, "name", ""))
+        if channel_name not in normalized_preferred_names:
+            continue
+        matches.append((normalized_preferred_names.index(channel_name), channel))
     if not matches:
         return None
-    for channel in matches:
-        if channel_matches_preferred_default_name(channel, key):
-            return channel
-    return matches[0]
+    matches.sort(key=lambda item: item[0])
+    return matches[0][1]
 
 
 def channel_matches_saved_key(channel, key):
