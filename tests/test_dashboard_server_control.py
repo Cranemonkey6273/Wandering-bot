@@ -1493,6 +1493,35 @@ class DashboardServerControlTests(unittest.TestCase):
         public = dashboard.ai_agent_public_task({"dayz_drafts": drafts})
         self.assertTrue(all("content" not in item for item in public["dayz_drafts"]))
 
+    def test_vehicle_scenario_is_not_reduced_to_plain_event_link_guidance(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "livonia",
+                "dayz_scenario_type": "vehicle_spawn",
+                "dayz_scenario_preset": "ada",
+                "dayz_scenario_name": "QA Linked Ada",
+                "dayz_scenario_x": "7000",
+                "dayz_scenario_y": "0",
+                "dayz_scenario_z": "9000",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "livo",
+            },
+            "Generate matching events.xml and cfgeventspawns.xml records for a linked vehicle event.",
+        )
+        task = {"id": "qa-vehicle", "dayz_context": context, "project_type": "dayz_files"}
+
+        reply = dashboard.ai_agent_llm_reply_for_task(
+            {}, {}, {"label": "QA owner"}, {}, task, None,
+            "Generate matching events.xml and cfgeventspawns.xml records for this linked vehicle event.",
+            False,
+        )
+
+        self.assertEqual("deterministic_dayz_draft", task["llm_status"])
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, {item["target_path"] for item in task["dayz_drafts"]})
+        self.assertIn("Four-core-file CE audit passed", reply)
+
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(
             {

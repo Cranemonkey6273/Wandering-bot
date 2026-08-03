@@ -24577,7 +24577,13 @@ def ai_agent_llm_reply_for_task(
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
     base_suggestions = ai_agent_suggested_commands_for_task(task, run)
     task["suggested_commands"] = ai_agent_merge_suggested_commands(task, base_suggestions)
-    verified_dayz_reply = ai_agent_verified_dayz_event_link_reply(prompt)
+    dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    scenario = dayz_context.get("scenario") if isinstance(dayz_context.get("scenario"), dict) else {}
+    # The short event-name answer is useful for a plain question, but it must
+    # never swallow a configured scenario.  A scenario carries coordinates,
+    # preset and selected map, and has a deterministic linked-file generator
+    # immediately below this guard.
+    verified_dayz_reply = "" if scenario.get("id") else ai_agent_verified_dayz_event_link_reply(prompt)
     if verified_dayz_reply:
         # Do not spend a model call (or present unrelated project commands) for
         # this stable, safety-critical CE relationship.
