@@ -76,6 +76,81 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_xml_workshop_legacy_state_only_falls_back_to_matching_map_profile(self):
+        base_config = {
+            "server_map": "chernarus",
+            "xml_workshop": {"settings": {"notes": "Cherno-only legacy draft"}},
+        }
+        cherno_profile = {"server_map": "chernarus"}
+        livonia_profile = {"server_map": "livonia"}
+
+        self.assertEqual(
+            "Cherno-only legacy draft",
+            dashboard.dashboard_xml_workshop_for_profile(base_config, cherno_profile, "cherno")["settings"]["notes"],
+        )
+        self.assertEqual({}, dashboard.dashboard_xml_workshop_for_profile(base_config, livonia_profile, "livo"))
+
+        copied = dashboard.dashboard_prepare_xml_workshop_for_profile(base_config, cherno_profile, "cherno")
+        isolated = dashboard.dashboard_prepare_xml_workshop_for_profile(base_config, livonia_profile, "livo")
+
+        self.assertEqual("Cherno-only legacy draft", copied["settings"]["notes"])
+        self.assertEqual({}, isolated)
+        self.assertIsNot(base_config["xml_workshop"], cherno_profile["xml_workshop"])
+
+    def test_xml_workshop_save_writes_only_the_selected_profile(self):
+        configs = {
+            "guild-1": {
+                "server_map": "chernarus",
+                "xml_workshop": {"settings": {"notes": "Cherno legacy draft"}},
+                "server_profiles": {
+                    "cherno": {"server_map": "chernarus"},
+                    "livo": {"server_map": "livonia"},
+                },
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "livo",
+            "recipe_kind": "settings",
+            "default_damage": "pristine",
+            "quantity_mode": "vanilla",
+            "notes": "Livonia-only rules",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_xml_workshop()
+
+        base_workshop = configs["guild-1"]["xml_workshop"]
+        livonia_workshop = configs["guild-1"]["server_profiles"]["livo"]["xml_workshop"]
+        self.assertEqual("Cherno legacy draft", base_workshop["settings"]["notes"])
+        self.assertEqual("Livonia-only rules", livonia_workshop["settings"]["notes"])
+        self.assertNotIn("xml_workshop", configs["guild-1"]["server_profiles"]["cherno"])
+
+    def test_heatmap_summary_reads_the_profile_runtime_key(self):
+        heatmap = {
+            "guild-1": {"NWAF": 99},
+            "guild-1:livo": {"Nadbor": 4, "__modes__": {"pvp": {"Nadbor": 4}}},
+        }
+
+        summary = dashboard.heatmap_summary(heatmap, "guild-1:livo")
+
+        self.assertEqual(4, summary["total"])
+        self.assertEqual("Nadbor", summary["modes"]["pvp"][0]["name"])
+        self.assertNotIn("NWAF", [row["name"] for row in summary["modes"]["pvp"]])
+
+    def test_profile_selection_is_preserved_for_xml_and_heatmap_navigation(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn('/admin?section=heatmaps{{ server_qs }}{{ profile_qs }}', template)
+        self.assertIn('/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}', template)
+        self.assertIn('name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else \'\' }}"', template)
+
     def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
         base_config = {
             "server_map": "chernarus",

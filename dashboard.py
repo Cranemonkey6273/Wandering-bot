@@ -5854,7 +5854,7 @@ PAGE_TEMPLATE = """
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   {% set profile_qs = '&server_profile_id=' ~ selected_dayz_profile.id if selected_dayz_profile else '' %}
   {% set auth_qs = '&token=' ~ request.args.get('token')|urlencode if request.args.get('token') else '' %}
-  {% set dashboard_qs = server_qs ~ auth_qs %}
+  {% set dashboard_qs = server_qs ~ profile_qs ~ auth_qs %}
   {% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
   {% set shop_economy_section = 'economy' if section_allowed('economy') else 'shop' %}
   {% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
@@ -5976,7 +5976,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('presets') %}<a class="{{ 'active' if active_section == 'presets' else '' }}" href="/admin?section=presets{{ server_qs }}">Preset Files</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
@@ -6108,10 +6108,10 @@ PAGE_TEMPLATE = """
       {% if section_allowed('factions') %}<a class="tab-link {{ 'active' if active_section == 'factions' else '' }}" href="/admin?section=factions{{ server_qs }}">Factions</a>{% endif %}
       {% if section_allowed('zones') %}<a class="tab-link {{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('members') %}<a class="tab-link {{ 'active' if active_section == 'members' else '' }}" href="/admin?section=members{{ server_qs }}">Members</a>{% endif %}
-      {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}">Map & Heatmaps</a>{% endif %}
+      {% if section_allowed('heatmaps') %}<a class="tab-link {{ 'active' if active_section == 'heatmaps' else '' }}" href="/admin?section=heatmaps{{ server_qs }}{{ profile_qs }}">Map & Heatmaps</a>{% endif %}
       {% if section_allowed('pve') %}<a class="tab-link {{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="tab-link {{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
-      {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}">XML & Loadouts</a>{% endif %}
+      {% if section_allowed('xml-workshop') %}<a class="tab-link {{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">XML & Loadouts</a>{% endif %}
       {% if section_allowed('presets') %}<a class="tab-link {{ 'active' if active_section == 'presets' else '' }}" href="/admin?section=presets{{ server_qs }}">Preset Files</a>{% endif %}
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="{{ dashboard_path }}?section=ai-agent{{ server_qs }}">AI Sandbox</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/admin?section=reviews{{ server_qs }}">Reviews</a>
@@ -6144,10 +6144,10 @@ PAGE_TEMPLATE = """
           {% if section_allowed('factions') %}<option value="/admin?section=factions{{ server_qs }}" {{ 'selected' if active_section == 'factions' else '' }}>Factions</option>{% endif %}
           {% if section_allowed('zones') %}<option value="/admin?section=zones{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'zones' else '' }}>Zones & Radar</option>{% endif %}
           {% if section_allowed('members') %}<option value="/admin?section=members{{ server_qs }}" {{ 'selected' if active_section == 'members' else '' }}>Members</option>{% endif %}
-          {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Map & Heatmaps</option>{% endif %}
+          {% if section_allowed('heatmaps') %}<option value="/admin?section=heatmaps{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'heatmaps' else '' }}>Map & Heatmaps</option>{% endif %}
           {% if section_allowed('pve') %}<option value="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'pve' else '' }}>Airdrops & Events</option>{% endif %}
           {% if section_allowed('economy') or section_allowed('shop') %}<option value="/admin?section={{ shop_economy_section }}{{ server_qs }}" {{ 'selected' if active_section in ['economy', 'shop'] else '' }}>Shop & Economy</option>{% endif %}
-          {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
+          {% if section_allowed('xml-workshop') %}<option value="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}" {{ 'selected' if active_section == 'xml-workshop' else '' }}>XML & Loadouts</option>{% endif %}
           {% if section_allowed('presets') %}<option value="/admin?section=presets{{ server_qs }}" {{ 'selected' if active_section == 'presets' else '' }}>Preset Files</option>{% endif %}
           {% if section_allowed('ai-agent') %}<option value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Sandbox</option>{% endif %}
           <option value="/admin?section=reviews{{ server_qs }}" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
@@ -6250,13 +6250,13 @@ PAGE_TEMPLATE = """
         <article class="command-card">
           <div class="command-card-head">
             <h3>Player Loadout</h3>
-            <a class="button" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">Open Builder</a>
+            <a class="button" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder">Open Builder</a>
           </div>
           <div class="command-loadout">
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[:4] %}
               {% set item = card.item %}
-              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">
+              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
                 <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
               </a>
@@ -6266,7 +6266,7 @@ PAGE_TEMPLATE = """
             <div class="command-gear-column">
               {% for card in visual_loadout_slot_cards[4:8] %}
               {% set item = card.item %}
-              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">
+              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
                 <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
               </a>
@@ -6275,7 +6275,7 @@ PAGE_TEMPLATE = """
             <div class="command-loadout-extra">
               {% for card in visual_loadout_slot_cards[8:13] %}
               {% set item = card.item %}
-              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}#player-loadout-builder">
+              <a class="command-gear-card" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder">
                 {% if item.name %}<img src="{{ item.image_url }}" onerror="this.onerror=null;this.src='{{ item.fallback_image_url }}';" alt="">{% endif %}
                 <span>{{ card.slot.label }}</span><strong>{{ item.name if item.name else 'Empty' }}</strong>
               </a>
@@ -6325,7 +6325,7 @@ PAGE_TEMPLATE = """
         <article class="command-card">
           <div class="command-card-head">
             <h3>PVE Workshop</h3>
-            <a class="button" href="/admin?section=xml-workshop{{ server_qs }}">View Workshop</a>
+            <a class="button" href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">View Workshop</a>
           </div>
           <div class="command-upload-list">
             {% for event in (server.scenario_events if server else [])[:4] %}
@@ -6348,7 +6348,7 @@ PAGE_TEMPLATE = """
       <div class="quick-guide-grid" aria-label="Common dashboard jobs">
         <a class="quick-guide-link" href="/admin?section=access&setup_tool=servers{{ server_qs }}#setup-common-tasks"><strong>Set up or change server</strong><span>Change map, platform, PVE/PVP mode, Nitrado details, dashboard logins and linked servers.</span></a>
         <a class="quick-guide-link" href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}"><strong>Create an airdrop or horde</strong><span>Use Airdrops & Events for crash scenes, infected, animals, vehicles and uploads.</span></a>
-        <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
+        <a class="quick-guide-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}{{ profile_qs }}"><strong>Edit types.xml</strong><span>Use XML & Loadouts to boost, reduce, inspect, copy or download the generated types.xml.</span></a>
         {% if section_allowed('presets') %}<a class="quick-guide-link" href="/admin?section=presets{{ server_qs }}"><strong>Download preset server files</strong><span>Grab vanilla, build-anywhere, stamina, weather and boosted loot files for phone or PC upload.</span></a>{% endif %}
         <a class="quick-guide-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Set up shop or money</strong><span>Add buyable items, build bundles, adjust wallets, set wages and choose the currency wording.</span></a>
         <a class="quick-guide-link" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><strong>Set radar or safe zones</strong><span>Use Zones & Radar for pings, PVP areas, safe zones and map-based boundaries.</span></a>
@@ -6366,11 +6366,11 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
       <a class="category-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Shop & Economy</strong><span>Items, bundles, prices, wallets, wages and rewards.</span></a>
-      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}{{ profile_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
       {% if section_allowed('presets') %}<a class="category-link" href="/admin?section=presets{{ server_qs }}"><strong>Preset Files</strong><span>Download ready-made gameplay, weather and loot economy files.</span></a>{% endif %}
-      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
       <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}"><strong>Airdrops & Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
-      <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
+      <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}{{ profile_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help & Guides</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
     </section>
 
@@ -8710,10 +8710,20 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Heatmaps</h2>
-          <p class="tool-note">See the busiest PVP, PVE, infected, animal, build, and movement zones the bot has collected from ADM activity.</p>
+          <p class="tool-note">See the busiest PVP, PVE, infected, animal, build, and movement zones the bot has collected from ADM activity for the selected DayZ server.</p>
         </div>
         <span class="pill">{{ server.heatmap.total if server else 0 }} events</span>
       </div>
+      {% if server and server.dayz_profiles|length > 1 %}
+      <div class="command-server-grid" aria-label="Heatmap DayZ server picker">
+        {% for option in server.dayz_profiles %}
+        <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/admin?section=heatmaps&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#heatmaps">
+          <strong>{{ option.name }}</strong>
+          <span>{{ option.map|upper }} · {{ option.platform_label }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
       <div class="panel-grid">
         {% for mode_name, heat in (server.heatmap.modes.items() if server else []) %}
         <article class="admin-panel">
@@ -9581,7 +9591,7 @@ PAGE_TEMPLATE = """
       </div>
       <nav class="tool-switcher" aria-label="XML workshop tools">
         {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
-        <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}">{{ label }}</a>
+        <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}{{ profile_qs }}">{{ label }}</a>
         {% endfor %}
       </nav>
       <div class="panel-grid">
@@ -9787,7 +9797,8 @@ PAGE_TEMPLATE = """
           <h3>Loot Quality Rules</h3>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#xml-workshop">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#xml-workshop">
             <input class="hidden-field" name="recipe_kind" value="settings">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Default item damage
@@ -9833,7 +9844,8 @@ PAGE_TEMPLATE = """
           <h3>Airdrop Builder</h3>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#airdrop-builder">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#airdrop-builder">
             <input class="hidden-field" name="recipe_kind" value="airdrop">
             <input class="hidden-field" name="airdrop_map_zoom" value="{{ airdrop_map_zoom }}">
             <div class="full xml-tool-layout">
@@ -9938,7 +9950,8 @@ PAGE_TEMPLATE = """
           <h3>Filled Bag / Container Generator</h3>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#container-builder">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#container-builder">
             <input class="hidden-field" name="recipe_kind" value="container">
             <div class="full xml-tool-layout">
               <div class="stack">
@@ -9993,7 +10006,8 @@ PAGE_TEMPLATE = """
           <h3>Player Loadout</h3>
           <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop" data-html-submit="true">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={{ server.guild_id if server else '' }}&loadout_slot={{ player_loadout_active_slot|urlencode }}#player-loadout-builder">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}#player-loadout-builder">
             <input class="hidden-field" name="recipe_kind" value="player_loadout">
             <div class="full xml-tool-layout player-loadout-layout">
               <div class="stack">
@@ -10010,7 +10024,7 @@ PAGE_TEMPLATE = """
                     <h4>Player Slots</h4>
                     <div class="loadout-slots">
                       {% for slot in player_loadout_slots %}
-                      <a class="loadout-slot {{ 'active' if slot == player_loadout_active_slot else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}&loadout_slot={{ slot|urlencode }}#player-loadout-builder">
+                      <a class="loadout-slot {{ 'active' if slot == player_loadout_active_slot else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}&loadout_slot={{ slot|urlencode }}#player-loadout-builder">
                         {{ slot }}
                         <span class="loadout-slot-count">{{ (xml_picker_groups.get(slot) or [])|length }} options</span>
                       </a>
@@ -10049,7 +10063,7 @@ PAGE_TEMPLATE = """
                       <summary>{{ player_loadout_active_slot }} item cards</summary>
                       <div class="visual-picker-grid" data-visual-grid>
                         {% for item in player_loadout_slot_items[:72] %}
-                        <a class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}&loadout_item={{ item.name|urlencode }}#player-loadout-builder">
+                        <a class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}&loadout_item={{ item.name|urlencode }}#player-loadout-builder">
                           <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/General' }}';" alt="">
                           <strong>{{ item.name }}</strong>
                           <small>{{ item.category }}{% if item.size %} - {{ item.size }} slots{% endif %}</small>
@@ -10101,7 +10115,8 @@ PAGE_TEMPLATE = """
           <h3>Vehicle Loadout</h3>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}#vehicle-loadout-builder">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#vehicle-loadout-builder">
             <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
             <div class="full xml-tool-layout">
               <div class="stack">
@@ -25873,8 +25888,10 @@ def dashboard_section_return(section: str, payload: dict[str, Any] | None = None
     payload = payload or {}
     guild_id = normalize_guild_id(payload.get("guild_id"))
     guild_part = f"&guild_id={guild_id}" if guild_id and guild_id != "global" else ""
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    profile_part = f"&server_profile_id={urllib.parse.quote(profile_id)}" if profile_id else ""
     base_path = "/owner" if str(payload.get("dashboard_mode") or "").lower() == "owner" else "/admin"
-    fallback = f"{base_path}?section={section}{guild_part}{anchor}"
+    fallback = f"{base_path}?section={section}{guild_part}{profile_part}{anchor}"
     return safe_dashboard_return(payload.get("return_to"), fallback)
 
 
@@ -29782,6 +29799,34 @@ def dashboard_target_config_for_runtime(guild_configs: dict[str, Any], runtime_i
     return dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
 
 
+def dashboard_xml_workshop_for_profile(base_config: Any, profile_config: Any, profile_id: Any = "") -> dict[str, Any]:
+    """Return the isolated XML workshop state, with a safe Cherno-era read fallback."""
+    profile_config = profile_config if isinstance(profile_config, dict) else {}
+    profile_workshop = profile_config.get("xml_workshop")
+    if isinstance(profile_workshop, dict):
+        return profile_workshop
+    if not normalize_server_profile_id(profile_id, ""):
+        return {}
+    base_config = base_config if isinstance(base_config, dict) else {}
+    legacy_workshop = base_config.get("xml_workshop")
+    if not isinstance(legacy_workshop, dict):
+        return {}
+    base_map = map_key_for(str(base_config.get("server_map") or base_config.get("map") or "chernarus"))
+    profile_map = map_key_for(str(profile_config.get("server_map") or profile_config.get("map") or base_map))
+    return legacy_workshop if profile_map == base_map else {}
+
+
+def dashboard_prepare_xml_workshop_for_profile(base_config: Any, profile_config: dict[str, Any], profile_id: Any = "") -> dict[str, Any]:
+    """Create profile XML state without ever copying a different map's legacy drafts."""
+    workshop = profile_config.get("xml_workshop")
+    if isinstance(workshop, dict):
+        return workshop
+    legacy_workshop = dashboard_xml_workshop_for_profile(base_config, profile_config, profile_id)
+    workshop = copy.deepcopy(legacy_workshop) if legacy_workshop else {}
+    profile_config["xml_workshop"] = workshop
+    return workshop
+
+
 def dashboard_server_control_target(
     guild_configs: dict[str, Any],
     guild_id: str,
@@ -32297,8 +32342,49 @@ def page(mode: str, auth: dict[str, Any]):
                 selected_dayz_profile = matched_profile
                 selected_dayz_profile_id = str(matched_profile.get("id") or "")
                 selected_server = dict(selected_server)
+                profile_config = matched_profile.get("config") if isinstance(matched_profile.get("config"), dict) else {}
+                profile_channels = matched_profile.get("channels") if isinstance(matched_profile.get("channels"), list) else []
+                profile_map = str(
+                    matched_profile.get("map")
+                    or profile_config.get("server_map")
+                    or profile_config.get("map")
+                    or selected_server.get("map")
+                    or "chernarus"
+                )
+                profile_platform = normalize_dashboard_server_platform(
+                    matched_profile.get("platform")
+                    or profile_config.get("server_platform")
+                    or profile_config.get("platform")
+                    or selected_server.get("platform")
+                )
                 selected_server["selected_dayz_profile_id"] = selected_dayz_profile_id
                 selected_server["selected_dayz_profile"] = selected_dayz_profile
+                # A profile selection is the active DayZ server. Keep the visible
+                # identity, map and file workspace in that profile instead of the
+                # shared guild-level (legacy Cherno) configuration.
+                selected_server["config"] = profile_config
+                selected_server["channels"] = profile_channels
+                selected_server["guild_name"] = (
+                    f"{selected_server.get('guild_name') or 'Server'} - "
+                    f"{matched_profile.get('name') or selected_dayz_profile_id}"
+                )
+                selected_server["dayz_name"] = str(
+                    matched_profile.get("name") or selected_dayz_profile_id or selected_server.get("dayz_name") or ""
+                )
+                selected_server["map"] = profile_map
+                selected_server["map_key"] = map_key_for(profile_map)
+                selected_server["map_size"] = map_size_for(profile_map)
+                selected_server["zone_radius_limit"] = zone_radius_limit_for_map(profile_map)
+                selected_server["map_labels"] = redact(dashboard_map_labels(profile_map))
+                selected_server["map_image_available"] = map_image_available_for(profile_map)
+                selected_server["platform"] = profile_platform
+                selected_server["platform_label"] = dashboard_server_platform_label(profile_platform)
+                if active_section == "heatmaps":
+                    profile_runtime_id = str(
+                        matched_profile.get("runtime_id")
+                        or dashboard_server_profile_runtime_id(selected_server.get("guild_id", ""), selected_dayz_profile_id)
+                    )
+                    selected_server["heatmap"] = heatmap_summary(load_store("heatmap", {}), profile_runtime_id)
                 state = dict(state)
                 server_rows = list(state.get("servers") or [])
                 if server_rows:
@@ -32474,6 +32560,14 @@ def page(mode: str, auth: dict[str, Any]):
     picker_source_items = selected_server.get("shop_items", []) if active_section in {"xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"} and isinstance(selected_server, dict) else []
     picker_groups = cached_xml_picker_groups(picker_source_items)
     xml_workshop_config = selected_config.get("xml_workshop", {}) if isinstance(selected_config, dict) else {}
+    if active_section == "xml-workshop" and selected_dayz_profile_id and isinstance(selected_config, dict):
+        live_configs = load_store("guild_configs", {})
+        base_config = live_configs.get(normalize_guild_id(selected_server.get("guild_id") or ""), {}) if isinstance(live_configs, dict) else {}
+        xml_workshop_config = dashboard_xml_workshop_for_profile(
+            base_config,
+            selected_config,
+            selected_dayz_profile_id,
+        )
     if not isinstance(xml_workshop_config, dict):
         xml_workshop_config = {}
     player_loadout_draft = xml_workshop_config.get("player_loadout_draft", {})
@@ -34902,10 +34996,12 @@ def api_xml_workshop_loadout_add():
         return error
     raw_payload = payload or {}
     guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
+    profile_qs = f"&server_profile_id={urllib.parse.quote(profile_id)}" if profile_id else ""
     active_slot = str(raw_payload.get("loadout_slot") or "Head").strip()[:40]
     return_to = safe_dashboard_return(
         None,
-        f"/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={guild_id}&loadout_slot={urllib.parse.quote(active_slot or 'Head')}#player-loadout-builder",
+        f"/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={guild_id}{profile_qs}&loadout_slot={urllib.parse.quote(active_slot or 'Head')}#player-loadout-builder",
     )
     item_name = safe_dayz_class(raw_payload.get("loadout_item"))
     if not item_name:
@@ -34928,8 +35024,11 @@ def api_xml_workshop_loadout_add():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
-    workshop = config.setdefault("xml_workshop", {})
+    base_config = guild_configs.setdefault(guild_id, {"channels": {}})
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or not isinstance(config, dict):
+        return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+    workshop = dashboard_prepare_xml_workshop_for_profile(base_config, config, profile_id) if profile_id else config.setdefault("xml_workshop", {})
     if not isinstance(workshop, dict):
         workshop = {}
         config["xml_workshop"] = workshop
@@ -34953,11 +35052,15 @@ def api_xml_workshop_loadout_download():
         return error
     raw_payload = payload or {}
     guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
     draft: dict[str, Any] = {}
     guild_configs = load_store("guild_configs", {})
     if isinstance(guild_configs, dict):
-        config = guild_configs.get(guild_id, {})
-        workshop = config.get("xml_workshop", {}) if isinstance(config, dict) else {}
+        base_config = guild_configs.get(guild_id, {})
+        config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+        if target_error or not isinstance(config, dict):
+            return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+        workshop = dashboard_xml_workshop_for_profile(base_config, config, profile_id) if profile_id else config.get("xml_workshop", {})
         saved_draft = workshop.get("player_loadout_draft", {}) if isinstance(workshop, dict) else {}
         if isinstance(saved_draft, dict):
             draft = saved_draft
@@ -35253,11 +35356,15 @@ def api_xml_workshop():
     raw_payload = payload or {}
     payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
-    workshop = config.setdefault("xml_workshop", {})
+    base_config = guild_configs.setdefault(guild_id, {"channels": {}})
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or not isinstance(config, dict):
+        return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+    workshop = dashboard_prepare_xml_workshop_for_profile(base_config, config, profile_id) if profile_id else config.setdefault("xml_workshop", {})
     if not isinstance(workshop, dict):
         workshop = {}
         config["xml_workshop"] = workshop
