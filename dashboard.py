@@ -21150,8 +21150,11 @@ AI_AGENT_FILE_PREVIEW_MAX_BYTES = 240_000
 AI_AGENT_FILE_LIST_MAX_ITEMS = 180
 AI_AGENT_CHANGE_LIST_MAX_ITEMS = 140
 AI_AGENT_DIFF_MAX_CHARS = 80_000
-AI_AGENT_DAYZ_SOURCE_MAX_CHARS = 90_000
-AI_AGENT_DAYZ_DRAFT_MAX_CHARS = 90_000
+# Complete vanilla ``types.xml`` files are commonly close to 1 MB.  Keep the
+# model context bounded separately, but allow deterministic, locally validated
+# full-file drafts to be downloaded without silently truncating them.
+AI_AGENT_DAYZ_SOURCE_MAX_CHARS = 1_500_000
+AI_AGENT_DAYZ_DRAFT_MAX_CHARS = 1_500_000
 AI_AGENT_DAYZ_REFERENCE_BASE_MAX_CHARS = 90_000
 AI_AGENT_DAYZ_TARGETS = (
     ("init.c", "init.c - mission script and ObjectSpawner hooks"),
@@ -23289,6 +23292,252 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     }, ""
 
 
+def ai_agent_types_boost_profile_requested(context: Any, prompt: Any) -> bool:
+    """Recognise the one unambiguous, deterministic types.xml test profile.
+
+    We deliberately do not try to turn every natural-language loot request
+    into a full 800k+ replacement.  This profile is narrowly defined so its
+    selection rules can be explained and tested instead of guessed by a model.
+    """
+    if not isinstance(context, dict) or str(context.get("target_path") or "") != "db/types.xml":
+        return False
+    reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+    if str(reference.get("mode") or "") != "vanilla":
+        return False
+    text = str(prompt or "").lower()
+    needs_weapons = "weapon" in text
+    needs_ammo = "ammo" in text or "ammunition" in text or "magazine" in text
+    needs_military_clothes = "military" in text and ("cloth" in text or "clothes" in text)
+    needs_common_clothes = ("crap clothing" in text or "common clothing" in text or "civilian clothing" in text)
+    needs_double = any(token in text for token in ("200%", "200 %", "double", "2x", "two times"))
+    return needs_weapons and needs_ammo and needs_military_clothes and needs_common_clothes and needs_double
+
+
+def ai_agent_build_types_boost_profile(context: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    """Build a full, reference-preserving Livonia/Chernarus/Sakhal types draft.
+
+    "200%" means *2.00x vanilla*, not ``+200%`` (3.00x).  Existing zero
+    nominal records remain disabled: enabling deliberately disabled variants
+    needs a separate explicit request.  All substitutions retain the bundled
+    file's original tags, ordering, comments and whitespace except for the
+    changed integer values.
+    """
+    if not ai_agent_types_boost_profile_requested(context, prompt):
+        return None
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    source = load_dayz_reference_text(map_key, "db", "types.xml")
+    if not source.strip():
+        return None
+    try:
+        root = ET.fromstring(source)
+    except ET.ParseError:
+        return None
+    if root.tag != "types":
+        return None
+
+    changes: dict[str, tuple[int, int]] = {}
+    counts = {"weapons": 0, "ammunition": 0, "military_clothing": 0, "common_clothing": 0}
+    for node in root.findall("type"):
+        name = str(node.get("name") or "").strip()
+        if not name:
+            continue
+        categories = {str(item.get("name") or "").strip().lower() for item in node.findall("category")}
+        usages = {str(item.get("name") or "").strip().lower() for item in node.findall("usage")}
+        is_weapon = "weapons" in categories
+        is_ammunition = name.startswith(("Ammo_", "AmmoBox_", "Mag_"))
+        is_military_clothing = "clothes" in categories and "military" in usages
+        is_common_clothing = "clothes" in categories and not is_military_clothing
+        if not (is_weapon or is_ammunition or is_military_clothing or is_common_clothing):
+            continue
+        nominal_node = node.find("nominal")
+        min_node = node.find("min")
+        try:
+            nominal = int(str(nominal_node.text or "0").strip()) if nominal_node is not None else 0
+            minimum = int(str(min_node.text or "0").strip()) if min_node is not None else 0
+        except (TypeError, ValueError):
+            continue
+        if is_common_clothing:
+            new_nominal = 1 if nominal > 0 else 0
+            new_minimum = 1 if minimum > 0 and new_nominal else 0
+            bucket = "common_clothing"
+        else:
+            new_nominal = nominal * 2 if nominal > 0 else 0
+            new_minimum = minimum * 2 if minimum > 0 else 0
+            if is_ammunition:
+                bucket = "ammunition"
+            elif is_weapon:
+                bucket = "weapons"
+            else:
+                bucket = "military_clothing"
+        if new_minimum > new_nominal:
+            new_minimum = new_nominal
+        if nominal != new_nominal or minimum != new_minimum:
+            changes[name] = (new_nominal, new_minimum)
+            counts[bucket] += 1
+
+    type_pattern = re.compile(r'(<type\s+name="(?P<name>[^"]+)"(?:\s[^>]*)?>)(?P<body>.*?)(</type>)', re.DOTALL)
+
+    def replace_type(match: re.Match[str]) -> str:
+        name = str(match.group("name") or "")
+        values = changes.get(name)
+        if not values:
+            return match.group(0)
+        body = match.group("body")
+        for tag, value in (("nominal", values[0]), ("min", values[1])):
+            body, replacements = re.subn(
+                rf"(<{tag}>\s*)-?\d+(\s*</{tag}>)",
+                rf"\g<1>{value}\g<2>",
+                body,
+                count=1,
+            )
+            if replacements != 1:
+                return match.group(0)
+        return match.group(1) + body + match.group(4)
+
+    content = type_pattern.sub(replace_type, source)
+    valid, validation_message = validate_dayz_upload_text("db/types.xml", content)
+    if not valid:
+        return None
+    total_changed = sum(counts.values())
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "db/types.xml",
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content if content.endswith("\n") else content + "\n",
+        "content_chars": len(content),
+        "summary": (
+            "Complete vanilla-based types.xml draft: doubled enabled weapons, ammunition and Military clothing; "
+            "reduced enabled non-Military clothing to nominal 1 (min 0/1). "
+            f"Changed {total_changed} records: {counts['weapons']} weapons, {counts['ammunition']} ammunition, "
+            f"{counts['military_clothing']} Military clothing and {counts['common_clothing']} common clothing. "
+            "Zero-nominal vanilla records remain disabled."
+        ),
+        "validation": "passed",
+        "base": f"bundled DayZ {DAYZ_CE_FILE_VERSION} {map_key} vanilla db/types.xml",
+        "profile": {"boost_multiplier": 2.0, "common_clothing_nominal": 1, "zero_nominal_preserved": True},
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def ai_agent_vehicle_event_draft_name(scenario: dict[str, Any]) -> str:
+    label = str(scenario.get("name") or scenario.get("preset") or "Vehicle").strip()
+    slug = re.sub(r"[^A-Za-z0-9]+", "", label) or "Vehicle"
+    x = safe_int(scenario.get("x"), 0)
+    z = safe_int(scenario.get("z"), 0)
+    return f"VehicleWanderingBot_{slug}_{x}_{z}"[:64]
+
+
+def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Create an offline review pair for an unambiguous vanilla vehicle event.
+
+    These are complete copies of the bundled map references plus one linked
+    event.  They are intentionally never presented as a live-server upload:
+    a real server must merge the pair into its downloaded current files through
+    the guarded Nitrado workflow so custom records are not replaced.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict):
+        return []
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if str(scenario.get("event_type") or "") != "vehicle_spawn" or scenario.get("error"):
+        return []
+    map_key = normalize_dayz_reference_map_key(scenario.get("map") or context.get("map"))
+    class_name = str(scenario.get("class_name") or "").strip()
+    if not class_name:
+        return []
+    types_text = load_dayz_reference_text(map_key, "db", "types.xml")
+    try:
+        types_root = ET.fromstring(types_text)
+    except ET.ParseError:
+        return []
+    if not any(str(node.get("name") or "") == class_name for node in types_root.findall("type")):
+        return []
+    events_base = load_dayz_reference_text(map_key, "db", "events.xml")
+    spawns_base = load_dayz_reference_text(map_key, "cfgeventspawns.xml")
+    if not events_base.strip() or not spawns_base.strip():
+        return []
+    event_name = ai_agent_vehicle_event_draft_name(scenario)
+    if re.search(rf'<event\s+name="{re.escape(event_name)}"', events_base) or re.search(rf'<event\s+name="{re.escape(event_name)}"', spawns_base):
+        return []
+    x = safe_int(scenario.get("x"), 0)
+    z = safe_int(scenario.get("z"), 0)
+    event_block = (
+        f"    <!-- Wandering Bot offline review draft: personal vehicle event {event_name} -->\n"
+        f"    <event name=\"{event_name}\">\n"
+        "        <nominal>1</nominal>\n"
+        "        <min>1</min>\n"
+        "        <max>1</max>\n"
+        "        <lifetime>3888000</lifetime>\n"
+        "        <restock>0</restock>\n"
+        "        <saferadius>500</saferadius>\n"
+        "        <distanceradius>500</distanceradius>\n"
+        "        <cleanupradius>200</cleanupradius>\n"
+        "        <flags deletable=\"1\" init_random=\"0\" remove_damaged=\"1\"/>\n"
+        "        <position>fixed</position>\n"
+        "        <limit>mixed</limit>\n"
+        "        <active>1</active>\n"
+        "        <children>\n"
+        f"            <child lootmax=\"0\" lootmin=\"0\" max=\"1\" min=\"1\" type=\"{class_name}\"/>\n"
+        "        </children>\n"
+        "    </event>\n"
+    )
+    spawn_block = (
+        f"    <!-- Wandering Bot offline review draft: matching position for {event_name} -->\n"
+        f"    <event name=\"{event_name}\">\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"0\"/>\n"
+        "    </event>\n"
+    )
+    events_content, events_replacements = re.subn(r"</events>\s*$", event_block + "</events>\n", events_base)
+    spawns_content, spawns_replacements = re.subn(r"</eventposdef>\s*$", spawn_block + "</eventposdef>\n", spawns_base)
+    if events_replacements != 1 or spawns_replacements != 1:
+        return []
+    valid_events, _events_message = validate_dayz_upload_text("db/events.xml", events_content)
+    valid_spawns, _spawns_message = validate_dayz_upload_text("cfgeventspawns.xml", spawns_content)
+    if not valid_events or not valid_spawns:
+        return []
+    try:
+        event_root = ET.fromstring(events_content)
+        spawn_root = ET.fromstring(spawns_content)
+    except ET.ParseError:
+        return []
+    event_node = event_root.find(f"./event[@name='{event_name}']")
+    spawn_node = spawn_root.find(f"./event[@name='{event_name}']")
+    if event_node is None or spawn_node is None or event_node.find("./children/child").get("type") != class_name or spawn_node.find("pos") is None:
+        return []
+    now = datetime.now(UTC).isoformat()
+    common = {
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "validation": "passed",
+        "base": f"bundled DayZ {DAYZ_CE_FILE_VERSION} {map_key} vanilla CE reference",
+        "scenario_event_name": event_name,
+        "created_at": now,
+        "updated_at": now,
+    }
+    return [
+        {
+            **common,
+            "id": ai_agent_new_id("dayz-draft"),
+            "target_path": "db/events.xml",
+            "content": events_content,
+            "content_chars": len(events_content),
+            "summary": f"Complete offline review events.xml containing the linked `{event_name}` {class_name} definition.",
+        },
+        {
+            **common,
+            "id": ai_agent_new_id("dayz-draft"),
+            "target_path": "cfgeventspawns.xml",
+            "content": spawns_content,
+            "content_chars": len(spawns_content),
+            "summary": f"Complete offline review cfgeventspawns.xml containing the matching `{event_name}` position at X {x}, Z {z}.",
+        },
+    ]
+
+
 def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
     """Return a deterministic full file for only the unambiguous built-in job.
 
@@ -23298,7 +23547,12 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     structure, without pretending it understands arbitrary custom mod formats.
     """
     context = task.get("dayz_context") if isinstance(task, dict) else None
-    if not isinstance(context, dict) or str(context.get("target_path") or "") != "cfgweather.xml":
+    if not isinstance(context, dict):
+        return None
+    types_draft = ai_agent_build_types_boost_profile(context, prompt)
+    if types_draft:
+        return types_draft
+    if str(context.get("target_path") or "") != "cfgweather.xml":
         return None
     if str(context.get("source_text") or "").strip():
         return None
@@ -23332,28 +23586,39 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     }
 
 
+def ai_agent_task_dayz_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read both legacy one-file drafts and linked multi-file draft packages."""
+    if not isinstance(task, dict):
+        return []
+    drafts = task.get("dayz_drafts")
+    if isinstance(drafts, list):
+        return [item for item in drafts if isinstance(item, dict)]
+    legacy = task.get("dayz_draft")
+    return [legacy] if isinstance(legacy, dict) else []
+
+
 def ai_agent_dayz_draft_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for task in state.get("tasks", []) if isinstance(state.get("tasks"), list) else []:
         if not isinstance(task, dict):
             continue
-        draft = task.get("dayz_draft")
-        if not isinstance(draft, dict) or not draft.get("id") or not draft.get("content"):
-            continue
-        summaries.append(
-            {
-                "id": str(draft.get("id")),
-                "task_id": str(task.get("id") or ""),
-                "target_path": str(draft.get("target_path") or ""),
-                "map": str(draft.get("map") or "chernarus"),
-                "kind": str(draft.get("kind") or "patch"),
-                "merge_required": bool(draft.get("merge_required")),
-                "content_chars": safe_int(draft.get("content_chars"), len(str(draft.get("content") or ""))),
-                "summary": ai_agent_compact_text(draft.get("summary"), 420),
-                "validation": str(draft.get("validation") or "passed"),
-                "created_at": str(draft.get("created_at") or task.get("created_at") or ""),
-            }
-        )
+        for draft in ai_agent_task_dayz_drafts(task):
+            if not draft.get("id") or not draft.get("content"):
+                continue
+            summaries.append(
+                {
+                    "id": str(draft.get("id")),
+                    "task_id": str(task.get("id") or ""),
+                    "target_path": str(draft.get("target_path") or ""),
+                    "map": str(draft.get("map") or "chernarus"),
+                    "kind": str(draft.get("kind") or "patch"),
+                    "merge_required": bool(draft.get("merge_required")),
+                    "content_chars": safe_int(draft.get("content_chars"), len(str(draft.get("content") or ""))),
+                    "summary": ai_agent_compact_text(draft.get("summary"), 420),
+                    "validation": str(draft.get("validation") or "passed"),
+                    "created_at": str(draft.get("created_at") or task.get("created_at") or ""),
+                }
+            )
     return summaries[:20]
 
 
@@ -23455,6 +23720,13 @@ def ai_agent_public_task(task: dict[str, Any]) -> dict[str, Any]:
         public_draft = dict(draft)
         public_draft.pop("content", None)
         public["dayz_draft"] = public_draft
+    drafts = public.get("dayz_drafts")
+    if isinstance(drafts, list):
+        public["dayz_drafts"] = [
+            {key: value for key, value in draft_item.items() if key != "content"}
+            for draft_item in drafts
+            if isinstance(draft_item, dict)
+        ]
     return public
 
 
@@ -24181,6 +24453,43 @@ def ai_agent_llm_reply_for_task(
         task["llm_status"] = "verified_dayz_reference"
         task["updated_at"] = datetime.now(UTC).isoformat()
         return verified_dayz_reply
+    # Prefer deterministic generators for the narrow DayZ jobs they cover.
+    # This prevents a model from truncating a large vanilla file or inventing a
+    # linked CE event pair simply because it cannot fit the full base in context.
+    deterministic_drafts = ai_agent_builtin_vehicle_event_drafts(task)
+    deterministic_draft = ai_agent_builtin_dayz_draft(task, prompt)
+    if deterministic_drafts or deterministic_draft:
+        if deterministic_drafts:
+            task["dayz_drafts"] = deterministic_drafts
+            task.pop("dayz_draft", None)
+        else:
+            task["dayz_draft"] = deterministic_draft
+            task.pop("dayz_drafts", None)
+        drafts = ai_agent_task_dayz_drafts(task)
+        task["llm_status"] = "deterministic_dayz_draft"
+        task["llm_provider"] = "bundled_dayz_reference"
+        task["summary"] = ai_agent_compact_text(" ".join(str(item.get("summary") or "") for item in drafts), 420)
+        task["next_action"] = "Download and review the validated draft file(s); use a guarded current-file merge before any live upload."
+        task["updated_at"] = datetime.now(UTC).isoformat()
+        run_id = str(run.get("id") or task.get("run_id") or "")
+        if run_id:
+            ai_agent_update_run_from_task(state, run_id, task)
+        for draft in drafts:
+            ai_agent_activity(
+                state,
+                "DayZ file draft prepared",
+                f"{draft.get('target_path')}: deterministic {draft.get('kind')}",
+                access.get("label") or dashboard_audit_actor(auth),
+                {"task_id": task.get("id"), "draft_id": draft.get("id"), "target_path": draft.get("target_path")},
+            )
+        target_names = ", ".join(str(item.get("target_path") or "DayZ file") for item in drafts)
+        package_note = (
+            "This is an offline complete-file review pair made from bundled vanilla references. It is not a live-server replacement: "
+            "a live server must merge both records into its current files through the backup-first dashboard workflow."
+            if len(drafts) > 1 else
+            "This complete-file draft starts from the bundled vanilla reference. It has not been uploaded to any server."
+        )
+        return f"Prepared and validated DayZ draft file(s): {target_names}.\n\n{task['summary']}\n\n{package_note}"
     wants_inspection = any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
     has_job_context = bool(run_context.get("latest_jobs"))
     if not ai_agent_llm_is_configured():
@@ -38129,20 +38438,20 @@ def api_ai_agent_dayz_draft(draft_id: str):
     for task in visible_state.get("tasks", []) if isinstance(visible_state.get("tasks"), list) else []:
         if not isinstance(task, dict):
             continue
-        draft = task.get("dayz_draft")
-        if not isinstance(draft, dict) or str(draft.get("id") or "") != wanted:
-            continue
-        content = str(draft.get("content") or "")
-        target_path = str(draft.get("target_path") or "dayz-draft.txt")
-        if not content.strip() or not dayz_file_spec_for_path(target_path):
-            break
-        mimetype = "application/json" if target_path.lower().endswith(".json") else "application/xml" if target_path.lower().endswith(".xml") else "text/plain"
-        return send_file(
-            io.BytesIO(content.encode("utf-8")),
-            mimetype=mimetype,
-            as_attachment=True,
-            download_name=os.path.basename(target_path),
-        )
+        for draft in ai_agent_task_dayz_drafts(task):
+            if str(draft.get("id") or "") != wanted:
+                continue
+            content = str(draft.get("content") or "")
+            target_path = str(draft.get("target_path") or "dayz-draft.txt")
+            if not content.strip() or not dayz_file_spec_for_path(target_path):
+                break
+            mimetype = "application/json" if target_path.lower().endswith(".json") else "application/xml" if target_path.lower().endswith(".xml") else "text/plain"
+            return send_file(
+                io.BytesIO(content.encode("utf-8")),
+                mimetype=mimetype,
+                as_attachment=True,
+                download_name=os.path.basename(target_path),
+            )
     return jsonify({"ok": False, "error": "DayZ draft not found or no longer available."}), 404
 
 

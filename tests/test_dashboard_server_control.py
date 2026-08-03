@@ -1380,6 +1380,86 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("full_file", built_in["kind"])
         self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgweather.xml", built_in["content"]))
 
+    def test_dayz_agent_builds_a_valid_complete_types_boost_draft_without_model_truncation(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/types.xml",
+                "dayz_map": "livonia",
+                "dayz_source_mode": "complete",
+                "dayz_reference_mode": "vanilla",
+            },
+            "Create a complete types.xml with weapons and ammo and military clothing boosted 200%, with crap clothing minimal.",
+        )
+        draft = dashboard.ai_agent_builtin_dayz_draft(
+            {"dayz_context": context},
+            "Create a complete types.xml with weapons and ammo and military clothing boosted 200%, with crap clothing minimal.",
+        )
+        vanilla_root = ET.fromstring(dashboard.load_dayz_reference_text("livonia", "db", "types.xml"))
+        draft_root = ET.fromstring(draft["content"])
+
+        def values(root, name):
+            node = next(item for item in root.findall("type") if item.get("name") == name)
+            return int(node.findtext("nominal", "0")), int(node.findtext("min", "0"))
+
+        weapon = next(item.get("name") for item in vanilla_root.findall("type") if item.find("category[@name='weapons']") is not None and int(item.findtext("nominal", "0")) > 0)
+        ammunition = next(item.get("name") for item in vanilla_root.findall("type") if item.get("name", "").startswith("Ammo_") and int(item.findtext("nominal", "0")) > 0)
+        military_clothes = next(item.get("name") for item in vanilla_root.findall("type") if item.find("category[@name='clothes']") is not None and item.find("usage[@name='Military']") is not None and int(item.findtext("nominal", "0")) > 0)
+        common_clothes = next(item.get("name") for item in vanilla_root.findall("type") if item.find("category[@name='clothes']") is not None and item.find("usage[@name='Military']") is None and int(item.findtext("nominal", "0")) > 1)
+        unchanged_food = next(item.get("name") for item in vanilla_root.findall("type") if item.find("category[@name='food']") is not None)
+
+        self.assertIsNotNone(draft)
+        self.assertGreater(len(draft["content"]), 800_000)
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("db/types.xml", draft["content"]))
+        for name in (weapon, ammunition, military_clothes):
+            before_nominal, before_min = values(vanilla_root, name)
+            self.assertEqual((before_nominal * 2, before_min * 2), values(draft_root, name))
+        self.assertEqual((1, 1), values(draft_root, common_clothes))
+        self.assertEqual(values(vanilla_root, unchanged_food), values(draft_root, unchanged_food))
+        self.assertIn("Zero-nominal vanilla records remain disabled", draft["summary"])
+
+    def test_dayz_agent_builds_matching_complete_vehicle_event_review_pair(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "livonia",
+                "dayz_source_mode": "complete",
+                "dayz_reference_mode": "vanilla",
+                "dayz_scenario_type": "vehicle_spawn",
+                "dayz_scenario_preset": "ada",
+                "dayz_scenario_name": "QA Personal Ada",
+                "dayz_scenario_x": "5000",
+                "dayz_scenario_y": "0",
+                "dayz_scenario_z": "5000",
+                "dayz_scenario_radius": "30",
+                "dayz_scenario_count": "1",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "livo",
+            },
+            "Prepare a complete personal Ada vehicle spawn event for review only.",
+        )
+        drafts = dashboard.ai_agent_builtin_vehicle_event_drafts({"dayz_context": context})
+        by_path = {draft["target_path"]: draft for draft in drafts}
+        events_root = ET.fromstring(by_path["db/events.xml"]["content"])
+        spawns_root = ET.fromstring(by_path["cfgeventspawns.xml"]["content"])
+        event_name = by_path["db/events.xml"]["scenario_event_name"]
+        event_node = events_root.find(f"./event[@name='{event_name}']")
+        spawn_node = spawns_root.find(f"./event[@name='{event_name}']")
+
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, set(by_path))
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("db/events.xml", by_path["db/events.xml"]["content"]))
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgeventspawns.xml", by_path["cfgeventspawns.xml"]["content"]))
+        self.assertEqual("OffroadHatchback", event_node.find("./children/child").get("type"))
+        self.assertEqual("mixed", event_node.findtext("limit"))
+        self.assertEqual("5000", spawn_node.find("pos").get("x"))
+        self.assertEqual("5000", spawn_node.find("pos").get("z"))
+        self.assertEqual(2, len(dashboard.ai_agent_dayz_draft_summaries({"tasks": [{"id": "qa", "dayz_drafts": drafts}]})))
+        public = dashboard.ai_agent_public_task({"dayz_drafts": drafts})
+        self.assertTrue(all("content" not in item for item in public["dayz_drafts"]))
+
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(
             {
