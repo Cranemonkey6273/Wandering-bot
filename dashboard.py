@@ -529,6 +529,31 @@ try:
     STRIPE_WEBHOOK_TOLERANCE_SECONDS = max(60, min(900, int(float(os.getenv("WANDERING_STRIPE_WEBHOOK_TOLERANCE_SECONDS", "300")))))
 except (TypeError, ValueError):
     STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300
+
+
+def billing_lifecycle_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Read a small, bounded billing-lifecycle setting from Railway."""
+    try:
+        return max(minimum, min(maximum, int(float(os.getenv(name, str(default))))))
+    except (TypeError, ValueError):
+        return default
+
+
+# A failed renewal is treated differently from a customer deliberately ending
+# their plan. Stripe remains responsible for retrying the card; these values
+# control when Wandering Bot warns, pauses, and finally leaves the guild.
+BILLING_PAYMENT_GRACE_DAYS = billing_lifecycle_int_env(
+    "WANDERING_BILLING_PAYMENT_GRACE_DAYS", 3, 1, 14
+)
+BILLING_FINAL_NOTICE_HOURS = billing_lifecycle_int_env(
+    "WANDERING_BILLING_FINAL_NOTICE_HOURS", 24, 1, 168
+)
+BILLING_BOT_REMOVAL_HOURS = billing_lifecycle_int_env(
+    "WANDERING_BILLING_BOT_REMOVAL_HOURS", 48, 1, 336
+)
+BILLING_DATA_RETENTION_DAYS = billing_lifecycle_int_env(
+    "WANDERING_BILLING_DATA_RETENTION_DAYS", 90, 7, 730
+)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "")
 DISCORD_CHANNEL_CACHE_SECONDS = int(os.getenv("WANDERING_DISCORD_CHANNEL_CACHE_SECONDS", "300"))
 DISCORD_CHANNEL_CACHE: dict[str, tuple[datetime, list[dict[str, str]]]] = {}
@@ -12378,11 +12403,12 @@ PAGE_TEMPLATE = """
         <h3>Automatic paid-plan activation</h3>
         <ol class="tool-note billing-guide">
           <li>For each paid plan, enter the public Stripe URL and its matching <code>plink_...</code> ID above.</li>
-          <li>In Stripe, add a webhook endpoint at <code>/api/stripe/billing-webhook</code> and subscribe to <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>customer.subscription.updated</code>, and <code>customer.subscription.deleted</code>.</li>
+          <li>In Stripe, add a webhook endpoint at <code>/api/stripe/billing-webhook</code> and subscribe to <code>checkout.session.completed</code>, <code>checkout.session.async_payment_succeeded</code>, <code>invoice.payment_failed</code>, <code>invoice.paid</code>, <code>customer.subscription.updated</code>, and <code>customer.subscription.deleted</code>.</li>
           <li>Set Railway variable <code>WANDERING_STRIPE_BILLING_WEBHOOK_SECRET</code> to that endpoint's <code>whsec_...</code> signing secret.</li>
           <li>In each Stripe Payment Link's <em>After payment</em> settings, choose redirect and use <code>{{ public_origin }}/purchase/complete?session_id={CHECKOUT_SESSION_ID}</code>.</li>
         </ol>
         <p class="tool-note">When a buyer is already signed into a server dashboard, the plan activates on Stripe confirmation. New buyers are returned to this site, add the bot and complete setup, then their first dashboard login claims the paid plan automatically from the same browser. No owner-side manual approval is needed.</p>
+        <p class="tool-note">Missed renewal protection: a failed payment starts a {{ billing_payment_grace_days }}-day recovery window, then a {{ billing_final_notice_hours }}-hour final notice. If Stripe still cannot collect payment, dashboard access and Discord feeds stop; the bot leaves {{ billing_bot_removal_hours }} hours later. Server data is retained for {{ billing_data_retention_days }} days so a paid customer can recover without rebuilding their setup. Match Stripe Billing's retry schedule to that recovery window.</p>
         <h4>Stripe promotion codes and discounts</h4>
         <ol class="tool-note billing-guide">
           <li>In Stripe, create a coupon with the amount or percentage off and choose its duration: once, repeating for a chosen number of months, or forever.</li>
@@ -21277,10 +21303,183 @@ def billing_purchase_by_stripe_session(purchases: Iterable[Any], session_id: Any
     return None
 
 
+def billing_purchase_by_subscription(purchases: Iterable[Any], subscription_id: Any) -> dict[str, Any] | None:
+    wanted = str(subscription_id or "").strip()
+    if not wanted:
+        return None
+    for purchase in purchases:
+        if isinstance(purchase, dict) and str(purchase.get("stripe_subscription_id") or "") == wanted:
+            return purchase
+    return None
+
+
+def billing_access_matches_subscription(access: Any, subscription_id: Any) -> bool:
+    if not isinstance(access, dict):
+        return False
+    wanted = str(subscription_id or "").strip()
+    if not wanted:
+        return False
+    return wanted in {
+        str(access.get("billing_subscription_id") or "").strip(),
+        str(access.get("billing_reference") or "").strip(),
+    }
+
+
+def billing_update_main_plan_access(
+    purchase: dict[str, Any], subscription_id: Any, updates: dict[str, Any]
+) -> tuple[bool, dict[str, Any]]:
+    """Atomically update the paid plan linked to a Stripe subscription.
+
+    The subscription ID check is important: a later plan purchase must never
+    be suspended or revived by an old Stripe invoice event.
+    """
+    guild_id = normalize_guild_id(purchase.get("guild_id"))
+    configs = load_store("guild_configs", {})
+    if not guild_id or not isinstance(configs, dict) or not isinstance(configs.get(guild_id), dict):
+        return False, {}
+    config = configs[guild_id]
+    access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    if not billing_access_matches_subscription(access, subscription_id):
+        return False, {}
+    access = dict(access)
+    access.update(updates)
+    access["updated_at"] = datetime.now(UTC).isoformat()
+    config["dashboard"] = access
+    configs[guild_id] = config
+    save_store("guild_configs", configs)
+    return True, access
+
+
+def billing_start_payment_grace(purchase: dict[str, Any], subscription_id: Any, source: str) -> tuple[bool, str]:
+    """Start the one-off overdue timer without extending it on Stripe retries."""
+    if str(purchase.get("purchase_kind") or "") == "server_slot":
+        return True, "Additional server slot payment state does not pause the main service."
+    now = datetime.now(UTC)
+    configs = load_store("guild_configs", {})
+    guild_id = normalize_guild_id(purchase.get("guild_id"))
+    config = configs.get(guild_id) if isinstance(configs, dict) and guild_id else None
+    access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    if not billing_access_matches_subscription(access, subscription_id):
+        return True, "No assigned server access record was changed."
+
+    existing_failed_subscription = str(access.get("billing_overdue_subscription_id") or "")
+    existing_failed_at = str(access.get("billing_payment_failed_at") or "")
+    if existing_failed_subscription == str(subscription_id or "") and existing_failed_at:
+        return True, "Payment grace is already running."
+
+    grace_ends_at = now + timedelta(days=BILLING_PAYMENT_GRACE_DAYS)
+    service_stops_at = grace_ends_at + timedelta(hours=BILLING_FINAL_NOTICE_HOURS)
+    bot_removal_at = service_stops_at + timedelta(hours=BILLING_BOT_REMOVAL_HOURS)
+    retention_ends_at = bot_removal_at + timedelta(days=BILLING_DATA_RETENTION_DAYS)
+    updated, _access = billing_update_main_plan_access(
+        purchase,
+        subscription_id,
+        {
+            "enabled": True,
+            "plan_status": "subscription",
+            "billing_service_status": "payment_grace",
+            "billing_overdue_subscription_id": str(subscription_id or ""),
+            "billing_payment_failed_at": now.isoformat(),
+            "billing_grace_ends_at": grace_ends_at.isoformat(),
+            "billing_service_stops_at": service_stops_at.isoformat(),
+            "billing_bot_removal_at": bot_removal_at.isoformat(),
+            "billing_data_retention_ends_at": retention_ends_at.isoformat(),
+            "billing_payment_source": str(source or "stripe")[:80],
+            "billing_customer_notices_sent": [],
+        },
+    )
+    if not updated:
+        return True, "No assigned server access record was changed."
+    purchase["status"] = "payment_overdue"
+    purchase["payment_failed_at"] = now.isoformat()
+    billing_queue_owner_event(purchase, "payment_overdue")
+    return True, "Payment grace started; the customer will be warned in Discord."
+
+
+def billing_recover_payment(purchase: dict[str, Any], subscription_id: Any) -> tuple[bool, str]:
+    """Resume service only when a previously overdue subscription is paid."""
+    if str(purchase.get("purchase_kind") or "") == "server_slot":
+        return True, "Additional server slot payment recorded."
+    configs = load_store("guild_configs", {})
+    guild_id = normalize_guild_id(purchase.get("guild_id"))
+    config = configs.get(guild_id) if isinstance(configs, dict) and guild_id else None
+    access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    if not billing_access_matches_subscription(access, subscription_id):
+        return True, "No assigned server access record was changed."
+    service_status = str(access.get("billing_service_status") or "").strip().lower()
+    if service_status not in {"payment_grace", "payment_final_notice", "stopped"}:
+        return True, "Subscription was already active."
+    if str(access.get("billing_stop_reason") or "").strip().lower() not in {"", "payment_overdue"}:
+        return True, "Subscription was not paused for a recoverable payment failure."
+    if access.get("billing_bot_removed_at"):
+        billing_update_main_plan_access(
+            purchase,
+            subscription_id,
+            {
+                "enabled": True,
+                "plan_status": "subscription",
+                "billing_service_status": "active",
+                "billing_stop_reason": "",
+                "billing_reactivation_requires_reinvite": True,
+                "billing_previous_bot_removed_at": str(access.get("billing_bot_removed_at") or ""),
+                "billing_bot_removed_at": "",
+                "billing_customer_notices_sent": [],
+            },
+        )
+        return True, "Payment recovered, but the bot was already removed and must be invited again."
+    updated, _access = billing_update_main_plan_access(
+        purchase,
+        subscription_id,
+        {
+            "enabled": True,
+            "plan_status": "subscription",
+            "billing_service_status": "active",
+            "billing_payment_recovered_at": datetime.now(UTC).isoformat(),
+            "billing_stop_reason": "",
+            "billing_overdue_subscription_id": "",
+            "billing_payment_failed_at": "",
+            "billing_grace_ends_at": "",
+            "billing_service_stops_at": "",
+            "billing_bot_removal_at": "",
+            "billing_data_retention_ends_at": "",
+            "billing_customer_notices_sent": [],
+        },
+    )
+    if updated:
+        purchase["status"] = "activated"
+        billing_queue_owner_event(purchase, "payment_recovered")
+        return True, "Payment recovered; dashboard and bot service resumed."
+    return True, "No assigned server access record was changed."
+
+
+def billing_stop_main_plan_service(purchase: dict[str, Any], subscription_id: Any, reason: str) -> tuple[bool, str]:
+    """Immediately stop a deliberately-cancelled or terminally-unpaid plan."""
+    now = datetime.now(UTC)
+    bot_removal_at = now + timedelta(hours=BILLING_BOT_REMOVAL_HOURS)
+    retention_ends_at = bot_removal_at + timedelta(days=BILLING_DATA_RETENTION_DAYS)
+    updated, _access = billing_update_main_plan_access(
+        purchase,
+        subscription_id,
+        {
+            "enabled": False,
+            "plan_status": "suspended",
+            "subscription_ends_at": now.date().isoformat(),
+            "billing_service_status": "stopped",
+            "billing_stop_reason": str(reason or "subscription_ended")[:80],
+            "billing_service_stopped_at": now.isoformat(),
+            "billing_bot_removal_at": bot_removal_at.isoformat(),
+            "billing_data_retention_ends_at": retention_ends_at.isoformat(),
+        },
+    )
+    if updated:
+        return True, "Dashboard and Discord service were stopped; bot removal is scheduled."
+    return True, "No assigned server access record was changed."
+
+
 def billing_queue_owner_event(purchase: dict[str, Any], status: str) -> None:
     """Queue only verified payment lifecycle notifications for the bot owner."""
     status = str(status or "").strip().lower()
-    if status not in {"payment_confirmed", "plan_activated", "subscription_ended"}:
+    if status not in {"payment_confirmed", "plan_activated", "payment_overdue", "payment_recovered", "subscription_ended"}:
         return
     queue = load_store("billing_plan_selection_queue", [])
     if not isinstance(queue, list):
@@ -21482,6 +21681,16 @@ def billing_apply_plan_to_guild(purchase: dict[str, Any], guild_id: Any, activat
         "billing_purchase_id": str(purchase.get("id") or ""),
         "billing_checkout_session_id": session_id,
         "billing_subscription_id": subscription_id,
+        "billing_service_status": "active",
+        "billing_stop_reason": "",
+        "billing_overdue_subscription_id": "",
+        "billing_payment_failed_at": "",
+        "billing_grace_ends_at": "",
+        "billing_service_stops_at": "",
+        "billing_bot_removal_at": "",
+        "billing_data_retention_ends_at": "",
+        "billing_bot_removed_at": "",
+        "billing_reactivation_requires_reinvite": False,
         "updated_at": datetime.now(UTC).isoformat(),
     })
     config["dashboard"] = access
@@ -21615,10 +21824,14 @@ def billing_handle_subscription_event(subscription: dict[str, Any]) -> tuple[boo
     if not subscription_id:
         return True, "No subscription ID."
     purchases = billing_purchase_store()
-    purchase = next((item for item in purchases if isinstance(item, dict) and str(item.get("stripe_subscription_id") or "") == subscription_id), None)
+    purchase = billing_purchase_by_subscription(purchases, subscription_id)
     if not purchase:
         return True, "No matching Wandering Bot subscription."
     status = str(subscription.get("status") or "").strip().lower()
+    if status == "past_due":
+        updated, message = billing_start_payment_grace(purchase, subscription_id, "subscription_past_due")
+        save_billing_purchase_store(purchases)
+        return updated, message
     if status not in {"canceled", "unpaid", "incomplete_expired"}:
         return True, "Subscription remains active."
     if str(purchase.get("purchase_kind") or "") == "server_slot":
@@ -21643,22 +21856,42 @@ def billing_handle_subscription_event(subscription: dict[str, Any]) -> tuple[boo
         save_billing_purchase_store(purchases)
         billing_queue_owner_event(purchase, "server_slot_ended")
         return True, "Additional server slot ended."
-    guild_id = str(purchase.get("guild_id") or "").strip()
-    configs = load_store("guild_configs", {})
-    if guild_id and isinstance(configs, dict) and isinstance(configs.get(guild_id), dict):
-        config = configs[guild_id]
-        access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
-        if str(access.get("billing_subscription_id") or access.get("billing_reference") or "") == subscription_id:
-            access = dict(access)
-            access.update({"plan_status": "suspended", "enabled": False, "subscription_ends_at": datetime.now(UTC).date().isoformat(), "updated_at": datetime.now(UTC).isoformat()})
-            config["dashboard"] = access
-            configs[guild_id] = config
-            save_store("guild_configs", configs)
+    billing_stop_main_plan_service(purchase, subscription_id, status)
     purchase["status"] = "subscription_ended"
     purchase["subscription_ended_at"] = datetime.now(UTC).isoformat()
     save_billing_purchase_store(purchases)
     billing_queue_owner_event(purchase, "subscription_ended")
     return True, "Subscription access ended."
+
+
+def billing_subscription_id_from_invoice(invoice: Any) -> str:
+    if not isinstance(invoice, dict):
+        return ""
+    subscription = invoice.get("subscription")
+    if isinstance(subscription, dict):
+        return str(subscription.get("id") or "").strip()
+    return str(subscription or "").strip()
+
+
+def billing_handle_invoice_event(invoice: dict[str, Any], event_type: str) -> tuple[bool, str]:
+    """Apply recoverable payment failures from Stripe's signed invoice events."""
+    subscription_id = billing_subscription_id_from_invoice(invoice)
+    if not subscription_id:
+        return True, "Invoice has no subscription."
+    purchases = billing_purchase_store()
+    purchase = billing_purchase_by_subscription(purchases, subscription_id)
+    if not purchase:
+        return True, "No matching Wandering Bot subscription."
+    event_type = str(event_type or "").strip().lower()
+    if event_type == "invoice.payment_failed":
+        updated, message = billing_start_payment_grace(purchase, subscription_id, "invoice_payment_failed")
+        save_billing_purchase_store(purchases)
+        return updated, message
+    if event_type == "invoice.paid":
+        updated, message = billing_recover_payment(purchase, subscription_id)
+        save_billing_purchase_store(purchases)
+        return updated, message
+    return True, "Invoice event ignored."
 
 
 def billing_completion_purchase_from_request() -> tuple[dict[str, Any] | None, bool]:
@@ -34505,6 +34738,10 @@ def page(mode: str, auth: dict[str, Any]):
         server_slot_entitlement=server_slot_entitlement,
         server_slot_addon=active_server_slot_addon,
         customer_billing_plans=customer_billing_plans,
+        billing_payment_grace_days=BILLING_PAYMENT_GRACE_DAYS,
+        billing_final_notice_hours=BILLING_FINAL_NOTICE_HOURS,
+        billing_bot_removal_hours=BILLING_BOT_REMOVAL_HOURS,
+        billing_data_retention_days=BILLING_DATA_RETENTION_DAYS,
         native_app_mode=native_app_mode,
         billing_has_stripe_buy_buttons=billing_has_stripe_buy_buttons,
         dayz_preset_maps=DAYZ_PRESET_MAPS,
@@ -35896,6 +36133,11 @@ def api_stripe_billing_webhook():
         if not fulfilled:
             return jsonify({"ok": False, "error": message}), 400
         return jsonify({"ok": True, "note": message, "purchase_status": str((purchase or {}).get("status") or "")})
+    if event_type in {"invoice.payment_failed", "invoice.paid"}:
+        updated, message = billing_handle_invoice_event(stripe_object, event_type)
+        if not updated:
+            return jsonify({"ok": False, "error": message}), 400
+        return jsonify({"ok": True, "note": message})
     if event_type in {"customer.subscription.updated", "customer.subscription.deleted"}:
         updated, message = billing_handle_subscription_event(stripe_object)
         if not updated:

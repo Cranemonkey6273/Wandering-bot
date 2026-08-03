@@ -10207,6 +10207,8 @@ def guild_has_translation_access(guild_id):
     config = stored_configs.get(clean_guild_id) if isinstance(stored_configs, dict) else None
     if not isinstance(config, dict):
         config = guild_configs.get(clean_guild_id, {})
+    if not billing_bot_service_is_active(config):
+        return False
     access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
     status = str(access.get("plan_status") or "").strip().lower()
     if status in {"suspended", "none"}:
@@ -10277,6 +10279,8 @@ async def maybe_translate_message(message):
 
     guild_id = str(message.guild.id)
     config = guild_configs.get(guild_id, {})
+    if not billing_bot_service_is_active(config):
+        return
     rules = _get_translation_rules(config)
 
     if not rules:
@@ -14404,6 +14408,193 @@ def is_active_guild(guild_id):
     return discord_guild_id_for_runtime_id(guild_id) in active_guild_ids()
 
 
+def billing_access_for_config(config):
+    return config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+
+
+def billing_bot_service_is_active(config):
+    """Return false only for an explicit paid-service stop.
+
+    Free installations deliberately have no billing status and remain usable.
+    A manually locked dashboard also does not make the bot vanish; Stripe's
+    payment lifecycle writes one of the explicit states below when the whole
+    paid service must stop.
+    """
+    access = billing_access_for_config(config)
+    state = str(access.get("billing_service_status") or "active").strip().lower()
+    return state not in {"stopped", "removal_due", "removed", "awaiting_reinvite"}
+
+
+def billing_timestamp(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def billing_customer_notice_markers(access):
+    raw = access.get("billing_customer_notices_sent") if isinstance(access, dict) else []
+    return {str(item or "").strip().lower() for item in raw if str(item or "").strip()} if isinstance(raw, list) else set()
+
+
+async def billing_customer_notice(guild, config, marker, title, description, color):
+    """Post a lifecycle notice even after normal feeds have been paused."""
+    access = billing_access_for_config(config)
+    if not isinstance(access, dict) or marker in billing_customer_notice_markers(access):
+        return False
+    channels = config.get("channels") if isinstance(config.get("channels"), dict) else {}
+    channel = None
+    for key in ("admin_logs", "bot_updates", "command_logs", "dashboard_audit"):
+        channel_id = _safe_channel_id(channels.get(key))
+        if channel_id:
+            channel = guild.get_channel(channel_id) or bot.get_channel(channel_id)
+        if channel and hasattr(channel, "send"):
+            break
+        channel = None
+    if not channel:
+        return False
+    embed = discord.Embed(title=title[:256], description=description[:4000], color=color)
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot billing notice")
+    try:
+        await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+    except Exception as error:
+        print(f"[BILLING] customer notice failed for {guild.id}: {type(error).__name__}: {error}")
+        return False
+    markers = billing_customer_notice_markers(access)
+    markers.add(marker)
+    access["billing_customer_notices_sent"] = sorted(markers)[-20:]
+    access["updated_at"] = datetime.now(UTC).isoformat()
+    config["dashboard"] = access
+    return True
+
+
+async def enforce_billing_service_lifecycle():
+    """Warn, pause and remove overdue paid services from shared config state."""
+    load_guild_configs()
+    now = datetime.now(UTC)
+    changed = False
+    for guild_id, config in list(guild_configs.items()):
+        if not isinstance(config, dict):
+            continue
+        access = billing_access_for_config(config)
+        if not isinstance(access, dict):
+            continue
+        state = str(access.get("billing_service_status") or "active").strip().lower()
+        if state not in {"payment_grace", "payment_final_notice", "stopped", "removal_due"}:
+            continue
+        guild = bot.get_guild(int(guild_id)) if str(guild_id).isdigit() else None
+        payment_url = str(access.get("payment_url") or "").strip()
+
+        if state == "payment_grace":
+            grace_ends = billing_timestamp(access.get("billing_grace_ends_at"))
+            if guild:
+                if await billing_customer_notice(
+                    guild,
+                    config,
+                    "payment_grace",
+                    "⚠️ Payment needs attention",
+                    "We could not collect this server's Wandering Bot subscription payment. "
+                    "Your service is still running during the payment-recovery window. "
+                    + (f"Please update payment here: {payment_url}" if payment_url else "Please update the subscription payment method in Stripe."),
+                    0xF39C12,
+                ):
+                    changed = True
+            if grace_ends and now >= grace_ends:
+                access["billing_service_status"] = "payment_final_notice"
+                access["billing_final_notice_at"] = now.isoformat()
+                access["updated_at"] = now.isoformat()
+                config["dashboard"] = access
+                changed = True
+                state = "payment_final_notice"
+
+        if state == "payment_final_notice":
+            stop_at = billing_timestamp(access.get("billing_service_stops_at"))
+            if guild:
+                if await billing_customer_notice(
+                    guild,
+                    config,
+                    "payment_final_notice",
+                    "⏳ Final payment notice",
+                    "The payment-recovery window has ended. Please resolve the outstanding subscription payment now. "
+                    "If it remains unpaid, dashboard access and every Wandering Bot feed will stop. "
+                    + (f"Payment link: {payment_url}" if payment_url else "Use Stripe to update the payment method."),
+                    0xE67E22,
+                ):
+                    changed = True
+            if stop_at and now >= stop_at:
+                access.update({
+                    "enabled": False,
+                    "plan_status": "suspended",
+                    "billing_service_status": "stopped",
+                    "billing_stop_reason": "payment_overdue",
+                    "billing_service_stopped_at": now.isoformat(),
+                    "updated_at": now.isoformat(),
+                })
+                config["dashboard"] = access
+                changed = True
+                state = "stopped"
+
+        if state == "stopped":
+            if guild:
+                if await billing_customer_notice(
+                    guild,
+                    config,
+                    "service_stopped",
+                    "⛔ Wandering Bot service paused",
+                    "The subscription payment remains outstanding, so dashboard access and all Wandering Bot feeds have now stopped. "
+                    "Resolve the payment before the scheduled bot-removal time to resume the existing setup. "
+                    + (f"Payment link: {payment_url}" if payment_url else "Update the payment method in Stripe."),
+                    0xC0392B,
+                ):
+                    changed = True
+            removal_at = billing_timestamp(access.get("billing_bot_removal_at"))
+            if removal_at and now >= removal_at:
+                access["billing_service_status"] = "removal_due"
+                access["updated_at"] = now.isoformat()
+                config["dashboard"] = access
+                changed = True
+                state = "removal_due"
+
+        if state == "removal_due":
+            if guild:
+                if await billing_customer_notice(
+                    guild,
+                    config,
+                    "bot_removal",
+                    "👋 Wandering Bot is leaving this server",
+                    "The subscription has remained unpaid after the recovery period. The bot is now being removed. "
+                    "Your server setup is retained for the configured recovery period; after payment, invite the bot again to reconnect it.",
+                    0x922B21,
+                ):
+                    changed = True
+                try:
+                    await guild.leave()
+                    access["billing_bot_removed_at"] = now.isoformat()
+                    access["billing_service_status"] = "removed"
+                    access["updated_at"] = now.isoformat()
+                    config["dashboard"] = access
+                    changed = True
+                except Exception as error:
+                    print(f"[BILLING] guild leave failed for {guild_id}: {type(error).__name__}: {error}")
+            else:
+                # The bot may already have been kicked or manually removed.
+                # Treat that as completed rather than retrying forever.
+                access["billing_bot_removed_at"] = now.isoformat()
+                access["billing_service_status"] = "removed"
+                access["updated_at"] = now.isoformat()
+                config["dashboard"] = access
+                changed = True
+    if changed:
+        save_guild_configs()
+
+
 def active_guild_config_items():
     # Dashboard writes guild config JSON directly; refresh here so web
     # changes are picked up by live bot loops without requiring a restart.
@@ -14418,7 +14609,7 @@ def active_guild_config_items():
         save_guild_configs()
 
     for guild_id, config in list(guild_configs.items()):
-        if str(guild_id) in active_ids:
+        if str(guild_id) in active_ids and billing_bot_service_is_active(config):
             yield str(guild_id), config
 
 
@@ -16895,6 +17086,12 @@ async def on_guild_join(guild):
     guild_id = str(guild.id)
 
     if guild_id in guild_configs:
+        if not billing_bot_service_is_active(guild_configs[guild_id]):
+            try:
+                await guild.leave()
+            except Exception as error:
+                print(f"BILLING REJOIN BLOCK ERROR {guild_id}: {error}")
+            return
         synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
         await announce_slash_sync_status(guild, synced_commands)
         return
@@ -21472,6 +21669,14 @@ async def temp_ban_expiry_loop():
 
 
 @tasks.loop(minutes=1)
+async def billing_service_lifecycle_loop():
+    try:
+        await enforce_billing_service_lifecycle()
+    except Exception as error:
+        print(f"BILLING SERVICE LIFECYCLE ERROR: {error}")
+
+
+@tasks.loop(minutes=1)
 async def dashboard_member_action_loop():
     changed = False
     for guild_id, config in active_guild_config_items():
@@ -22330,6 +22535,8 @@ def billing_plan_selection_notification_description(event):
     status_line = {
         "payment_confirmed": "Stripe payment confirmed — buyer can now finish self-service activation.",
         "plan_activated": "Plan activated automatically for the buyer's server.",
+        "payment_overdue": "Stripe could not collect the renewal. The customer has entered the payment-recovery window.",
+        "payment_recovered": "Stripe collected the overdue renewal. Dashboard and Discord service resumed.",
         "subscription_ended": "Stripe subscription ended — server dashboard access was suspended.",
     }.get(status, "Billing status updated.")
     promotion_line = f"**Promo code:** `{promotion_code}`\n" if promotion_code else ""
@@ -22367,6 +22574,8 @@ async def billing_plan_selection_loop():
         title = {
             "payment_confirmed": "💳 Plan Payment Confirmed",
             "plan_activated": "✅ Plan Activated",
+            "payment_overdue": "⚠️ Plan Payment Overdue",
+            "payment_recovered": "✅ Plan Payment Recovered",
             "subscription_ended": "⚠️ Subscription Ended",
         }.get(status, "💳 Billing Update")
         sent = await send_owner_notification(
@@ -22392,6 +22601,8 @@ async def on_member_join(member):
     guild_id = str(member.guild.id)
 
     config = current_onboarding_config_for_guild(guild_id)
+    if not billing_bot_service_is_active(config):
+        return
 
     channels = config.get("channels", {})
 
@@ -22475,6 +22686,9 @@ async def on_member_join(member):
 @bot.event
 async def on_member_update(before, after):
     try:
+        guild = getattr(after, "guild", None)
+        if guild and not billing_bot_service_is_active(guild_configs.get(str(guild.id), {})):
+            return
         await apply_member_onboarding_member_update(before, after)
     except Exception as error:
         print(f"[ONBOARDING] member update handling failed for {getattr(after, 'id', 'unknown')}: {error}")
@@ -22491,6 +22705,8 @@ async def on_raw_reaction_add(payload):
         return
     guild_id = str(guild.id)
     config = current_onboarding_config_for_guild(guild_id)
+    if not billing_bot_service_is_active(config):
+        return
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return
@@ -22516,6 +22732,8 @@ async def on_raw_reaction_remove(payload):
         return
     guild_id = str(guild.id)
     config = current_onboarding_config_for_guild(guild_id)
+    if not billing_bot_service_is_active(config):
+        return
     settings = member_onboarding_settings(config)
     if not settings["enabled"]:
         return
@@ -22927,6 +23145,9 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    if message.guild and not billing_bot_service_is_active(guild_configs.get(str(message.guild.id), {})):
+        return
+
     # 📢 Wandering Bot company-wide announcements: when a human posts in
     # the MASTER guild's #wandering-company-announcements, mirror that
     # message into every OTHER guild's #wandering-company-announcements
@@ -23327,6 +23548,20 @@ async def log_slash_command_usage(interaction):
 
 @bot.tree.interaction_check
 async def log_all_slash_commands(interaction: discord.Interaction):
+    if interaction.guild:
+        load_guild_configs()
+        config = guild_configs.get(str(interaction.guild.id), {})
+        if not billing_bot_service_is_active(config):
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "Wandering Bot service for this server is paused while the subscription payment is outstanding. "
+                        "Please ask a server administrator to update the payment method.",
+                        ephemeral=True,
+                    )
+            except Exception:
+                pass
+            return False
     await log_slash_command_usage(interaction)
     return True
 
@@ -31565,6 +31800,9 @@ async def start_background_tasks():
 
         if not link_enforcement_deadline_loop.is_running():
             link_enforcement_deadline_loop.start()
+
+        if not billing_service_lifecycle_loop.is_running():
+            billing_service_lifecycle_loop.start()
 
         if not dashboard_member_action_loop.is_running():
             dashboard_member_action_loop.start()
@@ -55279,6 +55517,17 @@ async def on_interaction(interaction: discord.Interaction):
     needing to re-register every per-quest View instance.
     """
     try:
+        if interaction.guild and not billing_bot_service_is_active(guild_configs.get(str(interaction.guild.id), {})):
+            if interaction.type == discord.InteractionType.component:
+                try:
+                    if not interaction.response.is_done():
+                        await interaction.response.send_message(
+                            "Wandering Bot service for this server is currently paused while the subscription payment is outstanding.",
+                            ephemeral=True,
+                        )
+                except Exception:
+                    pass
+            return
         if interaction.type == discord.InteractionType.component:
             custom_id = (interaction.data or {}).get("custom_id", "")
             if custom_id.startswith("pve_submit:"):
@@ -55307,6 +55556,8 @@ async def on_member_remove(member):
 
     guild_id = str(guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": guild.name, "channels": {}})
+    if not billing_bot_service_is_active(config):
+        return
     linked = linked_players.get(str(member.id), {})
     public_channel = await get_or_create_feed_channel(
         guild,
