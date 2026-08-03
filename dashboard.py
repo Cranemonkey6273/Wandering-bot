@@ -1021,6 +1021,34 @@ PUBLIC_SEO_GUIDES = {
         ],
         "related": ["dayz-nitrado-server-tools", "dayz-server-dashboard", "dayz-killfeed-bot"],
     },
+    "dayz-discord-server-features": {
+        "path": "/guides/dayz-discord-server-features",
+        "title": "DayZ Discord Bot Features: Killfeed, Economy, Zones and File Tools",
+        "description": "See the Wandering Bot DayZ server features: Discord killfeeds and live feeds, economy and shop tools, safe zones and radar, XML and types tools, translation, events, and dashboard controls.",
+        "eyebrow": "Feature guide",
+        "headline": "DayZ server features that save staff time",
+        "lead": "Wandering Bot is not only a killfeed. It brings the day-to-day Discord, dashboard and DayZ-file jobs into one server-scoped setup so each community can enable the tools it actually needs.",
+        "category": "DayZ bot features",
+        "reading_time": "6 min",
+        "published_at": "2026-08-03",
+        "updated_at": "2026-08-03",
+        "keywords": ["DayZ Discord bot features", "DayZ killfeed bot", "DayZ economy bot", "DayZ safe zone bot", "DayZ file editor", "DayZ types booster", "DayZ types reducer", "DayZ translation bot", "DayZ live feeds"],
+        "sections": [
+            ("Killfeeds, live feeds and player activity", "Turn supported ADM log activity into Discord feeds for kills, deaths, longshots, connects, disconnects, restart notices and staff events. Owners can keep a public killfeed clean while using dashboard-only or staff-only feeds for build, raid and activity information."),
+            ("Economy, shops and server progression", "Build a Discord economy with wallets, wages, shop items, bundles, trade-ins and transaction logs. These tools let a server run rewards and purchases with clearer staff records instead of relying on messages and handwritten balances."),
+            ("Safe zones, PVP zones and radar", "Create safe zones, PVP areas, faction territory and radar-ping zones for the selected server profile. Zone rules and staff alerts can be kept separate from normal player channels, which is useful for busy merged Discord communities."),
+            ("DayZ files, types and event tools", "Use the XML workshop and DayZ AI workspace to prepare, explain and validate supported XML or JSON changes. This includes loot and types adjustments, types boosting or reduction choices, loadouts, custom events, airdrops and file snippets, with review and validation before a live file change."),
+            ("Automatic Discord translation", "Pro and Ultimate communities can keep international chat readable by posting translations beside the original message or routing them into a chosen translation channel. The original message remains visible so staff and players can check the context."),
+            ("One owner dashboard, with limited staff access", "The dashboard keeps server credentials and higher-risk controls owner-protected while trusted staff can receive access only to the feeds, economy, events, zones or moderation tools they need. Mobile access is being prepared for the same permission-checked workflow."),
+        ],
+        "faqs": [
+            ("Is Wandering Bot only a DayZ killfeed bot?", "No. Killfeeds are one part of the bot. It also includes dashboard tools for economy, shops, zones, events, files, staff workflows, translations and server activity."),
+            ("Can I use safe zones and a killfeed together?", "Yes. Feed routes and zone settings can be configured for the same server while keeping staff alerts separate from public player channels."),
+            ("Can the dashboard help with types.xml and other DayZ files?", "Yes. The file tools and DayZ AI workspace can explain, generate and validate supported file changes. Owners should still review the final result and use guarded upload steps for live server files."),
+            ("Which plan includes automatic translation?", "Automatic Discord translation is included with Wandering Bot Pro and Ultimate."),
+        ],
+        "related": ["dayz-bot", "dayz-server-dashboard", "dayz-nitrado-server-tools", "dayz-economy-trader-bot", "dayz-raid-alerts-heatmaps"],
+    },
 }
 
 APP = Flask(__name__)
