@@ -152,6 +152,22 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else \'\' }}"', template)
         self.assertIn('selected_audit_total = selected_dayz_profile.player_audit_total', template)
 
+    def test_live_server_actions_require_selected_server_confirmation(self):
+        payload = {"guild_id": "guild-1", "server_action": "restart"}
+        configs = {"guild-1": {"channels": {}}}
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_nitrado_gameserver_action") as action,
+        ):
+            response, status = dashboard.api_server_control()
+
+        self.assertEqual(400, status)
+        self.assertIn("confirmation", response["args"][0]["error"].lower())
+        action.assert_not_called()
+        self.assertIn('name="server_action_confirmed" value="true" required', dashboard.PAGE_TEMPLATE)
+
     def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
         base_config = {
             "server_map": "chernarus",

@@ -11148,12 +11148,14 @@ PAGE_TEMPLATE = """
               <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
               <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
               <input class="hidden-field" name="server_action" value="restart">
+              <label class="check"><input type="checkbox" name="server_action_confirmed" value="true" required> I checked this is the selected DayZ server.</label>
               <button type="submit">Restart Now</button> <span class="result muted"></span>
             </form>
             <form class="admin-form inline-action" method="post" action="/api/admin/server-control" data-route="/api/admin/server-control" data-confirm="Stop {{ server.guild_name if server else 'this server' }} now through Nitrado? Players will be kicked and the server stays offline until started again.">
               <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
               <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
               <input class="hidden-field" name="server_action" value="stop">
+              <label class="check"><input type="checkbox" name="server_action_confirmed" value="true" required> I checked this is the selected DayZ server.</label>
               <button class="danger" type="submit">Stop Server</button> <span class="result muted"></span>
             </form>
           </div>
@@ -37131,6 +37133,8 @@ def api_server_control():
     if server_action:
         if server_action not in {"restart", "stop"}:
             return jsonify({"ok": False, "error": "Unsupported server action."}), 400
+        if not safe_bool(payload.get("server_action_confirmed"), False):
+            return jsonify({"ok": False, "error": "Tick the selected-server confirmation before sending a live server action."}), 400
         ok, action_message, status_code = dashboard_nitrado_gameserver_action(action_config, server_action)
         actor = dashboard_audit_actor(current_auth())
         record = dashboard_append_restart_history(
