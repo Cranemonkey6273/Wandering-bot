@@ -24091,6 +24091,17 @@ def ai_agent_verified_dayz_event_link_reply(prompt: str) -> str:
     )
 
 
+def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str, continued: bool) -> bool:
+    """Keep simple verified answers free from unrelated workspace jobs."""
+    if isinstance(task, dict) and task.get("llm_status") == "verified_dayz_reference":
+        return False
+    return bool(
+        continued
+        or any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
+        or ai_agent_prompt_wants_checks(prompt)
+    )
+
+
 def ai_agent_llm_reply_for_task(
     state: dict[str, Any],
     auth: dict[str, Any],
@@ -38220,11 +38231,7 @@ def api_ai_agent_chat():
     reply = ai_agent_llm_reply_for_task(state, auth, access, run, task or {}, approval, prompt, continued)
     auto_job = None
     auto_note = ""
-    wants_auto_followup = (
-        continued
-        or any(term in prompt.lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
-        or ai_agent_prompt_wants_checks(prompt)
-    )
+    wants_auto_followup = ai_agent_should_queue_chat_auto_job(task, prompt, continued)
     if wants_auto_followup:
         auto_job, auto_note = ai_agent_queue_chat_auto_job(state, auth, access, task, run, payload, prompt, continued=continued, actor=actor)
         if auto_note:

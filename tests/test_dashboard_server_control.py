@@ -504,6 +504,20 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("case-sensitive", reply)
         self.assertNotIn("<id>", reply.lower())
 
+    def test_verified_dayz_answer_never_starts_an_unrelated_sandbox_job(self):
+        task = {"llm_status": "verified_dayz_reference"}
+
+        self.assertFalse(
+            dashboard.ai_agent_should_queue_chat_auto_job(
+                task,
+                "What must match between events.xml and cfgeventspawns.xml?",
+                continued=True,
+            )
+        )
+        self.assertTrue(
+            dashboard.ai_agent_should_queue_chat_auto_job({}, "Please inspect this project", continued=False)
+        )
+
     def test_ai_agent_workspaces_only_return_the_selected_conversation(self):
         state = {
             "runs": [{"id": "run-one", "task_ids": ["task-one"], "job_ids": [], "approval_ids": []}, {"id": "run-two", "task_ids": ["task-two"], "job_ids": [], "approval_ids": []}],
