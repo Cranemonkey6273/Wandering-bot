@@ -36204,6 +36204,21 @@ def api_scenario_event_action():
                 config["scenario_events_native_ce_cleanup_requested_at"] = now_text
             save_store("guild_configs", guild_configs)
             sync_runtime_store("guild_configs", guild_configs)
+            cleanup_started = False
+            cleanup_worker_error = ""
+            if cleanup_needed:
+                # Deletion changes live CE XML just as creation does. Start the
+                # guarded cleanup immediately instead of leaving it solely to
+                # the periodic bot heartbeat.
+                cleanup_worker_error = dashboard_runtime_scenario_uploader_error()
+                if not cleanup_worker_error:
+                    cleanup_started = schedule_runtime_scenario_xml_upload(runtime_id, event_id, removed=True)
+                    if not cleanup_started:
+                        cleanup_worker_error = "Bot worker unavailable: the native CE cleanup worker did not accept the request."
+                if cleanup_worker_error:
+                    config["scenario_events_cleanup_error"] = cleanup_worker_error
+                    save_store("guild_configs", guild_configs)
+                    sync_runtime_store("guild_configs", guild_configs)
             if not wants_json_response():
                 return redirect(return_to)
             return jsonify({
@@ -36211,9 +36226,11 @@ def api_scenario_event_action():
                 "deleted": removed,
                 "cancelled": action == "cancel",
                 "cleanup_queued": cleanup_needed,
+                "cleanup_started": cleanup_started,
+                "cleanup_worker_error": cleanup_worker_error,
                 "upload": None,
                 "note": (
-                    "event removed; native CE XML cleanup is queued in the bot background worker"
+                    "event removed; guarded native CE XML cleanup has started"
                     if cleanup_needed
                     else "queued event removed locally; it had not uploaded, so no live XML cleanup was queued"
                 ),

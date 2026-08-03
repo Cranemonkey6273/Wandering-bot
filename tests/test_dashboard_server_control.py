@@ -232,6 +232,32 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("confirmation", response["args"][0]["error"].lower())
         self.assertIn('name="confirmed_profile" value="true" required', dashboard.PAGE_TEMPLATE)
 
+    def test_native_event_delete_starts_guarded_cleanup_immediately(self):
+        configs = {"guild-1": {}}
+        profile = {"scenario_events": [{"id": 37, "created_by": "dashboard", "native_ce_uploaded_at": "2026-08-03T10:00:00+00:00"}]}
+        payload = {"guild_id": "guild-1", "server_profile_id": "livo", "event_id": "37", "action": "delete"}
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:livo", "")),
+            patch.object(dashboard, "mark_scenario_event_deleted"),
+            patch.object(dashboard, "scenario_event_has_confirmed_native_upload", return_value=True),
+            patch.object(dashboard, "dashboard_runtime_scenario_uploader_error", return_value=""),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload", return_value=True) as schedule,
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event_action()
+
+        self.assertEqual([], profile["scenario_events"])
+        self.assertTrue(profile["scenario_events_cleanup_pending"])
+        schedule.assert_called_once_with("guild-1:livo", 37, removed=True)
+        body = response["args"][0]
+        self.assertTrue(body["cleanup_queued"])
+        self.assertTrue(body["cleanup_started"])
+
     def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
         base_config = {
             "server_map": "chernarus",
