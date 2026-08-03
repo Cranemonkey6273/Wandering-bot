@@ -35699,22 +35699,50 @@ CONSOLE_CE_BASELINE_SOURCE_CHECKS = {
     "cfgeventspawns.xml": (("cfgeventspawns.xml",), "eventposdef", "event"),
 }
 
+# A CE event job must never turn a damaged live source into a new baseline.
+# Normal console mission files retain the overwhelming majority of the vanilla
+# named records even when server owners add their own content.  Requiring this
+# coverage catches a partial Nitrado read or an accidentally overwritten file
+# before a merge, backup, or upload can occur.
+CONSOLE_CE_MIN_REFERENCE_COVERAGE = 0.75
+CONSOLE_CE_MIN_REFERENCE_RECORDS = 10
 
-def count_non_wandering_named_xml_records(text, expected_root, child_tag):
+
+def non_wandering_named_xml_record_names(text, expected_root, child_tag):
+    """Return the named, non-WanderingBot direct children of a CE XML root.
+
+    Wandering Bot writes an ownership comment immediately before records it
+    manages.  ElementTree's ``findall`` alone loses that relationship, so this
+    deliberately walks direct children and honours both the comment and the
+    managed-name marker.  The helper is shared by the live/reference and
+    latest-backup guards below.
+    """
     try:
         root = parse_xml_root_preserving_comments(text)
     except Exception:
         return None
     if str(root.tag or "") != str(expected_root or ""):
         return None
-    count = 0
-    for node in root.findall(child_tag):
-        if not str(node.get("name") or "").strip():
+
+    names = set()
+    pending_owned_comment = False
+    for node in list(root):
+        if is_xml_comment_node(node):
+            pending_owned_comment = is_wandering_scope_comment(node)
             continue
-        if is_wandering_scope_node(node):
+        if str(getattr(node, "tag", "") or "") != str(child_tag or ""):
+            pending_owned_comment = False
             continue
-        count += 1
-    return count
+        name = str(node.get("name") or "").strip()
+        if name and not pending_owned_comment and not is_wandering_scope_node(node):
+            names.add(name)
+        pending_owned_comment = False
+    return names
+
+
+def count_non_wandering_named_xml_records(text, expected_root, child_tag):
+    names = non_wandering_named_xml_record_names(text, expected_root, child_tag)
+    return len(names) if names is not None else None
 
 
 def validate_console_ce_live_source_baseline(label, source_text, map_key):
@@ -35725,19 +35753,85 @@ def validate_console_ce_live_source_baseline(label, source_text, map_key):
     reference_text = load_dayz_reference_text(map_key, *reference_parts)
     reference_count = count_non_wandering_named_xml_records(reference_text, expected_root, child_tag)
     source_count = count_non_wandering_named_xml_records(source_text, expected_root, child_tag)
-    if reference_count is None or source_count is None or reference_count < 10:
-        return True, ""
-    if source_count >= 3:
+    if source_count is None:
+        return False, (
+            f"`{label}` live source baseline check blocked upload: the downloaded file is not a valid "
+            f"`<{expected_root}>` document. Wandering Bot will not merge or upload it."
+        )
+    if reference_count is None:
+        return False, (
+            f"`{label}` live source baseline check blocked upload: no reliable bundled `{map_key or 'selected map'}` "
+            "reference was available for this protected file. Wandering Bot will not guess a baseline."
+        )
+    if reference_count < CONSOLE_CE_MIN_REFERENCE_RECORDS:
+        # This is only a defensive fallback for a future, unusually small
+        # official source file.  It still requires a non-empty valid source.
+        if source_count:
+            return True, ""
+        return False, (
+            f"`{label}` live source baseline check blocked upload: the protected source has no non-WanderingBot "
+            f"`<{child_tag} name=...>` records."
+        )
+
+    minimum_count = max(
+        CONSOLE_CE_MIN_REFERENCE_RECORDS,
+        int(math.ceil(reference_count * CONSOLE_CE_MIN_REFERENCE_COVERAGE)),
+    )
+    if source_count >= minimum_count:
         return True, (
             f"`{label}` live source baseline check passed with `{source_count}` non-WanderingBot "
-            f"<{child_tag} name=...> record(s)."
+            f"<{child_tag} name=...> record(s), meeting the `{minimum_count}` record safety floor."
         )
     return False, (
         f"`{label}` live source baseline check blocked upload: downloaded source only has `{source_count}` "
         f"non-WanderingBot <{child_tag} name=...> record(s), but bundled `{map_key or 'selected map'}` "
-        f"reference has `{reference_count}`. This looks like an empty/truncated Nitrado read or an already-wiped "
-        "CE file, so Wandering Bot will not write over it. Restore the real live file or fix the configured "
-        "remote path, then retry the airdrop upload."
+        f"reference has `{reference_count}` and this protected upload requires at least `{minimum_count}`. "
+        "This looks like an empty/truncated Nitrado read or an already-wiped CE file, so Wandering Bot will "
+        "not merge, restore, back up, or write over it. Restore the real live file or fix the configured remote "
+        "path, then retry the explicitly requested event upload."
+    )
+
+
+def validate_console_ce_live_source_against_latest_backup(config, label, source_text, resolved_path):
+    """Block a protected CE write if the live file lost prior non-bot records.
+
+    ``.wanderingbot-backup-latest`` is an audit reference only.  It is never
+    silently used as an upload source: a missing record stops the operation so
+    a separate, owner-reviewed recovery can decide what belongs on the server.
+    """
+    check = CONSOLE_CE_BASELINE_SOURCE_CHECKS.get(str(label or ""))
+    safe_path = canonical_remote_path(resolved_path)
+    if not check or not safe_path:
+        return True, ""
+
+    reference_parts, expected_root, child_tag = check
+    live_names = non_wandering_named_xml_record_names(source_text, expected_root, child_tag)
+    if live_names is None:
+        # The primary baseline check gives the clearer error for malformed XML.
+        return True, ""
+
+    backup_path = f"{safe_path}.wanderingbot-backup-latest"
+    ok, _message, backup_text = download_text_file_from_nitrado(config, backup_path)
+    if not ok or not str(backup_text or "").strip():
+        # First-use servers do not have a prior backup.  The strict vanilla
+        # coverage guard remains in force in that case.
+        return True, ""
+
+    backup_names = non_wandering_named_xml_record_names(backup_text, expected_root, child_tag)
+    if backup_names is None:
+        return True, ""
+    missing_names = sorted(backup_names - live_names)
+    if not missing_names:
+        return True, ""
+
+    preview = ", ".join(f"`{name}`" for name in missing_names[:5])
+    remaining = len(missing_names) - min(len(missing_names), 5)
+    if remaining:
+        preview = f"{preview}, and `{remaining}` more"
+    return False, (
+        f"`{label}` upload blocked: the current live file is missing `{len(missing_names)}` non-WanderingBot "
+        f"record(s) that existed in the last verified backup ({preview}). Wandering Bot will not silently restore "
+        "or overwrite unrelated server content during this task. Review and restore the file explicitly, then retry."
     )
 
 
@@ -35758,26 +35852,13 @@ def recover_console_ce_source_from_backup_if_gutted(
         if baseline_ok:
             return source_text, "", None
 
-    backup_path = f"{canonical_remote_path(resolved_path)}.wanderingbot-backup-latest" if resolved_path else ""
-    if not backup_path:
-        return source_text, "", baseline_message
-
-    ok, backup_message, backup_text = download_text_file_from_nitrado(config, backup_path)
-    if ok and str(backup_text or "").strip():
-        backup_ok, backup_baseline_message = validate_console_ce_live_source_baseline(label, backup_text, map_key)
-        if backup_ok:
-            return backup_text, (
-                f"{label}: live source was not safe to use, so Wandering Bot recovered the merge source "
-                f"from `{backup_path}` before writing. Live issue: {baseline_message}"
-            ), None
-        return source_text, "", (
-            f"{label}: live source was not safe to use and backup `{backup_path}` also failed baseline. "
-            f"Live issue: {baseline_message} Backup issue: {backup_baseline_message}"
-        )
-
+    # Backups are rollback/audit material, not an implicit merge source.  An
+    # automatic fallback can restore an old file while the user only asked for
+    # an unrelated event change.  Preserve the damaged source untouched and
+    # block the whole requested upload instead.
     return source_text, "", (
-        f"{label}: live source was not safe to use and backup `{backup_path}` could not be downloaded. "
-        f"Live issue: {baseline_message} Backup download: {backup_message}"
+        f"{label}: live source was not safe to use. The requested upload was stopped and no backup was used "
+        f"as a merge source. Live issue: {baseline_message}"
     )
 
 
@@ -40640,40 +40721,6 @@ def backup_remote_ce_sources_before_upload(config, built):
         )
     )
     required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml", "zombie_territories.xml"}
-    source_text_keys = {
-        "events.xml": "events_source_text",
-        "cfgeventspawns.xml": "spawns_source_text",
-        "types.xml": "types_source_text",
-        "cfgspawnabletypes.xml": "spawnabletypes_source_text",
-        "cfgeventgroups.xml": "eventgroups_source_text",
-        "mapgroupproto.xml": "mapgroupproto_source_text",
-        "cfgenvironment.xml": "cfgenvironment_source_text",
-        "zombie_territories.xml": "zombie_territories_source_text",
-        "cfgareaeffects.xml": "cfgareaeffects_source_text",
-    }
-
-    def source_was_fallback(label):
-        prefix = f"{str(label or '').lower()}:"
-        return any(str(item or "").lower().startswith(prefix) for item in built.get("source_fallbacks") or [])
-
-    def source_text_for_backup(label, path):
-        if source_was_fallback(label):
-            return "", f"`{label}` source came from a bundled/minimal fallback, not a live server download."
-        key = source_text_keys.get(label)
-        content = built.get(key) if key else ""
-        if not str(content or "").strip():
-            for territory_file in built.get("animal_territory_files") or []:
-                if not isinstance(territory_file, dict):
-                    continue
-                if str(territory_file.get("path") or "").strip() == str(path or "").strip():
-                    content = territory_file.get("source_text")
-                    break
-        if not str(content or "").strip():
-            return "", f"`{label}` has no previously downloaded source copy in this upload build."
-        valid_source, source_message = validate_protected_dayz_xml_upload(path, content)
-        if not valid_source:
-            return "", f"`{label}` previously downloaded source copy is not valid for `{path}`: {source_message}"
-        return content, f"`{label}` using previously downloaded source copy because backup re-download returned empty content."
 
     targets = [
         ("events.xml", built.get("events_path")),
@@ -40703,19 +40750,15 @@ def backup_remote_ce_sources_before_upload(config, built):
             detail = message
             if ok and not str(content or "").strip():
                 detail = f"{message} (download returned empty content)"
-                source_content, source_message = source_text_for_backup(label, path)
-                if source_content:
-                    content = source_content
-                    backup_messages.append(f"`{label}` backup re-download was empty; {source_message}")
-                elif label in required_backups:
+                if label in required_backups:
                     return False, backup_messages + [
-                        f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}. {source_message}"
+                        f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}. "
+                        "The bot will not substitute an older in-memory copy or write this task against an unverified live source."
                     ]
-                else:
-                    backup_messages.append(
-                        f"`{label}` backup skipped: existing file at `{path}` could not be re-downloaded before upload: {detail}. {source_message}"
-                    )
-                    continue
+                backup_messages.append(
+                    f"`{label}` backup skipped: existing file at `{path}` could not be re-downloaded before upload: {detail}."
+                )
+                continue
             elif label in required_backups:
                 return False, backup_messages + [f"Backup blocked: could not re-download `{label}` from `{path}` before upload: {detail}"]
             else:
@@ -40738,37 +40781,25 @@ def backup_remote_ce_sources_before_upload(config, built):
             continue
         baseline_ok, baseline_message = validate_console_ce_live_source_baseline(label, content, backup_map_key)
         if not baseline_ok:
-            source_content, fallback_source_message = source_text_for_backup(label, path)
-            if source_content:
-                fallback_baseline_ok, fallback_baseline_message = validate_console_ce_live_source_baseline(
-                    label,
-                    source_content,
-                    backup_map_key,
-                )
-                if not fallback_baseline_ok:
-                    if label in required_backups:
-                        return False, backup_messages + [
-                            f"Backup blocked: live `{label}` at `{path}` failed baseline before upload: {baseline_message} "
-                            f"The in-memory source copy also failed baseline: {fallback_baseline_message}"
-                        ]
-                    backup_messages.append(
-                        f"`{label}` backup skipped: live source failed baseline before upload: {baseline_message} "
-                        f"The in-memory source copy also failed baseline: {fallback_baseline_message}"
-                    )
-                    continue
-                content = source_content
-                backup_messages.append(
-                    f"`{label}` live backup source failed baseline; {fallback_source_message} Baseline issue: {baseline_message}"
-                )
-            elif label in required_backups:
+            if label in required_backups:
                 return False, backup_messages + [
-                    f"Backup blocked: live `{label}` at `{path}` failed baseline before upload: {baseline_message} {fallback_source_message}"
+                    f"Backup blocked: live `{label}` at `{path}` failed baseline before upload: {baseline_message} "
+                    "The bot will not substitute an older in-memory copy or restore unrelated records automatically."
                 ]
-            else:
-                backup_messages.append(
-                    f"`{label}` backup skipped: live source failed baseline before upload: {baseline_message} {fallback_source_message}"
-                )
-                continue
+            backup_messages.append(
+                f"`{label}` backup skipped: live source failed baseline before upload: {baseline_message} "
+                "The bot will not substitute an older in-memory copy automatically."
+            )
+            continue
+
+        history_ok, history_message = validate_console_ce_live_source_against_latest_backup(
+            config,
+            label,
+            content,
+            path,
+        )
+        if not history_ok:
+            return False, backup_messages + [f"Backup blocked: {history_message}"]
         restore_texts[path] = content
         timestamped_backup_path = timestamped_ce_backup_path(path)
         timestamped_ok, timestamped_message = upload_ce_latest_backup_to_nitrado(

@@ -218,7 +218,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(any("failed baseline before upload" in message for message in messages))
         self.assertEqual(["download"], self.calls)
 
-    def test_backup_uses_build_source_when_required_redownload_is_empty(self):
+    def test_backup_blocks_when_required_redownload_is_empty(self):
         spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
         built = {
             "spawns_path": spawns_path,
@@ -246,8 +246,8 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         self.assertFalse(ok, messages)
         self.assertNotIn(spawns_path, built.get("restore_texts", {}))
-        self.assertTrue(any("backup re-download was empty" in message for message in messages))
-        self.assertTrue(any("failed baseline before upload" in message for message in messages))
+        self.assertTrue(any("download returned empty content" in message for message in messages))
+        self.assertTrue(any("will not substitute an older in-memory copy" in message for message in messages))
         self.assertEqual(["download"], self.calls)
 
     def test_backup_still_blocks_empty_redownload_when_build_source_was_fallback(self):
@@ -271,7 +271,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertFalse(ok)
         rendered = "\n".join(messages)
         self.assertIn("download returned empty content", rendered)
-        self.assertIn("source came from a bundled/minimal fallback", rendered)
+        self.assertIn("will not substitute an older in-memory copy", rendered)
         self.assertEqual(["download"], self.calls)
 
     def test_ce_protected_upload_fails_when_remote_copy_is_stale_after_success(self):

@@ -1353,7 +1353,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertIn("live source baseline check blocked upload", rendered)
         self.assertIn("empty/truncated Nitrado read", rendered)
 
-    def test_build_recovers_empty_eventspawns_source_from_latest_backup(self):
+    def test_build_blocks_empty_eventspawns_source_instead_of_using_latest_backup(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
         reference_events = bot.load_dayz_reference_text("chernarus", "db", "events.xml")
         reference_spawns = bot.load_dayz_reference_text("chernarus", "cfgeventspawns.xml")
@@ -1399,51 +1399,51 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
 
         built = bot.build_console_ce_event_files(self.guild_id, config)
 
-        self.assertFalse(built.get("source_fallbacks"), built.get("source_fallbacks"))
-        self.assertEqual(reference_spawns, built.get("spawns_source_text"))
+        self.assertTrue(built.get("source_fallbacks"), built.get("source_fallbacks"))
+        self.assertEqual("<eventposdef></eventposdef>", built.get("spawns_source_text"))
         self.assertTrue(
-            any("recovered the merge source" in str(message) for message in built.get("messages", [])),
-            built.get("messages", []),
+            any("no backup was used as a merge source" in str(message) for message in built.get("source_fallbacks", [])),
+            built.get("source_fallbacks", []),
         )
-        merged_spawns = ET.fromstring(built["spawns_text"])
-        non_wandering_spawns = [
-            node.get("name")
-            for node in merged_spawns.findall("event")
-            if not str(node.get("name") or "").startswith("StaticWanderingBot_")
-        ]
-        self.assertGreaterEqual(len(non_wandering_spawns), 10)
         scope_ok, scope_messages = bot.validate_console_ce_upload_scope(built)
-        self.assertTrue(scope_ok, "\n".join(scope_messages))
+        self.assertFalse(scope_ok, "\n".join(scope_messages))
+        self.assertTrue(any("baseline check blocked upload" in str(message) for message in scope_messages), scope_messages)
 
-        captured_backups = {}
+    def test_baseline_blocks_a_half_erased_event_source(self):
+        reference_events = bot.load_dayz_reference_text("chernarus", "db", "events.xml")
+        root = ET.fromstring(reference_events)
+        event_nodes = root.findall("event")
+        for node in event_nodes[len(event_nodes) // 2:]:
+            root.remove(node)
 
-        def fake_download_for_backup(_config, remote_path):
-            path = str(remote_path or "")
-            if path == f"{base_path}/db/events.xml":
-                return True, "live events", reference_events
-            if path == f"{base_path}/cfgeventspawns.xml":
-                return True, "live spawns", "<eventposdef></eventposdef>"
-            return False, "missing", ""
-
-        def fake_upload_latest_backup(_config, label, backup_path, text_content):
-            captured_backups[label] = (backup_path, text_content)
-            return True, "backup stored"
-
-        def fake_cleanup_backups(_config, _path, keep_paths=None):
-            return [], []
-
-        bot.download_text_file_from_nitrado = fake_download_for_backup
-        bot.upload_ce_latest_backup_to_nitrado = fake_upload_latest_backup
-        bot.cleanup_wanderingbot_backups_for_path = fake_cleanup_backups
-
-        backup_ok, backup_messages = bot.backup_remote_ce_sources_before_upload(config, built)
-
-        self.assertFalse(backup_ok, "\n".join(backup_messages))
-        self.assertNotIn("cfgeventspawns.xml", captured_backups)
-        self.assertTrue(
-            any("is not valid before upload" in str(message) for message in backup_messages),
-            backup_messages,
+        ok, message = bot.validate_console_ce_live_source_baseline(
+            "events.xml",
+            ET.tostring(root, encoding="unicode"),
+            "chernarus",
         )
+
+        self.assertFalse(ok)
+        self.assertIn("requires at least", message)
+        self.assertIn("not merge, restore, back up, or write over it", message)
+
+    def test_latest_backup_guard_blocks_removed_unmanaged_event_records(self):
+        live = '<eventposdef><event name="VanillaA" /><event name="VanillaB" /></eventposdef>'
+        latest_backup = (
+            '<eventposdef><event name="VanillaA" /><event name="VanillaB" />'
+            '<event name="VanillaC" /></eventposdef>'
+        )
+
+        with patch.object(bot, "download_text_file_from_nitrado", return_value=(True, "downloaded", latest_backup)):
+            ok, message = bot.validate_console_ce_live_source_against_latest_backup(
+                {},
+                "cfgeventspawns.xml",
+                live,
+                "/dayzxb_missions/dayzOffline.chernarusplus/cfgeventspawns.xml",
+            )
+
+        self.assertFalse(ok)
+        self.assertIn("`VanillaC`", message)
+        self.assertIn("will not silently restore", message)
 
     def test_static_airplanecrate_missing_proto_is_restored_for_horde_upload(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
