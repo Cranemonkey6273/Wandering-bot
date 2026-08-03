@@ -11594,6 +11594,7 @@ PAGE_TEMPLATE = """
       <div class="reviews-layout">
         <article class="admin-panel">
           <h3>Write a Review</h3>
+          {% if review_posted %}<div class="notification ok">Review posted. Thank you for helping other DayZ server owners find Wandering Bot.</div>{% endif %}
           <div class="review-score-card">
             <span class="muted">Current public score</span>
             <strong data-review-average>{{ dashboard_review_summary.average_text }}/5</strong>
@@ -34709,6 +34710,7 @@ def page(mode: str, auth: dict[str, Any]):
         dashboard_reviews=dashboard_reviews,
         dashboard_review_summary=dashboard_review_summary,
         dashboard_review_prompt=dashboard_review_prompt,
+        review_posted=str(request.args.get("review") or "").strip().lower() == "posted",
         ai_agent_state=ai_agent_state,
         ai_agent_readiness=ai_agent_readiness_checks(ai_agent_state, auth),
         ai_agent_access=ai_agent_access,
@@ -36179,7 +36181,15 @@ def api_reviews_save():
     body = reviews_api_payload()
     body["review"] = review
     body["note"] = "Saved review."
-    return jsonify(body)
+    if wants_json_response():
+        return jsonify(body)
+    # JavaScript normally posts this form in the background.  Keep a proper
+    # browser fallback as well: a blocked script must never strand a reviewer
+    # on raw API JSON after their review has already been saved.
+    target = dashboard_section_return("reviews", payload, "#dashboard-review-form")
+    base, marker, fragment = target.partition("#")
+    separator = "&" if "?" in base else "?"
+    return redirect(f"{base}{separator}review=posted{marker}{fragment}")
 
 
 @APP.get("/api/admin")
