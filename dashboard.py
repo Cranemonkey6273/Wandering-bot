@@ -24071,6 +24071,26 @@ def ai_agent_append_command_summary(reply: str, suggestions: list[dict[str, Any]
     return text + "\n" + "\n".join(lines)
 
 
+def ai_agent_verified_dayz_event_link_reply(prompt: str) -> str:
+    """Answer the one CE linkage fact that should never be left to model inference.
+
+    These two files are often edited together by new DayZ owners.  A vague or
+    cross-game answer about generic IDs is actively unhelpful here: DayZ CE
+    links the records through the exact ``event name`` attribute.
+    """
+    text = str(prompt or "").lower()
+    mentions_pair = "events.xml" in text and "cfgeventspawns.xml" in text
+    asks_about_link = any(term in text for term in ("match", "matching", "link", "linked", "same name", "connect"))
+    if not mentions_pair or not asks_about_link:
+        return ""
+    return (
+        "For a fixed DayZ Central Economy airdrop, the `<event name=\"...\">` value must be identical in both files.\n\n"
+        "- `db/events.xml` defines the event behaviour: counts, lifetime, flags and the child classname(s) to spawn.\n"
+        "- `cfgeventspawns.xml` contains one `<event name=\"the-same-name\">` record with one or more `<pos x=\"...\" z=\"...\" a=\"...\" />` locations.\n\n"
+        "The coordinates only belong in `cfgeventspawns.xml`; they do not need to be copied into `events.xml`. The name is case-sensitive, so even one spelling difference prevents DayZ CE from connecting the definition to its positions. This is read-only guidance: no files or server settings were changed."
+    )
+
+
 def ai_agent_llm_reply_for_task(
     state: dict[str, Any],
     auth: dict[str, Any],
@@ -24087,6 +24107,16 @@ def ai_agent_llm_reply_for_task(
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
     base_suggestions = ai_agent_suggested_commands_for_task(task, run)
     task["suggested_commands"] = ai_agent_merge_suggested_commands(task, base_suggestions)
+    verified_dayz_reply = ai_agent_verified_dayz_event_link_reply(prompt)
+    if verified_dayz_reply:
+        # Do not spend a model call (or present unrelated project commands) for
+        # this stable, safety-critical CE relationship.
+        task["suggested_commands"] = []
+        task["next_action"] = "Use the same event name in both CE files, then validate the complete pair before upload."
+        task["summary"] = "Verified DayZ CE event-name linkage guidance."
+        task["llm_status"] = "verified_dayz_reference"
+        task["updated_at"] = datetime.now(UTC).isoformat()
+        return verified_dayz_reply
     wants_inspection = any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
     has_job_context = bool(run_context.get("latest_jobs"))
     if not ai_agent_llm_is_configured():

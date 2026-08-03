@@ -494,6 +494,16 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("custom/NoLogoutArea.json", dashboard.ai_agent_dayz_target_path("./custom/NoLogoutArea.json"))
         self.assertEqual("", dashboard.ai_agent_dayz_target_path("../custom/NoLogoutArea.json"))
 
+    def test_ai_agent_uses_verified_event_name_guidance_for_linked_ce_files(self):
+        reply = dashboard.ai_agent_verified_dayz_event_link_reply(
+            "Explain what must match between events.xml and cfgeventspawns.xml for an airdrop."
+        )
+
+        self.assertIn('<event name="...">', reply)
+        self.assertIn("must be identical in both files", reply)
+        self.assertIn("case-sensitive", reply)
+        self.assertNotIn("<id>", reply.lower())
+
     def test_ai_agent_workspaces_only_return_the_selected_conversation(self):
         state = {
             "runs": [{"id": "run-one", "task_ids": ["task-one"], "job_ids": [], "approval_ids": []}, {"id": "run-two", "task_ids": ["task-two"], "job_ids": [], "approval_ids": []}],
