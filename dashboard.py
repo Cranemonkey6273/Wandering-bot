@@ -6567,12 +6567,13 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "player-audit" %}
     <section class="section-panel" id="player-audit">
+      {% set selected_audit_total = selected_dayz_profile.player_audit_total if selected_dayz_profile else (server.player_audit_total if server else 0) %}
       <div class="section-head">
         <div>
           <h2>Player Audit — last 24 hours</h2>
           <p class="tool-note">Staff-only ADM history for logins, logouts, combat and logged actions. Locations are only shown when DayZ wrote coordinates to an ADM event; this is not continuous GPS tracking.</p>
         </div>
-        {% if server %}<span class="pill">{{ server.player_audit_total }} events retained</span>{% endif %}
+        {% if server %}<span class="pill">{{ selected_audit_total }} events retained</span>{% endif %}
       </div>
       <div class="panel-grid">
         {% if server %}

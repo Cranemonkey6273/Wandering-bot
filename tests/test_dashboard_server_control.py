@@ -150,6 +150,7 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('/admin?section=heatmaps{{ server_qs }}{{ profile_qs }}', template)
         self.assertIn('/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}', template)
         self.assertIn('name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else \'\' }}"', template)
+        self.assertIn('selected_audit_total = selected_dayz_profile.player_audit_total', template)
 
     def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
         base_config = {
