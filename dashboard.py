@@ -23308,7 +23308,11 @@ def ai_agent_types_boost_profile_requested(context: Any, prompt: Any) -> bool:
     needs_weapons = "weapon" in text
     needs_ammo = "ammo" in text or "ammunition" in text or "magazine" in text
     needs_military_clothes = "military" in text and ("cloth" in text or "clothes" in text)
-    needs_common_clothes = ("crap clothing" in text or "common clothing" in text or "civilian clothing" in text)
+    needs_common_clothes = (
+        ("crap" in text and "cloth" in text)
+        or "common clothing" in text
+        or "civilian clothing" in text
+    )
     needs_double = any(token in text for token in ("200%", "200 %", "double", "2x", "two times"))
     return needs_weapons and needs_ammo and needs_military_clothes and needs_common_clothes and needs_double
 
