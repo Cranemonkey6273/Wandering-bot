@@ -39544,7 +39544,11 @@ def console_ce_records_for_event(event, map_key=""):
         "visual_marker": bool(event.get("visual_marker")),
         "scene_clearance_radius": scenario_airdrop_scene_min_radius(event) if event_type in {"airdrop", "loot_crate"} and event.get("visual_marker") else 0,
         "remove_damaged": event_type in {"animal_pack", "vehicle_spawn"},
-        "deletable": event_type != "animal_pack",
+        # Match vanilla vehicle events: a dashboard vehicle must not be
+        # eligible for CE cleanup simply because the server restarts.  Its
+        # lifetime/repair state is handled by the vehicle event itself; it
+        # remains until destroyed or the owner deletes the dashboard event.
+        "deletable": False if event_type == "vehicle_spawn" else event_type != "animal_pack",
         "stable_definition": event_type in STABLE_CONSOLE_EVENT_TYPES,
         "use_existing_definition": bool(event_name_override),
         "patch_existing_definition": bool(event_name_override),

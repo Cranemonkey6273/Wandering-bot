@@ -588,6 +588,7 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
             cleanupradius=record.get("cleanupradius", 100),
             child_records=record.get("child_records"),
             remove_damaged=bool(record.get("remove_damaged")),
+            deletable=bool(record.get("deletable", True)),
             empty_children=bool(record.get("empty_event_children")),
             secondary=record.get("secondary", ""),
         )
@@ -616,6 +617,7 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
         self.assertEqual(event_node.findtext("saferadius"), "0")
         self.assertEqual(event_node.findtext("distanceradius"), "25")
         self.assertEqual(event_node.findtext("cleanupradius"), "200")
+        self.assertEqual(event_node.find("flags").get("deletable"), "0")
         self.assertEqual(event_node.find("flags").get("remove_damaged"), "1")
         child = event_node.find("children/child")
         self.assertIsNotNone(child)
