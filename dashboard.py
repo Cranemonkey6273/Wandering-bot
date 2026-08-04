@@ -9080,6 +9080,8 @@ PAGE_TEMPLATE = """
             <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"><small class="field-help">↕️ iZurvive/dashboard Z.</small></label>
             <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"><small class="field-help">⬆️ Usually 0 on console.</small></label>
             <label>Quantity in event <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"><small class="field-help">🔢 Animals/infected count. Drops use batch for multiples.</small></label>
+            <label data-zombie-count-range>Minimum infected <input name="zombie_min_count" type="number" min="1" max="250" value="{{ edit_event.zombie_min_count or edit_event.count }}"><small class="field-help">☠️ Horde-only: lowest infected count at each territory zone.</small></label>
+            <label data-zombie-count-range>Maximum infected <input name="zombie_max_count" type="number" min="1" max="250" value="{{ edit_event.zombie_max_count or edit_event.count }}"><small class="field-help">☠️ Horde-only: highest infected count at each territory zone.</small></label>
             <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"><small class="field-help">⭕ Spread around the point.</small></label>
             <label class="full">Batch locations
               <textarea name="batch_locations" data-scenario-batch-locations placeholder="Skalisty Island, 13532, 3131&#10;NWAF, 4481, 10355&#10;Tisy, 1612, 14175"></textarea>
@@ -17598,6 +17600,7 @@ PAGE_TEMPLATE = """
       const typeSelect = form.querySelector("[data-scenario-type]");
       const classInput = form.querySelector("[data-scenario-class]");
       const timingSelect = form.querySelector("[data-scenario-timing-preset]");
+      const zombieCountRangeFields = form.querySelectorAll("[data-zombie-count-range]");
       const timingFieldNames = ["lifetime", "restock", "saferadius", "distanceradius", "cleanupradius", "gas_lifetime"];
       function normalScenarioType(value) {
         return value === "loot_crate" ? "airdrop" : value;
@@ -17719,6 +17722,9 @@ PAGE_TEMPLATE = """
         const customClass = option.value === "custom" || option.value === "custom_vehicle";
         if (typeSelect && option.dataset.type) typeSelect.value = normalScenarioType(option.dataset.type);
         const activeType = normalScenarioType(typeSelect ? typeSelect.value : option.dataset.type || "airdrop");
+        zombieCountRangeFields.forEach((field) => {
+          field.hidden = activeType !== "zombie_horde";
+        });
         const classDefaults = {
           airdrop: "Wreck_Mi8_Crashed",
           animal_pack: "Animal_UrsusArctos",
@@ -17823,7 +17829,10 @@ PAGE_TEMPLATE = """
         syncMix();
       }
       if (addButton) addButton.addEventListener("click", () => addRow());
-      addRow("ZmbM_SoldierNormal", 10);
+      // A horde with no explicitly added mix uses the selected/custom
+      // classname.  Pre-populating this with a soldier silently overwrote a
+      // custom class such as ZmbM_Mummy.
+      syncMix();
     });
     document.querySelectorAll("[data-zone-map]").forEach((map) => {
       const form = map.closest("form");
@@ -37795,6 +37804,8 @@ def api_scenario_event():
     event_count = max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1))))
     if event_type == "zombie_horde" and zombie_mix:
         event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
+    zombie_min_count = max(1, min(250, safe_int(payload.get("zombie_min_count"), event_count)))
+    zombie_max_count = max(zombie_min_count, min(250, safe_int(payload.get("zombie_max_count"), event_count)))
     if event_type == "gas_zone":
         event_count = 1
     gas_lifetime_default = 3888000 if permanent else 1800
@@ -37975,6 +37986,8 @@ def api_scenario_event():
             "map": map_key_for(server_map),
             "preset": spawn_preset or "custom",
             "count": event_count,
+            "zombie_min_count": zombie_min_count if event_type == "zombie_horde" else event_count,
+            "zombie_max_count": zombie_max_count if event_type == "zombie_horde" else event_count,
             "radius": radius,
             "loot_preset": loot_preset,
             "loot_count_range": loot_count_range,

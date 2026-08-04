@@ -36813,6 +36813,7 @@ def add_console_ce_event_definition(
     deletable=True,
     empty_children=False,
     secondary="",
+    position="fixed",
 ):
     append_wandering_xml_comment(root, f"managed event definition {event_name}")
     event_node = ET.SubElement(root, "event", {"name": event_name})
@@ -36840,8 +36841,8 @@ def add_console_ce_event_definition(
     flags.set("init_random", "0")
     flags.set("remove_damaged", "1" if remove_damaged else "0")
 
-    position = ET.SubElement(event_node, "position")
-    position.text = "fixed"
+    position_node = ET.SubElement(event_node, "position")
+    position_node.text = "player" if str(position or "").strip().lower() == "player" else "fixed"
     limit = ET.SubElement(event_node, "limit")
     limit.text = str(limit_type or "child")
     active = ET.SubElement(event_node, "active")
@@ -38666,6 +38667,47 @@ def zombie_territory_zone_name(class_name="", event=None):
     return "InfectedCity"
 
 
+def zombie_territory_uses_custom_definition(record, event=None):
+    """Whether a horde needs a private CE event rather than a vanilla group.
+
+    The vanilla territory names such as ``InfectedArmy`` choose their own
+    vanilla infected pools.  They cannot be used for a requested classname
+    such as ``ZmbM_Mummy``: doing so would look valid in XML but spawn regular
+    city infected.  Custom dashboard classnames, mixed hordes, and classes
+    without a reliable vanilla group therefore get one managed event whose
+    children explicitly name the requested infected class(es).
+    """
+    if not isinstance(record, dict):
+        return False
+    event = event if isinstance(event, dict) else {}
+    preset = str(event.get("preset") or record.get("preset") or "").strip().lower()
+    if preset in {"custom", "custom_zombie", "custom_zombie_horde"}:
+        return True
+    if isinstance(record.get("child_records"), list) and len(record["child_records"]) > 1:
+        return True
+    text = normalize_discord_name(
+        " ".join(str(value or "") for value in (
+            record.get("class_name"), event.get("preset"), event.get("spawn_type"),
+        ))
+    )
+    if "mummy" in text:
+        return True
+    # These are the standard vanilla territory families.  An unknown infected
+    # classname is safer as an explicit custom definition than as InfectedCity.
+    return not any(token in text for token in (
+        "army", "military", "soldier", "usmc", "police", "doctor", "medical",
+        "medic", "nurse", "paramedic", "firefighter", "fire", "prison",
+        "religious", "priest", "industrial", "worker", "construction", "mechanic",
+        "solitude", "hermit", "village", "villager", "city", "citizen", "civilian",
+        "business", "jogger", "hiker", "survivor",
+    ))
+
+
+def custom_zombie_territory_event_name(class_name=""):
+    class_slug = normalize_discord_name(class_name) or "infected"
+    return f"Infected{CONSOLE_CE_EVENT_MARKER}custom_{class_slug}"[:64]
+
+
 def zombie_territories_remote_path(guild_id, mission_base=""):
     if mission_base:
         return canonical_remote_path(f"{mission_base}/env/{ZOMBIE_TERRITORY_FILE_NAME}")
@@ -38722,16 +38764,73 @@ def apply_zombie_territory_fields(record, event=None):
         return record
     count = max(1, min(250, safe_int(record.get("count"), 1)))
     radius = max(1, min(500, safe_int(record.get("radius"), 45)))
+    custom_definition = zombie_territory_uses_custom_definition(record, event)
+    # A custom infected territory must name the CE event that supplies its
+    # zombie children. Reusing InfectedCity here makes a custom classname
+    # silently spawn normal city infected instead.
+    territory_event_name = (
+        custom_zombie_territory_event_name(record.get("class_name"))
+        if custom_definition
+        else zombie_territory_zone_name(record.get("class_name"), event)
+    )
+    raw_children = record.get("child_records") if isinstance(record.get("child_records"), list) else []
+    ambient_children = []
+    if custom_definition:
+        for child in raw_children:
+            if not isinstance(child, dict):
+                continue
+            child_type = str(child.get("type") or record.get("class_name") or "").strip()
+            if not child_type:
+                continue
+            ambient_children.append({
+                "type": child_type,
+                "count": 1,
+                # Ambient infected events use min as a selection weight and 0 as
+                # their child max; the territory zone controls the actual count.
+                "min": max(1, safe_int(child.get("ambient_weight"), 30)),
+                "max": 0,
+                "lootmin": 0,
+                "lootmax": 5,
+            })
+        if not ambient_children:
+            ambient_children = [{
+                "type": str(record.get("class_name") or "").strip(),
+                "count": 1,
+                "min": 30,
+                "max": 0,
+                "lootmin": 0,
+                "lootmax": 5,
+            }]
     record.update({
+        # The zone name and its custom CE definition must be identical.  This
+        # makes every zone select the requested infected children, not an
+        # unrelated vanilla event.
+        "name": territory_event_name if custom_definition else record.get("name"),
         "zombie_territory": True,
-        "zombie_territory_name": zombie_territory_zone_name(record.get("class_name"), event),
-        "skip_definition": True,
+        "custom_zombie_definition": custom_definition,
+        "zombie_territory_name": territory_event_name,
+        "skip_definition": not custom_definition,
         "skip_spawn": True,
         "count": count,
-        "min_count": count,
-        "max_count": count,
+        "zone_min_count": max(1, min(250, safe_int((event or {}).get("zombie_min_count"), count))),
+        "zone_max_count": max(1, min(250, safe_int((event or {}).get("zombie_max_count"), count))),
+        "nominal": 50,
+        "min_count": 25,
+        "max_count": 250,
+        "lifetime": 3,
+        "saferadius": 100,
+        "distanceradius": 50,
+        "cleanupradius": 100,
+        "position": "player",
+        "limit_type": "custom",
+        "child_lootmin": 0,
+        "child_lootmax": 5,
+        "child_records": ambient_children if custom_definition else raw_children,
+        "remove_damaged": True,
+        "deletable": False,
         "radius": radius,
     })
+    record["zone_max_count"] = max(record["zone_min_count"], record["zone_max_count"])
     return record
 
 
@@ -38825,18 +38924,56 @@ def add_zombie_territory_zone(root, record):
     if territory is None:
         territory = ET.SubElement(root, "territory", {"color": "1291845632"})
     count = max(1, min(250, safe_int(record.get("count"), 1)))
+    zone_min_count = max(1, min(250, safe_int(record.get("zone_min_count"), count)))
+    zone_max_count = max(zone_min_count, min(250, safe_int(record.get("zone_max_count"), count)))
     radius = max(1, min(500, safe_int(record.get("radius"), 45)))
     append_wandering_xml_comment(territory, f"managed zombie territory zone {record.get('name') or record.get('source_id')}")
     ET.SubElement(territory, "zone", {
         "name": str(record.get("zombie_territory_name") or zombie_territory_zone_name(record.get("class_name"))),
         "smin": "0",
         "smax": "0",
-        "dmin": str(count),
-        "dmax": str(count),
+        "dmin": str(zone_min_count),
+        "dmax": str(zone_max_count),
         "x": ce_decimal(record.get("x")),
         "z": ce_decimal(record.get("z")),
         "r": str(radius),
     })
+
+
+def add_console_zombie_type_entry(types_root, class_name):
+    """Add the safe CE type record required for a custom infected classname.
+
+    Existing exact class entries are preserved.  In particular this allows
+    ZmbM_Mummy to coexist with the historical lower-case vanilla typo rather
+    than renaming or deleting a live server record.
+    """
+    class_name = str(class_name or "").strip()
+    if not class_name or not class_name.startswith(("ZmbM_", "ZmbF_")):
+        return False
+    if any(str(node.get("name") or "").strip() == class_name for node in types_root.findall("type")):
+        return False
+    append_wandering_xml_comment(types_root, f"managed infected type {class_name}")
+    type_node = ET.SubElement(types_root, "type", {"name": class_name})
+    for tag, value in (
+        ("nominal", 0),
+        ("lifetime", 1800),
+        ("restock", 0),
+        ("min", 1),
+        ("quantmin", -1),
+        ("quantmax", -1),
+        ("cost", 100),
+    ):
+        child = ET.SubElement(type_node, tag)
+        child.text = str(value)
+    ET.SubElement(type_node, "flags", {
+        "count_in_cargo": "0",
+        "count_in_hoarder": "0",
+        "count_in_map": "1",
+        "count_in_player": "0",
+        "crafted": "0",
+        "deloot": "0",
+    })
+    return True
 
 
 def animal_territory_name_for_event(event_name):
@@ -39541,6 +39678,13 @@ def merge_console_ce_definition_records(records):
             merged.append(existing)
             continue
 
+        if existing.get("custom_zombie_definition") and record.get("custom_zombie_definition"):
+            # Several map locations can share one custom ambient infected CE
+            # definition.  Their per-location population stays in
+            # zombie_territories.xml, so do not turn the global event limits
+            # or child selection weights into a sum of every castle zone.
+            continue
+
         existing["count"] = min(250, max(1, safe_int(existing.get("count"), 1)) + max(1, safe_int(record.get("count"), 1)))
         existing["nominal"] = existing["count"]
         existing["min_count"] = existing["count"]
@@ -39872,6 +40016,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             deletable=bool(record.get("deletable", True)),
             empty_children=bool(record.get("empty_event_children")),
             secondary=record.get("secondary", ""),
+            position=record.get("position", "fixed"),
         )
     spawn_names_seen = set()
     for record in records:
@@ -40008,7 +40153,15 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         or removed_revamp_spawns
     )
 
-    if allow_unowned_repairs and console_ce_needs_vehicle_types_repair(config):
+    zombie_type_class_names = sorted({
+        str(child.get("type") or "").strip()
+        for record in records
+        if record.get("custom_zombie_definition")
+        for child in (record.get("child_records") or [])
+        if isinstance(child, dict) and str(child.get("type") or "").strip().startswith(("ZmbM_", "ZmbF_"))
+    })
+    needs_vehicle_type_repair = allow_unowned_repairs and console_ce_needs_vehicle_types_repair(config)
+    if needs_vehicle_type_repair or zombie_type_class_names:
         types_text, resolved_types_path, types_source = download_console_ce_source(
             config,
             guild_id,
@@ -40023,20 +40176,38 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             if types_parse_warning:
                 output.setdefault("source_fallbacks", []).append(f"types.xml: {types_parse_warning}")
             else:
-                repaired_vehicle_types = repair_vehicle_types_xml_values(types_root)
-                if repaired_vehicle_types:
+                repaired_vehicle_types = repair_vehicle_types_xml_values(types_root) if needs_vehicle_type_repair else []
+                added_zombie_type_entries = [
+                    class_name
+                    for class_name in zombie_type_class_names
+                    if add_console_zombie_type_entry(types_root, class_name)
+                ]
+                if repaired_vehicle_types or added_zombie_type_entries:
                     output["types_path"] = resolved_types_path
                     output["types_text"] = xml_text_from_root(types_root)
                     output["types_source_text"] = types_text
-                    output["messages"].append(
-                        "Repaired `types.xml` vehicle economy controls for "
-                        + ", ".join(f"`{name}`" for name in repaired_vehicle_types[:18])
-                        + (f", +{len(repaired_vehicle_types) - 18} more" if len(repaired_vehicle_types) > 18 else "")
-                        + ": set `nominal=0`, `min=0`, and `deloot=0`. Vehicle quantities must be controlled by `events.xml`."
-                    )
-                else:
+                    if repaired_vehicle_types:
+                        output["messages"].append(
+                            "Repaired `types.xml` vehicle economy controls for "
+                            + ", ".join(f"`{name}`" for name in repaired_vehicle_types[:18])
+                            + (f", +{len(repaired_vehicle_types) - 18} more" if len(repaired_vehicle_types) > 18 else "")
+                            + ": set `nominal=0`, `min=0`, and `deloot=0`. Vehicle quantities must be controlled by `events.xml`."
+                        )
+                    if added_zombie_type_entries:
+                        output["messages"].append(
+                            "Added exact `types.xml` entry/entries for custom infected territory classnames: "
+                            + ", ".join(f"`{name}`" for name in added_zombie_type_entries)
+                            + "."
+                        )
+                elif needs_vehicle_type_repair:
                     output["messages"].append(
                         "`types.xml` vehicle economy controls already had `nominal=0`, `min=0`, and `deloot=0` for known vehicle classes."
+                    )
+                elif zombie_type_class_names:
+                    output["messages"].append(
+                        "Custom infected classnames already had exact `types.xml` entries: "
+                        + ", ".join(f"`{name}`" for name in zombie_type_class_names)
+                        + "."
                     )
 
     animal_records = [record for record in records if record.get("animal_territory")]
@@ -40511,6 +40682,11 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             for attr in ("x", "z", "r", "dmin", "dmax", "smin", "smax"):
                 if str(zone_node.get(attr) or "").strip() == "":
                     messages.append(f"`zombie_territories.xml` zone `{zone_node.get('name') or 'unknown'}` is missing `{attr}`.")
+    zombie_territory_event_names = {
+        str(zone_node.get("name") or "").strip()
+        for zone_node in zombie_territories_root.findall(".//zone")
+        if is_wandering_managed_name(zone_node.get("name") or "")
+    }
     for territory_file in territory_files:
         try:
             territory_root = ET.fromstring(str(territory_file.get("text") or "").encode("utf-8"))
@@ -40550,7 +40726,9 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             messages.append(
                 f"`{name}` uses an invalid DayZ CE event prefix. Use one of: {', '.join(allowed_families)}."
             )
-        if (event_node.findtext("position") or "").strip() != "fixed":
+        is_zombie_territory_event = name in zombie_territory_event_names
+        position_text = (event_node.findtext("position") or "").strip()
+        if position_text != "fixed" and not (is_zombie_territory_event and position_text == "player"):
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
         if limit_text not in {"child", "custom", "mixed", "parent"}:
@@ -40591,6 +40769,12 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 )
         generated_events[name] = event_node
 
+    for name in sorted(zombie_territory_event_names):
+        if name not in generated_events:
+            messages.append(
+                f"`zombie_territories.xml` zone `{name}` has no matching managed `events.xml` definition."
+            )
+
     generated_spawns = {
         str(event_node.get("name") or ""): event_node
         for event_node in spawns_root.findall("event")
@@ -40600,6 +40784,8 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     for name in generated_events:
         spawn_node = generated_spawns.get(name)
         if spawn_node is None:
+            if name in zombie_territory_event_names:
+                continue
             messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
             continue
         is_animal_territory_event = name.startswith("Animal") and name in territory_event_names
@@ -40615,6 +40801,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             and not spawn_node.findall("zone")
             and not has_group_pos
             and not is_animal_territory_event
+            and name not in zombie_territory_event_names
             and not name.startswith("Animal")
         ):
             messages.append(f"`{name}` has no `<zone>` radius block in cfgeventspawns.xml.")

@@ -672,6 +672,82 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
         self.assertEqual("5000", zone.get("z"))
         self.assertNotIn("y", zone.attrib)
 
+    def test_custom_mummy_horde_creates_matching_event_and_random_zone_range(self):
+        event = _base_event(
+            91,
+            "zombie_horde",
+            "ZmbM_Mummy",
+            preset="custom",
+            count=7,
+            zombie_min_count=3,
+            zombie_max_count=10,
+            x=1420,
+            z=9300,
+            radius=85,
+        )
+        records, warnings = bot.console_ce_records_for_event(event)
+        self.assertTrue(records, warnings)
+        record = records[0]
+
+        self.assertTrue(record.get("zombie_territory"))
+        self.assertTrue(record.get("custom_zombie_definition"))
+        self.assertFalse(record.get("skip_definition"))
+        self.assertTrue(record.get("skip_spawn"))
+        self.assertEqual(record["zombie_territory_name"], record["name"])
+        self.assertTrue(record["name"].startswith("InfectedWanderingBot"))
+        self.assertEqual(3, record["zone_min_count"])
+        self.assertEqual(10, record["zone_max_count"])
+        self.assertEqual(
+            [{"type": "ZmbM_Mummy", "count": 1, "min": 30, "max": 0, "lootmin": 0, "lootmax": 5}],
+            record["child_records"],
+        )
+
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record["class_name"],
+            record["count"],
+            record["lifetime"],
+            restock=record["restock"],
+            limit_type=record["limit_type"],
+            child_records=record["child_records"],
+            nominal=record["nominal"],
+            min_count=record["min_count"],
+            max_count=record["max_count"],
+            saferadius=record["saferadius"],
+            distanceradius=record["distanceradius"],
+            cleanupradius=record["cleanupradius"],
+            remove_damaged=record["remove_damaged"],
+            deletable=record["deletable"],
+            position=record["position"],
+        )
+        zombie_root = ET.Element("territory-type")
+        ET.SubElement(zombie_root, "territory", {"color": "1291845632"})
+        bot.add_zombie_territory_zone(zombie_root, record)
+        zone = zombie_root.find("./territory/zone")
+        self.assertIsNotNone(zone)
+        self.assertEqual(record["name"], zone.get("name"))
+        self.assertEqual("3", zone.get("dmin"))
+        self.assertEqual("10", zone.get("dmax"))
+
+        types_root = ET.Element("types")
+        self.assertTrue(bot.add_console_zombie_type_entry(types_root, "ZmbM_Mummy"))
+        self.assertFalse(bot.add_console_zombie_type_entry(types_root, "ZmbM_Mummy"))
+        mummy_type = types_root.find("./type[@name='ZmbM_Mummy']")
+        self.assertIsNotNone(mummy_type)
+        self.assertEqual("0", mummy_type.findtext("nominal"))
+        self.assertEqual("1800", mummy_type.findtext("lifetime"))
+
+        built = {
+            "events_text": bot.xml_text_from_root(events_root),
+            "spawns_text": "<eventposdef />",
+            "zombie_territories_text": bot.xml_text_from_root(zombie_root),
+            "source_fallbacks": [],
+        }
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertTrue(ok, "\n".join(messages))
+
 
 class EventGroupChildPlacementTests(unittest.TestCase):
     """The cfgeventgroups child placement still needs all four offset attrs
@@ -1893,6 +1969,87 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertEqual("5000", zone.get("x"))
         self.assertEqual("5000", zone.get("z"))
         self.assertNotIn("y", zone.attrib)
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_custom_mummy_castle_horde_builds_one_event_four_matching_zones_and_types_entry(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": ("<prototype></prototype>", f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            # Preserve the historical lower-case vanilla entry; the builder
+            # must add the exact ZmbM_Mummy type alongside it.
+            "types_path": ("<types><type name=\"Zmbm_Mummy\" /></types>", f"{base_path}/db/types.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        castles = [
+            ("Altar Castle", 1420, 9300),
+            ("Zub Castle", 6535, 5625),
+            ("Devil's Castle", 6895, 11430),
+            ("Black Castle", 10220, 12030),
+        ]
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    900 + index,
+                    "zombie_horde",
+                    "ZmbM_Mummy",
+                    preset="custom",
+                    name=name,
+                    x=x,
+                    z=z,
+                    count=7,
+                    zombie_min_count=3,
+                    zombie_max_count=10,
+                    radius=85,
+                )
+                for index, (name, x, z) in enumerate(castles)
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        managed = [node for node in events_root.findall("event") if str(node.get("name") or "").startswith("InfectedWanderingBot")]
+        self.assertEqual(1, len(managed))
+        event_name = managed[0].get("name")
+        self.assertEqual("player", managed[0].findtext("position"))
+        self.assertEqual("custom", managed[0].findtext("limit"))
+        child = managed[0].find("./children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual("ZmbM_Mummy", child.get("type"))
+        self.assertEqual("0", child.get("max"))
+        self.assertEqual("30", child.get("min"))
+
+        spawns_root = ET.fromstring(built["spawns_text"])
+        self.assertIsNone(spawns_root.find(f"./event[@name='{event_name}']"))
+        zombie_root = ET.fromstring(built["zombie_territories_text"])
+        zones = zombie_root.findall(f".//zone[@name='{event_name}']")
+        self.assertEqual(4, len(zones))
+        self.assertEqual({("1420", "9300"), ("6535", "5625"), ("6895", "11430"), ("10220", "12030")}, {(zone.get("x"), zone.get("z")) for zone in zones})
+        self.assertTrue(all(zone.get("dmin") == "3" and zone.get("dmax") == "10" and zone.get("r") == "85" for zone in zones))
+
+        types_root = ET.fromstring(built["types_text"])
+        self.assertIsNotNone(types_root.find("./type[@name='ZmbM_Mummy']"))
+        self.assertIsNotNone(types_root.find("./type[@name='Zmbm_Mummy']"))
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
