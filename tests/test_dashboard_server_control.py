@@ -1723,6 +1723,90 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("failed the protected validator", reply)
         self.assertNotIn("Created a complete starter loadout", reply)
 
+    def test_model_objectspawner_draft_is_saved_only_after_protected_validation(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "create_file",
+                "dayz_custom_target_path": "custom/QA_AirdropScene.json",
+                "dayz_map": "chernarus",
+            },
+            "Create a static airdrop crate scene through ObjectSpawner and explain the cfgGameplay link.",
+        )
+        task = {
+            "id": "qa-airdrop-scene",
+            "project_type": "dayz_files",
+            "dayz_context": context,
+            "steps": [],
+            "suggested_commands": [],
+        }
+        model_reply = {
+            "reply": "Prepared an offline ObjectSpawner draft.",
+            "summary": "Static ObjectSpawner scene for review.",
+            "dayz_draft": {
+                "target_path": "custom/QA_AirdropScene.json",
+                "kind": "full_file",
+                "content": json.dumps({
+                    "Objects": [
+                        {
+                            "name": "Land_Roadblock_WoodenCrate",
+                            "pos": [5000.0, 200.0, 5000.0],
+                            "ypr": [0.0, 0.0, 0.0],
+                        }
+                    ]
+                }),
+                "summary": "Validated static airdrop scene; add its path to WorldsData.objectSpawnersArr.",
+            },
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard, "ai_agent_llm_json", return_value=(True, model_reply, "")
+        ):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Create a static airdrop crate scene through ObjectSpawner and explain the cfgGameplay link.", False,
+            )
+
+        self.assertEqual("ok", task["llm_status"])
+        self.assertEqual("custom/QA_AirdropScene.json", task["dayz_draft"]["target_path"])
+        self.assertEqual("objectspawner", task["dayz_draft"]["custom_json_schema"])
+        self.assertEqual("passed", task["dayz_draft"]["validation"])
+        self.assertIn("DayZ draft ready for download", reply)
+
+    def test_invalid_model_dayz_xml_is_never_reported_as_a_saved_draft(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/messages.xml",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "vanilla",
+            },
+            "Create a concise on-screen server message file.",
+        )
+        task = {"id": "qa-invalid-messages", "project_type": "dayz_files", "dayz_context": context, "steps": [], "suggested_commands": []}
+        model_reply = {
+            "reply": "Created a server message file.",
+            "dayz_draft": {
+                "target_path": "db/messages.xml",
+                "kind": "full_file",
+                "content": "<messages><message></messages>",
+                "summary": "Invalid test messages draft",
+            },
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard, "ai_agent_llm_json", return_value=(True, model_reply, "")
+        ):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Create a concise on-screen server message file.", False,
+            )
+
+        self.assertNotIn("dayz_draft", task)
+        self.assertIn("failed the protected validator", reply)
+        self.assertNotIn("Created a server message file", reply)
+
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(
             {
