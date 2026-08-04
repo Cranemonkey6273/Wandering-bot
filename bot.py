@@ -33860,6 +33860,7 @@ SCENARIO_SPAWN_PRESETS = {
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde"},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde"},
     "firefighter_zombie": {"label": "Firefighter infected", "class": "ZmbM_FirefighterNormal", "event_type": "zombie_horde"},
+    "mummy_zombie": {"label": "Mummy infected", "class": "ZmbM_Mummy", "event_type": "zombie_horde"},
     "wolf": {"label": "Wolves", "class": "Animal_CanisLupus_Grey", "event_type": "animal_pack"},
     "bear": {"label": "Bears", "class": "Animal_UrsusArctos", "event_type": "animal_pack"},
     "deer": {"label": "Deer", "class": "Animal_CervusElaphus", "event_type": "animal_pack"},

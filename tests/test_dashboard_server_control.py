@@ -277,6 +277,52 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("confirmation", response["args"][0]["error"].lower())
         self.assertIn('name="confirmed_profile" value="true" required', dashboard.PAGE_TEMPLATE)
 
+    def test_mummy_preset_queues_custom_mummy_castle_horde_range(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "zombie_horde",
+            "spawn_preset": "mummy_zombie",
+            # These are what an unrefreshed form may still carry. The preset
+            # must retain its safe Mummy defaults until the UI JavaScript has
+            # replaced them.
+            "count": "1",
+            "zombie_min_count": "1",
+            "zombie_max_count": "1",
+            "radius": "85",
+            "permanent": "true",
+            "batch_locations": "Altar Castle, 1420, 9300\nZub Castle, 6535, 5625\nDevil's Castle, 6895, 11430\nBlack Castle, 10220, 12030",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_runtime_scenario_uploader_error", return_value=""),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload", return_value=True),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event()
+
+        body = response["args"][0]
+        self.assertTrue(body["ok"])
+        self.assertEqual(4, body["created_count"])
+        self.assertEqual(4, len(profile["scenario_events"]))
+        self.assertEqual(
+            {(1420, 9300), (6535, 5625), (6895, 11430), (10220, 12030)},
+            {(event["x"], event["z"]) for event in profile["scenario_events"]},
+        )
+        self.assertTrue(all(event["class_name"] == "ZmbM_Mummy" for event in profile["scenario_events"]))
+        self.assertTrue(all(event["preset"] == "mummy_zombie" for event in profile["scenario_events"]))
+        self.assertTrue(all(event["count"] == 7 for event in profile["scenario_events"]))
+        self.assertTrue(all(event["zombie_min_count"] == 3 and event["zombie_max_count"] == 10 for event in profile["scenario_events"]))
+        self.assertTrue(all(event["permanent"] for event in profile["scenario_events"]))
+
     def test_native_event_delete_starts_guarded_cleanup_immediately(self):
         configs = {"guild-1": {}}
         profile = {"scenario_events": [{"id": 37, "created_by": "dashboard", "native_ce_uploaded_at": "2026-08-03T10:00:00+00:00"}]}

@@ -104,6 +104,7 @@ SCENARIO_SPAWN_PRESETS = {
     "heavy_military_zombie": {"label": "Heavy military infected", "class": "ZmbM_usSoldier_Heavy_Woodland", "event_type": "zombie_horde", "count": 8, "radius": 55},
     "police_zombie": {"label": "Police infected", "class": "ZmbM_PolicemanFat", "event_type": "zombie_horde", "count": 10, "radius": 55},
     "medical_zombie": {"label": "Medical infected", "class": "ZmbM_DoctorFat", "event_type": "zombie_horde", "count": 8, "radius": 45},
+    "mummy_zombie": {"label": "Mummy infected", "class": "ZmbM_Mummy", "event_type": "zombie_horde", "count": 7, "radius": 85, "zombie_min_count": 3, "zombie_max_count": 10},
     "military_crate": {"label": "Military ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "military_high"},
     "wooden_crate": {"label": "Survival ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "survival"},
     "medical_crate": {"label": "Medical ground loot", "class": SCENARIO_AIRDROP_MARKER_CLASS, "event_type": "airdrop", "loot_preset": "medical"},
@@ -9052,6 +9053,7 @@ PAGE_TEMPLATE = """
                 <option value="civilian_zombie" data-type="zombie_horde" data-class="ZmbM_CitizenASkinny_Brown" data-count="10" data-radius="55" data-timing-preset="zombie_horde" {% if edit_event.preset == 'civilian_zombie' %}selected{% endif %}>Civilian infected</option>
                 <option value="military_zombie" data-type="zombie_horde" data-class="ZmbM_SoldierNormal" data-count="12" data-radius="60" data-timing-preset="zombie_horde" {% if edit_event.preset == 'military_zombie' %}selected{% endif %}>Military infected</option>
                 <option value="heavy_military_zombie" data-type="zombie_horde" data-class="ZmbM_usSoldier_Heavy_Woodland" data-count="8" data-radius="55" data-timing-preset="zombie_horde" {% if edit_event.preset == 'heavy_military_zombie' %}selected{% endif %}>Heavy military infected</option>
+                <option value="mummy_zombie" data-type="zombie_horde" data-class="ZmbM_Mummy" data-count="7" data-radius="85" data-zombie-min="3" data-zombie-max="10" data-timing-preset="zombie_horde" {% if edit_event.preset == 'mummy_zombie' %}selected{% endif %}>Mummy infected (3–10)</option>
                 <option value="ada" data-type="vehicle_spawn" data-class="OffroadHatchback" data-count="1" data-radius="0" data-loot="vehicle_car" data-timing-preset="vehicle_spawn" {% if edit_event.preset == 'ada' %}selected{% endif %}>Ada 4x4</option>
                 <option value="gunter" data-type="vehicle_spawn" data-class="Hatchback_02" data-count="1" data-radius="0" data-loot="vehicle_car" data-timing-preset="vehicle_spawn" {% if edit_event.preset == 'gunter' %}selected{% endif %}>Gunter 2</option>
                 <option value="sarka" data-type="vehicle_spawn" data-class="CivilianSedan" data-count="1" data-radius="0" data-loot="vehicle_car" data-timing-preset="vehicle_spawn" {% if edit_event.preset == 'sarka' %}selected{% endif %}>Sarka 120</option>
@@ -17739,6 +17741,8 @@ PAGE_TEMPLATE = """
         if (!customClass) form.elements.class_name.value = option.dataset.class || classDefaults[activeType] || "";
         if (customClass && !form.elements.class_name.value) form.elements.class_name.value = "";
         if (option.dataset.count) form.elements.count.value = option.dataset.count;
+        if (option.dataset.zombieMin && form.elements.zombie_min_count) form.elements.zombie_min_count.value = option.dataset.zombieMin;
+        if (option.dataset.zombieMax && form.elements.zombie_max_count) form.elements.zombie_max_count.value = option.dataset.zombieMax;
         if (option.dataset.radius) form.elements.radius.value = option.dataset.radius;
         if (option.dataset.loot && form.elements.loot_preset) form.elements.loot_preset.value = option.dataset.loot;
         if (option.dataset.gasLifetime && form.elements.gas_lifetime) form.elements.gas_lifetime.value = option.dataset.gasLifetime;
@@ -37801,11 +37805,23 @@ def api_scenario_event():
     loot_mix = parse_scenario_loot_mix(payload)
     extra_loot = csv_list(payload.get("loot_items", []))
     zombie_mix = parse_zombie_mix(payload.get("zombie_mix"))
-    event_count = max(1, min(250, safe_int(payload.get("count"), safe_int(preset.get("count"), 1))))
+    preset_count = max(1, min(250, safe_int(preset.get("count"), 1)))
+    requested_count = safe_int(payload.get("count"), preset_count)
+    # Browsers that have not yet run the form's preset JavaScript submit the
+    # initial `1`; keep the Mummy preset's intentional 7-spawn baseline.
+    if spawn_preset == "mummy_zombie" and requested_count <= 1:
+        requested_count = preset_count
+    event_count = max(1, min(250, requested_count))
     if event_type == "zombie_horde" and zombie_mix:
         event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
-    zombie_min_count = max(1, min(250, safe_int(payload.get("zombie_min_count"), event_count)))
-    zombie_max_count = max(zombie_min_count, min(250, safe_int(payload.get("zombie_max_count"), event_count)))
+    preset_zombie_min = max(1, min(250, safe_int(preset.get("zombie_min_count"), event_count)))
+    preset_zombie_max = max(preset_zombie_min, min(250, safe_int(preset.get("zombie_max_count"), event_count)))
+    requested_zombie_min = safe_int(payload.get("zombie_min_count"), preset_zombie_min)
+    requested_zombie_max = safe_int(payload.get("zombie_max_count"), preset_zombie_max)
+    if spawn_preset == "mummy_zombie" and requested_zombie_min <= 1 and requested_zombie_max <= 1:
+        requested_zombie_min, requested_zombie_max = preset_zombie_min, preset_zombie_max
+    zombie_min_count = max(1, min(250, requested_zombie_min))
+    zombie_max_count = max(zombie_min_count, min(250, requested_zombie_max))
     if event_type == "gas_zone":
         event_count = 1
     gas_lifetime_default = 3888000 if permanent else 1800
