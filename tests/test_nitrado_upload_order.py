@@ -1203,6 +1203,66 @@ class PruneStaleAnimalTerritoryFilesTests(unittest.TestCase):
         ):
             self.assertNotIn(keep, deleted_names)
 
+class StructuredSourceDownloadTests(unittest.TestCase):
+    def setUp(self):
+        self.original_api = bot.download_text_file_from_nitrado_api
+        self.original_ftp = bot.download_text_file_from_nitrado_ftp
+        self.original_attempts = bot.NITRADO_STRUCTURED_SOURCE_READ_ATTEMPTS
+        self.original_retry_seconds = bot.NITRADO_STRUCTURED_SOURCE_READ_RETRY_SECONDS
+        self.calls = []
+        bot.NITRADO_STRUCTURED_SOURCE_READ_ATTEMPTS = 3
+        bot.NITRADO_STRUCTURED_SOURCE_READ_RETRY_SECONDS = 0
+
+    def tearDown(self):
+        bot.download_text_file_from_nitrado_api = self.original_api
+        bot.download_text_file_from_nitrado_ftp = self.original_ftp
+        bot.NITRADO_STRUCTURED_SOURCE_READ_ATTEMPTS = self.original_attempts
+        bot.NITRADO_STRUCTURED_SOURCE_READ_RETRY_SECONDS = self.original_retry_seconds
+
+    def test_protected_source_retries_blank_reads_and_accepts_verified_ftp_content(self):
+        ftp_results = iter([
+            (True, "Downloaded via FTP.", ""),
+            (True, "Downloaded via FTP.", SPAWNS_XML),
+        ])
+
+        def api_download(*_args):
+            self.calls.append("api")
+            return True, "Downloaded via API.", ""
+
+        def ftp_download(*_args, **_kwargs):
+            self.calls.append("ftp")
+            return next(ftp_results)
+
+        bot.download_text_file_from_nitrado_api = api_download
+        bot.download_text_file_from_nitrado_ftp = ftp_download
+
+        ok, message, content = bot.download_text_file_from_nitrado(
+            {}, "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
+        )
+
+        self.assertTrue(ok, message)
+        self.assertEqual(SPAWNS_XML, content)
+        self.assertIn("after 2 read attempt(s)", message)
+        self.assertEqual(["api", "ftp", "api", "ftp"], self.calls)
+
+    def test_blank_unstructured_download_remains_usable_for_log_readers(self):
+        def api_download(*_args):
+            self.calls.append("api")
+            return True, "Downloaded empty log.", ""
+
+        def ftp_download(*_args, **_kwargs):
+            self.calls.append("ftp")
+            return True, "FTP should not be used.", "unexpected"
+
+        bot.download_text_file_from_nitrado_api = api_download
+        bot.download_text_file_from_nitrado_ftp = ftp_download
+
+        ok, _message, content = bot.download_text_file_from_nitrado({}, "/logs/server.ADM")
+
+        self.assertTrue(ok)
+        self.assertEqual("", content)
+        self.assertEqual(["api"], self.calls)
+
 
 if __name__ == "__main__":
     unittest.main()

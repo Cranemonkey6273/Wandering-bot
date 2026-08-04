@@ -18693,17 +18693,71 @@ def download_text_file_from_nitrado_ftp(config, target_path, exact_only=False):
     return False, "; ".join(ftp_errors[-6:]) or "FTP download failed.", None
 
 
+NITRADO_STRUCTURED_SOURCE_READ_ATTEMPTS = 3
+NITRADO_STRUCTURED_SOURCE_READ_RETRY_SECONDS = 1
+
+
+def nitrado_download_requires_nonempty_content(target_path):
+    """Whether an empty response is unsafe to accept for this server file.
+
+    DayZ structured files are never safe as a zero-byte source.  Nitrado can
+    occasionally acknowledge an API/FTP download while returning no body, so
+    treating that as a successful read prevented the fallback transport from
+    being tried and then blocked the guarded CE backup later in the workflow.
+    Logs and other arbitrary text files retain their existing empty-file
+    behaviour.
+    """
+    return dayz_file_spec_for_path(target_path) is not None
+
+
+def nitrado_download_has_usable_content(target_path, content):
+    if content is None:
+        return False
+    if not nitrado_download_requires_nonempty_content(target_path):
+        return True
+    return bool(str(content).strip())
+
+
 def download_text_file_from_nitrado(config, target_path):
     try:
-        api_success, api_message, api_content = download_text_file_from_nitrado_api(config, target_path)
-        if api_success:
-            return True, api_message, api_content
+        if not nitrado_download_requires_nonempty_content(target_path):
+            api_success, api_message, api_content = download_text_file_from_nitrado_api(config, target_path)
+            if api_success:
+                return True, api_message, api_content
 
-        ftp_success, ftp_message, ftp_content = download_text_file_from_nitrado_ftp(config, target_path)
-        if ftp_success:
-            return True, ftp_message, ftp_content
+            ftp_success, ftp_message, ftp_content = download_text_file_from_nitrado_ftp(config, target_path)
+            if ftp_success:
+                return True, ftp_message, ftp_content
 
-        return False, f"{api_message} FTP fallback also failed: {ftp_message}", None
+            return False, f"{api_message} FTP fallback also failed: {ftp_message}", None
+
+        attempts = max(1, int(NITRADO_STRUCTURED_SOURCE_READ_ATTEMPTS or 1))
+        failures = []
+        for attempt in range(attempts):
+            api_success, api_message, api_content = download_text_file_from_nitrado_api(config, target_path)
+            if api_success and nitrado_download_has_usable_content(target_path, api_content):
+                return True, api_message, api_content
+            if api_success:
+                failures.append(f"API returned empty content: {api_message}")
+            else:
+                failures.append(f"API read failed: {api_message}")
+
+            ftp_success, ftp_message, ftp_content = download_text_file_from_nitrado_ftp(config, target_path)
+            if ftp_success and nitrado_download_has_usable_content(target_path, ftp_content):
+                retry_note = f" after {attempt + 1} read attempt(s)" if attempt else ""
+                return True, f"{ftp_message}{retry_note}", ftp_content
+            if ftp_success:
+                failures.append(f"FTP returned empty content: {ftp_message}")
+            else:
+                failures.append(f"FTP read failed: {ftp_message}")
+
+            if attempt < attempts - 1:
+                time.sleep(max(0, float(NITRADO_STRUCTURED_SOURCE_READ_RETRY_SECONDS or 0)))
+
+        return False, (
+            f"Nitrado returned no usable content for protected DayZ file `{canonical_remote_path(target_path)}` "
+            f"after {attempts} read attempt(s): " + "; ".join(failures[-6:])
+        ), None
 
     except Exception as error:
         return False, str(error), None
