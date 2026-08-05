@@ -914,7 +914,49 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("DayZ types booster", features_guide["keywords"])
         self.assertIn("Automatic Discord translation", " ".join(title for title, _body in features_guide["sections"]))
         self.assertIn("DayZ Nitrado Bot", nitrado_page["title"])
-        self.assertIn("DayZ Airdrops", airdrop_page["title"])
+        self.assertIn("DayZ Airdrop", airdrop_page["title"])
+
+    def test_public_seo_metadata_stays_concise_and_new_guides_are_linked(self):
+        guide_keys = {
+            "dayz-types-xml-loot-balancing",
+            "dayz-custom-events-xml-files",
+            "dayz-custom-json-cfggameplay",
+            "dayz-discord-translation-bot",
+            "dayz-safe-zones-radar",
+        }
+
+        for key, page in {**dashboard.PUBLIC_SEO_PAGES, **dashboard.PUBLIC_SEO_GUIDES}.items():
+            self.assertLessEqual(len(page["title"]), 60, key)
+            self.assertLessEqual(len(page["description"]), 160, key)
+
+        for key in guide_keys:
+            guide = dashboard.PUBLIC_SEO_GUIDES[key]
+            self.assertTrue(guide["path"].startswith("/guides/"), key)
+            self.assertGreaterEqual(len(guide["sections"]), 5, key)
+            self.assertGreaterEqual(len(guide["faqs"]), 3, key)
+            self.assertEqual("2026-08-05", guide["updated_at"])
+
+        related = dashboard.public_related_pages([
+            "dayz-custom-events-xml-files",
+            "dayz-server-files-explained",
+        ])
+        self.assertEqual(2, len(related))
+        self.assertEqual(
+            "/guides/dayz-custom-events-xml-files",
+            related[0]["path"],
+        )
+
+        with (
+            patch.object(dashboard, "DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com"),
+            patch.object(dashboard, "Response", side_effect=lambda body, **_kwargs: body),
+        ):
+            sitemap = dashboard.sitemap_xml()
+
+        for key in guide_keys:
+            self.assertIn(
+                f"https://dayzwanderingbot.com{dashboard.PUBLIC_SEO_GUIDES[key]['path']}",
+                sitemap,
+            )
 
     def test_player_audit_rows_keep_only_last_24_hours_and_show_last_seen(self):
         now = dashboard.datetime.now(dashboard.UTC)
