@@ -80,6 +80,115 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_dayz_profile_id_rename_preserves_profile_and_rewrites_references(self):
+        configs = {
+            "guild-1": {
+                "server_profiles": {
+                    "cherno": {"server_map": "chernarus"},
+                    "livo": {
+                        "profile_name": "Wandering Around Livo",
+                        "server_map": "livonia",
+                        "service_id": "1234567",
+                        "nitrado_token": "secret-token",
+                        "channels": {"killfeed": "9988"},
+                        "scenario_events": [{"id": 8, "server_profile_id": "livo"}],
+                    },
+                },
+                "dayz_scenario_profile_id": "livo",
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "action": "rename",
+            "profile_id": "livo",
+            "new_profile_id": "sakhal",
+            "profile_name": "Wandering Around Sakhal",
+            "server_map": "sakhal",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "current_auth", return_value={"kind": "guild"}),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "write_json_file"),
+            patch.object(dashboard, "write_split_guild_configs"),
+            patch.object(
+                dashboard,
+                "dashboard_migrate_server_profile_runtime_state",
+                return_value={"ok": True, "warnings": [], "migrated_files": ["player_audit.json"]},
+            ) as migrate,
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, data, *_args: data),
+        ):
+            response = dashboard.api_dayz_server_profile()
+
+        profiles = configs["guild-1"]["server_profiles"]
+        self.assertNotIn("livo", profiles)
+        self.assertIn("sakhal", profiles)
+        sakhal = profiles["sakhal"]
+        self.assertEqual("Wandering Around Sakhal", sakhal["profile_name"])
+        self.assertEqual("sakhal", sakhal["server_map"])
+        self.assertEqual("1234567", sakhal["service_id"])
+        self.assertEqual("secret-token", sakhal["nitrado_token"])
+        self.assertEqual("9988", sakhal["channels"]["killfeed"])
+        self.assertEqual("sakhal", sakhal["scenario_events"][0]["server_profile_id"])
+        self.assertEqual("sakhal", configs["guild-1"]["dayz_scenario_profile_id"])
+        self.assertEqual("guild-1:sakhal", response["runtime_id"])
+        migrate.assert_called_once_with("guild-1", "livo", "sakhal")
+
+    def test_profile_runtime_migration_moves_files_and_live_dedupe_state(self):
+        original_data_root = dashboard.DATA_ROOT
+        original_provider = dashboard.CUSTOM_STATE_PROVIDER
+        with tempfile.TemporaryDirectory() as temp_root:
+            try:
+                dashboard.DATA_ROOT = temp_root
+                dashboard.write_json_file(
+                    "dashboard_live_feeds.json",
+                    {"guild-1:livo": [{"summary": "connected"}]},
+                )
+                dashboard.write_json_file(
+                    "processed_adm_events.json",
+                    {"guild-1:livo": ["fingerprint-a"]},
+                )
+                dashboard.write_json_file(
+                    "delivery_queue.json",
+                    [{"guild_id": "guild-1:livo", "server_profile_id": "livo"}],
+                )
+                live_dedupe = {"guild-1:livo": {"fingerprint-a": None}}
+                live_delivery = [{"guild_id": "guild-1:livo", "server_profile_id": "livo"}]
+                dashboard.CUSTOM_STATE_PROVIDER = lambda: {
+                    "server_profile_runtime_state": {
+                        "processed_adm_events": live_dedupe,
+                        "delivery_queue": live_delivery,
+                    }
+                }
+
+                result = dashboard.dashboard_migrate_server_profile_runtime_state("guild-1", "livo", "sakhal")
+
+                feeds = dashboard.read_json_file("dashboard_live_feeds.json", {})
+                dedupe = dashboard.read_json_file("processed_adm_events.json", {})
+                delivery = dashboard.read_json_file("delivery_queue.json", [])
+                self.assertNotIn("guild-1:livo", feeds)
+                self.assertEqual("connected", feeds["guild-1:sakhal"][0]["summary"])
+                self.assertEqual(["fingerprint-a"], dedupe["guild-1:sakhal"])
+                self.assertEqual("guild-1:sakhal", delivery[0]["guild_id"])
+                self.assertEqual("sakhal", delivery[0]["server_profile_id"])
+                self.assertIn("guild-1:sakhal", live_dedupe)
+                self.assertNotIn("guild-1:livo", live_dedupe)
+                self.assertEqual("guild-1:sakhal", live_delivery[0]["guild_id"])
+                self.assertEqual("sakhal", live_delivery[0]["server_profile_id"])
+                self.assertFalse(result["warnings"])
+            finally:
+                dashboard.DATA_ROOT = original_data_root
+                dashboard.CUSTOM_STATE_PROVIDER = original_provider
+
+    def test_profile_rename_control_is_collapsed_into_profile_actions(self):
+        template = dashboard.PAGE_TEMPLATE
+        self.assertIn("Rename profile ID", template)
+        self.assertIn('name="action" value="rename"', template)
+        self.assertIn('name="new_profile_id"', template)
+        self.assertIn("Rename and migrate", template)
+
     def test_player_loadout_export_uses_official_dayz_spawn_gear_structure(self):
         payload = dashboard.build_player_loadout_json({
             "name": "QA Survivor",

@@ -1171,6 +1171,48 @@ FILES = {
     "dayz_reference_library": "dayz_reference_library.json",
 }
 
+# A DayZ profile ID is also the bot runtime key (for example
+# ``1491521072275788040:livo``).  Renaming a profile must therefore carry the
+# exact runtime key through every server-scoped store, not only change the
+# label in guild_configs.json.  This allowlist deliberately excludes billing
+# and account stores; only game/server state is migrated.
+SERVER_PROFILE_RUNTIME_STORE_FILES = tuple(dict.fromkeys((
+    "player_stats.json",
+    "online_players.json",
+    "longshot_records.json",
+    "first_blood.json",
+    "daily_recap.json",
+    "dashboard_live_feeds.json",
+    "player_audit.json",
+    "recap_posted.json",
+    "bounties.json",
+    "survival_streaks.json",
+    "achievements.json",
+    "nemesis_log.json",
+    "daily_kill_tracker.json",
+    "manhunts.json",
+    "alive_streaks.json",
+    "daily_challenges.json",
+    "heatmap.json",
+    "swear_jar.json",
+    "linked_players.json",
+    "linked_player_claims.json",
+    "support_tickets.json",
+    "factions.json",
+    "pve_challenges.json",
+    "pve_ai_campaigns.json",
+    "pve_workshop_schedules.json",
+    "wages.json",
+    "seen_players.json",
+    "processed_adm_lines.json",
+    "processed_adm_events.json",
+    "processed_kill_events.json",
+    "rpt_event_tracker.json",
+    "shop.json",
+    "wallets.json",
+    "delivery_queue.json",
+)))
+
 DASHBOARD_FEATURE_LABELS = {
     "leaderboards": "Leaderboards",
     "economy": "Money & economy",
@@ -12074,7 +12116,7 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel full" id="server-profiles">
           <h3>DayZ Server Profiles</h3>
-          <p class="tool-note">Use this when one Discord runs more than one DayZ server. The shared Nitrado API token above can be reused; each profile keeps its own service ID, map, FTP details and feed routes.</p>
+          <p class="tool-note">Use this when one Discord runs more than one DayZ server. The shared Nitrado API token above can be reused; each profile keeps its own service ID, map, FTP details and feed routes. If a server changes map, use <strong>Rename profile ID</strong> below so its saved history and duplicate-event protection move safely with it.</p>
           <div class="billing-link-row">
             {% if server_slot_entitlement.unlimited %}
             <span class="pill ok">Unlimited DayZ server slots (owner)</span>
@@ -12135,6 +12177,26 @@ PAGE_TEMPLATE = """
                 <td>{{ profile.token_status }}</td>
                 <td>{{ profile.configured_channel_count }} routed feed(s)<br><small class="muted">{{ profile.available_channel_count }} available Discord channel(s)</small></td>
                 <td>
+                  <details>
+                    <summary>Rename profile ID</summary>
+                    <form class="admin-form inline-action" method="post" action="/api/admin/dayz-server-profile" data-route="/api/admin/dayz-server-profile" data-confirm="Rename this profile ID and migrate its saved feeds, history, events and duplicate protection?">
+                      <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                      <input class="hidden-field" name="profile_id" value="{{ profile.id }}">
+                      <input class="hidden-field" name="action" value="rename">
+                      <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=servers&guild_id={{ server.guild_id }}#server-profiles">
+                      <label>New profile ID <input name="new_profile_id" placeholder="sakhal" autocomplete="off" required></label>
+                      <label>Display name <input name="profile_name" value="{{ profile.name }}" maxlength="80"></label>
+                      <label>Map
+                        <select name="server_map">
+                          <option value="chernarus"{% if profile.map_key == 'chernarus' %} selected{% endif %}>Chernarus</option>
+                          <option value="livonia"{% if profile.map_key == 'livonia' %} selected{% endif %}>Livonia</option>
+                          <option value="sakhal"{% if profile.map_key == 'sakhal' %} selected{% endif %}>Sakhal</option>
+                        </select>
+                      </label>
+                      <button type="submit">Rename and migrate</button>
+                      <span class="result muted"></span>
+                    </form>
+                  </details>
                   <form class="admin-form inline-action" method="post" action="/api/admin/dayz-server-profile" data-route="/api/admin/dayz-server-profile" data-confirm="Delete this DayZ server profile?">
                     <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
                     <input class="hidden-field" name="profile_id" value="{{ profile.id }}">
@@ -12146,7 +12208,7 @@ PAGE_TEMPLATE = """
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="6">No DayZ server profiles yet. Add `cherno` and `livo` here before merging both servers into one Discord.</td></tr>
+              <tr><td colspan="6">No DayZ server profiles yet. Add a short ID such as <code>cherno</code>, <code>livonia</code> or <code>sakhal</code> for each DayZ server.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -31514,6 +31576,194 @@ def dashboard_server_profile_store(config: Any, create: bool = False) -> dict[st
     return profiles
 
 
+def dashboard_rewrite_server_profile_references(
+    value: Any,
+    old_profile_id: str,
+    new_profile_id: str,
+    old_runtime_id: str,
+    new_runtime_id: str,
+    field_name: str = "",
+) -> tuple[Any, bool]:
+    """Rewrite exact profile/runtime references without touching free text.
+
+    Runtime IDs are globally unambiguous.  A short profile ID such as ``livo``
+    is only rewritten in fields or dictionaries explicitly concerned with a
+    profile/server selection, preventing accidental changes to player names,
+    message text, or unrelated configuration.
+    """
+    changed = False
+    field_key = str(field_name or "").strip().lower()
+    profile_field = "profile" in field_key or field_key in {
+        "server",
+        "server_id",
+        "server_key",
+        "target_server",
+        "dayz_server",
+    }
+
+    if isinstance(value, dict):
+        rewritten: dict[Any, Any] = {}
+        renamed_keys: set[Any] = set()
+        for raw_key, raw_value in value.items():
+            key = raw_key
+            key_text = str(raw_key)
+            if key_text == old_runtime_id:
+                key = new_runtime_id
+                renamed_keys.add(key)
+                changed = True
+            elif key_text == old_profile_id and profile_field:
+                key = new_profile_id
+                renamed_keys.add(key)
+                changed = True
+            elif key in renamed_keys:
+                # Source state from the active old runtime is authoritative
+                # over any orphaned destination key left by an earlier draft.
+                changed = True
+                continue
+            child, child_changed = dashboard_rewrite_server_profile_references(
+                raw_value,
+                old_profile_id,
+                new_profile_id,
+                old_runtime_id,
+                new_runtime_id,
+                key_text,
+            )
+            changed = changed or child_changed
+            rewritten[key] = child
+        return rewritten, changed
+
+    if isinstance(value, list):
+        rewritten_list = []
+        for item in value:
+            child, child_changed = dashboard_rewrite_server_profile_references(
+                item,
+                old_profile_id,
+                new_profile_id,
+                old_runtime_id,
+                new_runtime_id,
+                field_name,
+            )
+            rewritten_list.append(child)
+            changed = changed or child_changed
+        return rewritten_list, changed
+
+    if isinstance(value, tuple):
+        rewritten_tuple, tuple_changed = dashboard_rewrite_server_profile_references(
+            list(value),
+            old_profile_id,
+            new_profile_id,
+            old_runtime_id,
+            new_runtime_id,
+            field_name,
+        )
+        return tuple(rewritten_tuple), tuple_changed
+
+    if isinstance(value, str):
+        if value == old_runtime_id:
+            return new_runtime_id, True
+        if value == old_profile_id and profile_field:
+            return new_profile_id, True
+    return value, False
+
+
+def dashboard_migrate_server_profile_runtime_state(
+    guild_id: Any,
+    old_profile_id: Any,
+    new_profile_id: Any,
+) -> dict[str, Any]:
+    """Move all known server-scoped state to a renamed profile runtime ID.
+
+    Both the JSON volume and the live bot dictionaries are migrated.  Moving
+    the processed ADM/kill caches is essential: without it, a rename could
+    make old log lines appear unseen and re-broadcast them to Discord.
+    """
+    clean_guild_id = normalize_guild_id(guild_id)
+    old_profile_id = normalize_server_profile_id(old_profile_id, "")
+    new_profile_id = normalize_server_profile_id(new_profile_id, "")
+    old_runtime_id = dashboard_server_profile_runtime_id(clean_guild_id, old_profile_id)
+    new_runtime_id = dashboard_server_profile_runtime_id(clean_guild_id, new_profile_id)
+    migrated_files: list[str] = []
+    migrated_memory: list[str] = []
+    warnings: list[str] = []
+
+    for filename in SERVER_PROFILE_RUNTIME_STORE_FILES:
+        path = data_path(filename)
+        if not os.path.exists(path):
+            continue
+        data = read_json_file(filename, None)
+        if data is None:
+            warnings.append(f"{filename}: could not read valid JSON; left untouched")
+            continue
+        rewritten, changed = dashboard_rewrite_server_profile_references(
+            data,
+            old_profile_id,
+            new_profile_id,
+            old_runtime_id,
+            new_runtime_id,
+        )
+        if not changed:
+            continue
+        try:
+            write_json_file(filename, rewritten)
+            migrated_files.append(filename)
+        except Exception as error:
+            warnings.append(f"{filename}: {type(error).__name__}: {error}")
+
+    # The bot caches the currently downloaded ADM log under the profile-based
+    # runtime filename.  Move that cache as well so map/player views remain
+    # continuous while the next Nitrado refresh is fetched.
+    runtime_file_guild = re.sub(r"[^A-Za-z0-9_-]+", "_", clean_guild_id).strip("_")
+    if runtime_file_guild:
+        old_adm_relative = os.path.join("guild_data", f"{runtime_file_guild}_{old_profile_id}.ADM")
+        new_adm_relative = os.path.join("guild_data", f"{runtime_file_guild}_{new_profile_id}.ADM")
+        old_adm_path = data_path(old_adm_relative)
+        new_adm_path = data_path(new_adm_relative)
+        if os.path.isfile(old_adm_path):
+            try:
+                os.makedirs(os.path.dirname(new_adm_path), exist_ok=True)
+                os.replace(old_adm_path, new_adm_path)
+                migrated_files.append(new_adm_relative.replace("\\", "/"))
+            except Exception as error:
+                warnings.append(f"{old_adm_relative}: {type(error).__name__}: {error}")
+
+    if CUSTOM_STATE_PROVIDER:
+        try:
+            runtime_state = CUSTOM_STATE_PROVIDER()
+        except Exception as error:
+            runtime_state = {}
+            warnings.append(f"live bot state: {type(error).__name__}: {error}")
+        state_maps = runtime_state.get("server_profile_runtime_state") if isinstance(runtime_state, dict) else None
+        if isinstance(state_maps, dict):
+            for state_name, mapping in state_maps.items():
+                if isinstance(mapping, dict) and old_runtime_id in mapping:
+                    # The destination profile is required not to exist before
+                    # this function runs.  Any destination state is therefore
+                    # stale; the current source server state is authoritative.
+                    mapping[new_runtime_id] = mapping.pop(old_runtime_id)
+                    migrated_memory.append(str(state_name))
+                    continue
+                if isinstance(mapping, list):
+                    rewritten, changed = dashboard_rewrite_server_profile_references(
+                        mapping,
+                        old_profile_id,
+                        new_profile_id,
+                        old_runtime_id,
+                        new_runtime_id,
+                    )
+                    if changed:
+                        mapping[:] = rewritten
+                        migrated_memory.append(str(state_name))
+
+    return {
+        "ok": not warnings,
+        "old_runtime_id": old_runtime_id,
+        "new_runtime_id": new_runtime_id,
+        "migrated_files": migrated_files,
+        "migrated_memory": migrated_memory,
+        "warnings": warnings,
+    }
+
+
 def dashboard_server_slot_keys_for_config(
     config: Any,
     guild_id: Any,
@@ -38724,6 +38974,72 @@ def api_dayz_server_profile():
         config = {"channels": {}}
         guild_configs[guild_id] = config
     profiles = dashboard_server_profile_store(config, create=True)
+
+    if action == "rename":
+        new_profile_id = normalize_server_profile_id(raw_payload.get("new_profile_id"), "")
+        if not new_profile_id:
+            return jsonify({"ok": False, "error": "new_profile_id is required, for example sakhal"}), 400
+        if profile_id not in profiles:
+            return jsonify({"ok": False, "error": "DayZ server profile was not found"}), 404
+        if new_profile_id == profile_id:
+            return jsonify({"ok": False, "error": "The new profile ID is the same as the current profile ID."}), 400
+        if new_profile_id in profiles:
+            return jsonify({"ok": False, "error": f"A DayZ server profile named {new_profile_id} already exists."}), 409
+
+        old_runtime_id = dashboard_server_profile_runtime_id(guild_id, profile_id)
+        new_runtime_id = dashboard_server_profile_runtime_id(guild_id, new_profile_id)
+        renamed_at = datetime.now(UTC).isoformat()
+        profile = profiles.pop(profile_id)
+        if not isinstance(profile, dict):
+            profile = {"channels": {}}
+        profile["profile_id"] = new_profile_id
+        profile["renamed_from_profile_id"] = profile_id
+        profile["renamed_at"] = renamed_at
+        profile["updated_at"] = renamed_at
+
+        profile_name = str(raw_payload.get("profile_name") or "").strip()
+        if profile_name:
+            profile["profile_name"] = profile_name[:80]
+        requested_map = str(raw_payload.get("server_map") or "").strip()
+        if requested_map:
+            profile["server_map"] = map_key_for(requested_map)
+        profiles[new_profile_id] = profile
+        config["server_profiles_updated_at"] = renamed_at
+
+        rewritten_config, _ = dashboard_rewrite_server_profile_references(
+            config,
+            profile_id,
+            new_profile_id,
+            old_runtime_id,
+            new_runtime_id,
+        )
+        guild_configs[guild_id] = rewritten_config
+
+        # Persist the new config without exposing it to the live bot until its
+        # runtime/history keys have moved.  This avoids a short window where
+        # the new profile could parse ADM logs with an empty dedupe cache.
+        write_json_file(FILES["guild_configs"], guild_configs)
+        write_split_guild_configs(guild_configs)
+        migration = dashboard_migrate_server_profile_runtime_state(guild_id, profile_id, new_profile_id)
+        sync_runtime_store("guild_configs", guild_configs)
+
+        warnings = migration.get("warnings") if isinstance(migration, dict) else []
+        note = f"Renamed {profile_id} to {new_profile_id} and migrated its saved server data."
+        if warnings:
+            note += " Some non-critical state needs review: " + "; ".join(str(item) for item in warnings[:3])
+        return dashboard_api_response(
+            raw_payload,
+            {
+                "ok": True,
+                "renamed_from": profile_id,
+                "profile_id": new_profile_id,
+                "runtime_id": new_runtime_id,
+                "migration": migration,
+                "note": note,
+            },
+            "access",
+            "#server-profiles",
+        )
 
     if action == "delete":
         if profile_id not in profiles:
