@@ -2,6 +2,13 @@
 
 This is the production checklist for the real Android and iPhone apps.
 
+Prepared store copy and truthful production-access answers are in:
+
+```text
+mobile/PLAY_STORE_LISTING.md
+mobile/PRODUCTION_ACCESS_ANSWERS.md
+```
+
 ## Android
 
 1. Keep the package name as `com.dayzwanderingbot.app` unless you want a permanent different ID before first release.
@@ -25,6 +32,10 @@ WANDERING_SUPPORT_EMAIL=dayzwanderingbot@gmail.com
 ```text
 https://dayzwanderingbot.com/.well-known/assetlinks.json
 ```
+
+8. Paste the reviewed copy from `PLAY_STORE_LISTING.md` into the Play listing and upload final screenshots with matching captions.
+9. Use `PRODUCTION_ACCESS_ANSWERS.md` when the production-access questionnaire opens. Keep every answer factual for the build being submitted.
+10. Confirm the first-use tour, dashboard review form, Google Play rating link and support links work in the uploaded closed-test build.
 
 The Android Play build opens:
 

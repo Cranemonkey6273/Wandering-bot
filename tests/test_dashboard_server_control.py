@@ -469,10 +469,22 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("mapgroupproto", template)
         self.assertIn("mapgrouppos", template)
         self.assertIn('name="vehicle_reset_schedule_enabled"', template)
+        self.assertIn("Quick app walkthrough", template)
+        self.assertIn('data-tour-open', template)
+        self.assertIn('data-app-tour', template)
+        self.assertIn('data-app-review-form', template)
+        self.assertIn('action="/api/reviews"', template)
+        self.assertIn("Rate on Google Play", template)
+        self.assertIn("How the app protects server access", template)
+        self.assertIn("Nitrado tokens, Discord credentials, billing secrets", template)
         self.assertNotIn('href="{{ dashboard_path }}', template)
         self.assertNotIn('/admin?section=', template)
         self.assertNotIn("Player Loadout", template)
         self.assertNotIn("XML Workshop", template)
+
+    def test_android_play_store_url_tracks_configured_package_id(self):
+        self.assertTrue(dashboard.ANDROID_PLAY_STORE_URL.startswith("https://"))
+        self.assertIn("play.google.com", dashboard.ANDROID_PLAY_STORE_URL)
 
     def test_vehicle_presets_are_map_specific_complete_and_preserve_unrelated_records(self):
         for map_key in ("chernarus", "livonia", "sakhal"):

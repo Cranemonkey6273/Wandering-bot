@@ -498,6 +498,10 @@ DEFAULT_BOT_INVITE_URL = os.getenv(
 )
 SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "https://discord.gg/9d8rZDSQaE").strip()
 ANDROID_APP_ID = os.getenv("WANDERING_ANDROID_APP_ID", "com.dayzwanderingbot.app").strip() or "com.dayzwanderingbot.app"
+ANDROID_PLAY_STORE_URL = os.getenv(
+    "WANDERING_ANDROID_PLAY_STORE_URL",
+    f"https://play.google.com/store/apps/details?id={ANDROID_APP_ID}",
+).strip()
 IOS_APP_ID = os.getenv("WANDERING_IOS_APP_ID", "").strip()
 ANDROID_RELEASE_SHA256_FINGERPRINTS = (
     os.getenv("WANDERING_ANDROID_SHA256_FINGERPRINTS")
@@ -2849,7 +2853,7 @@ APP_DASHBOARD_TEMPLATE = """
       padding: env(safe-area-inset-top) 0 calc(5.2rem + env(safe-area-inset-bottom));
     }
     a { color: inherit; text-decoration: none; }
-    button, input, select { font: inherit; }
+    button, input, select, textarea { font: inherit; }
     button, .button {
       min-height: 2.75rem;
       border: 1px solid var(--forest);
@@ -2862,7 +2866,7 @@ APP_DASHBOARD_TEMPLATE = """
     }
     button.secondary, .button.secondary { background: var(--surface); color: var(--forest); }
     button.danger { border-color: var(--red); background: var(--red); }
-    input, select {
+    input, select, textarea {
       width: 100%;
       min-height: 2.75rem;
       border: 1px solid var(--line);
@@ -2871,6 +2875,7 @@ APP_DASHBOARD_TEMPLATE = """
       color: var(--ink);
       padding: .62rem .7rem;
     }
+    textarea { min-height: 7.5rem; resize: vertical; }
     input[type="checkbox"] { width: 1.15rem; min-height: 1.15rem; accent-color: var(--forest); }
     label { display: grid; gap: .3rem; color: var(--muted); font-size: .82rem; font-weight: 700; }
     small { line-height: 1.4; }
@@ -2893,6 +2898,7 @@ APP_DASHBOARD_TEMPLATE = """
     .brand span { color: var(--muted); font-size: .72rem; }
     .header-actions { display: flex; align-items: center; gap: .4rem; }
     .header-actions a { color: var(--forest); font-size: .76rem; font-weight: 850; padding: .45rem; }
+    .header-actions button { min-height: 2.15rem; padding: .42rem .6rem; font-size: .74rem; }
     .app-shell { width: min(54rem, 100%); margin: 0 auto; padding: .75rem; display: grid; gap: .8rem; }
     .server-context, .section, .metric, .feed-row, .tool-row, .guide-row, .status-row {
       border: 1px solid var(--line);
@@ -3030,6 +3036,24 @@ APP_DASHBOARD_TEMPLATE = """
     .preset-row strong { color: var(--forest-dark); }
     .preset-row span { color: var(--muted); font-size: .78rem; line-height: 1.4; }
     .preset-row .button { justify-self: start; display: inline-flex; align-items: center; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .review-actions .button { display: inline-flex; align-items: center; justify-content: center; }
+    .review-score { display: grid; grid-template-columns: auto 1fr; gap: .35rem .55rem; align-items: center; padding: .65rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--surface-alt); }
+    .review-score strong { color: var(--orange); font-size: 1.35rem; }
+    .review-score span { color: var(--muted); font-size: .78rem; }
+    [hidden] { display: none !important; }
+    body.tour-open { overflow: hidden; }
+    .tour-overlay { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 1rem; background: rgba(8, 19, 14, .78); }
+    .tour-card { width: min(30rem, 100%); border: 1px solid var(--line); border-top: .35rem solid var(--orange); border-radius: .6rem; background: var(--surface); box-shadow: 0 1.4rem 4rem rgba(0, 0, 0, .28); padding: 1rem; }
+    .tour-kicker { margin: 0 0 .3rem; color: var(--orange); font-size: .72rem; font-weight: 900; text-transform: uppercase; }
+    .tour-step h2 { margin: 0; color: var(--forest-dark); font-size: 1.25rem; }
+    .tour-step p { margin: .6rem 0 0; color: var(--muted); line-height: 1.55; }
+    .tour-progress { display: flex; gap: .3rem; margin: .9rem 0; }
+    .tour-progress span { flex: 1; height: .3rem; border-radius: 999px; background: var(--line); }
+    .tour-progress span.active { background: var(--orange); }
+    .tour-actions { display: grid; grid-template-columns: auto 1fr auto; gap: .45rem; align-items: center; }
+    .tour-actions button.secondary { color: var(--forest); background: #fff; }
+    .tour-actions [data-tour-skip] { border: 0; background: transparent; color: var(--muted); }
     .bottom-nav {
       position: fixed;
       z-index: 30;
@@ -3063,8 +3087,36 @@ APP_DASHBOARD_TEMPLATE = """
       <img src="/brand-image" alt="Wandering Bot">
       <div><strong>Wandering Bot</strong><span>{{ app_view|title }} command hub</span></div>
     </div>
-    <div class="header-actions"><a href="/logout?return_to={{ app_urls.home|urlencode }}">Log out</a></div>
+    <div class="header-actions"><button type="button" data-tour-open>Tour</button><a href="/logout?return_to={{ app_urls.home|urlencode }}">Log out</a></div>
   </header>
+
+  <div class="tour-overlay" data-app-tour role="dialog" aria-modal="true" aria-labelledby="app-tour-title" hidden>
+    <div class="tour-card">
+      <p class="tour-kicker">Quick app walkthrough</p>
+      <article class="tour-step" data-tour-step>
+        <h2 id="app-tour-title">Choose the correct server</h2>
+        <p>Start by checking the server name, map and profile at the top. Cherno, Livonia and Sakhal stay separated so an action is sent only to the DayZ server you selected.</p>
+      </article>
+      <article class="tour-step" data-tour-step hidden>
+        <h2>Watch feeds and events</h2>
+        <p>Feeds show recent ADM activity for the selected profile. Events lets you prepare guarded airdrops and check their live RPT status after the required restart.</p>
+      </article>
+      <article class="tour-step" data-tour-step hidden>
+        <h2>Control with confirmation</h2>
+        <p>Economy changes, restart controls and vehicle reset schedules remain server-scoped. Destructive controls show a confirmation so you can check the target before submitting.</p>
+      </article>
+      <article class="tour-step" data-tour-step hidden>
+        <h2>Use Guides before file changes</h2>
+        <p>The field guide explains linked DayZ files, validation, backups and restart requirements. Open it whenever a task affects XML, JSON or live server configuration.</p>
+      </article>
+      <div class="tour-progress" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <div class="tour-actions">
+        <button class="secondary" type="button" data-tour-back>Back</button>
+        <button type="button" data-tour-skip>Skip</button>
+        <button type="button" data-tour-next>Next</button>
+      </div>
+    </div>
+  </div>
 
   <main class="app-shell">
     <section class="server-context">
@@ -3401,6 +3453,26 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
         <details class="guide-row"><summary>mapgroupproto vs mapgrouppos</summary><div class="guide-body"><p><code>mapgroupproto.xml</code> describes loot points inside supported buildings. <code>mapgrouppos.xml</code> places building groups on the map. A file beginning with <code>&lt;prototype&gt;</code> belongs to proto; a file beginning with <code>&lt;map&gt;</code> is placement data.</p></div></details>
         <details class="guide-row"><summary>Vehicle reset safety</summary><div class="guide-body"><p>A vehicle-only <code>cfgignorelist.xml</code> reset is a staged two-restart operation. Vehicle classes are added only shortly before the target restart, the server restarts, the original ignore list is restored, and the server restarts once more. Non-vehicle entries must never be left behind.</p></div></details>
         <details class="guide-row"><summary>How to read an RPT after restart</summary><div class="guide-body"><p>Use the newest RPT from the restart you just performed. Search for parsing errors, unknown classnames, missing event definitions and the exact file named in the warning. An old RPT can describe an issue that is already fixed.</p></div></details>
+        <details class="guide-row"><summary>How the app protects server access</summary><div class="guide-body"><p>Nitrado tokens, Discord credentials, billing secrets and live file writes stay on the Wandering Bot backend; they are not stored inside the installed app. Dashboard permissions and the selected server profile are checked again by the backend for each protected action.</p><p>Live file workflows use current-source checks, validation, a preview or confirmation, and backup-first upload protection. You should still read the final target and restart warning before confirming a change.</p></div></details>
+      </div>
+    </section>
+    <section class="section" id="app-feedback">
+      <div class="section-head"><h2>Feedback and app rating</h2><details class="info"><summary aria-label="About app feedback">i</summary><div>Your dashboard review helps other DayZ server owners. Google Play ratings are submitted separately through the store.</div></details></div>
+      <div class="review-score"><strong data-app-review-average>{{ dashboard_review_summary.average_text }}/5</strong><span><span data-app-review-count>{{ dashboard_review_summary.count }}</span> public dashboard reviews</span></div>
+      <form class="form-grid" method="post" action="/api/reviews" data-app-review-form>
+        <input type="hidden" name="guild_id" value="{{ server.guild_id }}">
+        <input type="hidden" name="server_name" value="{{ server.guild_name }}">
+        <input type="hidden" name="return_to" value="{{ app_urls.help }}#app-feedback">
+        <label>Rating<select name="rating"><option value="5">5 - Brilliant</option><option value="4">4 - Good</option><option value="3">3 - Okay</option><option value="2">2 - Needs work</option><option value="1">1 - Poor</option></select></label>
+        <label>Title<input name="title" maxlength="90" placeholder="Sum up your experience"></label>
+        <label class="full">Your name or server tag<input name="author_name" maxlength="70" placeholder="Optional"></label>
+        <label class="full">Review<textarea name="body" maxlength="1000" placeholder="Tell us what helped and what we can improve." required></textarea></label>
+        <div class="full"><button type="submit">Send dashboard review</button> <span class="muted" data-app-review-result aria-live="polite"></span></div>
+      </form>
+      <div class="review-actions">
+        {% if android_play_store_url %}<a class="button secondary" href="{{ android_play_store_url }}" target="_blank" rel="noopener">Rate on Google Play</a>{% endif %}
+        {% if support_url %}<a class="button secondary" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
+        <a class="button secondary" href="mailto:{{ support_email }}">Email support</a>
       </div>
     </section>
     <section class="section">
@@ -3432,6 +3504,81 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
     <a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>
     <a class="{{ 'active' if app_view == 'help' else '' }}" href="{{ app_urls.help }}">Guides</a>
   </nav>
+  <script>
+    (() => {
+      const tour = document.querySelector("[data-app-tour]");
+      const tourSteps = tour ? Array.from(tour.querySelectorAll("[data-tour-step]")) : [];
+      const tourProgress = tour ? Array.from(tour.querySelectorAll(".tour-progress span")) : [];
+      const tourKey = "wanderingAppTour:v1";
+      let tourIndex = 0;
+      let previousFocus = null;
+
+      function renderTour() {
+        tourSteps.forEach((step, index) => { step.hidden = index !== tourIndex; });
+        tourProgress.forEach((marker, index) => marker.classList.toggle("active", index <= tourIndex));
+        const back = tour.querySelector("[data-tour-back]");
+        const next = tour.querySelector("[data-tour-next]");
+        back.disabled = tourIndex === 0;
+        next.textContent = tourIndex === tourSteps.length - 1 ? "Finish" : "Next";
+      }
+      function openTour() {
+        if (!tour || !tourSteps.length) return;
+        previousFocus = document.activeElement;
+        tourIndex = 0;
+        renderTour();
+        tour.hidden = false;
+        document.body.classList.add("tour-open");
+        tour.querySelector("[data-tour-next]").focus();
+      }
+      function closeTour() {
+        if (!tour) return;
+        localStorage.setItem(tourKey, "complete");
+        tour.hidden = true;
+        document.body.classList.remove("tour-open");
+        if (previousFocus && previousFocus.focus) previousFocus.focus();
+      }
+      document.querySelectorAll("[data-tour-open]").forEach((button) => button.addEventListener("click", openTour));
+      tour?.querySelector("[data-tour-back]")?.addEventListener("click", () => { tourIndex = Math.max(0, tourIndex - 1); renderTour(); });
+      tour?.querySelector("[data-tour-next]")?.addEventListener("click", () => {
+        if (tourIndex >= tourSteps.length - 1) closeTour();
+        else { tourIndex += 1; renderTour(); }
+      });
+      tour?.querySelector("[data-tour-skip]")?.addEventListener("click", closeTour);
+      tour?.addEventListener("click", (event) => { if (event.target === tour) closeTour(); });
+      document.addEventListener("keydown", (event) => { if (event.key === "Escape" && tour && !tour.hidden) closeTour(); });
+      if (tour && localStorage.getItem(tourKey) !== "complete") window.setTimeout(openTour, 500);
+
+      const reviewForm = document.querySelector("[data-app-review-form]");
+      reviewForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const result = reviewForm.querySelector("[data-app-review-result]");
+        const submit = reviewForm.querySelector("button[type='submit']");
+        result.textContent = "Sending review...";
+        submit.disabled = true;
+        try {
+          const response = await fetch(reviewForm.action, {
+            method: "POST",
+            headers: {"Accept": "application/json"},
+            credentials: "same-origin",
+            body: new FormData(reviewForm)
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.error || "Review could not be saved.");
+          result.textContent = "Review saved. Thank you.";
+          reviewForm.elements.body.value = "";
+          reviewForm.elements.title.value = "";
+          const average = document.querySelector("[data-app-review-average]");
+          const count = document.querySelector("[data-app-review-count]");
+          if (average && payload.summary) average.textContent = `${payload.summary.average_text}/5`;
+          if (count && payload.summary) count.textContent = String(payload.summary.count);
+        } catch (error) {
+          result.textContent = error && error.message ? error.message : "Review could not be saved.";
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
 """
@@ -35835,6 +35982,10 @@ def mobile_app():
         scenario_guard_options=SCENARIO_GUARD_CLASS_OPTIONS,
         app_live_events=mobile_scenario_tracker_rows(tracker_store, profile_runtime_id),
         event_access_allowed=event_access_allowed,
+        dashboard_review_summary=review_summary(),
+        android_play_store_url=ANDROID_PLAY_STORE_URL,
+        support_url=SUPPORT_DISCORD_URL,
+        support_email=PUBLIC_SUPPORT_EMAIL,
         generated_clock=local_dashboard_clock(),
     )
 
