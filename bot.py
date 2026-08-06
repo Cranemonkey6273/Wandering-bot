@@ -15637,7 +15637,8 @@ RPT_LOG_NAME_PATTERN = re.compile(r"DayZServer.*\.RPT$", re.IGNORECASE)
 RPT_DEFAULT_EVENT_LIFETIME_SECONDS = 25 * 60
 RPT_EVENT_PREFIXES = (
     "Land_Wreck_", "StaticHeliCrash", "ContaminatedArea", "EventConvoy",
-    "EventConvoyMilitary", "Static_", "InfectedHorde", "DynamicEvent",
+    "EventConvoyMilitary", "Wreck_Mi8", "Wreck_UH1Y", "Static_",
+    "InfectedHorde", "Animal_", "DynamicEvent",
     "PoliceCar", "CivilianSedan", "Hatchback", "Sedan", "Olga",
     "Gunter", "Ada", "Sarka", "Truck", "M3S", "Offroad",
 )
@@ -16006,6 +16007,187 @@ def _rpt_world_link(x, z, guild_id):
         return None
 
 
+def _rpt_friendly_event_type(raw_type):
+    """Return a readable RPT event label without inventing its configuration."""
+    raw = str(raw_type or "").strip()
+    lowered = raw.lower()
+    if "contaminatedarea" in lowered:
+        return "Dynamic contaminated gas zone"
+    if lowered.startswith("eventconvoymilitary"):
+        return "Military convoy event"
+    if lowered.startswith("eventconvoy") or lowered.startswith("land_wreck_v3s"):
+        return "Convoy wreck event"
+    if "mi8" in lowered or "uh1y" in lowered or "statichelicrash" in lowered:
+        return "Helicopter crash / airdrop event"
+    if lowered.startswith("infected") or lowered.startswith("zmb"):
+        return "Infected horde event"
+    if lowered.startswith("animal_"):
+        return "Animal event"
+    if any(
+        token in lowered
+        for token in (
+            "policecar", "civiliansedan", "hatchback", "sedan", "olga",
+            "gunter", "ada", "sarka", "truck", "m3s", "offroad",
+        )
+    ):
+        return "Vehicle event"
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", raw).replace("_", " ")
+    return re.sub(r"\s+", " ", words).strip() or "Unknown event"
+
+
+def _rpt_event_family(raw_type):
+    label = _rpt_friendly_event_type(raw_type).lower()
+    if "gas zone" in label:
+        return "gas_zone"
+    if "helicopter" in label:
+        return "airdrop"
+    if "infected" in label:
+        return "zombie_horde"
+    if "animal" in label:
+        return "animal_pack"
+    if "vehicle" in label:
+        return "vehicle_spawn"
+    return ""
+
+
+def _rpt_configured_lifetime_seconds(event):
+    event = event if isinstance(event, dict) else {}
+    event_type = str(event.get("event_type") or "").strip().lower()
+    defaults = {
+        "airdrop": 7200,
+        "loot_crate": 7200,
+        "zombie_horde": 1800,
+        "animal_pack": 3600,
+        "vehicle_spawn": 3888000,
+        "gas_zone": 3888000 if event.get("permanent") else 1800,
+    }
+    if event_type not in defaults:
+        return 0
+    timing = scenario_timing_defaults(event_type, event)
+    lifetime = timing.get("lifetime", defaults[event_type])
+    if event_type == "gas_zone":
+        lifetime = event.get("gas_lifetime", lifetime)
+    lifetime = event.get("lifetime", lifetime)
+    return max(60, min(3888000, safe_int(lifetime, defaults[event_type])))
+
+
+def _rpt_match_configured_event(config, rpt_event):
+    """Conservatively match one RPT observation to a dashboard event.
+
+    A classname or generated CE name must match. Coordinates then select the
+    correct instance when several gas zones or drops use the same class.
+    """
+    if not isinstance(config, dict) or not isinstance(rpt_event, dict):
+        return None
+    raw_type = str(rpt_event.get("type") or "").strip().lower()
+    if not raw_type:
+        return None
+    try:
+        x = float(rpt_event.get("x"))
+        z = float(rpt_event.get("z"))
+    except (TypeError, ValueError):
+        return None
+    candidates = []
+    for event in scenario_events_for_config(config):
+        if not isinstance(event, dict) or not event.get("enabled", True):
+            continue
+        names = {
+            str(event.get("class_name") or "").strip().lower(),
+            str(event.get("name") or "").strip().lower(),
+        }
+        managed_names = event.get("native_ce_managed_event_names") or []
+        if isinstance(managed_names, list):
+            names.update(str(name or "").strip().lower() for name in managed_names)
+        names.discard("")
+        strong_match = raw_type in names
+        same_family = _rpt_event_family(raw_type) == str(event.get("event_type") or "").strip().lower()
+        try:
+            distance = ((float(event.get("x")) - x) ** 2 + (float(event.get("z")) - z) ** 2) ** 0.5
+        except (TypeError, ValueError):
+            continue
+        radius = max(0, safe_int(event.get("radius"), 0))
+        tolerance = max(25, min(600, radius + 25))
+        if not strong_match and not (same_family and distance <= 15):
+            continue
+        if distance > tolerance:
+            continue
+        candidates.append((0 if strong_match else 1, distance, event))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[0][2]
+
+
+def _rpt_enrich_event_record(guild_id, config, event, now_ts, existing=None):
+    record = dict(existing or {})
+    record.update(event or {})
+    record["first_seen_ts"] = float(record.get("first_seen_ts") or now_ts)
+    record["last_seen_ts"] = float(now_ts)
+    record["friendly_type"] = _rpt_friendly_event_type(record.get("type"))
+    record["nearest_location"] = nearest_named_location_for_coords(
+        guild_id, record.get("x"), record.get("z")
+    )
+    matched = _rpt_match_configured_event(config, record)
+    if matched:
+        lifetime = _rpt_configured_lifetime_seconds(matched)
+        record.update({
+            "configured_event_id": matched.get("id", ""),
+            "configured_name": str(matched.get("name") or "").strip(),
+            "configured_location": str(matched.get("location") or "").strip(),
+            "configured_event_type": str(matched.get("event_type") or "").strip(),
+            "configured_lifetime_s": lifetime,
+            "lifetime_s": lifetime,
+            "lifetime_source": "dashboard_event",
+            "recurs_after_restart": bool(matched.get("permanent")),
+        })
+    else:
+        for key in (
+            "configured_event_id", "configured_name", "configured_location",
+            "configured_event_type", "configured_lifetime_s", "recurs_after_restart",
+        ):
+            record.pop(key, None)
+        record["lifetime_s"] = RPT_DEFAULT_EVENT_LIFETIME_SECONDS
+        record["lifetime_source"] = "rpt_estimate"
+    return record
+
+
+def _rpt_event_display_line(guild_id, event, now_ts=None, include_last_seen=True):
+    now_ts = float(now_ts or datetime.now(UTC).timestamp())
+    first_seen = int(float(event.get("first_seen_ts") or now_ts))
+    last_seen = int(float(event.get("last_seen_ts") or first_seen))
+    age_s = max(0, int(now_ts - first_seen))
+    title = str(event.get("configured_name") or event.get("friendly_type") or event.get("type") or "Event")
+    raw_type = str(event.get("type") or "Unknown")
+    friendly = str(event.get("friendly_type") or _rpt_friendly_event_type(raw_type))
+    title_text = f"**{title}**"
+    if event.get("configured_name") and friendly.lower() not in title.lower():
+        title_text += f" ({friendly})"
+    location = str(event.get("configured_location") or event.get("nearest_location") or "").strip()
+    coord = f"({int(float(event.get('x') or 0))}, {int(float(event.get('z') or 0))})"
+    link = _rpt_world_link(event.get("x"), event.get("z"), guild_id)
+    if link:
+        coord = f"[{coord}]({link})"
+    parts = [title_text, f"`{raw_type}`"]
+    if location:
+        parts.append(location)
+    parts.append(coord)
+    parts.append(f"first <t:{first_seen}:R>")
+    if include_last_seen:
+        parts.append(f"last <t:{last_seen}:R>")
+    parts.append(f"observed age {format_duration_seconds(age_s)}")
+    if event.get("lifetime_source") == "dashboard_event" and event.get("configured_lifetime_s"):
+        lifetime = int(event.get("configured_lifetime_s"))
+        remaining = max(0, lifetime - age_s)
+        remaining_text = format_duration_seconds(remaining) if remaining > 0 else "ending now"
+        parts.append(f"configured CE lifetime {format_duration_seconds(lifetime)}")
+        parts.append(f"about {remaining_text} left")
+        if event.get("recurs_after_restart"):
+            parts.append("configured to recur after restarts")
+    else:
+        parts.append("exact duration not matched; DayZ controls despawn")
+    return "- " + " | ".join(parts)
+
+
 def _build_rpt_event_embed(guild_id, state):
     events = state.get("events", [])
     now_ts = datetime.now(UTC).timestamp()
@@ -16013,37 +16195,31 @@ def _build_rpt_event_embed(guild_id, state):
     last_restart_text = f"<t:{int(last_restart)}:R>" if last_restart else "—"
     buckets = {}
     for ev in events:
-        buckets.setdefault(ev.get("type", "Unknown"), []).append(ev)
+        friendly_type = ev.get("friendly_type") or _rpt_friendly_event_type(ev.get("type"))
+        buckets.setdefault(friendly_type, []).append(ev)
     embed = discord.Embed(
         title="🔧 LIVE SERVER SPAWN TRACKER",
         description=(
             f"Last detected server restart: {last_restart_text}\n"
-            f"Tracking **{len(events)}** active event/vehicle spawn(s) parsed from `.RPT`.\n"
-            f"Entries auto-expire when their DayZ lifetime passes or the next pull no longer sees them."
+            f"Tracking **{len(events)}** recent event/vehicle spawn observation(s) parsed from `.RPT`.\n"
+            "A configured lifetime is shown only when the classname/name and coordinates safely match a dashboard event; "
+            "otherwise the duration remains DayZ-controlled."
         ),
         color=0xE67E22,
     )
     if not events:
-        embed.add_field(name="No active spawns detected", value="The next RPT pull will populate this.", inline=False)
+        embed.add_field(name="No recent spawns observed", value="The next RPT pull will populate this.", inline=False)
     else:
         hidden_events = 0
         max_fields = 8
-        max_per_type = 5
+        max_per_type = 2
         for kind, evs in sorted(buckets.items()):
             if len(embed.fields) >= max_fields:
                 hidden_events += len(evs)
                 continue
             lines = []
             for ev in evs[:max_per_type]:
-                link = _rpt_world_link(ev["x"], ev["z"], guild_id)
-                first_seen_ts = int(float(ev.get("first_seen_ts", now_ts)))
-                age_s = int(now_ts - first_seen_ts)
-                lifetime = int(ev.get("lifetime_s", RPT_DEFAULT_EVENT_LIFETIME_SECONDS))
-                remaining = max(0, lifetime - age_s)
-                coord_text = f"({int(ev['x'])}, {int(ev['z'])})"
-                if link:
-                    coord_text = f"[{coord_text}]({link})"
-                lines.append(f"- {coord_text} | seen <t:{first_seen_ts}:R> | age {format_duration_seconds(age_s)} | expires in {format_duration_seconds(remaining)}")
+                lines.append(_rpt_event_display_line(guild_id, ev, now_ts=now_ts))
             if len(evs) > max_per_type:
                 hidden_events += len(evs) - max_per_type
                 lines.append(f"- +{len(evs) - max_per_type} more {kind} spawn(s)")
@@ -16051,7 +16227,7 @@ def _build_rpt_event_embed(guild_id, state):
         if hidden_events:
             embed.add_field(
                 name="More Spawns Hidden",
-                value=f"`{hidden_events}` extra spawn(s) are tracked but hidden to stay under Discord embed limits. Use `/server liveevents list` for the full list.",
+                value=f"`{hidden_events}` additional spawn observation(s) are tracked but omitted to stay under Discord embed limits.",
                 inline=False,
             )
     diagnostics = state.get("diagnostics") or []
@@ -16065,7 +16241,7 @@ def _build_rpt_event_embed(guild_id, state):
         if len(diagnostics) > 8:
             lines.append(f"- +{len(diagnostics) - 8} more warning(s) in the latest RPT pull")
         embed.add_field(name="Spawn / XML status", value="\n".join(lines)[:1024], inline=False)
-    embed.set_footer(text=f"{POWERED_BY_FOOTER_TEXT} - tracker updates from RPT pulls")
+    embed.set_footer(text=f"{POWERED_BY_FOOTER_TEXT} - RPT observations are not continuous entity telemetry")
     return embed
 
 
@@ -16141,26 +16317,29 @@ async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnosti
         description=(
             f"DayZ server: **{server_label}**\n"
             f"Status: **fresh mission started**\n"
-            f"Live spawns detected: **{len(new_events)}**"
+            f"Spawn observations found in startup RPT: **{len(new_events)}**"
         ),
         color=0xE74C3C,
     )
     if new_events:
-        lines = []
-        for ev in new_events[:6]:
-            link = _rpt_world_link(ev["x"], ev["z"], guild_id)
-            ct = f"({int(ev['x'])}, {int(ev['z'])})"
-            if link:
-                ct = f"[{ct}]({link})"
-            first_seen_ts = int(float(ev.get("first_seen_ts", datetime.now(UTC).timestamp())))
-            lines.append(f"- **{ev['type']}** at {ct} | seen <t:{first_seen_ts}:R>")
-        if len(new_events) > 6:
-            lines.append(f"- +{len(new_events) - 6} more tracked spawn(s)")
-        embed.add_field(name="Event spawns seen", value="\n".join(lines)[:1024], inline=False)
+        now_ts = datetime.now(UTC).timestamp()
+        for index, ev in enumerate(new_events[:8], start=1):
+            label = str(ev.get("configured_name") or ev.get("friendly_type") or ev.get("type") or "Event")
+            embed.add_field(
+                name=f"Spawn {index}: {label}"[:256],
+                value=_rpt_event_display_line(guild_id, ev, now_ts=now_ts, include_last_seen=False)[:1024],
+                inline=False,
+            )
+        if len(new_events) > 8:
+            embed.add_field(
+                name="More startup spawns",
+                value=f"+{len(new_events) - 8} additional observation(s) omitted to stay under Discord embed limits.",
+                inline=False,
+            )
     lines = _rpt_restart_warning_summary(diagnostics)
     if lines:
         embed.add_field(name="Startup notes", value="\n".join(lines)[:1024], inline=False)
-    embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
+    embed.set_footer(text=f"{POWERED_BY_FOOTER_TEXT} - exact duration appears only for matched dashboard events")
     try:
         await channel.send(embed=style_embed(embed))
     except Exception as err:
@@ -16248,17 +16427,18 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
             "RPT tracker",
         )
 
-    existing_by_id = {e["id"]: e for e in state.get("events", [])}
+    # A confirmed new RPT generation is a new mission cycle. The same class at
+    # the same coordinates must get a fresh first-observed timestamp instead
+    # of inheriting an age from the previous restart.
+    existing_by_id = {} if restart_reasons else {e["id"]: e for e in state.get("events", [])}
     fresh_ids = set()
     new_events_this_cycle = []
     for ev in events:
         fresh_ids.add(ev["id"])
-        if ev["id"] in existing_by_id:
-            existing_by_id[ev["id"]]["last_seen_ts"] = now_ts
-        else:
-            record = {**ev, "first_seen_ts": now_ts, "last_seen_ts": now_ts,
-                      "lifetime_s": RPT_DEFAULT_EVENT_LIFETIME_SECONDS}
-            existing_by_id[ev["id"]] = record
+        existing = existing_by_id.get(ev["id"])
+        record = _rpt_enrich_event_record(guild_id, config, ev, now_ts, existing=existing)
+        existing_by_id[ev["id"]] = record
+        if existing is None:
             new_events_this_cycle.append(record)
 
     kept = []

@@ -1195,6 +1195,81 @@ class ChannelMatchingTests(unittest.TestCase):
         finally:
             bot.guild_configs = previous_configs
 
+    def test_rpt_event_feed_matches_configured_gas_lifetime_and_name(self):
+        now_ts = 1_800_000_000
+        config = {
+            "scenario_events": [
+                {
+                    "id": 91,
+                    "name": "Green Mountain test gas",
+                    "event_type": "gas_zone",
+                    "class_name": "ContaminatedArea_Dynamic",
+                    "location": "Green Mountain",
+                    "x": 3700,
+                    "z": 6000,
+                    "radius": 120,
+                    "gas_lifetime": 2700,
+                    "permanent": False,
+                    "enabled": True,
+                }
+            ]
+        }
+        raw = {
+            "id": "ContaminatedArea_Dynamic@3700_6000",
+            "type": "ContaminatedArea_Dynamic",
+            "x": 3700,
+            "y": 0,
+            "z": 6000,
+        }
+
+        with mock.patch.object(bot, "nearest_named_location_for_coords", return_value="Zelenogorsk area (900m away)"), mock.patch.object(
+            bot, "_rpt_world_link", return_value="https://example.test/map"
+        ):
+            enriched = bot._rpt_enrich_event_record("guild-1", config, raw, now_ts)
+            line = bot._rpt_event_display_line("guild-1", enriched, now_ts=now_ts + 300)
+
+        self.assertEqual("Dynamic contaminated gas zone", enriched["friendly_type"])
+        self.assertEqual("Green Mountain test gas", enriched["configured_name"])
+        self.assertEqual(2700, enriched["configured_lifetime_s"])
+        self.assertEqual("dashboard_event", enriched["lifetime_source"])
+        self.assertIn("Green Mountain", line)
+        self.assertIn("configured CE lifetime 45m", line)
+        self.assertIn("about 40m left", line)
+        self.assertIn("first <t:1800000000:R>", line)
+        self.assertIn("last <t:1800000000:R>", line)
+
+    def test_rpt_event_feed_does_not_invent_unmatched_convoy_lifetime(self):
+        now_ts = 1_800_000_000
+        raw = {
+            "id": "Land_Wreck_V3S_DE@8359_5970",
+            "type": "Land_Wreck_V3S_DE",
+            "x": 8359,
+            "y": 0,
+            "z": 5970,
+        }
+
+        with mock.patch.object(bot, "nearest_named_location_for_coords", return_value="Guglovo area (640m away)"), mock.patch.object(
+            bot, "_rpt_world_link", return_value=None
+        ):
+            enriched = bot._rpt_enrich_event_record("guild-1", {}, raw, now_ts)
+            line = bot._rpt_event_display_line("guild-1", enriched, now_ts=now_ts + 600)
+
+        self.assertEqual("Convoy wreck event", enriched["friendly_type"])
+        self.assertEqual("rpt_estimate", enriched["lifetime_source"])
+        self.assertNotIn("configured_lifetime_s", enriched)
+        self.assertIn("Guglovo area", line)
+        self.assertIn("exact duration not matched; DayZ controls despawn", line)
+        self.assertNotIn("left", line)
+
+    def test_rpt_parser_recognises_helicopter_airdrop_class(self):
+        _restarts, events = bot.parse_rpt_for_events(
+            "Event spawned Wreck_Mi8_Crashed at <4500, 0, 10300>"
+        )
+
+        self.assertEqual(1, len(events))
+        self.assertEqual("Wreck_Mi8_Crashed", events[0]["type"])
+        self.assertEqual("Helicopter crash / airdrop event", bot._rpt_friendly_event_type(events[0]["type"]))
+
     def test_dashboard_live_feed_mapping_records_dashboard_only_events(self):
         previous = bot.dashboard_live_feeds
         try:
