@@ -2429,6 +2429,26 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(context["reference_base_available"])
         self.assertTrue(dashboard.ai_agent_dayz_request_requires_draft(context, context["objective"]))
 
+    def test_fresh_spawn_loadout_keeps_json_primary_when_cfggameplay_reference_is_mentioned(self):
+        objective = (
+            "Create a complete Chernarus fresh-spawn JSON loadout with a fully equipped M4A1, "
+            "validate every classname, and explain the exact cfggameplay.json reference required."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {"dayz_support_mode": "ask", "dayz_reference_mode": "none"},
+            objective,
+        )
+
+        self.assertEqual("custom/spawnGearPreset.json", context["target_path"])
+        self.assertTrue(context["target_inferred"])
+        draft = dashboard.ai_agent_builtin_full_survivor_loadout_draft(
+            {"dayz_context": context},
+            objective,
+        )
+        self.assertIsNotNone(draft)
+        self.assertEqual("custom/spawnGearPreset.json", draft["target_path"])
+        self.assertIn("PlayerData.spawnGearPresetFiles", draft["cfggameplay_reference"])
+
     def test_read_only_dayz_explanation_with_negative_file_wording_does_not_require_draft(self):
         objective = (
             "Read-only advice only. In DayZ types.xml, explain clearly what nominal and min control, "

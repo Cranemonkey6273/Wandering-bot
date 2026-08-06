@@ -24204,6 +24204,24 @@ def ai_agent_infer_dayz_target_path(objective: Any) -> str:
     text = str(objective or "").replace("\\", "/").lower()
     if not text.strip():
         return ""
+    # A loadout request often mentions cfggameplay.json because the finished
+    # preset must be referenced there.  When the positive action is to create
+    # the loadout itself, keep the spawning-gear JSON as the primary target and
+    # treat cfggameplay as its linked reference instead of stealing the route.
+    if re.search(r"\b(create|draft|produce|generate|make|write)\b", text) and any(
+        phrase in text
+        for phrase in (
+            "fresh-spawn json loadout",
+            "fresh spawn json loadout",
+            "fresh-spawn loadout",
+            "fresh spawn loadout",
+            "spawn gear preset",
+            "spawning-gear json",
+            "spawning gear json",
+            "full survivor loadout",
+        )
+    ):
+        return "custom/spawnGearPreset.json"
     for target_path, _label in sorted(
         AI_AGENT_DAYZ_TARGETS,
         key=lambda item: len(os.path.basename(item[0])),
@@ -24213,7 +24231,7 @@ def ai_agent_infer_dayz_target_path(objective: Any) -> str:
         if re.search(rf"(?<![a-z0-9_]){re.escape(filename)}(?![a-z0-9_])", text):
             return target_path
     aliases = (
-        (("fresh spawn loadout", "player loadout", "spawn gear preset", "full loadout json"), "custom/spawnGearPreset.json"),
+        (("fresh spawn loadout", "fresh-spawn loadout", "player loadout", "spawn gear preset", "full loadout json"), "custom/spawnGearPreset.json"),
         (("on-screen message", "onscreen message", "server message schedule"), "db/messages.xml"),
         (("zombie territory", "infected territory", "zombie territories"), "env/zombie_territories.xml"),
         (("player spawn point", "fresh spawn point"), "cfgplayerspawnpoints.xml"),
