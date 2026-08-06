@@ -4011,13 +4011,13 @@ PAGE_TEMPLATE = """
         popover.style.top = yPercent + "%";
         popover.setAttribute("data-side", xPercent > 62 ? "left" : "right");
         popover.innerHTML =
-          "<strong>" + escapeText(firstValue(zone.name, "Zone")) + "</strong>" +
-          "<span>" + escapeText(firstValue(zone.zone_type, zone.type, "radar")) + " zone - X " + Math.round(x) + ", Z " + Math.round(z) + " - radius " + escapeText(radius) + "m</span>" +
-          "<div class=\"zone-popover-actions\">" +
-          "<button type=\"button\" data-zone-popover-save>Save Changes</button>" +
-          "<button type=\"button\" data-zone-delete data-zone-key=\"" + escapeAttr(button.getAttribute("data-zone-key")) + "\" data-zone-id=\"" + escapeAttr(firstValue(zone.id, "")) + "\" data-zone-type=\"" + escapeAttr(firstValue(zone.zone_type, zone.type, "")) + "\" data-zone-name=\"" + escapeAttr(firstValue(zone.name, "")) + "\" data-guild-id=\"" + escapeAttr(form.elements.guild_id && form.elements.guild_id.value) + "\">Delete</button>" +
-          "<button type=\"button\" data-zone-popover-close>Close</button>" +
-          "</div>";
+          '<strong>' + escapeText(firstValue(zone.name, "Zone")) + '</strong>' +
+          '<span>' + escapeText(firstValue(zone.zone_type, zone.type, "radar")) + ' zone - X ' + Math.round(x) + ', Z ' + Math.round(z) + ' - radius ' + escapeText(radius) + 'm</span>' +
+          '<div class="zone-popover-actions">' +
+          '<button type="button" data-zone-popover-save>Save Changes</button>' +
+          '<button type="button" data-zone-delete data-zone-key="' + escapeAttr(button.getAttribute("data-zone-key")) + '" data-zone-id="' + escapeAttr(firstValue(zone.id, "")) + '" data-zone-type="' + escapeAttr(firstValue(zone.zone_type, zone.type, "")) + '" data-zone-name="' + escapeAttr(firstValue(zone.name, "")) + '" data-guild-id="' + escapeAttr(form.elements.guild_id && form.elements.guild_id.value) + '">Delete</button>' +
+          '<button type="button" data-zone-popover-close>Close</button>' +
+          '</div>';
         popover.hidden = false;
       }
       function applyZonePopoverFields(popover, form) {
@@ -4031,7 +4031,7 @@ PAGE_TEMPLATE = """
         });
       }
       function zoneOption(value, label, selected) {
-        return "<option value=\"" + escapeAttr(value) + "\" " + (String(selected) === String(value) ? "selected" : "") + ">" + escapeText(label) + "</option>";
+        return '<option value="' + escapeAttr(value) + '" ' + (String(selected) === String(value) ? "selected" : "") + '>' + escapeText(label) + '</option>';
       }
       function showZoneDraftPopover(map, form, zone) {
         var popover = map.querySelector("[data-zone-popover]");
@@ -4050,22 +4050,22 @@ PAGE_TEMPLATE = """
         popover.setAttribute("data-side", xPercent > 62 ? "left" : "right");
         popover.setAttribute("data-zone-draft", "true");
         popover.innerHTML =
-          "<strong>New zone draft</strong>" +
-          "<span>Edit this spot, then save it as a new zone.</span>" +
-          "<div class=\"zone-popover-grid\">" +
-          "<label>Name <input data-zone-popover-field=\"name\" value=\"" + escapeAttr(firstValue(zone.name, "New " + type + " zone")) + "\"></label>" +
-          "<label>Type <select data-zone-popover-field=\"zone_type\">" +
+          '<strong>New zone draft</strong>' +
+          '<span>Edit this spot, then save it as a new zone.</span>' +
+          '<div class="zone-popover-grid">' +
+          '<label>Name <input data-zone-popover-field="name" value="' + escapeAttr(firstValue(zone.name, "New " + type + " zone")) + '"></label>' +
+          '<label>Type <select data-zone-popover-field="zone_type">' +
           zoneOption("radar", "Radar", type) + zoneOption("safe", "Safe", type) + zoneOption("pvp", "PVP", type) + zoneOption("action", "Action", type) + zoneOption("faction", "Faction", type) + zoneOption("custom", "Custom", type) +
-          "</select></label>" +
-          "<label>X <input data-zone-popover-field=\"x\" type=\"number\" value=\"" + Math.round(x) + "\"></label>" +
-          "<label>Z <input data-zone-popover-field=\"y\" type=\"number\" value=\"" + Math.round(z) + "\"></label>" +
-          "<label>Radius <input data-zone-popover-field=\"radius\" type=\"number\" min=\"10\" step=\"10\" value=\"" + escapeAttr(radius) + "\"></label>" +
-          "<label>Colour <input data-zone-popover-field=\"colour\" type=\"color\" value=\"" + escapeAttr(colour) + "\"></label>" +
-          "</div>" +
-          "<div class=\"zone-popover-actions\">" +
-          "<button type=\"button\" data-zone-popover-save>Save Zone</button>" +
-          "<button type=\"button\" data-zone-popover-close>Close</button>" +
-          "</div>";
+          '</select></label>' +
+          '<label>X <input data-zone-popover-field="x" type="number" value="' + Math.round(x) + '"></label>' +
+          '<label>Z <input data-zone-popover-field="y" type="number" value="' + Math.round(z) + '"></label>' +
+          '<label>Radius <input data-zone-popover-field="radius" type="number" min="10" step="10" value="' + escapeAttr(radius) + '"></label>' +
+          '<label>Colour <input data-zone-popover-field="colour" type="color" value="' + escapeAttr(colour) + '"></label>' +
+          '</div>' +
+          '<div class="zone-popover-actions">' +
+          '<button type="button" data-zone-popover-save>Save Zone</button>' +
+          '<button type="button" data-zone-popover-close>Close</button>' +
+          '</div>';
         popover.hidden = false;
       }
       function draftZoneFromMap(map, event) {
@@ -13996,7 +13996,7 @@ PAGE_TEMPLATE = """
       return true;
     }
     function xmlEscape(value) {
-      return String(value ?? "").replace(/[<>&"']/g, (char) => ({"<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&apos;"}[char]));
+      return String(value ?? "").replace(/[<>&"']/g, (char) => ({"<": "&lt;", ">": "&gt;", "&": "&amp;", "\\\"": "&quot;", "'": "&apos;"}[char]));
     }
     function parsedOutputItems(form) {
       const output = form ? form.querySelector("[data-picker-output]") : null;

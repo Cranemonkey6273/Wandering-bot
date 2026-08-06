@@ -4260,6 +4260,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn(r'.join("\n")', dashboard.PAGE_TEMPLATE)
         self.assertIn(r'split(/\n+/)', dashboard.PAGE_TEMPLATE)
         self.assertIn(r'split(/\r?\n/)', dashboard.PAGE_TEMPLATE)
+        self.assertIn("'<div class=\"zone-popover-actions\">'", dashboard.PAGE_TEMPLATE)
+        self.assertIn(r'"\"": "&quot;"', dashboard.PAGE_TEMPLATE)
         self.assertNotIn('.join("\n")', dashboard.PAGE_TEMPLATE)
         self.assertNotIn('split(/\n+/)', dashboard.PAGE_TEMPLATE)
         self.assertNotIn('split(/\r?\n/)', dashboard.PAGE_TEMPLATE)
