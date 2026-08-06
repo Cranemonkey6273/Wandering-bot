@@ -2629,6 +2629,91 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual([], normalized)
         self.assertIn("does not reference ./custom/QA_Camp.json", error)
 
+    def test_restricted_area_package_builds_exact_pra_shape_and_gameplay_link(self):
+        objective = (
+            "Draft only; never upload. On Chernarus create complete custom/QA_NoLogout.json "
+            "using the player restricted-area schema. Use areaName QA_NoLogout, one PRA box "
+            "with size [30,6,20], orientation [0,0,0], position [7500,50,7500], and "
+            "safePositions3D [7535,50,7500] and [7465,50,7500]. Also add "
+            "./custom/QA_NoLogout.json to cfgGameplay.json WorldsData.playerRestrictedAreaFiles."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "custom/playerRestrictedArea.json",
+                "dayz_custom_target_path": "custom/QA_NoLogout.json",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "none",
+            },
+            objective,
+        )
+
+        drafts = dashboard.ai_agent_builtin_restricted_area_package_drafts(
+            {"dayz_context": context, "objective": objective}, objective
+        )
+
+        self.assertEqual(
+            ["custom/QA_NoLogout.json", "cfggameplay.json"],
+            [item["target_path"] for item in drafts],
+        )
+        restricted = json.loads(drafts[0]["content"])
+        self.assertEqual("QA_NoLogout", restricted["areaName"])
+        self.assertEqual(
+            [[[30.0, 6.0, 20.0], [0.0, 0.0, 0.0], [7500.0, 50.0, 7500.0]]],
+            restricted["PRABoxes"],
+        )
+        self.assertEqual(
+            [[7535.0, 50.0, 7500.0], [7465.0, 50.0, 7500.0]],
+            restricted["safePositions3D"],
+        )
+        gameplay = json.loads(drafts[1]["content"])
+        self.assertIn(
+            "./custom/QA_NoLogout.json",
+            gameplay["WorldsData"]["playerRestrictedAreaFiles"],
+        )
+
+        normalized, error = dashboard.ai_agent_normalize_dayz_draft_package(
+            {
+                "dayz_drafts": [
+                    {
+                        "target_path": item["target_path"],
+                        "kind": item["kind"],
+                        "content": item["content"],
+                        "summary": item["summary"],
+                    }
+                    for item in drafts
+                ]
+            },
+            context,
+        )
+        self.assertEqual("", error)
+        self.assertEqual(2, len(normalized))
+
+    def test_restricted_area_package_refuses_missing_safe_positions(self):
+        objective = (
+            "Create custom/QA_NoLogout.json restricted area with areaName QA_NoLogout "
+            "and one PRA box size [30,6,20], orientation [0,0,0], position [7500,50,7500]."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "custom/playerRestrictedArea.json",
+                "dayz_custom_target_path": "custom/QA_NoLogout.json",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "none",
+            },
+            objective,
+        )
+
+        self.assertEqual(
+            [],
+            dashboard.ai_agent_builtin_restricted_area_package_drafts(
+                {"dayz_context": context, "objective": objective}, objective
+            ),
+        )
+
     def test_existing_mapgroup_placement_uses_real_mapgrouppos_shape_and_verified_prototype(self):
         objective = (
             "Add one placement of existing map group Land_Mil_Barracks4 at X 5000, Z 5000, "

@@ -27028,6 +27028,151 @@ def ai_agent_builtin_objectspawner_package_drafts(task: dict[str, Any], prompt: 
     return [object_draft, gameplay_draft]
 
 
+def ai_agent_builtin_restricted_area_package_drafts(task: dict[str, Any], prompt: Any) -> list[dict[str, Any]]:
+    """Build a validated player restricted-area file and its gameplay link.
+
+    PRA box nesting is easy for a language model to flatten accidentally.  For
+    an explicit request containing every size/orientation/position vector, use
+    the documented DayZ shape deterministically and preserve the selected
+    map's complete vanilla cfgGameplay base.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return []
+    request = str(prompt or task.get("objective") or "")
+    lower = request.lower()
+    custom_path = dayz_custom_json_path_from_text(request)
+    selected_target = str(context.get("target_path") or "")
+    if (
+        not custom_path
+        or not any(term in lower for term in ("restricted area", "restricted-area", "prabox", "praboxes"))
+        or selected_target not in {custom_path, "cfggameplay.json"}
+    ):
+        return []
+
+    area_name_match = re.search(
+        r"\bareaName\s*(?:=|:)?\s*[\"']?([A-Za-z][A-Za-z0-9_.-]*)",
+        request,
+        re.IGNORECASE,
+    )
+    box_pattern = re.compile(
+        r"(?:PRA\s*)?box\b.*?\bsize\s*(?:=|:)?\s*(?P<size>\[[^\]]+\])"
+        r".*?\borientation\s*(?:=|:)?\s*(?P<orientation>\[[^\]]+\])"
+        r".*?\bposition\s*(?:=|:)?\s*(?P<position>\[[^\]]+\])",
+        re.IGNORECASE | re.DOTALL,
+    )
+    boxes: list[list[list[float]]] = []
+    for match in box_pattern.finditer(request):
+        size = ai_agent_prompt_vector(match.group("size"))
+        orientation = ai_agent_prompt_vector(match.group("orientation"))
+        position = ai_agent_prompt_vector(match.group("position"))
+        if size and orientation and position:
+            boxes.append([size, orientation, position])
+    safe_section = re.search(
+        r"\bsafePositions3D\b(?P<body>.*?)(?:\.(?:\s|$)|\b(?:also|return|provide|download)\b)",
+        request,
+        re.IGNORECASE | re.DOTALL,
+    )
+    safe_positions = [
+        vector
+        for vector in (
+            ai_agent_prompt_vector(raw)
+            for raw in re.findall(r"\[[^\]]+\]", safe_section.group("body") if safe_section else "")
+        )
+        if vector
+    ]
+    if not area_name_match or not boxes or not safe_positions:
+        return []
+
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    custom_payload = {
+        "areaName": area_name_match.group(1),
+        "PRABoxes": boxes,
+        "safePositions3D": safe_positions,
+    }
+    custom_content = json.dumps(custom_payload, indent=2, ensure_ascii=False)
+    valid, _validation_message = validate_dayz_upload_text(custom_path, custom_content)
+    semantic_ok, _semantic_message = ai_agent_validate_dayz_draft_semantics(
+        custom_path, custom_content, {**context, "target_path": custom_path}
+    )
+    if not valid or not semantic_ok:
+        return []
+
+    try:
+        gameplay_payload = copy.deepcopy(load_dayz_reference_json(map_key, "cfggameplay.json"))
+    except ValueError:
+        return []
+    worlds_data = gameplay_payload.get("WorldsData")
+    if not isinstance(worlds_data, dict):
+        return []
+    restricted_paths = worlds_data.get("playerRestrictedAreaFiles")
+    if restricted_paths is None:
+        restricted_paths = []
+        worlds_data["playerRestrictedAreaFiles"] = restricted_paths
+    if not isinstance(restricted_paths, list):
+        return []
+    relative_path = f"./{custom_path}"
+    normalised_existing = {
+        str(value or "").strip().replace("\\", "/").removeprefix("./")
+        for value in restricted_paths
+    }
+    if custom_path not in normalised_existing:
+        restricted_paths.append(relative_path)
+    gameplay_content = json.dumps(gameplay_payload, indent=2, ensure_ascii=False)
+    valid, _validation_message = validate_dayz_upload_text("cfggameplay.json", gameplay_content)
+    semantic_ok, _semantic_message = ai_agent_validate_dayz_draft_semantics(
+        "cfggameplay.json", gameplay_content, context
+    )
+    if not valid or not semantic_ok:
+        return []
+
+    now = datetime.now(UTC).isoformat()
+    package = {
+        "workflow": "player_restricted_area",
+        "changed_files": [custom_path, "cfggameplay.json"],
+        "link_path": relative_path,
+        "link_field": "WorldsData.playerRestrictedAreaFiles",
+    }
+    custom_draft = {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": custom_path,
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": custom_content + "\n",
+        "content_chars": len(custom_content),
+        "summary": (
+            f"Complete validated player restricted-area JSON with {len(boxes)} PRA box(es), "
+            f"{len(safe_positions)} safe position(s), and exact gameplay link {relative_path}."
+        ),
+        "validation": "passed",
+        "base": "documented DayZ player restricted-area JSON schema",
+        "custom_json_schema": "restricted_area",
+        "linked_package": package,
+        "created_at": now,
+        "updated_at": now,
+    }
+    gameplay_draft = {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "cfggameplay.json",
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": gameplay_content + "\n",
+        "content_chars": len(gameplay_content),
+        "summary": (
+            f"Complete validated {map_key.title()} vanilla cfgGameplay.json with {relative_path} added to "
+            "WorldsData.playerRestrictedAreaFiles; existing paths and unrelated settings were preserved."
+        ),
+        "validation": "passed",
+        "base": f"bundled vanilla {map_key} cfgGameplay.json",
+        "linked_package": package,
+        "created_at": now,
+        "updated_at": now,
+    }
+    return [custom_draft, gameplay_draft]
+
+
 def ai_agent_builtin_mapgroup_placement_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
     """Create one verified placement for an existing selected-map prototype."""
     context = task.get("dayz_context") if isinstance(task, dict) else None
@@ -28381,6 +28526,7 @@ def ai_agent_llm_reply_for_task(
     # linked CE event pair simply because it cannot fit the full base in context.
     deterministic_drafts = (
         ai_agent_builtin_objectspawner_package_drafts(task, prompt)
+        or ai_agent_builtin_restricted_area_package_drafts(task, prompt)
         or ai_agent_builtin_vehicle_event_drafts(task)
         or ai_agent_builtin_airdrop_event_drafts(task)
         or ai_agent_builtin_infected_horde_drafts(task)
