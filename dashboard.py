@@ -5833,12 +5833,30 @@ PAGE_TEMPLATE = """
     .owner-server-actions .inline-action { display: inline-flex; width: auto; gap: .35rem; }
     .owner-server-actions .result { display: none; }
     .owner-server-actions button, .owner-server-actions .button { min-height: 2.25rem; padding: .42rem .55rem; font-size: .78rem; line-height: 1.1; white-space: normal; }
-    .owner-switcher-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .65rem; }
-    .owner-switcher-card { display: grid; gap: .55rem; border: 1px solid var(--line); border-radius: .55rem; padding: .75rem; background: linear-gradient(135deg, rgba(13,33,36,.9), rgba(6,10,8,.96)); text-decoration: none; color: inherit; min-width: 0; }
+    .owner-server-manager-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(12rem, .55fr) minmax(10rem, .35fr); gap: .5rem; align-items: center; margin-bottom: .65rem; }
+    .owner-server-summary { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; min-width: 0; }
+    .owner-server-manager-toolbar input,
+    .owner-server-manager-toolbar select { min-width: 0; width: 100%; }
+    .owner-switcher-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr)); gap: .45rem; }
+    .owner-switcher-card { display: grid; gap: .42rem; border: 1px solid var(--line); border-radius: .5rem; padding: .58rem; background: linear-gradient(135deg, rgba(13,33,36,.9), rgba(6,10,8,.96)); text-decoration: none; color: inherit; min-width: 0; align-content: start; }
     .owner-switcher-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent); }
     .owner-switcher-title { display: flex; justify-content: space-between; gap: .55rem; align-items: start; }
-    .owner-switcher-title strong { color: var(--text); overflow-wrap: anywhere; }
+    .owner-switcher-title strong { color: var(--text); overflow-wrap: anywhere; font-size: .92rem; line-height: 1.2; }
+    .owner-server-status-line { display: grid; gap: .25rem; align-items: start; }
+    .owner-server-status-line .pill { justify-self: start; }
+    .owner-server-status-copy { color: var(--muted); font-size: .72rem; line-height: 1.3; }
+    .owner-server-signals { display: flex; flex-wrap: wrap; gap: .25rem .45rem; color: var(--muted); font-size: .72rem; line-height: 1.25; }
+    .owner-server-signals span::before { content: ""; display: inline-block; width: .42rem; height: .42rem; margin-right: .25rem; border-radius: 50%; background: #687277; vertical-align: .06rem; }
+    .owner-server-signals span.on::before { background: var(--green, #8ee85f); box-shadow: 0 0 .3rem rgba(142,232,95,.4); }
+    .owner-server-signals span.warn::before { background: var(--gold, #f3b84e); }
     .owner-switcher-actions { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+    .owner-switcher-actions .button,
+    .owner-switcher-actions button { min-height: 2rem; padding: .35rem .5rem; font-size: .76rem; }
+    .owner-server-danger { min-width: 0; }
+    .owner-server-danger > summary { cursor: pointer; color: #ff9ab0; font-size: .74rem; font-weight: 800; list-style-position: inside; }
+    .owner-server-danger[open] { flex-basis: 100%; width: 100%; border-top: 1px solid var(--line); padding-top: .4rem; }
+    .owner-server-danger .inline-action { margin-top: .35rem; width: 100%; }
+    .owner-server-empty { grid-column: 1 / -1; margin: 0; padding: .85rem; border: 1px dashed var(--line); border-radius: .45rem; color: var(--muted); text-align: center; }
     .button.danger, button.danger { border-color: rgba(255,122,138,.58); color: #ffdce1; background: rgba(92,20,29,.28); }
     .billing-plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: .75rem; }
     .billing-plan-card { display: grid; gap: .65rem; border: 1px solid var(--line); border-radius: .55rem; padding: .8rem; background: #070b08; min-width: 0; }
@@ -6207,7 +6225,7 @@ PAGE_TEMPLATE = """
     .hidden-field { display: none; }
     @media (max-width: 980px) {
       .hero, .grid, .columns, .stats, form, .form-advanced-grid, .zone-builder-form, .zone-options, .zone-tools, .route-list, .panel-grid, .owner-grid, .option-grid, .leader-row, .leader-category-grid, .check-grid, .mini-grid, .heat-row, .category-grid, .quick-guide-grid, .preset-map-picker, .help-grid, .owner-server-card, .xml-tool-layout, .xml-converter-grid, .types-engine-layout, .types-start-grid, .types-map-card-grid, .types-editor-appbar, .types-editor-filters, .loadout-builder, .visual-loadout-layout, .loadout-slot-grid, .loadout-cargo-grid, .ai-agent-grid, .ai-agent-stat-grid, .ai-codex-workbench, .ai-codex-options, .bundle-manager-toolbar { grid-template-columns: 1fr; }
-      .types-search-wrap, .types-map-actions { grid-template-columns: 1fr; }
+      .types-search-wrap, .types-map-actions, .owner-server-manager-toolbar { grid-template-columns: 1fr; }
       .types-search-wrap { justify-content: stretch; }
       .types-search-wrap input { min-width: 0; width: 100%; }
       .schedule-status-row { grid-template-columns: 1fr; }
@@ -6489,35 +6507,64 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>{% if auth.kind == "owner" and mode == "owner" %}Owner Server Manager{% else %}Server Switcher{% endif %}</h2>
-          <p class="tool-note">{% if auth.kind == "owner" and mode == "owner" %}Every known server is visible here. Open, edit access, or delete stale dashboard data without relying on the Discord leave action.{% else %}Admin view is scoped to the private dashboard login and linked servers only. Pick a server, then every category below uses that server's data and locked server identity.{% endif %}</p>
+          <p class="tool-note">{% if auth.kind == "owner" and mode == "owner" %}Every known Discord server is visible here. Status uses current bot presence, dashboard access and saved Nitrado setup; it does not guess that a quiet DayZ server is dead. Review flagged records before removing anything.{% else %}Admin view is scoped to the private dashboard login and linked servers only. Pick a server, then every category below uses that server's data and locked server identity.{% endif %}</p>
         </div>
       </div>
       {% if auth.kind == "owner" and mode == "owner" %}
-      <div class="owner-switcher-grid">
+      <div class="owner-server-manager-toolbar" data-owner-server-manager>
+        <div class="owner-server-summary" aria-label="Server readiness summary">
+          <span class="pill">{{ owner_server_status_summary.total }} total</span>
+          <span class="pill ok">{{ owner_server_status_summary.ready }} ready</span>
+          <span class="pill warn">{{ owner_server_status_summary.attention }} need attention</span>
+          <span class="pill bad">{{ owner_server_status_summary.review }} review</span>
+        </div>
+        <input type="search" data-owner-server-search placeholder="Search server, map or plan" aria-label="Search owner servers">
+        <select data-owner-server-filter aria-label="Filter owner servers by readiness">
+          <option value="all">All statuses</option>
+          <option value="ready">Active & ready</option>
+          <option value="attention">Needs attention</option>
+          <option value="review">Likely stale / removed</option>
+        </select>
+      </div>
+      <div class="owner-switcher-grid" data-owner-server-grid>
         {% for item in servers %}
-        <div class="owner-switcher-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}">
+        <div class="owner-switcher-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}" data-owner-server-card data-owner-status="{{ item.owner_status.key }}" data-owner-rank="{{ item.owner_status.rank }}" data-owner-search="{{ (item.guild_name ~ ' ' ~ item.map ~ ' ' ~ (item.dashboard_access.tier or item.dashboard_access.plan_status or 'none') ~ ' ' ~ item.owner_status.label)|lower }}">
           <div class="owner-switcher-title">
             <strong>{{ item.guild_name }}</strong>
             <span class="pill">{{ item.map|upper }}</span>
           </div>
+          <div class="owner-server-status-line">
+            <span class="pill {{ item.owner_status.tone }}">{{ item.owner_status.label }}</span>
+            <span class="owner-server-status-copy">{{ item.owner_status.detail }}</span>
+          </div>
           <div class="owner-server-meta">
-            <span class="pill {{ 'ok' if item.dashboard_access.enabled else 'bad' }}">{{ 'Dashboard on' if item.dashboard_access.enabled else 'Dashboard locked' }}</span>
             <span class="pill">{{ item.dashboard_access.tier or item.dashboard_access.plan_status or 'none' }}</span>
-            <span class="pill">{{ item.channels|length }} channels</span>
+            <span class="pill">{{ item.owner_status.profile_count }} profile{{ '' if item.owner_status.profile_count == 1 else 's' }}</span>
+            <span class="pill">{{ item.owner_status.configured_routes }} routes</span>
+          </div>
+          <div class="owner-server-signals" aria-label="Connection signals">
+            <span class="{{ 'on' if item.owner_status.bot_present else 'warn' }}">Discord bot</span>
+            <span class="{{ 'on' if item.owner_status.dashboard_ready else 'warn' }}">Dashboard</span>
+            <span class="{{ 'on' if item.owner_status.nitrado_ready else 'warn' }}">Nitrado</span>
+            <span class="{{ 'on' if item.owner_status.file_access_ready else 'warn' }}">File access</span>
           </div>
           <div class="owner-switcher-actions">
             <a class="button" href="/owner?guild_id={{ item.guild_id }}">Open</a>
             <a class="button" href="/owner?section=access&guild_id={{ item.guild_id }}#access">Edit</a>
-            <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete {{ item.guild_name }}? This makes the bot leave that Discord server and removes its saved dashboard data. A redacted archive entry is kept for owner audit only.">
-              <input class="hidden-field" name="guild_id" value="{{ item.guild_id }}">
-              <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
-              <input class="hidden-field" name="action" value="leave_and_remove">
-              <input name="confirm_name" placeholder="type server name" aria-label="Type server name or guild ID to confirm delete" autocomplete="off" required>
-              <button type="submit" class="danger">Delete</button> <span class="result muted"></span>
-            </form>
+            <details class="owner-server-danger">
+              <summary>Remove server</summary>
+              <form class="admin-form inline-action" method="post" action="/api/owner/guild-action" data-route="/api/owner/guild-action" data-confirm="Delete {{ item.guild_name }}? This makes the bot leave that Discord server and removes its saved dashboard data. A redacted archive entry is kept for owner audit only.">
+                <input class="hidden-field" name="guild_id" value="{{ item.guild_id }}">
+                <input class="hidden-field" name="return_to" value="/owner?section=owner#owner-servers">
+                <input class="hidden-field" name="action" value="leave_and_remove">
+                <input name="confirm_name" placeholder="type server name" aria-label="Type server name or guild ID to confirm delete" autocomplete="off" required>
+                <button type="submit" class="danger">Delete</button> <span class="result muted"></span>
+              </form>
+            </details>
           </div>
         </div>
         {% endfor %}
+        <p class="owner-server-empty" data-owner-server-empty hidden>No servers match this search and status filter.</p>
       </div>
       {% else %}
       <div class="server-tabs">
@@ -17566,6 +17613,42 @@ PAGE_TEMPLATE = """
         }
       });
     }
+    function setupOwnerServerManager() {
+      const grid = document.querySelector("[data-owner-server-grid]");
+      const manager = document.querySelector("[data-owner-server-manager]");
+      if (!grid || !manager) return;
+      const search = manager.querySelector("[data-owner-server-search]");
+      const filter = manager.querySelector("[data-owner-server-filter]");
+      const empty = grid.querySelector("[data-owner-server-empty]");
+      const cards = Array.from(grid.querySelectorAll("[data-owner-server-card]"));
+      cards.sort((left, right) => {
+        const rankDifference = Number(left.dataset.ownerRank || 99) - Number(right.dataset.ownerRank || 99);
+        if (rankDifference) return rankDifference;
+        return String(left.dataset.ownerSearch || "").localeCompare(String(right.dataset.ownerSearch || ""));
+      }).forEach((card) => grid.insertBefore(card, empty || null));
+      const matchesStatus = (status, selected) => {
+        if (!selected || selected === "all") return true;
+        if (selected === "attention") return status === "setup" || status === "offline";
+        if (selected === "review") return status === "review" || status === "removed";
+        return status === selected;
+      };
+      const apply = () => {
+        const query = String(search?.value || "").trim().toLowerCase();
+        const selected = String(filter?.value || "all");
+        let visible = 0;
+        cards.forEach((card) => {
+          const shown = matchesStatus(String(card.dataset.ownerStatus || ""), selected)
+            && (!query || String(card.dataset.ownerSearch || "").includes(query));
+          card.hidden = !shown;
+          if (shown) visible += 1;
+        });
+        if (empty) empty.hidden = visible !== 0;
+      };
+      search?.addEventListener("input", apply);
+      filter?.addEventListener("change", apply);
+      apply();
+    }
+    setupOwnerServerManager();
     document.querySelectorAll("[data-scenario-event-row]").forEach(pollScenarioStatusRow);
     setupAiAgentChat();
     document.addEventListener("click", async (event) => {
@@ -35120,6 +35203,87 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def owner_server_readiness(
+    config: Any,
+    access: Any,
+    dayz_profiles: Any,
+    runtime_guild_present: bool,
+) -> dict[str, Any]:
+    """Summarise owner-facing readiness without claiming DayZ uptime.
+
+    A quiet server is not necessarily dead.  The owner list therefore uses
+    concrete dashboard signals only: whether the bot currently sees the
+    Discord guild, whether dashboard access is enabled, and whether at least
+    one enabled DayZ profile has enough Nitrado configuration to operate.
+    """
+    config = config if isinstance(config, dict) else {}
+    access = access if isinstance(access, dict) else {}
+    profiles = [
+        profile
+        for profile in (dayz_profiles if isinstance(dayz_profiles, list) else [])
+        if isinstance(profile, dict) and dashboard_bool(profile.get("enabled"), True)
+    ]
+    if profiles:
+        profile_count = len(profiles)
+        nitrado_ready = any(
+            bool(str(profile.get("service_id") or "").strip())
+            and str(profile.get("token_status") or "missing") != "missing"
+            for profile in profiles
+        )
+        file_access_ready = any(str(profile.get("ftp_status") or "missing") == "saved" for profile in profiles)
+        configured_routes = sum(max(0, safe_int(profile.get("configured_channel_count"), 0)) for profile in profiles)
+    else:
+        # Older single-server records pre-date the profile collection.  Treat
+        # the base record as one profile while deriving the same real signals.
+        profile_count = 1
+        nitrado_ready = bool(str(config.get("service_id") or "").strip() and config.get("nitrado_token"))
+        file_access_ready = bool(config.get("ftp_user") and config.get("ftp_password"))
+        configured_routes = len([
+            value
+            for value in (config.get("channels") or {}).values()
+            if str(value or "").strip()
+        ]) if isinstance(config.get("channels"), dict) else 0
+
+    dashboard_ready = bool(access.get("enabled"))
+    bot_removed = bool(config.get("bot_removed"))
+    feed_ready = configured_routes > 0
+    if bot_removed:
+        key, label, tone, rank = "removed", "Removed", "bad", 5
+        detail = "Bot removal is recorded; saved data remains for review."
+    elif runtime_guild_present and dashboard_ready and nitrado_ready:
+        key, label, tone, rank = "ready", "Active & ready", "ok", 1
+        detail = "Bot present, dashboard enabled and Nitrado linked."
+    elif runtime_guild_present:
+        key, label, tone, rank = "setup", "Connected · needs attention", "warn", 2
+        missing = []
+        if not dashboard_ready:
+            missing.append("dashboard access")
+        if not nitrado_ready:
+            missing.append("Nitrado link")
+        detail = "Bot present; check " + " and ".join(missing or ["server setup"]) + "."
+    elif not dashboard_ready and not nitrado_ready:
+        key, label, tone, rank = "review", "Likely stale · review", "bad", 4
+        detail = "Bot not currently seen, dashboard locked and no working Nitrado link detected."
+    else:
+        key, label, tone, rank = "offline", "Bot not currently seen", "warn", 3
+        detail = "Saved setup exists, but the bot does not currently report this Discord server."
+
+    return {
+        "key": key,
+        "label": label,
+        "tone": tone,
+        "rank": rank,
+        "detail": detail,
+        "bot_present": bool(runtime_guild_present and not bot_removed),
+        "dashboard_ready": dashboard_ready,
+        "nitrado_ready": nitrado_ready,
+        "file_access_ready": file_access_ready,
+        "feed_ready": feed_ready,
+        "configured_routes": configured_routes,
+        "profile_count": profile_count,
+    }
+
+
 def count_records(value: Any) -> int:
     if isinstance(value, (dict, list)):
         return len(value)
@@ -36650,6 +36814,11 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
             needs_player_audit,
             online_players,
         )
+        runtime_guild_present = any(
+            normalize_guild_id(runtime_guild_id) == guild_id
+            for runtime_guild_id in discord_guild_counts
+        )
+        owner_status = owner_server_readiness(config, access, dayz_profiles, runtime_guild_present)
         server_heatmap = heatmap_summary(heatmap, guild_id) if needs_heatmap else {"total": 0, "modes": {}}
         scenario_events = visible_scenario_events(config) if needs_pve else []
         server_pve = pve_summary(pve_challenges, pve_ai_campaigns, pve_workshop_schedules, guild_id, channels) if needs_pve else {"active": [], "campaigns": 0, "schedules": 0, "reward_types": [], "quest_channels": 0}
@@ -36705,6 +36874,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "scenario_summary": redact(scenario_summary),
                 "scenario_tracker": redact(tracker_summary),
                 "dashboard_access": access,
+                "owner_status": owner_status,
                 "factions": redact(server_factions),
                 "wages": redact(server_wages),
                 "wallets": redact(server_wallets),
@@ -36731,6 +36901,13 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     if guild_name_store_changed:
         save_store("guild_configs", guild_configs)
         sync_runtime_store("guild_configs", guild_configs)
+
+    owner_server_status_summary = {
+        "total": len(servers),
+        "ready": sum(1 for server in servers if server.get("owner_status", {}).get("key") == "ready"),
+        "attention": sum(1 for server in servers if server.get("owner_status", {}).get("key") in {"setup", "offline"}),
+        "review": sum(1 for server in servers if server.get("owner_status", {}).get("key") in {"review", "removed"}),
+    }
 
     admin_embed_templates = dashboard_admin.get("embed_templates", {}) if isinstance(dashboard_admin, dict) else {}
     admin_welcome = dashboard_admin.get("welcome_automations", {}) if isinstance(dashboard_admin, dict) else {}
@@ -36759,6 +36936,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
             "pve_campaigns": sum(safe_int(server.get("pve", {}).get("campaigns")) for server in servers),
         },
         "servers": servers,
+        "owner_server_status_summary": owner_server_status_summary,
         "shop": redact(shop),
         "shop_items": redact(shop_items),
         "shop_categories": redact(shop_categories),
@@ -36812,6 +36990,12 @@ def filter_state_for_auth(state: dict[str, Any], auth: dict[str, Any], mode: str
     scoped = dict(state)
     scoped["summary"] = summary
     scoped["servers"] = servers
+    scoped["owner_server_status_summary"] = {
+        "total": len(servers),
+        "ready": sum(1 for server in servers if server.get("owner_status", {}).get("key") == "ready"),
+        "attention": sum(1 for server in servers if server.get("owner_status", {}).get("key") in {"setup", "offline"}),
+        "review": sum(1 for server in servers if server.get("owner_status", {}).get("key") in {"review", "removed"}),
+    }
     return scoped
 
 
@@ -37304,6 +37488,7 @@ def page(mode: str, auth: dict[str, Any]):
         public_url=DASHBOARD_PUBLIC_URL,
         summary=state["summary"],
         servers=state["servers"],
+        owner_server_status_summary=state.get("owner_server_status_summary", {"total": len(state.get("servers", [])), "ready": 0, "attention": 0, "review": 0}),
         selected_dayz_profile=selected_dayz_profile,
         selected_dayz_profile_id=selected_dayz_profile_id,
         shop_items=state.get("shop_items", []),

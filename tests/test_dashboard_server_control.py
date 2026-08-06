@@ -1668,6 +1668,69 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("changed", files["mapgroupproto.xml"]["action"])
         self.assertEqual("conditional", files["cfglimitsdefinition.xml"]["action"])
 
+    def test_owner_server_readiness_distinguishes_ready_attention_and_stale_records(self):
+        ready = dashboard.owner_server_readiness(
+            {},
+            {"enabled": True},
+            [{
+                "enabled": True,
+                "service_id": "12345",
+                "token_status": "shared",
+                "ftp_status": "saved",
+                "configured_channel_count": 4,
+            }],
+            True,
+        )
+        attention = dashboard.owner_server_readiness(
+            {},
+            {"enabled": True},
+            [{
+                "enabled": True,
+                "service_id": "",
+                "token_status": "missing",
+                "ftp_status": "missing",
+                "configured_channel_count": 1,
+            }],
+            True,
+        )
+        stale = dashboard.owner_server_readiness({}, {"enabled": False}, [], False)
+
+        self.assertEqual("ready", ready["key"])
+        self.assertTrue(ready["nitrado_ready"])
+        self.assertTrue(ready["file_access_ready"])
+        self.assertEqual(4, ready["configured_routes"])
+        self.assertEqual("setup", attention["key"])
+        self.assertEqual("review", stale["key"])
+        self.assertIn("not currently seen", stale["detail"].lower())
+
+    def test_owner_server_readiness_does_not_call_a_saved_setup_dead_when_bot_is_not_seen(self):
+        status = dashboard.owner_server_readiness(
+            {
+                "service_id": "12345",
+                "nitrado_token": "saved-token",
+                "ftp_user": "saved-user",
+                "ftp_password": "saved-password",
+                "channels": {"killfeed": "123"},
+            },
+            {"enabled": True},
+            [],
+            False,
+        )
+
+        self.assertEqual("offline", status["key"])
+        self.assertEqual("Bot not currently seen", status["label"])
+        self.assertTrue(status["nitrado_ready"])
+        self.assertEqual(1, status["configured_routes"])
+
+    def test_owner_server_manager_template_is_compact_searchable_and_safe_to_review(self):
+        self.assertIn("data-owner-server-manager", dashboard.PAGE_TEMPLATE)
+        self.assertIn("data-owner-server-search", dashboard.PAGE_TEMPLATE)
+        self.assertIn("data-owner-server-filter", dashboard.PAGE_TEMPLATE)
+        self.assertIn("data-owner-status=", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Likely stale / removed", dashboard.PAGE_TEMPLATE)
+        self.assertIn('<details class="owner-server-danger">', dashboard.PAGE_TEMPLATE)
+        self.assertIn("it does not guess that a quiet DayZ server is dead", dashboard.PAGE_TEMPLATE)
+
     def test_dayz_file_plan_and_template_include_the_specialist_workbench(self):
         plan = dashboard.ai_agent_plan_from_objective(
             "Make the weather drier but retain storms.",
