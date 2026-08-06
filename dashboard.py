@@ -26030,6 +26030,124 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
     ]
 
 
+def ai_agent_builtin_airdrop_event_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build a validated merge-only CE pair for a vanilla airdrop scenario.
+
+    Event plans are intentionally different from the complete offline vehicle
+    review pair above.  An airdrop is normally added to a server that already
+    has vanilla and custom CE records, so the downloadable answer must contain
+    only the new named ``events.xml`` and ``cfgeventspawns.xml`` records.  The
+    other two core files are still parsed and audited: a direct position does
+    not require an event group, while the requested wreck/anchor must already
+    have a usable map-group prototype on the selected map.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict):
+        return []
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if str(scenario.get("event_type") or "") != "airdrop" or scenario.get("error"):
+        return []
+    map_key = normalize_dayz_reference_map_key(scenario.get("map") or context.get("map"))
+    class_name = str(scenario.get("class_name") or "").strip()
+    if not class_name:
+        return []
+    try:
+        types_root = ET.fromstring(load_dayz_reference_text(map_key, "db", "types.xml"))
+        eventgroups_root = ET.fromstring(load_dayz_reference_text(map_key, "cfgeventgroups.xml"))
+        prototype_root = ET.fromstring(load_dayz_reference_text(map_key, "mapgroupproto.xml"))
+    except ET.ParseError:
+        return []
+    if not any(str(node.get("name") or "") == class_name for node in types_root.findall("type")):
+        return []
+    prototype = prototype_root.find(f"./group[@name='{class_name}']")
+    if eventgroups_root.tag != "eventgroupdef" or prototype_root.tag != "prototype" or prototype is None:
+        return []
+
+    label = str(scenario.get("name") or scenario.get("preset") or "Airdrop").strip()
+    slug = re.sub(r"[^A-Za-z0-9]+", "", label) or "Airdrop"
+    x = safe_int(scenario.get("x"), 0)
+    z = safe_int(scenario.get("z"), 0)
+    angle = float(scenario.get("angle") or 0.0)
+    count = max(1, min(250, safe_int(scenario.get("apply_payload", {}).get("count"), 1)))
+    event_name = f"StaticWanderingBot_{slug}_{x}_{z}"[:64]
+    loot_max = max(0, safe_int(prototype.get("lootmax"), 15))
+    loot_min = min(loot_max, 10) if loot_max else 0
+    event_patch = (
+        "<events>\n"
+        f"    <event name=\"{event_name}\">\n"
+        f"        <nominal>{count}</nominal>\n"
+        f"        <min>{count}</min>\n"
+        f"        <max>{count}</max>\n"
+        "        <lifetime>2100</lifetime>\n"
+        "        <restock>0</restock>\n"
+        "        <saferadius>1000</saferadius>\n"
+        "        <distanceradius>1000</distanceradius>\n"
+        "        <cleanupradius>1000</cleanupradius>\n"
+        "        <flags deletable=\"1\" init_random=\"0\" remove_damaged=\"0\"/>\n"
+        "        <position>fixed</position>\n"
+        "        <limit>child</limit>\n"
+        "        <active>1</active>\n"
+        "        <children>\n"
+        f"            <child lootmax=\"{loot_max}\" lootmin=\"{loot_min}\" max=\"{count}\" min=\"1\" type=\"{class_name}\"/>\n"
+        "        </children>\n"
+        "    </event>\n"
+        "</events>\n"
+    )
+    spawn_patch = (
+        "<eventposdef>\n"
+        f"    <event name=\"{event_name}\">\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"{angle:.6f}\"/>\n"
+        "    </event>\n"
+        "</eventposdef>\n"
+    )
+    normalized, error = ai_agent_normalize_dayz_draft_package(
+        {
+            "dayz_drafts": [
+                {
+                    "target_path": "db/events.xml",
+                    "kind": "patch",
+                    "content": event_patch,
+                    "summary": f"Validated merge-only CE definition for `{event_name}` using `{class_name}`.",
+                },
+                {
+                    "target_path": "cfgeventspawns.xml",
+                    "kind": "patch",
+                    "content": spawn_patch,
+                    "summary": f"Validated matching position for `{event_name}` at X {x}, Z {z}, rotation {angle:.6f}.",
+                },
+            ]
+        },
+        context,
+    )
+    if error or len(normalized) != 2:
+        return []
+    event_package = {
+        "core_files": list(DAYZ_EVENT_CORE_FILES),
+        "changed_files": ["db/events.xml", "cfgeventspawns.xml"],
+        "preserved_files": ["cfgeventgroups.xml", "mapgroupproto.xml"],
+        "linked_event_name": event_name,
+        "linked_class_name": class_name,
+        "checks": [
+            {
+                "path": "cfgeventgroups.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "The direct airdrop position has no group= reference.",
+            },
+            {
+                "path": "mapgroupproto.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": f"The selected map already contains the `{class_name}` loot prototype (lootmax {loot_max}).",
+            },
+        ],
+    }
+    for draft in normalized:
+        draft["event_package"] = event_package
+        draft["base"] = f"merge-only records validated against bundled DayZ {DAYZ_CE_FILE_VERSION} {map_key} references"
+    return normalized
+
+
 def ai_agent_full_survivor_loadout_draft_requested(context: dict[str, Any], prompt: Any) -> bool:
     """Recognise the one complete vanilla spawn-gear package we can verify locally.
 
@@ -27418,7 +27536,10 @@ def ai_agent_llm_reply_for_task(
     # Prefer deterministic generators for the narrow DayZ jobs they cover.
     # This prevents a model from truncating a large vanilla file or inventing a
     # linked CE event pair simply because it cannot fit the full base in context.
-    deterministic_drafts = ai_agent_builtin_vehicle_event_drafts(task)
+    deterministic_drafts = (
+        ai_agent_builtin_vehicle_event_drafts(task)
+        or ai_agent_builtin_airdrop_event_drafts(task)
+    )
     deterministic_draft = ai_agent_builtin_dayz_draft(task, prompt)
     if deterministic_drafts or deterministic_draft:
         if deterministic_drafts:
@@ -27451,15 +27572,20 @@ def ai_agent_llm_reply_for_task(
             changed = ", ".join(str(item) for item in event_package.get("changed_files", []))
             preserved = ", ".join(str(item) for item in event_package.get("preserved_files", []))
             core_audit_note = (
-                f" Four-core-file CE audit passed: changed {changed}; checked and preserved {preserved} "
-                "because this vehicle has no event-group or static-loot-prototype reference."
+                f" Four-core-file CE audit passed: changed {changed}; checked and preserved {preserved}."
             )
-        package_note = (
-            "This is an offline complete-file review pair made from bundled vanilla references. It is not a live-server replacement: "
-            "a live server must merge both records into its current files through the backup-first dashboard workflow."
-            if len(drafts) > 1 else
-            "This complete-file draft starts from the bundled vanilla reference. It has not been uploaded to any server."
-        )
+        if len(drafts) > 1 and any(item.get("merge_required") for item in drafts):
+            package_note = (
+                "This is a merge-only offline review pair. Do not upload either patch as a complete live file; "
+                "merge both named records through the backup-first dashboard workflow."
+            )
+        elif len(drafts) > 1:
+            package_note = (
+                "This is an offline complete-file review pair made from bundled vanilla references. It is not a live-server replacement: "
+                "a live server must merge both records into its current files through the backup-first dashboard workflow."
+            )
+        else:
+            package_note = "This complete-file draft starts from the bundled vanilla reference. It has not been uploaded to any server."
         return f"Prepared and validated DayZ draft file(s): {target_names}.\n\n{task['summary']}\n\n{package_note}{core_audit_note}"
     wants_inspection = any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
     has_job_context = bool(run_context.get("latest_jobs"))

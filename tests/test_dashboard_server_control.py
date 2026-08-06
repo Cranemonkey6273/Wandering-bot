@@ -2657,6 +2657,66 @@ class DashboardServerControlTests(unittest.TestCase):
         public = dashboard.ai_agent_public_task({"dayz_drafts": drafts})
         self.assertTrue(all("content" not in item for item in public["dayz_drafts"]))
 
+    def test_dayz_agent_builds_matching_merge_only_airdrop_event_pair(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_map": "chernarus",
+                "dayz_scenario_type": "airdrop",
+                "dayz_scenario_preset": "military_crate",
+                "dayz_scenario_name": "QA NWAF Military Drop",
+                "dayz_scenario_x": "6250",
+                "dayz_scenario_y": "0",
+                "dayz_scenario_z": "7800",
+                "dayz_scenario_angle": "45",
+                "dayz_scenario_radius": "35",
+                "dayz_scenario_count": "1",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "cherno",
+            },
+            (
+                "Create a repeatable military airdrop and audit events.xml, cfgeventspawns.xml, "
+                "cfgeventgroups.xml and mapgroupproto.xml."
+            ),
+        )
+
+        drafts = dashboard.ai_agent_builtin_airdrop_event_drafts({"dayz_context": context})
+        by_path = {draft["target_path"]: draft for draft in drafts}
+        events_root = ET.fromstring(by_path["db/events.xml"]["content"])
+        spawns_root = ET.fromstring(by_path["cfgeventspawns.xml"]["content"])
+        event_node = events_root.find("event")
+        spawn_node = spawns_root.find("event")
+        event_package = by_path["db/events.xml"]["event_package"]
+
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, set(by_path))
+        self.assertTrue(all(draft["kind"] == "patch" and draft["merge_required"] for draft in drafts))
+        self.assertEqual(event_node.get("name"), spawn_node.get("name"))
+        self.assertTrue(event_node.get("name").startswith("StaticWanderingBot_"))
+        self.assertEqual("Wreck_Mi8_Crashed", event_node.find("./children/child").get("type"))
+        self.assertEqual("6250", spawn_node.find("pos").get("x"))
+        self.assertEqual("7800", spawn_node.find("pos").get("z"))
+        self.assertEqual("45.000000", spawn_node.find("pos").get("a"))
+        self.assertEqual(["db/events.xml", "cfgeventspawns.xml"], event_package["changed_files"])
+        self.assertEqual(["cfgeventgroups.xml", "mapgroupproto.xml"], event_package["preserved_files"])
+        self.assertTrue(all(item["valid"] for item in event_package["checks"]))
+        self.assertIn("already contains", event_package["checks"][1]["reason"])
+
+        task = {
+            "id": "qa-airdrop",
+            "project_type": "dayz_files",
+            "dayz_context": context,
+            "steps": [],
+            "suggested_commands": [],
+        }
+        with patch.object(dashboard, "ai_agent_llm_json", side_effect=AssertionError("model should not run")):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Create the QA NWAF military airdrop package.", False,
+            )
+        self.assertIn("merge-only offline review pair", reply)
+        self.assertEqual("deterministic_dayz_draft", task["llm_status"])
+
     def test_builtin_dayz_draft_matrix_validates_across_supported_maps(self):
         maps = ("chernarus", "livonia", "sakhal")
         for map_key in maps:
