@@ -2876,6 +2876,67 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertGreaterEqual(dashboard.AI_AGENT_LLM_TIMEOUT_SECONDS, 120)
         self.assertEqual((10, dashboard.AI_AGENT_LLM_TIMEOUT_SECONDS), post.call_args.kwargs["timeout"])
 
+    def test_ai_agent_llm_invalid_json_reports_safe_finish_diagnostics(self):
+        response = types.SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "choices": [{
+                    "finish_reason": "length",
+                    "message": {"content": '{"reply":"cut off"'},
+                }]
+            },
+        )
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard.requests, "post", return_value=response
+        ):
+            ok, payload, error = dashboard.ai_agent_llm_json("Return JSON.", {"prompt": "test"})
+
+        self.assertFalse(ok)
+        self.assertEqual({}, payload)
+        self.assertIn("finish_reason=length", error)
+        self.assertIn("content_chars=18", error)
+        self.assertNotIn("cut off", error)
+
+    def test_builtin_root_effect_area_preserves_vanilla_and_adds_requested_gas_zone(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "cfgeffectarea.json",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_reference_mode": "vanilla",
+            },
+            "Create contaminated gas centred at X 4520 Z 8290 with radius 150 and red debug gas.",
+        )
+        prompt = (
+            "Create a complete cfgEffectArea.json contaminated gas zone centred at X 4520 Z 8290 "
+            "with radius 150 and red debug gas. Preserve unrelated vanilla data."
+        )
+
+        draft = dashboard.ai_agent_builtin_effect_area_draft({"dayz_context": context}, prompt)
+
+        self.assertIsNotNone(draft)
+        self.assertEqual("cfgeffectarea.json", draft["target_path"])
+        self.assertEqual("full_file", draft["kind"])
+        self.assertEqual("passed", draft["validation"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("cfgeffectarea.json", draft["content"]))
+        original = dashboard.load_dayz_reference_json("chernarus", "cfgeffectarea.json")
+        generated = json.loads(draft["content"])
+        self.assertEqual(len(original["Areas"]) + 1, len(generated["Areas"]))
+        self.assertEqual(original["Areas"][0], generated["Areas"][0])
+        self.assertEqual(original["SafePositions"], generated["SafePositions"])
+        added = generated["Areas"][-1]
+        self.assertEqual("WanderingGas-4520-8290", added["AreaName"])
+        self.assertEqual("ContaminatedArea_Static", added["Type"])
+        self.assertEqual([4520.0, 0.0, 8290.0], added["Data"]["Pos"])
+        self.assertEqual(150.0, added["Data"]["Radius"])
+        self.assertEqual(
+            "graphics/particles/contaminated_area_gas_bigass_debug",
+            added["Data"]["ParticleName"],
+        )
+
     def test_model_gets_one_guarded_retry_to_supply_an_omitted_repair_draft(self):
         context = dashboard.ai_agent_dayz_file_context(
             {

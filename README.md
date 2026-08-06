@@ -28,6 +28,7 @@ WANDERING_AI_AGENT_PROVIDER=openai
 WANDERING_AI_AGENT_MODEL=gpt-4.1-mini
 WANDERING_AI_AGENT_API_KEY=your-openai-api-key
 WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS=120
+WANDERING_AI_AGENT_LLM_MAX_TOKENS=8000
 ```
 
 Do not put the API key in the dashboard, GitHub, Discord, browser code, or a customer-facing setting. It belongs only in Railway's encrypted service variables.
@@ -60,6 +61,7 @@ WANDERING_AI_AGENT_BASE_URL=https://your-model-server.example.com/v1
 WANDERING_AI_AGENT_MODEL=qwen2.5-coder:14b
 WANDERING_AI_AGENT_API_KEY=optional-private-gateway-key
 WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS=120
+WANDERING_AI_AGENT_LLM_MAX_TOKENS=8000
 ```
 
 If no model backend is configured, the page still uses the built-in local planner and approval-gated sandbox workflow, but replies will be less intelligent.

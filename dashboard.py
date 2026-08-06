@@ -22395,10 +22395,10 @@ except (TypeError, ValueError):
 # environment variable cannot silently preserve the production failure.
 AI_AGENT_LLM_TIMEOUT_SECONDS = max(120, min(300, AI_AGENT_LLM_TIMEOUT_SECONDS))
 try:
-    AI_AGENT_LLM_MAX_TOKENS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_MAX_TOKENS", "3600")))
+    AI_AGENT_LLM_MAX_TOKENS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_MAX_TOKENS", "8000")))
 except (TypeError, ValueError):
-    AI_AGENT_LLM_MAX_TOKENS = 3600
-AI_AGENT_LLM_MAX_TOKENS = max(600, min(8000, AI_AGENT_LLM_MAX_TOKENS))
+    AI_AGENT_LLM_MAX_TOKENS = 8000
+AI_AGENT_LLM_MAX_TOKENS = max(600, min(16000, AI_AGENT_LLM_MAX_TOKENS))
 AI_AGENT_MAX_LOG_CHARS = 12000
 AI_AGENT_BLOCKED_COMMAND_TERMS = (
     "docker.sock",
@@ -26244,7 +26244,8 @@ def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dic
     target_path = str(context.get("target_path") or "")
     text = str(prompt or "")
     lower_text = text.lower()
-    if not dayz_custom_json_path(target_path):
+    is_custom_target = dayz_custom_json_path(target_path)
+    if not is_custom_target and dayz_filename_for_path(target_path) != "cfgeffectarea.json":
         return None
     if dayz_filename_for_path(target_path) != "cfgeffectarea.json" and not any(
         marker in lower_text for marker in ("effect area", "effect-area", "cfgeffectarea", "geyserarea", "hotspringarea")
@@ -26253,26 +26254,65 @@ def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dic
     name_match = re.search(r"(?:area\s+named|named)\s+([A-Za-z][A-Za-z0-9_-]*)", text, re.IGNORECASE)
     type_match = re.search(r"\bType\s+([A-Za-z][A-Za-z0-9_-]*)", text)
     position_match = re.search(rf"\bposition\s+(\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\])", text, re.IGNORECASE)
+    centred_match = re.search(
+        rf"\b(?:centred|centered)\s+at\s+X\s*=?\s*(?P<x>{_AI_AGENT_NUMBER_PATTERN})(?:\s+Y\s*=?\s*(?P<y>{_AI_AGENT_NUMBER_PATTERN}))?\s+Z\s*=?\s*(?P<z>{_AI_AGENT_NUMBER_PATTERN})",
+        text,
+        re.IGNORECASE,
+    )
     radius_match = re.search(rf"\bradius\s*(?:=|of)?\s*({_AI_AGENT_NUMBER_PATTERN})", text, re.IGNORECASE)
-    if not (name_match and type_match and position_match and radius_match):
+    inferred_type = "ContaminatedArea_Static" if "contaminated" in lower_text and "gas" in lower_text else ""
+    requested_type = type_match.group(1) if type_match else inferred_type
+    if not (requested_type and (position_match or centred_match) and radius_match):
         return None
     map_key = normalize_dayz_reference_map_key(context.get("map"))
     try:
         reference_payload = load_dayz_reference_json(map_key, "cfgeffectarea.json")
     except ValueError:
         return None
-    requested_type = type_match.group(1)
     template = next(
         (copy.deepcopy(item) for item in reference_payload.get("Areas", []) if isinstance(item, dict) and str(item.get("Type") or "").lower() == requested_type.lower()),
         None,
     )
     if not isinstance(template, dict) or not isinstance(template.get("Data"), dict):
         return None
-    template["AreaName"] = name_match.group(1)
+    if position_match:
+        requested_position = ai_agent_prompt_vector(position_match.group(1))
+    else:
+        requested_position = [
+            float(centred_match.group("x")),
+            float(centred_match.group("y") or 0),
+            float(centred_match.group("z")),
+        ]
+    if not requested_position:
+        return None
+    area_name = name_match.group(1) if name_match else (
+        f"WanderingGas-{requested_position[0]:g}-{requested_position[2]:g}"
+    )
+    template["AreaName"] = area_name
     template["Type"] = requested_type
-    template["Data"]["Pos"] = ai_agent_prompt_vector(position_match.group(1))
+    template["Data"]["Pos"] = requested_position
     template["Data"]["Radius"] = float(radius_match.group(1))
-    content = json.dumps({"Areas": [template]}, indent=2, ensure_ascii=False)
+    if any(marker in lower_text for marker in ("red gas", "red debug", "debug gas")):
+        particle_name = str(template["Data"].get("ParticleName") or "")
+        if "contaminated_area_gas_bigass" not in particle_name:
+            return None
+        template["Data"]["ParticleName"] = re.sub(
+            r"graphics/particles/contaminated_area_gas_bigass(?:_debug)?",
+            "graphics/particles/contaminated_area_gas_bigass_debug",
+            particle_name,
+        )
+    if is_custom_target:
+        output_payload = {"Areas": [template]}
+    else:
+        areas = reference_payload.get("Areas")
+        if not isinstance(areas, list) or any(
+            isinstance(item, dict) and str(item.get("AreaName") or "").lower() == area_name.lower()
+            for item in areas
+        ):
+            return None
+        output_payload = copy.deepcopy(reference_payload)
+        output_payload["Areas"].append(template)
+    content = json.dumps(output_payload, indent=2, ensure_ascii=False)
     valid, _message = validate_dayz_upload_text(target_path, content)
     if not valid:
         return None
@@ -26285,9 +26325,10 @@ def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dic
         "merge_required": False,
         "content": content + "\n",
         "content_chars": len(content),
-        "summary": f"Complete validated {requested_type} effect-area JSON copied from the selected map's matching vanilla area schema and updated with the requested name, position and radius.",
+        "summary": f"Complete validated {requested_type} effect-area JSON copied from the selected map's matching vanilla area schema and updated with area {area_name}, the requested position and radius; unrelated vanilla data was preserved.",
         "validation": "passed",
-        "custom_json_schema": "effect_area",
+        "custom_json_schema": "effect_area" if is_custom_target else "",
+        "base": f"bundled vanilla {map_key} cfgeffectarea.json",
         "created_at": now,
         "updated_at": now,
     }
@@ -27159,11 +27200,18 @@ def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tupl
             return False, {}, f"Model backend returned HTTP {response.status_code}: {error_text}"
         try:
             payload = response.json()
-            content = str(payload.get("choices", [{}])[0].get("message", {}).get("content") or "")
+            choice = payload.get("choices", [{}])[0]
+            message = choice.get("message", {}) if isinstance(choice, dict) else {}
+            content = str(message.get("content") or "") if isinstance(message, dict) else ""
             parsed = ai_agent_extract_json_object(content)
             if parsed:
                 return True, parsed, ""
-            return False, {}, "Model backend response did not contain valid JSON"
+            finish_reason = ai_agent_compact_text(choice.get("finish_reason") if isinstance(choice, dict) else "", 60) or "unknown"
+            refusal = ai_agent_compact_text(message.get("refusal") if isinstance(message, dict) else "", 160)
+            detail = f"finish_reason={finish_reason}, content_chars={len(content)}"
+            if refusal:
+                detail += f", refusal={refusal}"
+            return False, {}, f"Model backend response did not contain valid JSON ({detail})"
         except Exception as error:
             return False, {}, f"Model backend response parse failed: {error}"
     return False, {}, "Model backend request failed"
