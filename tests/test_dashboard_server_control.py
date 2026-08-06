@@ -4256,6 +4256,14 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("history.hidden = olderRuns.length === 0", dashboard.PAGE_TEMPLATE)
         self.assertIn('olderList.querySelector(".ai-conversation-link.active")', dashboard.PAGE_TEMPLATE)
 
+    def test_dashboard_inline_scripts_keep_newlines_as_javascript_escapes(self):
+        self.assertIn(r'.join("\n")', dashboard.PAGE_TEMPLATE)
+        self.assertIn(r'split(/\n+/)', dashboard.PAGE_TEMPLATE)
+        self.assertIn(r'split(/\r?\n/)', dashboard.PAGE_TEMPLATE)
+        self.assertNotIn('.join("\n")', dashboard.PAGE_TEMPLATE)
+        self.assertNotIn('split(/\n+/)', dashboard.PAGE_TEMPLATE)
+        self.assertNotIn('split(/\r?\n/)', dashboard.PAGE_TEMPLATE)
+
     def test_capability_lab_blocks_a_partial_types_file_from_becoming_active(self):
         class UploadedZip:
             filename = "dayzOffline.chernarusplus-partial.zip"

@@ -3892,7 +3892,7 @@ PAGE_TEMPLATE = """
           var name = String(firstValue(field && field.name, "")).replace(/[|]/g, "/");
           var value = String(firstValue(field && field.value, "")).replace(/[|]/g, "/");
           return name + " | " + value + " | " + (field && field.inline ? "true" : "false");
-        }).filter(function (line) { return line.trim(); }).join("\n");
+        }).filter(function (line) { return line.trim(); }).join("\\n");
       }
       function fillEmbed(template) {
         var form = document.getElementById("embed-template-form");
@@ -13233,7 +13233,7 @@ PAGE_TEMPLATE = """
           const value = String(field && field.value || "").replace(/[|]/g, "/");
           const inline = field && field.inline ? "true" : "false";
           return `${name} | ${value} | ${inline}`;
-        }).filter((line) => line.trim()).join("\n");
+        }).filter((line) => line.trim()).join("\\n");
       }
       function fillEmbedTemplateForm(template) {
         const form = document.getElementById("embed-template-form");
@@ -13947,7 +13947,7 @@ PAGE_TEMPLATE = """
       const form = output ? output.closest("form") : null;
       const board = form ? form.querySelector("[data-selected-items]") : null;
       if (!board) return;
-      const lines = output.value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+      const lines = output.value.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
       board.innerHTML = "";
       if (!lines.length) {
         const empty = document.createElement("span");
@@ -13974,18 +13974,18 @@ PAGE_TEMPLATE = """
       syncLiveOutput(form);
     }
     function setOutputLines(output, lines) {
-      output.value = lines.filter(Boolean).join("\n");
+      output.value = lines.filter(Boolean).join("\\n");
       syncSelectedItems(output);
       syncLiveOutput(output.closest("form"));
     }
     function outputLines(output) {
-      return output.value.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+      return output.value.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
     }
     function appendPickerLine(picker, output) {
       const line = pickerLine(picker);
       const itemInput = picker ? picker.querySelector("[data-picker-item]") : null;
       if (!line || !output) return false;
-      output.value = output.value.trim() ? `${output.value.trim()}\n${line}` : line;
+      output.value = output.value.trim() ? `${output.value.trim()}\\n${line}` : line;
       syncSelectedItems(output);
       syncLiveOutput(output.closest("form"));
       if (itemInput) {
@@ -14064,7 +14064,7 @@ PAGE_TEMPLATE = """
         lines.push(`    </cargo>`);
       }
       lines.push(`</type>`);
-      return lines.join("\n");
+      return lines.join("\\n");
     }
     function vehiclePartItems(vehicleClass, includeWheels, includeDoors) {
       const lower = String(vehicleClass || "").toLowerCase();
@@ -14101,7 +14101,7 @@ PAGE_TEMPLATE = """
         lines.push(`    </cargo>`);
       }
       lines.push(`</type>`);
-      return lines.join("\n");
+      return lines.join("\\n");
     }
     function setVehiclePreset(form, presetKey) {
       if (!form || !presetKey || !VEHICLE_INVENTORY_PRESETS[presetKey]) return;
@@ -14208,14 +14208,14 @@ PAGE_TEMPLATE = """
     function airdropPositions(form) {
       const raw = String(form.elements.positions?.value || "").trim();
       if (!raw) return [];
-      return raw.split(/\n+/).map((line) => {
+      return raw.split(/\\n+/).map((line) => {
         const parts = line.split(/[,\\s]+/).map((part) => part.trim()).filter(Boolean);
         return {x: parts[0] || "0", z: parts[1] || "0"};
       }).filter((pos) => pos.x && pos.z).slice(0, 80);
     }
     function setAirdropPositions(form, positions) {
       if (!form || !form.elements.positions) return;
-      form.elements.positions.value = positions.map((pos) => `${Math.round(Number(pos.x) || 0)}, ${Math.round(Number(pos.z) || 0)}`).join("\n");
+      form.elements.positions.value = positions.map((pos) => `${Math.round(Number(pos.x) || 0)}, ${Math.round(Number(pos.z) || 0)}`).join("\\n");
       renderAirdropMap(form);
       syncLiveOutput(form);
     }
@@ -14289,7 +14289,7 @@ PAGE_TEMPLATE = """
         `        </container>`,
         `    </group>`,
         `</prototype>`,
-      ].join("\n");
+      ].join("\\n");
     }
     function buildAirdropPackage(form, items) {
       const eventName = safeXmlName(form.elements.event_name?.value, "Static_WanderingAirdrop");
@@ -14325,7 +14325,7 @@ PAGE_TEMPLATE = """
           `        </children>`,
           `    </event>`,
           `</events>`,
-        ].filter(Boolean).join("\n"),
+        ].filter(Boolean).join("\\n"),
         spawns: [
           `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`,
           `<eventposdef>`,
@@ -14333,7 +14333,7 @@ PAGE_TEMPLATE = """
           ...positions.map((pos) => `        <pos x="${xmlEscape(pos.x)}" z="${xmlEscape(pos.z)}" a="0" />`),
           `    </event>`,
           `</eventposdef>`,
-        ].join("\n"),
+        ].join("\\n"),
         mapgroupproto: buildAirdropMapGroupXml(containerClass, lootMax),
       };
     }
@@ -15101,7 +15101,7 @@ PAGE_TEMPLATE = """
     document.querySelectorAll("[data-airdrop-map]").forEach((map) => renderAirdropMap(map.closest("form")));
     function prettyXml(xmlDoc) {
       const raw = new XMLSerializer().serializeToString(xmlDoc);
-      return raw.replace(/></g, ">\n<");
+      return raw.replace(/></g, ">\\n<");
     }
     function installTypesEditor() {
       const editor = document.querySelector("[data-types-editor]");
@@ -15231,10 +15231,10 @@ PAGE_TEMPLATE = """
           const isClose = part.startsWith("</");
           const isSelfClose = part.endsWith("/>");
           if (isClose) indent = Math.max(0, indent - 1);
-          formatted += `${"    ".repeat(indent)}${part}\n`;
+          formatted += `${"    ".repeat(indent)}${part}\\n`;
           if (!isClose && !isSelfClose && !part.includes("</")) indent += 1;
         });
-        return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${formatted}`;
+        return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n${formatted}`;
       }
       function syncTypesOutput() {
         const xml = serializeTypesXml(state.doc);
@@ -16091,7 +16091,7 @@ PAGE_TEMPLATE = """
         const value = String(field?.value || "").replace(/[|]/g, "/");
         const inline = field?.inline ? "true" : "false";
         return `${name} | ${value} | ${inline}`;
-      }).filter((line) => line.trim()).join("\n");
+      }).filter((line) => line.trim()).join("\\n");
     }
     function setFormControl(form, name, value) {
       if (!form || !form.elements[name]) return;
@@ -16318,7 +16318,7 @@ PAGE_TEMPLATE = """
         };
       }
       if (section === "reaction_role_panels") {
-        const roleLines = String(record.roles || "").split(/\r?\n/).filter((line) => line.trim()).length;
+        const roleLines = String(record.roles || "").split(/\\r?\\n/).filter((line) => line.trim()).length;
         return {
           title: record.name || dashboardRecordId(section, record) || "reaction role panel",
           summary: `Channel: ${channelDisplayFromForm(form, "channel_key", record.channel_key, "no channel")}`,
@@ -16588,7 +16588,7 @@ PAGE_TEMPLATE = """
         addPart("Error", "open details", "event-chip-bad");
         fileLines.push(`last error: ${display.details || eventData.upload_error}`);
       }
-      if (fileLines.length) appendScenarioDetails(wrap, fileLines.join("\n"), "event-upload-technical", "File paths and technical details");
+      if (fileLines.length) appendScenarioDetails(wrap, fileLines.join("\\n"), "event-upload-technical", "File paths and technical details");
       cell.append(wrap);
       detail.dataset.eventUpload = displayUploadStatus || "";
       detail.dataset.eventSearch = `${detail.dataset.eventSearch || ""} ${eventData.status || ""} ${displayUploadStatus || ""}`.toLowerCase();
@@ -17396,7 +17396,7 @@ PAGE_TEMPLATE = """
           return;
         }
         const warning = String(scenario.warning || "This will request a guarded Nitrado upload.");
-        if (!window.confirm(`${warning}\n\nContinue and create this event?`)) return;
+        if (!window.confirm(`${warning}\\n\\nContinue and create this event?`)) return;
         const original = button.textContent;
         button.disabled = true;
         button.textContent = "Creating event...";
@@ -17818,7 +17818,7 @@ PAGE_TEMPLATE = """
         const result = panel?.querySelector("[data-temp-login-copy-result]");
         const dashboardId = String(panel?.dataset.dashboardId || "");
         const password = String(panel?.dataset.password || "");
-        const text = `Dashboard URL: ${window.location.origin}/\nDashboard ID: ${dashboardId}\nDashboard password: ${password}`;
+        const text = `Dashboard URL: ${window.location.origin}/\\nDashboard ID: ${dashboardId}\\nDashboard password: ${password}`;
         try {
           await navigator.clipboard.writeText(text);
           if (result) result.textContent = "Copied.";
@@ -18413,7 +18413,7 @@ PAGE_TEMPLATE = """
           const count = Math.max(1, Math.min(250, Number(row.querySelector("[data-zombie-count]").value || 1)));
           if (select.value) lines.push(`${count} ${select.value}`);
         });
-        hidden.value = lines.join("\n");
+        hidden.value = lines.join("\\n");
       }
       function addRow(className = "ZmbM_SoldierNormal", count = 10) {
         const row = document.createElement("div");
