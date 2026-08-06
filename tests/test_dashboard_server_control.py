@@ -2449,6 +2449,34 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("custom/spawnGearPreset.json", draft["target_path"])
         self.assertIn("PlayerData.spawnGearPresetFiles", draft["cfggameplay_reference"])
 
+    def test_explicit_objectspawner_json_stays_primary_when_cfggameplay_reference_is_mentioned(self):
+        objective = (
+            "Create a complete custom/QA_Fort.json ObjectSpawner JSON containing "
+            "Land_Mil_ATC_Big at [4500, 210, 8200] with ypr [90, 0, 0], and state the exact "
+            "cfggameplay.json WorldsData.objectSpawnersArr reference."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {"dayz_support_mode": "ask", "dayz_reference_mode": "none"},
+            objective,
+        )
+
+        self.assertEqual("custom/QA_Fort.json", context["target_path"])
+        self.assertTrue(context["target_inferred"])
+        changed_paths = {
+            item["path"]
+            for item in context["dependency_plan"]["files"]
+            if item.get("action") == "changed"
+        }
+        self.assertIn("custom/QA_Fort.json", changed_paths)
+        self.assertIn("cfggameplay.json", changed_paths)
+        draft = dashboard.ai_agent_builtin_objectspawner_draft(
+            {"dayz_context": context},
+            objective,
+        )
+        self.assertIsNotNone(draft)
+        self.assertEqual("custom/QA_Fort.json", draft["target_path"])
+        self.assertIn("WorldsData.objectSpawnersArr", draft["cfggameplay_reference"])
+
     def test_read_only_dayz_explanation_with_negative_file_wording_does_not_require_draft(self):
         objective = (
             "Read-only advice only. In DayZ types.xml, explain clearly what nominal and min control, "

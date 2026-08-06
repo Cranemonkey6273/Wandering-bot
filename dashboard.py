@@ -24201,14 +24201,34 @@ def ai_agent_infer_dayz_target_path(objective: Any) -> str:
     validated defeats that flow, so exact filenames and a small set of
     unambiguous DayZ phrases map to the same protected allow-list.
     """
-    text = str(objective or "").replace("\\", "/").lower()
+    raw_text = str(objective or "").replace("\\", "/")
+    text = raw_text.lower()
     if not text.strip():
         return ""
+    positive_create = bool(re.search(r"\b(create|draft|produce|generate|make|write)\b", text))
+    # When a customer explicitly names a safe custom JSON deliverable and its
+    # recognised DayZ schema, that file is the primary target.  The request
+    # will often also name cfggameplay.json because the finished custom file
+    # needs a reference there; the linked reference must not steal the route.
+    custom_match = re.search(
+        r"(?<![A-Za-z0-9_./-])(?:\./)?(?:custom|pra)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.json(?![A-Za-z0-9_.-])",
+        raw_text,
+        re.IGNORECASE,
+    )
+    custom_schema_markers = (
+        "objectspawner", "object spawner", "spawn gear", "spawning gear",
+        "restricted area", "player restricted", "effect area", "effect-area",
+        "underground trigger", "underground area",
+    )
+    if positive_create and custom_match and any(marker in text for marker in custom_schema_markers):
+        explicit_custom_path = dayz_custom_json_path(custom_match.group(0))
+        if explicit_custom_path:
+            return explicit_custom_path
     # A loadout request often mentions cfggameplay.json because the finished
     # preset must be referenced there.  When the positive action is to create
     # the loadout itself, keep the spawning-gear JSON as the primary target and
     # treat cfggameplay as its linked reference instead of stealing the route.
-    if re.search(r"\b(create|draft|produce|generate|make|write)\b", text) and any(
+    if positive_create and any(
         phrase in text
         for phrase in (
             "fresh-spawn json loadout",
