@@ -1969,8 +1969,34 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual((True, ""), dashboard.ai_agent_validate_dayz_draft_semantics("db/types.xml", valid_types, context))
         self.assertIn("missing <nominal>", dashboard.ai_agent_validate_dayz_draft_semantics("db/types.xml", invalid_types, context)[1])
+        self.assertIn(
+            "<min> cannot be higher",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "db/types.xml", valid_types.replace("<min>5</min>", "<min>11</min>"), context
+            )[1],
+        )
+        self.assertIn(
+            "0 <= quantmin",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "db/types.xml",
+                valid_types.replace("<quantmin>-1</quantmin><quantmax>-1</quantmax>", "<quantmin>80</quantmin><quantmax>20</quantmax>"),
+                context,
+            )[1],
+        )
         self.assertEqual((True, ""), dashboard.ai_agent_validate_dayz_draft_semantics("db/events.xml", valid_events, context))
         self.assertIn("missing <children>", dashboard.ai_agent_validate_dayz_draft_semantics("db/events.xml", invalid_events, context)[1])
+        self.assertIn(
+            "<active> must be 0 or 1",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "db/events.xml", valid_events.replace("<active>1</active>", "<active>2</active>"), context
+            )[1],
+        )
+        self.assertIn(
+            "lootmin cannot exceed lootmax",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "db/events.xml", valid_events.replace('lootmax="0" lootmin="0"', 'lootmax="0" lootmin="1"'), context
+            )[1],
+        )
         self.assertEqual((True, ""), dashboard.ai_agent_validate_dayz_draft_semantics("cfgspawnabletypes.xml", valid_spawnable, context))
         self.assertIn("between 0 and 100", dashboard.ai_agent_validate_dayz_draft_semantics("cfgspawnabletypes.xml", invalid_spawnable, context)[1])
         full_mag_context = {
@@ -2988,6 +3014,16 @@ class DashboardServerControlTests(unittest.TestCase):
             {"dayz_scenario_type": "airdrop", "dayz_scenario_x": "999999", "dayz_scenario_z": "10"},
             "chernarus",
         )
+        conflicting_vehicle = dashboard.ai_agent_dayz_scenario_from_payload(
+            {
+                "dayz_scenario_type": "vehicle_spawn",
+                "dayz_scenario_preset": "ada",
+                "dayz_scenario_class": "Hatchback_02",
+                "dayz_scenario_x": "4481",
+                "dayz_scenario_z": "10355",
+            },
+            "chernarus",
+        )
 
         self.assertEqual("vehicle_spawn", scenario["event_type"])
         self.assertIn("db/events.xml", scenario["files"])
@@ -3002,6 +3038,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("cfgspawnabletypes.xml", scenario["files"])
         self.assertTrue(scenario["can_apply"])
         self.assertIn("map bounds", invalid["error"])
+        self.assertIn("preset uses OffroadHatchback", conflicting_vehicle["error"])
+        self.assertIn("supplied classname is Hatchback_02", conflicting_vehicle["error"])
         self.assertIn('name="dayz_error_text"', dashboard.PAGE_TEMPLATE)
         self.assertIn('name="dayz_scenario_type"', dashboard.PAGE_TEMPLATE)
         self.assertIn("AI can be wrong", dashboard.PAGE_TEMPLATE)

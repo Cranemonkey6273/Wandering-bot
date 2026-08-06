@@ -24403,9 +24403,29 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
     map_size = map_size_for(clean_map)
     if not (0 <= x <= map_size and 0 <= z <= map_size):
         return {"error": f"X and Z must be inside the selected {clean_map.title()} map bounds (0 to {map_size:,})."}
-    class_name = str(payload.get("dayz_scenario_class") or preset.get("class") or "").strip()
+    requested_class = str(payload.get("dayz_scenario_class") or "").strip()
+    preset_class = str(preset.get("class") or "").strip()
+    class_name = requested_class or preset_class
     if not class_name:
         return {"error": "A custom scenario needs a valid DayZ classname."}
+    known_preset_classes = {
+        str(candidate.get("class") or "").strip().lower()
+        for source in (SCENARIO_SPAWN_PRESETS, SCENARIO_VEHICLE_PRESETS)
+        for candidate in source.values()
+        if isinstance(candidate, dict) and str(candidate.get("class") or "").strip()
+    }
+    if (
+        requested_class
+        and preset_class
+        and requested_class.lower() != preset_class.lower()
+        and requested_class.lower() in known_preset_classes
+    ):
+        return {
+            "error": (
+                f"The {preset_id} preset uses {preset_class}, but the supplied classname is {requested_class}. "
+                "Choose the matching preset or remove the classname override so the linked event package is unambiguous."
+            )
+        }
     radius_default = safe_int(preset.get("radius"), 35)
     radius = max(0, min(30000, safe_int(payload.get("dayz_scenario_radius"), radius_default)))
     if event_type == "gas_zone":
@@ -24780,6 +24800,24 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
         ok, message = require_unique_names(type_nodes, "types.xml")
         if not ok:
             return ok, message
+        reference_type_values: dict[str, dict[str, float]] = {}
+        try:
+            reference_root = ET.fromstring(load_dayz_reference_text(map_key, "db", "types.xml"))
+            for reference_type in reference_root.findall("type"):
+                reference_name = str(reference_type.get("name") or "").strip()
+                if not reference_name:
+                    continue
+                values: dict[str, float] = {}
+                for tag in ("nominal", "min", "quantmin", "quantmax"):
+                    try:
+                        values[tag] = float(str(reference_type.findtext(tag, "")).strip())
+                    except (TypeError, ValueError):
+                        values = {}
+                        break
+                if values:
+                    reference_type_values[reference_name] = values
+        except ET.ParseError:
+            reference_type_values = {}
         for type_node in type_nodes:
             label = f"types.xml type {type_node.get('name')}"
             ok, message = require_numeric_text(
@@ -24787,6 +24825,30 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
             )
             if not ok:
                 return ok, message
+            values = {
+                tag: float(str(type_node.findtext(tag, "0")).strip())
+                for tag in ("nominal", "lifetime", "restock", "min", "quantmin", "quantmax", "cost")
+            }
+            if any(values[tag] < 0 for tag in ("nominal", "lifetime", "restock", "min", "cost")):
+                return False, f"{label} nominal/lifetime/restock/min/cost values cannot be negative."
+            reference_values = reference_type_values.get(str(type_node.get("name") or "").strip(), {})
+            reference_keeps_min = (
+                reference_values.get("nominal") == values["nominal"]
+                and reference_values.get("min") == values["min"]
+            )
+            if values["nominal"] > 0 and values["min"] > values["nominal"] and not reference_keeps_min:
+                return False, f"{label} <min> cannot be higher than a positive <nominal>."
+            quantities_are_disabled = values["quantmin"] == -1 and values["quantmax"] == -1
+            quantities_are_valid = 0 <= values["quantmin"] <= values["quantmax"] <= 100
+            reference_keeps_quantities = (
+                reference_values.get("quantmin") == values["quantmin"]
+                and reference_values.get("quantmax") == values["quantmax"]
+            )
+            if not (quantities_are_disabled or quantities_are_valid or reference_keeps_quantities):
+                return False, (
+                    f"{label} quantity must use quantmin/quantmax of -1/-1 or satisfy "
+                    "0 <= quantmin <= quantmax <= 100."
+                )
             flags = type_node.find("flags")
             required_flags = ("count_in_cargo", "count_in_hoarder", "count_in_map", "count_in_player", "crafted", "deloot")
             if flags is None or any(flags.get(key) not in {"0", "1"} for key in required_flags):
@@ -24809,6 +24871,17 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
             )
             if not ok:
                 return ok, message
+            event_values = {
+                tag: float(str(event_node.findtext(tag, "0")).strip())
+                for tag in (
+                    "nominal", "min", "max", "lifetime", "restock", "saferadius",
+                    "distanceradius", "cleanupradius", "active",
+                )
+            }
+            if any(value < 0 for value in event_values.values()):
+                return False, f"{label} numeric event values cannot be negative."
+            if event_values["active"] not in {0, 1}:
+                return False, f"{label} <active> must be 0 or 1."
             if event_node.findtext("position", "").strip() not in {"fixed", "player", "uniform"}:
                 return False, f"{label} has an unsupported or missing <position>."
             if event_node.findtext("limit", "").strip() not in {"custom", "parent", "mixed", "child"}:
@@ -24819,14 +24892,20 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
             children = event_node.find("children")
             if children is None:
                 return False, f"{label} is missing <children>."
-            for child_index, child in enumerate(children.findall("child")):
+            child_nodes = list(children.findall("child"))
+            for child_index, child in enumerate(child_nodes):
                 if not str(child.get("type") or "").strip():
                     return False, f"{label} child {child_index + 1} is missing type."
+                child_values: dict[str, float] = {}
                 for key in ("lootmax", "lootmin", "max", "min"):
                     try:
-                        float(str(child.get(key)))
+                        child_values[key] = float(str(child.get(key)))
                     except (TypeError, ValueError):
-                            return False, f"{label} child {child_index + 1} needs numeric {key}."
+                        return False, f"{label} child {child_index + 1} needs numeric {key}."
+                if any(value < 0 for value in child_values.values()):
+                    return False, f"{label} child {child_index + 1} values cannot be negative."
+                if child_values["lootmin"] > child_values["lootmax"]:
+                    return False, f"{label} child {child_index + 1} lootmin cannot exceed lootmax."
 
     if xml_root is not None and filename == "cfgspawnabletypes.xml":
         type_nodes = list(xml_root.findall("type"))
