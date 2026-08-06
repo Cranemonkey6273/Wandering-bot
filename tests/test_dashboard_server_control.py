@@ -795,6 +795,74 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(dashboard.AGENT_ULTIMATE_INCLUDED_CREDITS, account["credits"])
         self.assertEqual(1, len(store["ledger"]))
 
+    def test_owner_credit_rows_identify_dashboard_ultimate_accounts(self):
+        store = {
+            "accounts": {
+                "dashboard-qa": {
+                    "id": "dashboard-qa",
+                    "name": "QA Discord",
+                    "email": "",
+                    "account_kind": "dashboard_ultimate",
+                    "guild_id": "1491521072275788040",
+                    "credits": 45,
+                    "permissions": {"read": True, "edit": True},
+                }
+            }
+        }
+        with patch.object(dashboard, "load_agent_accounts", return_value=store):
+            rows = dashboard.agent_account_rows()
+
+        self.assertEqual(1, len(rows))
+        self.assertEqual("dashboard_ultimate", rows[0]["account_kind"])
+        self.assertEqual("1491521072275788040", rows[0]["guild_id"])
+        self.assertEqual(45, rows[0]["credits"])
+        self.assertIn("/api/owner/agent-credit-adjustment", dashboard.PAGE_TEMPLATE)
+
+    def test_owner_can_auditably_adjust_existing_dashboard_ai_credits(self):
+        payload = {
+            "account_id": "dashboard-qa",
+            "credit_adjustment": "200",
+            "reason": "Extended AI Sandbox QA testing",
+        }
+        store = {
+            "accounts": {
+                "dashboard-qa": {
+                    "id": "dashboard-qa",
+                    "name": "QA Discord",
+                    "account_kind": "dashboard_ultimate",
+                    "guild_id": "1491521072275788040",
+                    "credits": 45,
+                }
+            }
+        }
+        with (
+            patch.object(dashboard, "require_owner_payload", return_value=(payload, None)),
+            patch.object(dashboard, "load_agent_accounts", return_value=store),
+            patch.object(dashboard, "agent_adjust_credits", return_value=(True, "", 245)) as adjust,
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "dashboard_audit_actor", return_value="Primary Owner"),
+            patch.object(dashboard, "load_ai_agent_state", return_value={}),
+            patch.object(dashboard, "ai_agent_activity") as activity,
+            patch.object(dashboard, "save_ai_agent_state"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, body, *_args: body),
+        ):
+            response = dashboard.api_owner_agent_credit_adjustment()
+
+        self.assertTrue(response["ok"])
+        self.assertEqual(245, response["credits"])
+        adjust.assert_called_once_with(
+            "dashboard-qa",
+            200,
+            "Extended AI Sandbox QA testing",
+            "Primary Owner",
+            {
+                "account_kind": "dashboard_ultimate",
+                "guild_id": "1491521072275788040",
+                "owner_adjustment": True,
+            },
+        )
+        self.assertIn("+200 credit(s), balance 245", activity.call_args.args[2])
+
     def test_checkout_target_records_selection_before_any_external_payment(self):
         plan = {"id": "dashboard", "name": "Wandering Bot Basic", "payment_url": "https://payments.example/checkout"}
 

@@ -7984,8 +7984,8 @@ PAGE_TEMPLATE = """
         </section>
         {% if auth.kind == "owner" %}
         <section class="admin-panel">
-          <h3>Standalone Accounts & Credits</h3>
-          <p class="tool-note">Website-only AI sandbox accounts for Ultimate customers. Use <code>ultimate</code> as the subscription tier and an active, trial, subscription or lifetime status; lower tiers stay locked.</p>
+          <h3>AI Accounts & Credits</h3>
+          <p class="tool-note">Website-only accounts and Discord-dashboard Ultimate accounts share this audited credit ledger. The account table lets the owner grant QA credits or apply a correction without creating a fake Stripe purchase.</p>
           <form class="admin-form" method="post" action="/api/owner/agent-account" data-route="/api/owner/agent-account">
             <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
             <input class="hidden-field" name="guild_id" value="global">
@@ -8006,13 +8006,22 @@ PAGE_TEMPLATE = """
           </form>
           <div class="table-scroll">
             <table class="item-table">
-              <thead><tr><th>Email</th><th>Name</th><th>Credits</th><th>Plan</th><th>Permissions</th></tr></thead>
+              <thead><tr><th>Account</th><th>Name</th><th>Credits</th><th>Plan</th><th>Permissions</th></tr></thead>
               <tbody>
                 {% for account in agent_accounts %}
                 <tr>
-                  <td>{{ account.email }}</td>
+                  <td>{% if account.guild_id %}Discord dashboard<br><span class="muted">Guild {{ account.guild_id }}</span>{% else %}{{ account.email }}{% endif %}</td>
                   <td>{{ account.name or '-' }}<br><span class="muted">{{ account.status }}</span></td>
-                  <td>{{ account.credits }}</td>
+                  <td>
+                    <strong>{{ account.credits }}</strong>
+                    <form class="admin-form inline-action" method="post" action="/api/owner/agent-credit-adjustment" data-route="/api/owner/agent-credit-adjustment">
+                      <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent">
+                      <input class="hidden-field" name="account_id" value="{{ account.id }}">
+                      <input name="credit_adjustment" type="number" min="-100000" max="100000" value="0" aria-label="Credit adjustment for {{ account.name or account.email or account.id }}">
+                      <input name="reason" value="QA testing credits" aria-label="Credit adjustment reason for {{ account.name or account.email or account.id }}">
+                      <button type="submit">Adjust</button><span class="result muted"></span>
+                    </form>
+                  </td>
                   <td>{{ account.subscription_tier }}<br><span class="muted">{{ account.subscription_status }}</span></td>
                   <td>{% for key, enabled in account.permissions.items() if enabled %}<span class="pill ok">{{ key }}</span>{% else %}<span class="muted">None</span>{% endfor %}</td>
                 </tr>
@@ -28112,6 +28121,8 @@ def agent_account_rows(limit: int = 80) -> list[dict[str, Any]]:
                 "id": str(account_id),
                 "name": str(account.get("name") or ""),
                 "email": str(account.get("email") or ""),
+                "account_kind": str(account.get("account_kind") or "standalone"),
+                "guild_id": normalize_guild_id(account.get("guild_id")),
                 "status": str(account.get("status") or "active"),
                 "subscription_tier": str(account.get("subscription_tier") or "none"),
                 "subscription_status": str(account.get("subscription_status") or "none"),
@@ -42523,6 +42534,64 @@ def api_owner_agent_account():
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="agent_account", email=email)
     return dashboard_api_response(raw_payload, {"ok": True, "account": redact(account), "note": "Saved agent account."}, "ai-agent", "#ai-agent")
+
+
+@APP.post("/api/owner/agent-credit-adjustment")
+def api_owner_agent_credit_adjustment():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    account_id = str(payload.get("account_id") or "").strip()
+    adjustment = safe_int(payload.get("credit_adjustment"), 0)
+    reason = str(payload.get("reason") or "").strip()[:180]
+    if not account_id:
+        return jsonify({"ok": False, "error": "AI account is required"}), 400
+    if adjustment == 0 or abs(adjustment) > 100000:
+        return jsonify({"ok": False, "error": "credit adjustment must be between -100000 and 100000 and cannot be zero"}), 400
+    if len(reason) < 4:
+        return jsonify({"ok": False, "error": "a clear audit reason is required"}), 400
+    store = load_agent_accounts()
+    account = store.get("accounts", {}).get(account_id)
+    if not isinstance(account, dict):
+        return jsonify({"ok": False, "error": "AI account was not found"}), 404
+    actor = dashboard_audit_actor(current_auth())
+    ok, credit_error, balance = agent_adjust_credits(
+        account_id,
+        adjustment,
+        reason,
+        actor,
+        {
+            "account_kind": str(account.get("account_kind") or "standalone"),
+            "guild_id": normalize_guild_id(account.get("guild_id")),
+            "owner_adjustment": True,
+        },
+    )
+    if not ok:
+        return jsonify({"ok": False, "error": credit_error or "Could not adjust credits"}), 400
+    state = load_ai_agent_state()
+    ai_agent_activity(
+        state,
+        "AI credits adjusted",
+        f"{account.get('name') or account_id}: {adjustment:+d} credit(s), balance {balance}",
+        actor,
+        {"account_id": account_id, "adjustment": adjustment, "balance": balance, "reason": reason},
+    )
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(
+        raw_payload,
+        guild_id=normalize_guild_id(account.get("guild_id")) or "global",
+        action="agent_credit_adjustment",
+        account_id=account_id,
+        adjustment=adjustment,
+    )
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "credits": balance, "note": f"Credits adjusted. New balance: {balance}."},
+        "ai-agent",
+        "#ai-agent",
+    )
 
 
 @APP.post("/api/owner/guild-action")
