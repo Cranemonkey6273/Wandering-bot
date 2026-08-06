@@ -18,6 +18,27 @@ REFERENCE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "
 
 
 class DayZFileIntelligenceTests(unittest.TestCase):
+    def test_every_bundled_vanilla_structured_file_rejects_truncated_error_input(self):
+        checked = 0
+        for directory, _subdirs, filenames in os.walk(REFERENCE_ROOT):
+            for filename in filenames:
+                if not filename.lower().endswith((".xml", ".json")):
+                    continue
+                source_path = os.path.join(directory, filename)
+                with open(source_path, "r", encoding="utf-8-sig") as handle:
+                    content = handle.read().rstrip()
+                if len(content) < 2:
+                    continue
+                # Remove the final structural delimiter, reproducing a common
+                # partial copy/download or model-truncation failure.
+                malformed = content[:-1]
+                ok, message = validate_dayz_upload_text(source_path, malformed)
+                with self.subTest(path=os.path.relpath(source_path, REFERENCE_ROOT)):
+                    self.assertFalse(ok)
+                    self.assertTrue("invalid XML" in message or "invalid JSON" in message, message)
+                checked += 1
+        self.assertGreaterEqual(checked, 50)
+
     def test_dependency_plan_distinguishes_map_groups_from_object_spawner(self):
         map_group = dayz_dependency_plan_for_request(
             "Place a new loot-bearing static building and set up its loot points",
@@ -41,6 +62,19 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertEqual("changed", object_paths["cfggameplay.json"]["action"])
         self.assertEqual("preserved", object_paths["mapgrouppos.xml"]["action"])
         self.assertEqual("preserved", object_paths["mapgroupproto.xml"]["action"])
+
+    def test_limits_user_file_is_planned_as_aliases_not_new_definitions(self):
+        plan = dayz_dependency_plan_for_request(
+            "Create a TownVillage alias from the existing Town and Village usages.",
+            "cfglimitsdefinitionuser.xml",
+        )
+        files = {item["path"]: item for item in plan["files"]}
+
+        self.assertEqual("central_economy_definitions", plan["workflow"])
+        self.assertEqual("changed", files["cfglimitsdefinitionuser.xml"]["action"])
+        self.assertEqual("checked", files["cfglimitsdefinition.xml"]["action"])
+        self.assertIn("only creates named aliases", plan["summary"])
+        self.assertIn("already exist", files["cfglimitsdefinitionuser.xml"]["reason"])
 
     def test_dependency_plan_uses_ambient_territories_not_fixed_event_positions(self):
         plan = dayz_dependency_plan_for_request("Create an ambient fox spawner zone", "env/fox_territories.xml")
@@ -317,7 +351,7 @@ class DayZFileIntelligenceTests(unittest.TestCase):
     def test_recognised_custom_json_schemas_validate_without_guessing_mods(self):
         cases = {
             "custom/StarterGear.json": (
-                '{"spawnWeight": 1, "characterTypes": ["SurvivorM_Mirek"], '
+                '{"name": "Starter", "spawnWeight": 1, "characterTypes": ["SurvivorM_Mirek"], '
                 '"attachmentSlotItemSets": [], "discreteUnsortedItemSets": []}',
                 "spawning_gear",
             ),
@@ -327,13 +361,14 @@ class DayZFileIntelligenceTests(unittest.TestCase):
                 "restricted_area",
             ),
             "custom/MyEffectArea.json": (
-                '{"Areas": [{"AreaName": "Test", "Type": "GeyserArea", "Data": {'
+                '{"Areas": [{"AreaName": "Test", "Type": "GeyserArea", "TriggerType": "GeyserTrigger", "Data": {'
                 '"Pos": [100, 5, 200], "Radius": 2}}]}',
                 "effect_area",
             ),
             "custom/MyUnderground.json": (
                 '{"Triggers": [{"Position": [1, 2, 3], "Orientation": [0, 0, 0], '
-                '"Size": [10, 5, 10], "EyeAccommodation": 0.2, "Breadcrumbs": [{"Position": [2, 2, 3]}]}]}',
+                '"Size": [10, 5, 10], "EyeAccommodation": 0.2, "Breadcrumbs": '
+                '[{"Position": [2, 2, 3], "EyeAccommodation": 0.5}]}]}',
                 "underground",
             ),
         }
@@ -344,6 +379,83 @@ class DayZFileIntelligenceTests(unittest.TestCase):
                 self.assertEqual(schema, dayz_json_schema_name(json.loads(text)))
 
         ok, message = validate_dayz_upload_text("/mission/custom/UnknownModFile.json", '{"madeUpModSetting": true}')
+        self.assertFalse(ok)
+        self.assertIn("recognised", message)
+
+    def test_custom_geometry_json_rejects_structurally_valid_but_semantically_incomplete_records(self):
+        cases = {
+            "pra/MissingName.json": (
+                '{"PRABoxes": [[[10, 5, 10], [0, 0, 0], [100, 5, 100]]], "safePositions3D": [[110, 5, 110]]}',
+                "areaName",
+            ),
+            "custom/IncompleteEffect.json": (
+                '{"Areas": [{"AreaName": "Test", "Type": "GeyserArea", "Data": {"Pos": [100, 5, 200], "Radius": 2}}]}',
+                "TriggerType",
+            ),
+            "custom/IncompleteUnderground.json": (
+                '{"Triggers": [{"Position": [1, 2, 3], "EyeAccommodation": 0.2, "Breadcrumbs": []}]}',
+                "Orientation",
+            ),
+            "custom/IncompleteBreadcrumb.json": (
+                '{"Triggers": [{"Position": [1, 2, 3], "Orientation": [0, 0, 0], "Size": [10, 5, 10], '
+                '"EyeAccommodation": 0.2, "Breadcrumbs": [{"Position": [2, 2, 3]}]}]}',
+                "EyeAccommodation",
+            ),
+        }
+        for target_path, (content, expected) in cases.items():
+            with self.subTest(target_path=target_path):
+                ok, message = validate_dayz_upload_text(target_path, content)
+                self.assertFalse(ok)
+                self.assertIn(expected, message)
+
+    def test_spawn_gear_validator_enforces_official_nested_schema(self):
+        valid = {
+            "name": "QA Survivor",
+            "spawnWeight": 1,
+            "characterTypes": ["SurvivorM_Mirek"],
+            "attachmentSlotItemSets": [{
+                "slotName": "shoulderL",
+                "discreteItemSets": [{
+                    "itemType": "M4A1",
+                    "spawnWeight": 1,
+                    "attributes": {"healthMin": 1.0, "healthMax": 1.0},
+                    "quickBarSlot": 1,
+                    "complexChildrenTypes": [{
+                        "itemType": "Mag_STANAG_30Rnd",
+                        "attributes": {"quantityMin": 1.0, "quantityMax": 1.0},
+                        "quickBarSlot": -1,
+                    }],
+                }],
+            }],
+            "discreteUnsortedItemSets": [{
+                "name": "Cargo",
+                "spawnWeight": 1,
+                "simpleChildrenUseDefaultAttributes": False,
+                "simpleChildrenTypes": ["BandageDressing"],
+            }],
+        }
+        ok, message = validate_dayz_upload_text("custom/QA.json", json.dumps(valid))
+        self.assertTrue(ok, message)
+
+        mutations = (
+            (lambda payload: payload.update(spawnWeight=0), "at least 1"),
+            (lambda payload: payload["attachmentSlotItemSets"][0].update(discreteItemSets=[]), "non-empty array"),
+            (lambda payload: payload["attachmentSlotItemSets"][0]["discreteItemSets"][0]["attributes"].update(healthMin=1.1), "between 0 and 1"),
+            (lambda payload: payload["attachmentSlotItemSets"][0]["discreteItemSets"][0]["complexChildrenTypes"][0].pop("itemType"), "itemType"),
+            (lambda payload: payload["attachmentSlotItemSets"][0]["discreteItemSets"][0].update(quickBarSlot=-2), "-1 or greater"),
+            (lambda payload: payload["discreteUnsortedItemSets"][0].update(simpleChildrenTypes=[123]), "class-name strings"),
+        )
+        for mutate, expected in mutations:
+            payload = json.loads(json.dumps(valid))
+            mutate(payload)
+            with self.subTest(expected=expected):
+                ok, message = validate_dayz_upload_text("custom/QA.json", json.dumps(payload))
+                self.assertFalse(ok)
+                self.assertIn(expected, message)
+
+        ok, message = validate_dayz_upload_text(
+            "custom/FakeGear.json", '{"name":"Fake","discreteItemSets":[]}'
+        )
         self.assertFalse(ok)
         self.assertIn("recognised", message)
 
@@ -374,6 +486,20 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertIn("DayZ:Diag_Menu", " ".join(prototype_knowledge["official_sources"]))
         territory_knowledge = dayz_agent_file_knowledge("env/fox_territories.xml")
         self.assertIn("Ambient_Spawner", " ".join(territory_knowledge["official_sources"]))
+
+        ignore = dayz_agent_file_knowledge("cfgignorelist.xml")
+        ignore_knowledge = " ".join(
+            [str(ignore.get("purpose") or ""), str(ignore.get("safety") or ""), *map(str, ignore.get("dependencies", []))]
+        ).lower()
+        self.assertIn("not saved", ignore_knowledge)
+        self.assertIn("does not make", ignore_knowledge)
+
+        economy_core = dayz_agent_file_knowledge("cfgeconomycore.xml")
+        economy_core_knowledge = " ".join(
+            [str(economy_core.get("safety") or ""), str(economy_core.get("variants") or ""), *map(str, economy_core.get("dependencies", []))]
+        )
+        self.assertIn('<ce folder="foldername">', economy_core_knowledge)
+        self.assertIn('<file name="my_changes_to_types.xml" type="types" />', economy_core_knowledge)
 
     def test_init_script_and_named_objectspawner_file_are_recognised(self):
         init_spec = dayz_file_spec_for_path("/mission/init.c")

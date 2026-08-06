@@ -8,11 +8,13 @@ local JSON state only so the Discord bot can pick up changes on its next read.
 from __future__ import annotations
 
 import copy
+import difflib
 import json
 import io
 import os
 import re
 import random
+import math
 import html
 import inspect
 import secrets
@@ -7593,6 +7595,7 @@ PAGE_TEMPLATE = """
                   <label>X<input type="number" name="dayz_scenario_x" placeholder="e.g. 4481"></label>
                   <label>Y<input type="number" name="dayz_scenario_y" value="0"></label>
                   <label>Z<input type="number" name="dayz_scenario_z" placeholder="e.g. 10355"></label>
+                  <label>Rotation<input type="number" name="dayz_scenario_angle" value="0" min="0" max="359.999999" step="0.000001"></label>
                   <label>Radius<input type="number" name="dayz_scenario_radius" value="35" min="0" max="30000"></label>
                   <label>Count<input type="number" name="dayz_scenario_count" value="1" min="1" max="250"></label>
                 </div>
@@ -22452,7 +22455,7 @@ AI_AGENT_DAYZ_TARGETS = (
     ("db/messages.xml", "messages.xml - on-screen server messages"),
     ("cfgignorelist.xml", "cfgignorelist.xml - economy cleanup ignore list"),
     ("cfglimitsdefinition.xml", "cfglimitsdefinition.xml - CE category, tag and usage lists"),
-    ("cfglimitsdefinitionuser.xml", "cfglimitsdefinitionuser.xml - custom CE category, tag and usage lists"),
+    ("cfglimitsdefinitionuser.xml", "cfglimitsdefinitionuser.xml - aliases for existing CE usage/value definitions"),
     ("cfgrandompresets.xml", "cfgrandompresets.xml - random cargo presets"),
     ("cfgundergroundtriggers.json", "cfgundergroundtriggers.json - underground trigger settings"),
     ("env/zombie_territories.xml", "zombie_territories.xml - infected territory zones"),
@@ -22551,6 +22554,7 @@ AI_AGENT_DAYZ_FORMAT_GUIDES = {
     "messages.xml": "XML <messages> root containing <message> records with delay, repeat, onconnect and text values.",
     "cfgignorelist.xml": "XML <ignore> root listing CE cleanup exceptions. Do not leave temporary reset entries behind after the planned restart flow.",
     "cfglimitsdefinition.xml": "XML <lists> root defining CE categories, tags and usages; cfglimitsdefinitionuser.xml is the custom user-list counterpart.",
+    "cfglimitsdefinitionuser.xml": "XML <user_lists> root containing usageflags/valueflags <user name=\"...\"> aliases. It combines usage/value names already defined in cfglimitsdefinition.xml; it does not define new categories, tags, usages or values.",
     "cfgrandompresets.xml": "XML <randompresets> root containing named random cargo preset records.",
     "cfgundergroundtriggers.json": "JSON object with a Triggers array; retain the current map's trigger schema and coordinates.",
     "objectspawner.json": "JSON object with an Objects array. Each object needs name and a three-number pos; ypr is a three-number rotation when supplied.",
@@ -24381,8 +24385,11 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
         x = int(float(str(payload.get("dayz_scenario_x") or "").strip()))
         z = int(float(str(payload.get("dayz_scenario_z") or "").strip()))
         y = int(float(str(payload.get("dayz_scenario_y") or "0").strip()))
+        angle = float(str(payload.get("dayz_scenario_angle") or "0").strip())
     except (TypeError, ValueError):
-        return {"error": "Event coordinates need numeric X and Z values."}
+        return {"error": "Event coordinates and rotation need numeric values."}
+    if not math.isfinite(angle) or not (0.0 <= angle < 360.0):
+        return {"error": "Event rotation must be between 0 (inclusive) and 360 (exclusive) degrees."}
     clean_map = normalize_dayz_reference_map_key(map_key)
     map_size = map_size_for(clean_map)
     if not (0 <= x <= map_size and 0 <= z <= map_size):
@@ -24419,6 +24426,7 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
         "x": x,
         "y": y,
         "z": z,
+        "angle": angle,
         "radius": radius,
         "count": max(1, min(250, safe_int(payload.get("dayz_scenario_count"), safe_int(preset.get("count"), 1)))),
         "permanent": "1" if safe_bool(payload.get("dayz_scenario_permanent"), event_type == "vehicle_spawn") else "0",
@@ -24435,6 +24443,7 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
         "x": x,
         "y": y,
         "z": z,
+        "angle": angle,
         "radius": radius,
         "files": files,
         "core_files": core_files,
@@ -24505,6 +24514,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "enabled": True,
         "support_mode": str(payload.get("dayz_support_mode") or "ask").strip().lower()[:40],
         "target_path": target_path,
+        "objective": str(objective or "")[:AI_AGENT_DAYZ_SOURCE_MAX_CHARS],
         "target_error": "" if target_path or not requested_target else validation_message,
         "map": normalize_dayz_reference_map_key(payload.get("dayz_map")),
         "source_mode": source_mode,
@@ -24528,7 +24538,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "dependency_plan": dayz_dependency_plan_for_request(objective, target_path),
         "is_custom_json": dayz_is_supported_custom_json_path(target_path),
         "custom_json_schema": "recognised vanilla schema required" if dayz_is_supported_custom_json_path(target_path) else "",
-        "allows_merge_patch": bool(spec and spec.kind == "xml" and spec.required_children),
+        "allows_merge_patch": ai_agent_dayz_target_supports_patch(target_path, spec),
     }
 
 
@@ -24572,6 +24582,696 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
     }
 
 
+def ai_agent_dayz_target_supports_patch(target_path: Any, spec: Any = None) -> bool:
+    spec = spec or dayz_file_spec_for_path(target_path)
+    filename = dayz_filename_for_path(target_path)
+    return bool(spec and spec.kind == "xml" and (spec.required_children or filename == "cfgeconomycore.xml"))
+
+
+def ai_agent_parse_numeric_vector(value: Any, expected_length: int = 3) -> list[float] | None:
+    if isinstance(value, (list, tuple)):
+        raw_parts = list(value)
+    else:
+        raw_text = str(value or "").strip().strip("[]()")
+        raw_parts = [part for part in re.split(r"[\s,]+", raw_text) if part]
+    if len(raw_parts) != expected_length:
+        return None
+    try:
+        numbers = [float(part) for part in raw_parts]
+    except (TypeError, ValueError):
+        return None
+    return numbers if all(math.isfinite(number) for number in numbers) else None
+
+
+def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, context: Any) -> tuple[bool, str]:
+    """Apply selected-map checks that basic XML/JSON parsing cannot prove.
+
+    This deliberately stays narrow.  It blocks a model from inventing animal
+    territory zone names (for example ``BearPack`` when the selected vanilla
+    file uses ``Graze``) while leaving infected/custom-event names to their
+    linked events.xml workflow.
+    """
+    clean_target = str(target_path or "").replace("\\", "/").strip()
+    filename = dayz_filename_for_path(clean_target)
+    map_key = normalize_dayz_reference_map_key(context.get("map") if isinstance(context, dict) else "chernarus")
+    map_size = map_size_for(map_key)
+
+    def coordinate_error(label: str, x: Any, z: Any, *, margin: float = 0.0) -> str:
+        try:
+            x_value = float(x)
+            z_value = float(z)
+        except (TypeError, ValueError):
+            return ""
+        if not (
+            math.isfinite(x_value)
+            and math.isfinite(z_value)
+            and -margin <= x_value <= map_size + margin
+            and -margin <= z_value <= map_size + margin
+        ):
+            return f"{label} X/Z ({x_value:g}, {z_value:g}) is outside the selected {map_key} bounds 0 to {map_size:,}."
+        return ""
+
+    spec = dayz_file_spec_for_path(clean_target)
+    if spec and spec.kind == "json":
+        try:
+            payload = json.loads(content)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = None
+        schema = dayz_json_schema_name(payload)
+        coordinates: list[tuple[str, Any]] = []
+        if schema == "objectspawner":
+            coordinates = [(f"Objects[{index}].pos", item.get("pos")) for index, item in enumerate(payload.get("Objects", [])) if isinstance(item, dict)]
+        elif schema == "restricted_area":
+            coordinates = [
+                (f"PRABoxes[{index}].position", box[2])
+                for index, box in enumerate(payload.get("PRABoxes", []))
+                if isinstance(box, list) and len(box) == 3
+            ]
+            coordinates.extend((f"safePositions3D[{index}]", pos) for index, pos in enumerate(payload.get("safePositions3D", [])))
+        elif schema == "effect_area":
+            areas = payload.get("Areas", [])
+            coordinates = [
+                (f"Areas[{index}].Data.Pos", area.get("Data", {}).get("Pos", area.get("Data", {}).get("Position")))
+                for index, area in enumerate(areas)
+                if isinstance(area, dict) and isinstance(area.get("Data"), dict)
+            ]
+            try:
+                reference_payload = load_dayz_reference_json(map_key, "cfgeffectarea.json")
+            except ValueError:
+                reference_payload = {}
+            allowed_pairs = {
+                (str(area.get("Type") or ""), str(area.get("TriggerType") or ""))
+                for area in reference_payload.get("Areas", []) if isinstance(area, dict)
+            }
+            proposed_pairs = {
+                (str(area.get("Type") or ""), str(area.get("TriggerType") or ""))
+                for area in areas if isinstance(area, dict)
+            }
+            # Some community effect packages intentionally use custom trigger
+            # classes.  Only enforce the selected-map vanilla pairing for the
+            # known map-specific Sakhal environmental effects; a general custom
+            # contaminated/smoke effect must still be allowed after structural
+            # validation.
+            map_specific_effect_types = {"GeyserArea", "HotSpringArea", "VolcanicArea"}
+            unknown_pairs = sorted(
+                pair
+                for pair in proposed_pairs - allowed_pairs
+                if pair[0] in map_specific_effect_types
+            ) if allowed_pairs else []
+            if unknown_pairs:
+                rendered = ", ".join(f"{area_type}/{trigger_type}" for area_type, trigger_type in unknown_pairs[:6])
+                return False, f"effect-area Type/TriggerType {rendered} does not exist in the selected {map_key} vanilla schema."
+        elif schema == "underground":
+            coordinates = []
+            for trigger_index, trigger in enumerate(payload.get("Triggers", [])):
+                if not isinstance(trigger, dict):
+                    continue
+                coordinates.append((f"Triggers[{trigger_index}].Position", trigger.get("Position")))
+                coordinates.extend(
+                    (f"Triggers[{trigger_index}].Breadcrumbs[{breadcrumb_index}].Position", breadcrumb.get("Position"))
+                    for breadcrumb_index, breadcrumb in enumerate(trigger.get("Breadcrumbs", []))
+                    if isinstance(breadcrumb, dict)
+                )
+        elif schema == "spawning_gear":
+            types_text = load_dayz_reference_text(map_key, "db", "types.xml")
+            try:
+                allowed_classes = {
+                    str(node.get("name") or "").strip()
+                    for node in ET.fromstring(types_text).findall("type")
+                    if str(node.get("name") or "").strip()
+                }
+            except ET.ParseError:
+                allowed_classes = set()
+            source_classes: set[str] = set()
+            if isinstance(context, dict) and str(context.get("source_text") or "").strip():
+                try:
+                    source_classes = set(iter_player_loadout_classnames(json.loads(context.get("source_text"))))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    source_classes = set()
+            unknown_classes = sorted(
+                set(iter_player_loadout_classnames(payload)) - allowed_classes - source_classes
+            ) if allowed_classes else []
+            if unknown_classes:
+                return False, (
+                    "spawning-gear JSON uses classname(s) not found in the selected map/version types.xml or supplied current preset: "
+                    f"{', '.join(unknown_classes[:8])}. Supply the matching current mod/type definitions instead of guessing."
+                )
+        for label, vector in coordinates:
+            if isinstance(vector, list) and len(vector) == 3:
+                error = coordinate_error(label, vector[0], vector[2])
+                if error:
+                    return False, error
+
+    xml_root: ET.Element | None = None
+    if spec and spec.kind == "xml":
+        try:
+            xml_root = ET.fromstring(content)
+        except ET.ParseError:
+            xml_root = None
+
+    if xml_root is not None and (
+        filename in {"cfgeventspawns.xml", "mapgrouppos.xml", "cfgplayerspawnpoints.xml"}
+        or filename.endswith("_territories.xml")
+    ):
+        for index, node in enumerate(xml_root.findall(".//*[@x][@z]")):
+            # Vanilla ambient territories can intentionally sit just beyond
+            # the terrain edge so their radius overlaps the playable area.
+            margin = 1024.0 if filename.endswith("_territories.xml") else 0.0
+            error = coordinate_error(
+                f"{filename} position {index + 1}", node.get("x"), node.get("z"), margin=margin
+            )
+            if error:
+                return False, error
+
+    def require_unique_names(
+        nodes: list[ET.Element], label: str, allowed_duplicates: set[str] | None = None
+    ) -> tuple[bool, str]:
+        names = [str(node.get("name") or "").strip() for node in nodes]
+        if any(not name for name in names):
+            return False, f"{label} contains a record without a non-empty name attribute."
+        allowed = allowed_duplicates or set()
+        duplicate_names = sorted({name for name in names if names.count(name) > 1 and name not in allowed})
+        if duplicate_names:
+            return False, f"{label} contains duplicate named record(s): {', '.join(duplicate_names[:8])}."
+        return True, ""
+
+    def require_numeric_text(node: ET.Element, tags: tuple[str, ...], label: str) -> tuple[bool, str]:
+        for tag in tags:
+            child = node.find(tag)
+            if child is None or child.text is None:
+                return False, f"{label} is missing <{tag}>."
+            try:
+                float(child.text.strip())
+            except (TypeError, ValueError):
+                return False, f"{label} <{tag}> must be numeric."
+        return True, ""
+
+    if xml_root is not None and filename == "types.xml":
+        type_nodes = list(xml_root.findall("type"))
+        ok, message = require_unique_names(type_nodes, "types.xml")
+        if not ok:
+            return ok, message
+        for type_node in type_nodes:
+            label = f"types.xml type {type_node.get('name')}"
+            ok, message = require_numeric_text(
+                type_node, ("nominal", "lifetime", "restock", "min", "quantmin", "quantmax", "cost"), label
+            )
+            if not ok:
+                return ok, message
+            flags = type_node.find("flags")
+            required_flags = ("count_in_cargo", "count_in_hoarder", "count_in_map", "count_in_player", "crafted", "deloot")
+            if flags is None or any(flags.get(key) not in {"0", "1"} for key in required_flags):
+                return False, f"{label} needs a complete <flags> record with all six 0/1 CE attributes."
+            for rule_name in ("category", "usage", "value"):
+                if any(not str(rule.get("name") or "").strip() for rule in type_node.findall(rule_name)):
+                    return False, f"{label} contains a <{rule_name}> without a name."
+
+    if xml_root is not None and filename == "events.xml":
+        event_nodes = list(xml_root.findall("event"))
+        ok, message = require_unique_names(event_nodes, "events.xml")
+        if not ok:
+            return ok, message
+        for event_node in event_nodes:
+            label = f"events.xml event {event_node.get('name')}"
+            ok, message = require_numeric_text(
+                event_node,
+                ("nominal", "min", "max", "lifetime", "restock", "saferadius", "distanceradius", "cleanupradius", "active"),
+                label,
+            )
+            if not ok:
+                return ok, message
+            if event_node.findtext("position", "").strip() not in {"fixed", "player", "uniform"}:
+                return False, f"{label} has an unsupported or missing <position>."
+            if event_node.findtext("limit", "").strip() not in {"custom", "parent", "mixed", "child"}:
+                return False, f"{label} has an unsupported or missing <limit>."
+            flags = event_node.find("flags")
+            if flags is None or any(flags.get(key) not in {"0", "1"} for key in ("deletable", "init_random", "remove_damaged")):
+                return False, f"{label} needs a complete <flags> record with deletable/init_random/remove_damaged."
+            children = event_node.find("children")
+            if children is None:
+                return False, f"{label} is missing <children>."
+            for child_index, child in enumerate(children.findall("child")):
+                if not str(child.get("type") or "").strip():
+                    return False, f"{label} child {child_index + 1} is missing type."
+                for key in ("lootmax", "lootmin", "max", "min"):
+                    try:
+                        float(str(child.get(key)))
+                    except (TypeError, ValueError):
+                            return False, f"{label} child {child_index + 1} needs numeric {key}."
+
+    if xml_root is not None and filename == "cfgspawnabletypes.xml":
+        type_nodes = list(xml_root.findall("type"))
+        allowed_duplicates: set[str] = set()
+        reference_text = load_dayz_reference_text(map_key, "cfgspawnabletypes.xml")
+        if reference_text.strip():
+            try:
+                reference_names = [
+                    str(node.get("name") or "").strip()
+                    for node in ET.fromstring(reference_text).findall("type")
+                ]
+                allowed_duplicates = {
+                    name for name in reference_names if name and reference_names.count(name) > 1
+                }
+            except ET.ParseError:
+                allowed_duplicates = set()
+        ok, message = require_unique_names(type_nodes, "cfgspawnabletypes.xml", allowed_duplicates)
+        if not ok:
+            return ok, message
+        for type_node in type_nodes:
+            label = f"cfgspawnabletypes.xml type {type_node.get('name')}"
+            for damage in type_node.findall(".//damage"):
+                try:
+                    minimum = float(str(damage.get("min")))
+                    maximum = float(str(damage.get("max")))
+                except (TypeError, ValueError):
+                    return False, f"{label} contains <damage> without numeric min/max."
+                if not (0.0 <= minimum <= maximum <= 1.0):
+                    return False, f"{label} damage must satisfy 0 <= min <= max <= 1."
+            for collection in list(type_node.findall(".//cargo")) + list(type_node.findall(".//attachments")):
+                collection_name = collection.tag
+                chance_text = collection.get("chance")
+                if chance_text is not None:
+                    try:
+                        chance = float(chance_text)
+                    except (TypeError, ValueError):
+                        return False, f"{label} <{collection_name}> chance must be numeric."
+                    if not 0.0 <= chance <= 1.0:
+                        return False, f"{label} <{collection_name}> chance must be between 0 and 1."
+                if not str(collection.get("preset") or "").strip() and not collection.findall("item"):
+                    return False, f"{label} <{collection_name}> needs a preset or at least one <item>."
+            for item_index, item in enumerate(type_node.findall(".//item")):
+                if not str(item.get("name") or "").strip():
+                    return False, f"{label} item {item_index + 1} is missing name."
+                if item.get("chance") is not None:
+                    try:
+                        chance = float(str(item.get("chance")))
+                    except (TypeError, ValueError):
+                        return False, f"{label} item {item_index + 1} chance must be numeric."
+                    # Vanilla files use both fractional weights (0..1) and
+                    # percentage-style weights (for example 40.00) here.
+                    if not 0.0 <= chance <= 100.0:
+                        return False, f"{label} item {item_index + 1} chance must be between 0 and 100."
+                quant_min = item.get("quantmin")
+                quant_max = item.get("quantmax")
+                if quant_min is not None or quant_max is not None:
+                    try:
+                        minimum = float(str(quant_min))
+                        maximum = float(str(quant_max))
+                    except (TypeError, ValueError):
+                        return False, f"{label} item {item_index + 1} needs both numeric quantmin/quantmax."
+                    if not (0.0 <= minimum <= maximum <= 100.0):
+                        return False, f"{label} item {item_index + 1} quantity must satisfy 0 <= quantmin <= quantmax <= 100."
+        objective = str(context.get("objective") or "") if isinstance(context, dict) else ""
+        objective_lower = objective.lower()
+        if any(phrase in objective_lower for phrase in ("100% full", "100 % full", "fully loaded", "full magazine")):
+            requested_magazines = {
+                match.group(0)
+                for match in re.finditer(r"\bMag_[A-Za-z0-9_]+\b", objective, re.IGNORECASE)
+            }
+            for magazine_name in sorted(requested_magazines):
+                matching_items = [
+                    item for item in xml_root.findall(".//item")
+                    if str(item.get("name") or "").lower() == magazine_name.lower()
+                ]
+                if not matching_items:
+                    return False, f"Requested full magazine {magazine_name} is missing from the cfgspawnabletypes.xml draft."
+                for item in matching_items:
+                    try:
+                        quant_min = float(str(item.get("quantmin")))
+                        quant_max = float(str(item.get("quantmax")))
+                    except (TypeError, ValueError):
+                        return False, f"Requested full magazine {magazine_name} needs quantmin=\"100\" and quantmax=\"100\"."
+                    if quant_min != 100.0 or quant_max != 100.0:
+                        return False, f"Requested full magazine {magazine_name} needs quantmin=\"100\" and quantmax=\"100\"."
+
+    if xml_root is not None and filename == "cfgeventspawns.xml":
+        event_nodes = list(xml_root.findall("event"))
+        ok, message = require_unique_names(event_nodes, "cfgeventspawns.xml")
+        if not ok:
+            return ok, message
+        for event_node in event_nodes:
+            positions = event_node.findall("pos")
+            for position_index, position in enumerate(positions):
+                for key in ("x", "z"):
+                    try:
+                        float(str(position.get(key)))
+                    except (TypeError, ValueError):
+                        return False, f"cfgeventspawns.xml event {event_node.get('name')} position {position_index + 1} needs numeric {key}."
+                for optional_key in ("y", "a"):
+                    if position.get(optional_key) is not None:
+                        try:
+                            float(str(position.get(optional_key)))
+                        except (TypeError, ValueError):
+                            return False, f"cfgeventspawns.xml event {event_node.get('name')} position {position_index + 1} needs numeric {optional_key}."
+
+    if xml_root is not None and filename == "cfgeventgroups.xml":
+        group_nodes = list(xml_root.findall("group"))
+        ok, message = require_unique_names(group_nodes, "cfgeventgroups.xml")
+        if not ok:
+            return ok, message
+        for group_node in group_nodes:
+            label = f"cfgeventgroups.xml group {group_node.get('name')}"
+            children = group_node.findall("child")
+            if not children:
+                return False, f"{label} has no <child> objects."
+            for child_index, child in enumerate(children):
+                if not str(child.get("type") or "").strip():
+                    return False, f"{label} child {child_index + 1} is missing type."
+                for key in ("x", "y", "z", "a", "lootmin", "lootmax"):
+                    if child.get(key) is not None:
+                        try:
+                            float(str(child.get(key)))
+                        except (TypeError, ValueError):
+                            return False, f"{label} child {child_index + 1} needs numeric {key}."
+
+    if xml_root is not None and filename == "mapgrouppos.xml":
+        for group_index, group in enumerate(xml_root.findall("group")):
+            label = f"mapgrouppos.xml group {group_index + 1}"
+            if not str(group.get("name") or "").strip():
+                return False, f"{label} is missing name."
+            pos = ai_agent_parse_numeric_vector(group.get("pos"), 3)
+            if pos is None:
+                return False, f"{label} needs pos=\"x y z\" with three numeric values."
+            error = coordinate_error(label, pos[0], pos[2])
+            if error:
+                return False, error
+            if group.get("rpy") is not None and ai_agent_parse_numeric_vector(group.get("rpy"), 3) is None:
+                return False, f"{label} rpy must contain three numeric values."
+
+    if xml_root is not None and filename == "mapgroupproto.xml":
+        group_nodes = list(xml_root.findall("group"))
+        ok, message = require_unique_names(group_nodes, "mapgroupproto.xml")
+        if not ok:
+            return ok, message
+        for group_node in group_nodes:
+            label = f"mapgroupproto.xml group {group_node.get('name')}"
+            if group_node.get("lootmax") is not None:
+                try:
+                    float(str(group_node.get("lootmax")))
+                except (TypeError, ValueError):
+                    return False, f"{label} lootmax must be numeric."
+            for container_index, container in enumerate(group_node.findall("container")):
+                if not str(container.get("name") or "").strip():
+                    return False, f"{label} container {container_index + 1} is missing name."
+                if container.get("lootmax") is not None:
+                    try:
+                        float(str(container.get("lootmax")))
+                    except (TypeError, ValueError):
+                        return False, f"{label} container {container_index + 1} lootmax must be numeric."
+                for point_index, point in enumerate(container.findall("point")):
+                    if ai_agent_parse_numeric_vector(point.get("pos"), 3) is None:
+                        return False, f"{label} container {container_index + 1} point {point_index + 1} needs numeric 3D pos."
+
+    if xml_root is not None and (filename.startswith("mapgroupcluster") or filename == "mapgroupdirt.xml"):
+        for group_index, group in enumerate(xml_root.findall("group")):
+            label = f"{filename} group {group_index + 1}"
+            if not str(group.get("name") or "").strip():
+                return False, f"{label} is missing name."
+            position = ai_agent_parse_numeric_vector(group.get("pos"), 3)
+            if position is None:
+                return False, f"{label} needs numeric 3D pos."
+            error = coordinate_error(label, position[0], position[2])
+            if error:
+                return False, error
+            if group.get("a") is not None:
+                try:
+                    float(str(group.get("a")))
+                except (TypeError, ValueError):
+                    return False, f"{label} rotation a must be numeric."
+
+    if xml_root is not None and filename == "mapclusterproto.xml":
+        exports_parent = xml_root.find("clusters")
+        if exports_parent is None:
+            return False, "mapclusterproto.xml is missing the <clusters> export list."
+        export_nodes = list(exports_parent.findall("export"))
+        ok, message = require_unique_names(export_nodes, "mapclusterproto.xml exports")
+        if not ok:
+            return ok, message
+        for export in export_nodes:
+            if not str(export.get("shape") or "").strip():
+                return False, f"mapclusterproto.xml export {export.get('name')} is missing shape."
+        cluster_nodes = list(xml_root.findall("cluster"))
+        ok, message = require_unique_names(cluster_nodes, "mapclusterproto.xml clusters")
+        if not ok:
+            return ok, message
+        for cluster in cluster_nodes:
+            label = f"mapclusterproto.xml cluster {cluster.get('name')}"
+            if cluster.get("lootmax") is not None:
+                try:
+                    float(str(cluster.get("lootmax")))
+                except (TypeError, ValueError):
+                    return False, f"{label} lootmax must be numeric."
+            for container in cluster.findall("container"):
+                if not str(container.get("name") or "").strip():
+                    return False, f"{label} contains an unnamed container."
+                for point in container.findall("point"):
+                    if ai_agent_parse_numeric_vector(point.get("pos"), 3) is None:
+                        return False, f"{label} container {container.get('name')} has a point without numeric 3D pos."
+
+    if xml_root is not None and filename == "cfgignorelist.xml":
+        type_nodes = list(xml_root)
+        if any(node.tag != "type" or list(node) for node in type_nodes):
+            return False, "cfgignorelist.xml must contain only empty <type name=.../> records."
+        ok, message = require_unique_names(type_nodes, "cfgignorelist.xml")
+        if not ok:
+            return ok, message
+
+    if xml_root is not None and filename == "cfgrandompresets.xml":
+        preset_nodes = list(xml_root)
+        ok, message = require_unique_names(preset_nodes, "cfgrandompresets.xml")
+        if not ok:
+            return ok, message
+        for preset in preset_nodes:
+            label = f"cfgrandompresets.xml preset {preset.get('name')}"
+            if preset.tag not in {"cargo", "attachments"}:
+                return False, f"{label} must be a <cargo> or <attachments> record."
+            if not list(preset):
+                return False, f"{label} needs at least one nested <item>."
+            for chance_node in [preset, *list(preset)]:
+                chance_label = label if chance_node is preset else f"{label} item {chance_node.get('name')}"
+                if chance_node is not preset and (
+                    chance_node.tag != "item" or not str(chance_node.get("name") or "").strip()
+                ):
+                    return False, f"{label} must contain only named <item> records."
+                try:
+                    chance = float(str(chance_node.get("chance")))
+                except (TypeError, ValueError):
+                    return False, f"{chance_label} needs a numeric chance."
+                if not 0 <= chance <= 1:
+                    return False, f"{chance_label} chance must be between 0 and 1."
+
+    if xml_root is not None and filename == "cfgplayerspawnpoints.xml":
+        allowed_modes = {"fresh", "hop", "travel"}
+        required_sections = {"spawn_params", "generator_params", "group_params", "generator_posbubbles"}
+        for mode in list(xml_root):
+            if mode.tag not in allowed_modes:
+                return False, f"cfgplayerspawnpoints.xml contains unsupported mode <{mode.tag}>."
+            present = {child.tag for child in list(mode)}
+            missing = sorted(required_sections - present)
+            if missing:
+                return False, f"cfgplayerspawnpoints.xml <{mode.tag}> is missing <{missing[0]}>."
+            for params_name in ("spawn_params", "generator_params"):
+                params = mode.find(params_name)
+                for field in list(params) if params is not None else []:
+                    try:
+                        float(str(field.text))
+                    except (TypeError, ValueError):
+                        return False, (
+                            f"cfgplayerspawnpoints.xml <{mode.tag}> <{params_name}> "
+                            f"<{field.tag}> must be numeric."
+                        )
+            group_params = mode.find("group_params")
+            for bool_tag in ("enablegroups", "groups_as_regular"):
+                value = str(group_params.findtext(bool_tag, "")).strip().lower() if group_params is not None else ""
+                if value not in {"true", "false", "0", "1"}:
+                    return False, f"cfgplayerspawnpoints.xml <{mode.tag}> <{bool_tag}> must be true/false or 0/1."
+            for number_tag in ("lifetime", "counter"):
+                try:
+                    float(str(group_params.findtext(number_tag)))
+                except (AttributeError, TypeError, ValueError):
+                    return False, f"cfgplayerspawnpoints.xml <{mode.tag}> <{number_tag}> must be numeric."
+            posbubbles = mode.find("generator_posbubbles")
+            groups = list(posbubbles) if posbubbles is not None else []
+            ok, message = require_unique_names(groups, f"cfgplayerspawnpoints.xml {mode.tag} groups")
+            if not ok:
+                return ok, message
+            for group in groups:
+                positions = list(group.findall("pos"))
+                if not positions:
+                    return False, f"cfgplayerspawnpoints.xml group {group.get('name')} needs at least one <pos>."
+                if any(pos.get("x") is None or pos.get("z") is None for pos in positions):
+                    return False, f"cfgplayerspawnpoints.xml group {group.get('name')} has a position without x/z."
+
+    if xml_root is not None and filename == "cfgenvironment.xml":
+        territories = xml_root.find("territories")
+        if territories is None:
+            return False, "cfgenvironment.xml is missing <territories>."
+        for node in list(territories):
+            if node.tag == "file":
+                if not str(node.get("path") or "").strip():
+                    return False, "cfgenvironment.xml top-level <file> needs a path attribute."
+            elif node.tag == "territory":
+                if any(not str(node.get(key) or "").strip() for key in ("type", "name", "behavior")):
+                    return False, "cfgenvironment.xml <territory> needs type, name and behavior attributes."
+                usable = node.find("file")
+                if usable is None or not str(usable.get("usable") or "").strip():
+                    return False, f"cfgenvironment.xml territory {node.get('name')} needs <file usable=.../>."
+                for item in node.findall("item"):
+                    if not str(item.get("name") or "").strip():
+                        return False, f"cfgenvironment.xml territory {node.get('name')} has an unnamed item."
+                    try:
+                        float(str(item.get("val")))
+                    except (TypeError, ValueError):
+                        return False, f"cfgenvironment.xml territory {node.get('name')} item {item.get('name')} needs numeric val."
+            else:
+                return False, f"cfgenvironment.xml <territories> contains unsupported <{node.tag}>."
+
+    if xml_root is not None and filename.endswith("_territories.xml"):
+        for zone_index, zone in enumerate(xml_root.findall(".//zone")):
+            label = f"{filename} zone {zone_index + 1}"
+            if not str(zone.get("name") or "").strip():
+                return False, f"{label} is missing name."
+            values: dict[str, float] = {}
+            for key in ("smin", "smax", "dmin", "dmax", "x", "z", "r"):
+                try:
+                    values[key] = float(str(zone.get(key)))
+                except (TypeError, ValueError):
+                    return False, f"{label} needs numeric {key}."
+            if values["smin"] > values["smax"] or values["dmin"] > values["dmax"]:
+                return False, f"{label} needs smin <= smax and dmin <= dmax."
+            if values["r"] < 0:
+                return False, f"{label} radius cannot be negative."
+
+    if xml_root is not None and filename == "globals.xml":
+        var_nodes = list(xml_root.findall("var"))
+        ok, message = require_unique_names(var_nodes, "globals.xml")
+        if not ok:
+            return ok, message
+        for var_node in var_nodes:
+            if var_node.get("type") not in {"0", "1", "2"}:
+                return False, f"globals.xml variable {var_node.get('name')} has an invalid or missing type."
+            try:
+                float(str(var_node.get("value")))
+            except (TypeError, ValueError):
+                return False, f"globals.xml variable {var_node.get('name')} needs a numeric value."
+
+    if xml_root is not None and filename == "economy.xml":
+        allowed_groups = {"dynamic", "animals", "zombies", "vehicles", "randoms", "custom", "building", "player"}
+        for group in list(xml_root):
+            if group.tag not in allowed_groups:
+                return False, f"economy.xml contains unsupported group <{group.tag}>."
+            if any(group.get(key) not in {"0", "1"} for key in ("init", "load", "respawn", "save")):
+                return False, f"economy.xml <{group.tag}> needs init/load/respawn/save 0/1 attributes."
+
+    if xml_root is not None and filename == "messages.xml":
+        for message_index, message_node in enumerate(xml_root.findall("message")):
+            if not str(message_node.findtext("text", "")).strip():
+                return False, f"messages.xml message {message_index + 1} is missing non-empty <text>."
+            schedule_tags = ("deadline", "delay", "repeat", "onconnect", "shutdown")
+            if not any(message_node.find(tag) is not None for tag in schedule_tags):
+                return False, f"messages.xml message {message_index + 1} has no schedule field."
+            for tag in schedule_tags:
+                child = message_node.find(tag)
+                if child is not None:
+                    try:
+                        float(str(child.text))
+                    except (TypeError, ValueError):
+                        return False, f"messages.xml message {message_index + 1} <{tag}> must be numeric."
+
+    if xml_root is not None and filename == "cfglimitsdefinition.xml":
+        expected_sections = {
+            "categories": "category",
+            "tags": "tag",
+            "usageflags": "usage",
+            "valueflags": "value",
+        }
+        for section in list(xml_root):
+            expected_child = expected_sections.get(section.tag)
+            if not expected_child:
+                return False, f"cfglimitsdefinition.xml contains unsupported section <{section.tag}>."
+            for child in list(section):
+                if child.tag != expected_child or not str(child.get("name") or "").strip():
+                    return False, (
+                        f"cfglimitsdefinition.xml <{section.tag}> must contain only named <{expected_child}> records."
+                    )
+
+    if xml_root is not None and filename == "cfglimitsdefinitionuser.xml":
+        expected_sections = {"usageflags": "usage", "valueflags": "value"}
+        reference_text = load_dayz_reference_text(map_key, "cfglimitsdefinition.xml")
+        defined_names: dict[str, set[str]] = {"usage": set(), "value": set()}
+        if reference_text.strip():
+            try:
+                reference_root = ET.fromstring(reference_text)
+                defined_names["usage"] = {
+                    str(node.get("name") or "").strip()
+                    for node in reference_root.findall("./usageflags/usage")
+                    if str(node.get("name") or "").strip()
+                }
+                defined_names["value"] = {
+                    str(node.get("name") or "").strip()
+                    for node in reference_root.findall("./valueflags/value")
+                    if str(node.get("name") or "").strip()
+                }
+            except ET.ParseError:
+                defined_names = {"usage": set(), "value": set()}
+        for section in list(xml_root):
+            expected_child = expected_sections.get(section.tag)
+            if not expected_child:
+                return False, (
+                    "cfglimitsdefinitionuser.xml supports usageflags/valueflags user aliases only; "
+                    f"<{section.tag}> belongs in cfglimitsdefinition.xml."
+                )
+            for user in list(section):
+                if user.tag != "user" or not str(user.get("name") or "").strip():
+                    return False, f"cfglimitsdefinitionuser.xml <{section.tag}> must contain named <user> groups."
+                members = list(user)
+                if not members:
+                    return False, f"cfglimitsdefinitionuser.xml user {user.get('name')} cannot be empty."
+                for member in members:
+                    member_name = str(member.get("name") or "").strip()
+                    if member.tag != expected_child or not member_name:
+                        return False, (
+                            f"cfglimitsdefinitionuser.xml user {user.get('name')} must contain only named <{expected_child}> records."
+                        )
+                    if defined_names[expected_child] and member_name not in defined_names[expected_child]:
+                        return False, (
+                            f"cfglimitsdefinitionuser.xml user {user.get('name')} references undefined {expected_child} "
+                            f"{member_name}; define it in cfglimitsdefinition.xml first."
+                        )
+
+    if xml_root is not None and filename == "cfgeconomycore.xml":
+        for include_index, include in enumerate(xml_root.findall("ce")):
+            if not str(include.get("folder") or "").strip():
+                return False, f"cfgeconomycore.xml <ce> include {include_index + 1} is missing folder."
+            files = include.findall("file")
+            if not files:
+                return False, f"cfgeconomycore.xml <ce> include {include_index + 1} has no nested <file>."
+            for file_node in files:
+                if not str(file_node.get("name") or "").strip() or not str(file_node.get("type") or "").strip():
+                    return False, "cfgeconomycore.xml nested <file> needs both name and type attributes."
+        if xml_root.findall("include"):
+            return False, "cfgeconomycore.xml uses <ce folder=...><file name=... type=... /></ce>, not an <include> element."
+
+    if clean_target.startswith("env/") and filename.endswith("_territories.xml") and filename != "zombie_territories.xml":
+        reference = load_dayz_reference_text(map_key, "env", filename)
+        if not reference.strip():
+            return True, ""
+        try:
+            reference_root = ET.fromstring(reference)
+            draft_root = ET.fromstring(content)
+        except ET.ParseError:
+            return True, ""
+        allowed_names = {str(node.get("name") or "").strip() for node in reference_root.findall(".//zone") if str(node.get("name") or "").strip()}
+        proposed_names = {str(node.get("name") or "").strip() for node in draft_root.findall(".//zone") if str(node.get("name") or "").strip()}
+        unknown_names = sorted(proposed_names - allowed_names)
+        if unknown_names and allowed_names:
+            return False, (
+                f"{clean_target} contains unknown zone name(s) {', '.join(unknown_names[:6])}; "
+                f"the selected {map_key} vanilla file uses {', '.join(sorted(allowed_names))}."
+            )
+    return True, ""
+
+
 def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, Any] | None, str]:
     if not isinstance(value, dict) or not isinstance(context, dict) or not context.get("enabled"):
         return None, ""
@@ -24592,6 +25292,7 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     raw_kind = str(value.get("kind") or value.get("draft_kind") or "").strip().lower().replace("-", "_")
     kind = "patch" if raw_kind in {"patch", "merge", "merge_patch", "snippet"} else "full_file"
     source_mode = str(context.get("source_mode") or "none")
+    support_mode = str(context.get("support_mode") or "ask").strip().lower()
     current_text = str(context.get("source_text") or "")
     reference_text, reference_base_error = ai_agent_dayz_reference_base_content(context)
     reference_is_valid = bool(reference_text.strip() and not reference_base_error)
@@ -24601,16 +25302,31 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
         and not context.get("source_error")
         and (context.get("source_validation") or {}).get("ok") is not False
     )
-    if kind == "patch" and not (spec.kind == "xml" and spec.required_children):
+    repairing_invalid_complete_file = bool(
+        kind == "full_file"
+        and support_mode == "fix_error"
+        and source_mode == "complete"
+        and current_text.strip()
+        and not context.get("source_error")
+        and (context.get("source_validation") or {}).get("ok") is False
+    )
+    if kind == "patch" and not ai_agent_dayz_target_supports_patch(target_path, spec):
         return None, f"No file draft was saved: {target_path} needs a complete current file, not a merge patch."
     custom_new_file = dayz_is_supported_custom_json_path(target_path)
-    if kind == "full_file" and not (current_file_is_valid or reference_is_valid or custom_new_file):
+    standard_new_file = bool(target_path == "db/messages.xml" and not current_text.strip())
+    if kind == "full_file" and not (
+        current_file_is_valid
+        or reference_is_valid
+        or custom_new_file
+        or standard_new_file
+        or repairing_invalid_complete_file
+    ):
         return None, (
             f"No file draft was saved: a full {target_path} replacement needs either the valid complete current file "
             "or a selected validated vanilla/preset base."
         )
     source_validation = context.get("source_validation") if isinstance(context.get("source_validation"), dict) else {}
-    if kind == "full_file" and source_validation.get("ok") is False:
+    if kind == "full_file" and source_validation.get("ok") is False and not repairing_invalid_complete_file:
         return None, f"No file draft was saved: the supplied current {target_path} did not pass validation. {source_validation.get('message') or ''}".strip()
     valid, validation_message = validate_dayz_upload_text(target_path, content)
     if not valid:
@@ -24623,15 +25339,36 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
             # The protected validator above is authoritative and has already
             # rejected malformed or unrecognised custom JSON.
             custom_json_schema = ""
+    if repairing_invalid_complete_file:
+        compact_before = re.sub(r"\s+", "", current_text)
+        compact_after = re.sub(r"\s+", "", content)
+        similarity = difflib.SequenceMatcher(None, compact_before, compact_after).ratio()
+        if similarity < 0.72:
+            return None, (
+                "No file draft was saved because the proposed repair changes too much of the invalid current file "
+                f"({similarity:.0%} structural-text similarity). Repair only the reported syntax/schema fault or use a validated base."
+            )
+        before_names = set(re.findall(r'<(?:event|type|group)\b[^>]*\bname=["\']([^"\']+)["\']', current_text))
+        after_names = set(re.findall(r'<(?:event|type|group)\b[^>]*\bname=["\']([^"\']+)["\']', content))
+        missing_names = sorted(before_names - after_names)
+        if missing_names:
+            preview = ", ".join(missing_names[:8])
+            return None, f"No file draft was saved because the repair removes named record(s): {preview}."
     if kind == "full_file":
         base_text = current_text if current_file_is_valid else reference_text
+        if repairing_invalid_complete_file:
+            base_text = current_text
         if base_text.strip():
             shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, base_text, content)
             if not shrink_ok:
                 return None, f"No file draft was saved because it looks destructive: {shrink_message}"
-            preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, base_text, content)
-            if not preserve_ok:
-                return None, f"No file draft was saved because it removes existing records: {preserve_message}"
+            if not repairing_invalid_complete_file:
+                preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, base_text, content)
+                if not preserve_ok:
+                    return None, f"No file draft was saved because it removes existing records: {preserve_message}"
+    semantic_ok, semantic_message = ai_agent_validate_dayz_draft_semantics(target_path, content, context)
+    if not semantic_ok:
+        return None, f"No file draft was saved because semantic validation failed: {semantic_message}"
     now = datetime.now(UTC).isoformat()
     return {
         "id": ai_agent_new_id("dayz-draft"),
@@ -24647,6 +25384,145 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
         "created_at": now,
         "updated_at": now,
     }, ""
+
+
+def ai_agent_normalize_dayz_draft_package(data: Any, context: Any) -> tuple[list[dict[str, Any]], str]:
+    """Validate a model's one- or multi-file DayZ response as one package.
+
+    A linked secondary file is accepted only as a merge-only XML patch and
+    only when the dependency planner marks that exact file as changed.  This
+    prevents a model from smuggling unrelated complete-file replacements into
+    a seemingly legitimate event answer.
+    """
+    if not isinstance(data, dict) or not isinstance(context, dict) or not context.get("enabled"):
+        return [], ""
+    raw_values = data.get("dayz_drafts")
+    if not isinstance(raw_values, list):
+        raw_values = [data.get("dayz_draft")] if isinstance(data.get("dayz_draft"), dict) else []
+    raw_values = [item for item in raw_values if isinstance(item, dict)]
+    if not raw_values:
+        return [], ""
+    plan = context.get("dependency_plan") if isinstance(context.get("dependency_plan"), dict) else {}
+    changed_targets = {
+        str(item.get("path") or "")
+        for item in plan.get("files", []) if isinstance(item, dict) and item.get("action") == "changed"
+    }
+    selected_target = str(context.get("target_path") or "")
+    allowed_targets = {selected_target, *changed_targets}
+    drafts: list[dict[str, Any]] = []
+    errors: list[str] = []
+    seen_targets: set[str] = set()
+    for raw in raw_values[:8]:
+        candidate_target = ai_agent_dayz_target_path(raw.get("target_path"))
+        if not candidate_target or candidate_target not in allowed_targets:
+            errors.append(f"linked target {candidate_target or '(missing)'} was not marked changed by the dependency plan")
+            continue
+        if candidate_target in seen_targets:
+            errors.append(f"duplicate linked target {candidate_target}")
+            continue
+        candidate_context = context
+        if candidate_target != selected_target:
+            raw_kind = str(raw.get("kind") or raw.get("draft_kind") or "").lower().replace("-", "_")
+            if raw_kind not in {"patch", "merge", "merge_patch", "snippet"}:
+                errors.append(f"linked {candidate_target} must be a merge-only patch, not a complete replacement")
+                continue
+            spec = dayz_file_spec_for_path(candidate_target)
+            if not ai_agent_dayz_target_supports_patch(candidate_target, spec):
+                errors.append(f"linked {candidate_target} is not eligible for a safe named-record merge patch")
+                continue
+            candidate_context = copy.deepcopy(context)
+            candidate_context.update({
+                "target_path": candidate_target,
+                "source_mode": "none",
+                "source_text": "",
+                "source_chars": 0,
+                "source_error": "",
+                "source_validation": {"ok": None, "message": "Linked merge-only package file."},
+                "reference": {},
+                "reference_base_available": False,
+                "reference_base_error": "Linked files are merge-only unless their current complete file is separately supplied.",
+                "file_kind": spec.kind,
+                "expected_root": spec.xml_root,
+                "description": spec.description,
+                "format_guide": ai_agent_dayz_format_guide(candidate_target),
+                "knowledge": dayz_agent_file_knowledge(candidate_target),
+                "allows_merge_patch": True,
+            })
+        draft, error = ai_agent_normalize_dayz_draft(raw, candidate_context)
+        if draft:
+            drafts.append(draft)
+            seen_targets.add(candidate_target)
+        elif error:
+            errors.append(error)
+    if errors:
+        return [], "; ".join(errors[:6])
+    if str(plan.get("workflow") or "") == "ce_event_package" and len(raw_values) > 1:
+        required = {"db/events.xml", "cfgeventspawns.xml"}
+        if not required.issubset(seen_targets):
+            return [], "A linked CE event package must contain validated merge patches for both db/events.xml and cfgeventspawns.xml."
+        by_target = {item["target_path"]: item for item in drafts}
+        try:
+            event_root = ET.fromstring(by_target["db/events.xml"]["content"])
+            spawn_root = ET.fromstring(by_target["cfgeventspawns.xml"]["content"])
+        except ET.ParseError as error:
+            return [], f"The linked CE event package could not be cross-checked: {error}."
+        event_names = {str(item.get("name") or "") for item in event_root.findall("event") if item.get("name")}
+        spawn_names = {str(item.get("name") or "") for item in spawn_root.findall("event") if item.get("name")}
+        if not event_names or event_names != spawn_names:
+            return [], "The events.xml and cfgeventspawns.xml patch event names do not match exactly."
+        for event_node in event_root.findall("event"):
+            children = event_node.find("children")
+            if children is None or not children.findall("child"):
+                return [], f"The new CE event {event_node.get('name')} needs at least one <children><child .../></children> record."
+        for spawn_node in spawn_root.findall("event"):
+            if not spawn_node.findall("pos"):
+                return [], f"The new cfgeventspawns.xml event {spawn_node.get('name')} needs at least one <pos> record."
+        map_key = normalize_dayz_reference_map_key(context.get("map"))
+        types_text = load_dayz_reference_text(map_key, "db", "types.xml")
+        try:
+            available_classes = {str(item.get("name") or "") for item in ET.fromstring(types_text).findall("type")}
+        except ET.ParseError:
+            available_classes = set()
+        requested_classes = {
+            str(item.get("type") or "")
+            for item in event_root.findall(".//child")
+            if item.get("type")
+        }
+        unknown_classes = sorted(requested_classes - available_classes) if available_classes else []
+        if unknown_classes:
+            return [], f"The linked CE event uses classname(s) not present in the selected map/version types.xml: {', '.join(unknown_classes[:8])}."
+    if str(plan.get("workflow") or "") == "map_group_placement" and len(raw_values) > 1:
+        required = {"mapgrouppos.xml", "mapgroupproto.xml"}
+        package_targets = {item.get("target_path") for item in drafts}
+        if required & package_targets and not required.issubset(package_targets):
+            return [], (
+                "A linked MapGroup placement package must contain validated merge patches for both "
+                "mapgrouppos.xml and mapgroupproto.xml."
+            )
+        if required.issubset(package_targets):
+            by_target = {item["target_path"]: item for item in drafts}
+            try:
+                positions_root = ET.fromstring(by_target["mapgrouppos.xml"]["content"])
+                prototype_root = ET.fromstring(by_target["mapgroupproto.xml"]["content"])
+            except ET.ParseError as error:
+                return [], f"The linked MapGroup package could not be cross-checked: {error}."
+            placed_names = {
+                str(node.get("name") or "").strip()
+                for node in positions_root.findall("group") if str(node.get("name") or "").strip()
+            }
+            prototype_names = {
+                str(node.get("name") or "").strip()
+                for node in prototype_root.findall("group") if str(node.get("name") or "").strip()
+            }
+            unresolved = sorted(placed_names - prototype_names)
+            if not placed_names:
+                return [], "The linked mapgrouppos.xml patch needs at least one named <group> placement."
+            if unresolved:
+                return [], (
+                    "The linked mapgrouppos.xml group name(s) do not have matching mapgroupproto.xml prototypes: "
+                    f"{', '.join(unresolved[:8])}."
+                )
+    return drafts, ""
 
 
 def ai_agent_types_boost_profile_requested(context: Any, prompt: Any) -> bool:
@@ -24669,6 +25545,14 @@ def ai_agent_types_boost_profile_requested(context: Any, prompt: Any) -> bool:
         ("crap" in text and "cloth" in text)
         or "common clothing" in text
         or "civilian clothing" in text
+        or "ordinary clothing" in text
+        or "ordinary non-military clothing" in text
+        or "non-military clothing" in text
+        or "non military clothing" in text
+        or "regular clothing" in text
+        or "basic clothing" in text
+        or "low-value clothing" in text
+        or "low value clothing" in text
     )
     needs_double = any(token in text for token in ("200%", "200 %", "double", "2x", "two times"))
     return needs_weapons and needs_ammo and needs_military_clothes and needs_common_clothes and needs_double
@@ -24829,6 +25713,7 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
         return []
     x = safe_int(scenario.get("x"), 0)
     z = safe_int(scenario.get("z"), 0)
+    angle = float(scenario.get("angle") or 0.0)
     event_block = (
         f"    <!-- Wandering Bot offline review draft: personal vehicle event {event_name} -->\n"
         f"    <event name=\"{event_name}\">\n"
@@ -24852,7 +25737,7 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
     spawn_block = (
         f"    <!-- Wandering Bot offline review draft: matching position for {event_name} -->\n"
         f"    <event name=\"{event_name}\">\n"
-        f"        <pos x=\"{x}\" z=\"{z}\" a=\"0.000000\"/>\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"{angle:.6f}\"/>\n"
         "    </event>\n"
     )
     events_content, events_replacements = re.subn(r"</events>\s*$", event_block + "</events>\n", events_base)
@@ -24909,6 +25794,7 @@ def ai_agent_builtin_vehicle_event_drafts(task: dict[str, Any]) -> list[dict[str
         or spawn_pos.get("group")
         or str(spawn_pos.get("x") or "") != str(x)
         or str(spawn_pos.get("z") or "") != str(z)
+        or str(spawn_pos.get("a") or "") != f"{angle:.6f}"
         or eventgroups_root.tag != "eventgroupdef"
         or mapgroupproto_root.tag != "prototype"
     ):
@@ -25091,6 +25977,218 @@ def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: A
     }
 
 
+_AI_AGENT_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+_AI_AGENT_VECTOR_PATTERN = re.compile(
+    rf"\[\s*({_AI_AGENT_NUMBER_PATTERN})\s*,\s*({_AI_AGENT_NUMBER_PATTERN})\s*,\s*({_AI_AGENT_NUMBER_PATTERN})\s*\]"
+)
+
+
+def ai_agent_prompt_vector(value: Any) -> list[float] | None:
+    match = _AI_AGENT_VECTOR_PATTERN.fullmatch(str(value or "").strip())
+    return [float(match.group(index)) for index in range(1, 4)] if match else None
+
+
+def ai_agent_builtin_selected_preset_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return None
+    reference = context.get("reference") if isinstance(context.get("reference"), dict) else {}
+    if str(reference.get("mode") or "") != "preset" or reference.get("error"):
+        return None
+    preset_id = str(reference.get("preset_id") or "").strip()
+    if not preset_id:
+        return None
+    request_text = str(prompt or "").lower()
+    # A selected preset is an explicit complete-file choice.  Do not silently
+    # return it when the customer also asks for bespoke additions/removals.
+    if any(term in request_text for term in ("except ", "remove ", "exclude ", "but not ", "without ")):
+        return None
+    try:
+        built = build_dayz_preset_file(context.get("map"), preset_id)
+    except ValueError:
+        return None
+    target_path = str(built.get("target_path") or "")
+    content = str(built.get("content") or "")
+    if target_path != str(context.get("target_path") or "") or not content.strip() or len(content) > AI_AGENT_DAYZ_DRAFT_MAX_CHARS:
+        return None
+    valid, _message = validate_dayz_upload_text(target_path, content)
+    if not valid:
+        return None
+    now = datetime.now(UTC).isoformat()
+    preset = built.get("preset") if isinstance(built.get("preset"), dict) else {}
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": target_path,
+        "map": normalize_dayz_reference_map_key(context.get("map")),
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content if content.endswith("\n") else content + "\n",
+        "content_chars": len(content),
+        "summary": f"Complete validated selected preset: {preset.get('title') or preset_id}. Built deterministically from the active map reference without model truncation.",
+        "validation": "passed",
+        "base": str(reference.get("label") or preset_id),
+        "preset_id": preset_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def ai_agent_builtin_objectspawner_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return None
+    target_path = str(context.get("target_path") or "")
+    if dayz_json_schema_name({"Objects": []}) != "objectspawner" or not dayz_custom_json_path(target_path):
+        return None
+    if dayz_filename_for_path(target_path) != "objectspawner.json" and "objectspawner" not in str(prompt or "").lower():
+        return None
+    pair_pattern = re.compile(
+        rf"(?P<name>[A-Za-z][A-Za-z0-9_./-]*)\s+at\s+(?P<pos>\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\])"
+        rf"(?:\s+with\s+ypr\s+(?P<ypr>\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\]))?",
+        re.IGNORECASE,
+    )
+    objects: list[dict[str, Any]] = []
+    for match in pair_pattern.finditer(str(prompt or "")):
+        position = ai_agent_prompt_vector(match.group("pos"))
+        orientation = ai_agent_prompt_vector(match.group("ypr")) if match.group("ypr") else [0.0, 0.0, 0.0]
+        if not position or not orientation:
+            continue
+        objects.append({
+            "name": str(match.group("name")),
+            "pos": position,
+            "ypr": orientation,
+            "scale": 1.0,
+            "enableCEPersistency": True,
+        })
+    if not objects:
+        return None
+    content = json.dumps({"Objects": objects}, indent=2, ensure_ascii=False)
+    valid, _message = validate_dayz_upload_text(target_path, content)
+    if not valid:
+        return None
+    now = datetime.now(UTC).isoformat()
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": target_path,
+        "map": normalize_dayz_reference_map_key(context.get("map")),
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content + "\n",
+        "content_chars": len(content),
+        "summary": f"Complete validated ObjectSpawner JSON containing {len(objects)} requested object placement(s); classnames and coordinates were copied exactly from the request.",
+        "validation": "passed",
+        "custom_json_schema": "objectspawner",
+        "cfggameplay_reference": f"Add ./{target_path} to WorldsData.objectSpawnersArr in the existing cfggameplay.json.",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return None
+    target_path = str(context.get("target_path") or "")
+    text = str(prompt or "")
+    lower_text = text.lower()
+    if not dayz_custom_json_path(target_path):
+        return None
+    if dayz_filename_for_path(target_path) != "cfgeffectarea.json" and not any(
+        marker in lower_text for marker in ("effect area", "effect-area", "cfgeffectarea", "geyserarea", "hotspringarea")
+    ):
+        return None
+    name_match = re.search(r"(?:area\s+named|named)\s+([A-Za-z][A-Za-z0-9_-]*)", text, re.IGNORECASE)
+    type_match = re.search(r"\bType\s+([A-Za-z][A-Za-z0-9_-]*)", text)
+    position_match = re.search(rf"\bposition\s+(\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\])", text, re.IGNORECASE)
+    radius_match = re.search(rf"\bradius\s*(?:=|of)?\s*({_AI_AGENT_NUMBER_PATTERN})", text, re.IGNORECASE)
+    if not (name_match and type_match and position_match and radius_match):
+        return None
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    try:
+        reference_payload = load_dayz_reference_json(map_key, "cfgeffectarea.json")
+    except ValueError:
+        return None
+    requested_type = type_match.group(1)
+    template = next(
+        (copy.deepcopy(item) for item in reference_payload.get("Areas", []) if isinstance(item, dict) and str(item.get("Type") or "").lower() == requested_type.lower()),
+        None,
+    )
+    if not isinstance(template, dict) or not isinstance(template.get("Data"), dict):
+        return None
+    template["AreaName"] = name_match.group(1)
+    template["Type"] = requested_type
+    template["Data"]["Pos"] = ai_agent_prompt_vector(position_match.group(1))
+    template["Data"]["Radius"] = float(radius_match.group(1))
+    content = json.dumps({"Areas": [template]}, indent=2, ensure_ascii=False)
+    valid, _message = validate_dayz_upload_text(target_path, content)
+    if not valid:
+        return None
+    now = datetime.now(UTC).isoformat()
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": target_path,
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content + "\n",
+        "content_chars": len(content),
+        "summary": f"Complete validated {requested_type} effect-area JSON copied from the selected map's matching vanilla area schema and updated with the requested name, position and radius.",
+        "validation": "passed",
+        "custom_json_schema": "effect_area",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def ai_agent_custom_json_missing_input(task: dict[str, Any], prompt: Any) -> str:
+    """Stop new geometry files from being filled with plausible-looking guesses.
+
+    The protected JSON validator can prove shape and types, but it cannot know
+    where a customer's bunker, safe exit or object actually belongs.  For new
+    files we therefore require the geometry in the request before a model call.
+    Existing complete files remain editable because their geometry is evidence.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return ""
+    target_path = str(context.get("target_path") or "")
+    if not dayz_custom_json_path(target_path):
+        return ""
+    text = str(prompt or "")
+    lower = text.lower()
+    vectors = _AI_AGENT_VECTOR_PATTERN.findall(text)
+    if "restricted" in lower or "prabox" in lower or "safepositions3d" in lower:
+        if len(vectors) < 4:
+            return (
+                "I need the exact restricted-area geometry before creating this file: for every PRA box provide "
+                "size [x,y,z], orientation [yaw,pitch,roll] and position [x,y,z], then provide at least one exact "
+                "safePositions3D [x,y,z] exit. I will not invent player-safety coordinates."
+            )
+    if "underground" in lower or "cfgundergroundtriggers" in lower:
+        required_labels = ("position", "orientation", "size", "breadcrumb")
+        if len(vectors) < 4 or not all(label in lower for label in required_labels):
+            return (
+                "I need the exact underground trigger geometry before creating this file: Position [x,y,z], "
+                "Orientation [yaw,pitch,roll], Size [x,y,z], EyeAccommodation, AmbientSoundType, and each "
+                "Breadcrumb Position [x,y,z] with its accommodation/raycast/radius settings. I will copy the "
+                "selected map's schema but will not invent tunnel coordinates."
+            )
+    if "objectspawner" in lower:
+        if ai_agent_builtin_objectspawner_draft(task, prompt) is None:
+            return (
+                "I need every ObjectSpawner placement in the exact form `ClassName at [x,y,z] with ypr "
+                "[yaw,pitch,roll]`. Supply the real classnames and coordinates; I will not invent either."
+            )
+    if any(marker in lower for marker in ("effect area", "effect-area", "cfgeffectarea", "geyserarea", "hotspringarea")):
+        if ai_agent_builtin_effect_area_draft(task, prompt) is None:
+            return (
+                "I need the effect area's exact name, vanilla Type, position and radius, for example "
+                "`area named MyGeyser, Type GeyserArea, position [8906,0,10913], radius 2`. I will then copy "
+                "the matching selected-map vanilla record and change only those requested values."
+            )
+    return ""
+
+
 def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
     """Return a deterministic full file for only the unambiguous built-in job.
 
@@ -25102,6 +26200,15 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     context = task.get("dayz_context") if isinstance(task, dict) else None
     if not isinstance(context, dict):
         return None
+    preset_draft = ai_agent_builtin_selected_preset_draft(task, prompt)
+    if preset_draft:
+        return preset_draft
+    objectspawner_draft = ai_agent_builtin_objectspawner_draft(task, prompt)
+    if objectspawner_draft:
+        return objectspawner_draft
+    effect_area_draft = ai_agent_builtin_effect_area_draft(task, prompt)
+    if effect_area_draft:
+        return effect_area_draft
     full_survivor_draft = ai_agent_builtin_full_survivor_loadout_draft(task, prompt)
     if full_survivor_draft:
         return full_survivor_draft
@@ -26025,6 +27132,14 @@ def ai_agent_llm_reply_for_task(
         task["llm_status"] = "verified_dayz_reference"
         task["updated_at"] = datetime.now(UTC).isoformat()
         return verified_dayz_reply
+    missing_custom_input = ai_agent_custom_json_missing_input(task, prompt)
+    if missing_custom_input:
+        task["suggested_commands"] = []
+        task["llm_status"] = "dayz_input_required"
+        task["summary"] = "Exact DayZ geometry is required before a safe custom JSON draft can be created."
+        task["next_action"] = "Provide the requested exact classnames, coordinates, dimensions and orientations."
+        task["updated_at"] = datetime.now(UTC).isoformat()
+        return missing_custom_input
     # Prefer deterministic generators for the narrow DayZ jobs they cover.
     # This prevents a model from truncating a large vanilla file or inventing a
     # linked CE event pair simply because it cannot fit the full base in context.
@@ -26103,13 +27218,13 @@ def ai_agent_llm_reply_for_task(
         "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
         "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
         "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use dayz_file_context.dependency_plan before proposing any file output. The plan distinguishes changed, checked, conditional and preserved files: report that distinction explicitly, generate every genuinely linked file/snippet, and never promote a conditional file to changed without evidence from the selected current file. Use the selected map's validated active DayZ reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
-        "For a new custom/ or pra/ JSON file, create a complete file only when it is clearly one of the recognised vanilla schemas: ObjectSpawner, spawning gear, player restricted area, effect area or underground triggers. State the schema and the matching cfggameplay.json reference that the customer must add. "
+        "For a new custom/ or pra/ JSON file, create a complete file only when it is clearly one of the recognised vanilla schemas: ObjectSpawner, spawning gear, player restricted area, effect area or underground triggers. State the schema and the matching cfggameplay.json reference that the customer must add. ObjectSpawner entries are {name, pos:[x,y,z], ypr:[yaw,pitch,roll], optional scale/enableCEPersistency}; never replace name/pos/ypr with invented keys. Restricted-area PRABoxes is an array whose every box is exactly [sizeTriplet, orientationTriplet, positionTriplet], and safePositions3D contains coordinate triplets. Effect-area files use an Areas array and map-specific AreaName/Type/TriggerType/Data fields; for Sakhal copy the matching vanilla Type record and replace only requested values. Underground files use a Triggers array with Position, Orientation, Size, EyeAccommodation, Breadcrumbs and applicable vanilla InterpolationSpeed/AmbientSoundSet fields. Never invent missing coordinates: ask for them. "
         "Do not infer a mod JSON schema from its filename. PC mods, custom scripts and console server access can differ: vanilla mission XML/JSON is generally portable, but mod/script files require the exact current mod, version and configuration. "
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
         "cfgweather.xml controls weather; cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml; "
         "every CE event plan must audit events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml together. A group= position must refer to a real event group, and a loot-bearing static object/group child must have a matching usable mapgroupproto group. Do not manufacture an event group or prototype for a simple vehicle event that does not reference one; clearly report it as checked and preserved instead. Event names should use the correct family prefix (Vehicle, Static, Loot, Item, Infected or Animal) and position rotations should be written with six decimal places. "
         "mapgroupproto.xml defines reusable group structure and loot points while mapgrouppos.xml places matching group names on the selected map. A map-group placement request can therefore need both files plus types.xml and, only for new named loot rules, a CE limits-definition file. ObjectSpawner JSON instead needs its exact cfggameplay.json objectSpawnersArr reference and must not be converted into MapGroup files. Ambient animals are territory-driven: use the territory file plus its matching db/events.xml record and cfgenvironment.xml reference rather than assuming cfgeventspawns.xml. messages.xml controls scheduled on-screen messages; "
-        "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml controls CE cleanup exceptions; cfglimitsdefinition XML files define CE categories/tags/usages; "
+        "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml excludes listed classes from CE persistence/storage and does not make them persist forever; cfglimitsdefinition.xml defines actual CE category/tag/usage/value names, while cfglimitsdefinitionuser.xml only creates named combinations from existing usage/value definitions; "
         "cfgrandompresets.xml controls random cargo groups; cfgundergroundtriggers.json controls underground area triggers; "
         "cfgenvironment.xml and territory files control environment references and zones. Use the supplied bundled reference or preset only when it matches the selected map and target file. "
         "Cover the complete DayZ file workflow: XML/JSON validation and conversion; types, tiers, nominal, min, lifetime and spawnable-type tuning; "
@@ -26130,8 +27245,9 @@ def ai_agent_llm_reply_for_task(
         "\"suggested_commands\": [{\"label\": string, \"command\": string, \"reason\": string, \"project_path\": string, \"risk\": string}], "
         "\"next_action\": string, \"summary\": string, \"risk_notes\": [string], "
         "\"dayz_draft\": {\"target_path\": string, \"kind\": \"patch|full_file\", \"content\": string, \"summary\": string} | null, "
+        "\"dayz_drafts\": [{\"target_path\": string, \"kind\": \"patch|full_file\", \"content\": string, \"summary\": string}] | null, "
         "\"learning\": [{\"category\": \"project_facts|lessons|decisions|incidents|approved_patterns|blocked_patterns\", "
-        "\"title\": string, \"detail\": string, \"tags\": [string]}]}."
+        "\"title\": string, \"detail\": string, \"tags\": [string]}]}. Use dayz_draft for one file; use dayz_drafts for a genuinely linked multi-file package and never return both."
     )
     user_payload = {
         "prompt": prompt,
@@ -26179,17 +27295,64 @@ def ai_agent_llm_reply_for_task(
     if learned_items:
         task["learning"] = learned_items
     task["steps"] = ai_agent_normalize_llm_steps(data.get("steps"), task.get("steps") if isinstance(task.get("steps"), list) else [])
-    dayz_draft, dayz_draft_error = ai_agent_normalize_dayz_draft(data.get("dayz_draft"), task.get("dayz_context"))
-    if dayz_draft:
-        task["dayz_draft"] = dayz_draft
-        task.pop("dayz_draft_error", None)
-        ai_agent_activity(
-            state,
-            "DayZ file draft prepared",
-            f"{dayz_draft.get('target_path')}: {dayz_draft.get('kind')}",
-            access.get("label") or dashboard_audit_actor(auth),
-            {"task_id": task.get("id"), "draft_id": dayz_draft.get("id"), "target_path": dayz_draft.get("target_path")},
+    normalized_drafts, dayz_draft_error = ai_agent_normalize_dayz_draft_package(data, task.get("dayz_context"))
+    if is_dayz_edit_request and not normalized_drafts:
+        # Give the model one tightly scoped self-correction pass when it omitted
+        # a requested file or the protected validator rejected the first one.
+        # The retry receives the exact guard failure, so the model can correct
+        # the output instead of repeating a confident prose-only answer.
+        retry_payload = dict(user_payload)
+        retry_payload["draft_retry"] = {
+            "reason": dayz_draft_error or "The first answer omitted dayz_draft/dayz_drafts.",
+            "instruction": (
+                "Return the same JSON response schema again, but this time include the complete requested "
+                "dayz_draft or linked dayz_drafts. Correct the stated validator failure. Do not merely describe the file."
+            ),
+        }
+        retry_ok, retry_data, retry_error = ai_agent_llm_json(system_message, retry_payload)
+        if retry_ok:
+            retry_drafts, retry_draft_error = ai_agent_normalize_dayz_draft_package(
+                retry_data, task.get("dayz_context")
+            )
+            if retry_drafts:
+                data = retry_data
+                normalized_drafts = retry_drafts
+                dayz_draft_error = ""
+                task["steps"] = ai_agent_normalize_llm_steps(
+                    data.get("steps"), task.get("steps") if isinstance(task.get("steps"), list) else []
+                )
+            else:
+                dayz_draft_error = retry_draft_error or dayz_draft_error or (
+                    "The retry also returned no DayZ file draft."
+                )
+        elif not dayz_draft_error:
+            dayz_draft_error = f"The draft retry failed: {ai_agent_compact_text(retry_error, 260)}"
+    dayz_draft = normalized_drafts[0] if len(normalized_drafts) == 1 else None
+    if is_dayz_edit_request and not normalized_drafts:
+        # A model sometimes returns a plausible plan/summary but omits the file
+        # object entirely.  For an explicit edit or error-repair request that is
+        # an incomplete answer, not a successful repair.  Surface the failure,
+        # suppress charging, and never imply there is a file to approve.
+        dayz_draft_error = dayz_draft_error or (
+            "The model returned advice but no DayZ file draft. No file was saved, and this incomplete repair must be retried."
         )
+        task["llm_status"] = "incomplete"
+    if normalized_drafts:
+        if len(normalized_drafts) == 1:
+            task["dayz_draft"] = normalized_drafts[0]
+            task.pop("dayz_drafts", None)
+        else:
+            task["dayz_drafts"] = normalized_drafts
+            task.pop("dayz_draft", None)
+        task.pop("dayz_draft_error", None)
+        for saved_draft in normalized_drafts:
+            ai_agent_activity(
+                state,
+                "DayZ file draft prepared",
+                f"{saved_draft.get('target_path')}: {saved_draft.get('kind')}",
+                access.get("label") or dashboard_audit_actor(auth),
+                {"task_id": task.get("id"), "draft_id": saved_draft.get("id"), "target_path": saved_draft.get("target_path")},
+            )
     elif dayz_draft_error:
         task["dayz_draft_error"] = dayz_draft_error
     llm_suggestions = ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
@@ -26220,9 +27383,15 @@ def ai_agent_llm_reply_for_task(
         )
     if risk_notes:
         reply += "\nRisk notes: " + "; ".join(ai_agent_compact_text(item, 160) for item in risk_notes[:4])
-    if dayz_draft:
-        review_note = "Merge-only patch: use the protected XML merge workflow; do not upload it as a full live file." if dayz_draft.get("merge_required") else "Complete-file draft: review its diff and use the protected upload workflow with a backup."
-        reply += f"\n\nDayZ draft ready for download: {dayz_draft.get('target_path')}. {review_note}"
+    if normalized_drafts:
+        target_list = ", ".join(str(item.get("target_path") or "DayZ file") for item in normalized_drafts)
+        review_note = (
+            "Merge-only package: merge every patch into the matching current file through the protected workflow; do not upload a patch as a full live file."
+            if any(item.get("merge_required") for item in normalized_drafts)
+            else "Complete-file draft package: review every diff and use the protected upload workflow with backups."
+        )
+        ready_label = "DayZ draft ready for download" if len(normalized_drafts) == 1 else "DayZ draft files ready for download"
+        reply += f"\n\n{ready_label}: {target_list}. {review_note}"
     elif dayz_draft_error:
         # A model can describe a file confidently while still returning JSON or
         # XML that fails our protected validator.  Never leave that successful
@@ -26905,6 +28074,30 @@ def agent_charge_for_prompt(auth: dict[str, Any], prompt: str) -> tuple[bool, st
     if ok:
         auth["credits"] = new_balance
     return ok, error, new_balance
+
+
+def ai_agent_answer_is_chargeable(task: Any) -> bool:
+    """Charge only when the Sandbox actually completed a useful answer.
+
+    Network/model failures, missing backend configuration and clarification
+    requests are deliberately free.  This keeps the API behaviour aligned
+    with the dashboard promise that failed answers do not consume credits.
+    """
+    if not isinstance(task, dict):
+        return False
+    status = str(task.get("llm_status") or "")
+    if status in {"deterministic_dayz_draft", "verified_dayz_reference"}:
+        return True
+    if status != "ok":
+        return False
+    dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    support_mode = str(dayz_context.get("support_mode") or "").strip().lower()
+    if support_mode in {"fix_error", "edit_file"}:
+        # A prose plan is not a completed paid answer when the user explicitly
+        # requested a file repair/change. Charge only after a protected draft
+        # survived normalisation and was saved for review/download.
+        return bool(ai_agent_task_dayz_drafts(task)) and not bool(task.get("dayz_draft_error"))
+    return True
 
 
 def agent_account_rows(limit: int = 80) -> list[dict[str, Any]]:
@@ -28641,7 +29834,9 @@ def normalize_cfggameplay_for_loadout(raw: Any) -> dict[str, Any]:
 
 
 PLAYER_LOADOUT_ITEM_KEYS = {"itemType", "item", "Type", "type"}
-PLAYER_LOADOUT_LIST_KEYS = {"items", "cloth", "attachments", "cargo"}
+PLAYER_LOADOUT_LIST_KEYS = {
+    "items", "cloth", "attachments", "cargo", "characterTypes", "simpleChildrenTypes"
+}
 PLAYER_LOADOUT_BLOCKED_EXACT = {
     "woodencrate",
     "staticobj_misc_woodencrate_5x",
@@ -40915,9 +42110,12 @@ def api_ai_agent_chat():
         plan_steps=(task or {}).get("steps", []),
         run_id=run_id,
     )
-    charged, charge_error, credits_remaining = agent_charge_for_prompt(auth, prompt)
-    if not charged:
-        return jsonify({"ok": False, "error": charge_error or "Could not charge credits", "credits_remaining": credits_remaining}), 402
+    if ai_agent_answer_is_chargeable(task):
+        charged, charge_error, credits_remaining = agent_charge_for_prompt(auth, prompt)
+        if not charged:
+            return jsonify({"ok": False, "error": charge_error or "Could not charge credits", "credits_remaining": credits_remaining}), 402
+    else:
+        credits_remaining = agent_credit_balance_for_auth(auth)
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""), run_id=run_id)
     return dashboard_api_response(

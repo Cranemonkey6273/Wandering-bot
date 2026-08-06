@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import copy
 import importlib.util
 import io
 import json
@@ -1655,6 +1656,691 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(values(vanilla_root, unchanged_food), values(draft_root, unchanged_food))
         self.assertIn("Zero-nominal vanilla records remain disabled", draft["summary"])
 
+    def test_dayz_invalid_complete_xml_can_be_repaired_without_replacing_unrelated_records(self):
+        malformed = (
+            '<events><event name="VehicleQA"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>3600</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>0</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="1" init_random="0" remove_damaged="1"/><position>fixed</position>'
+            '<limit>mixed</limit><active>1</active><children><child lootmax="0" lootmin="0" '
+            'max="1" min="1" type="OffroadHatchback"></children></event></events>'
+        )
+        repaired = malformed.replace('type="OffroadHatchback"></children>', 'type="OffroadHatchback"/></children>')
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": malformed,
+            },
+            "Fix the mismatched child tag and preserve everything else.",
+        )
+
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "db/events.xml", "kind": "full_file", "content": repaired}, context,
+        )
+
+        self.assertFalse(context["source_validation"]["ok"])
+        self.assertEqual("", error)
+        self.assertEqual("full_file", draft["kind"])
+        self.assertIn('event name="VehicleQA"', draft["content"])
+
+    def test_dayz_invalid_complete_json_can_be_repaired_without_a_vanilla_substitution(self):
+        malformed = '{"WorldsData":{"objectSpawnersArr":["./custom/Base.json",],"lightingConfig":1}}'
+        repaired = '{"WorldsData":{"objectSpawnersArr":["./custom/Base.json"],"lightingConfig":1}}'
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "cfggameplay.json",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": malformed,
+            },
+            "Remove the trailing comma only.",
+        )
+
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "cfggameplay.json", "kind": "full_file", "content": repaired}, context,
+        )
+
+        self.assertEqual("", error)
+        self.assertEqual(["./custom/Base.json"], json.loads(draft["content"])["WorldsData"]["objectSpawnersArr"])
+
+    def test_dayz_new_sakhal_messages_file_does_not_require_a_nonexistent_vanilla_file(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "create_file",
+                "dayz_file_target": "db/messages.xml",
+                "dayz_map": "sakhal",
+            },
+            "Create an on-screen welcome message.",
+        )
+        content = '<messages><message><delay>1</delay><repeat>30</repeat><onconnect>1</onconnect><text>Welcome.</text></message></messages>'
+
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "db/messages.xml", "kind": "full_file", "content": content}, context,
+        )
+
+        self.assertEqual("", error)
+        self.assertEqual("full_file", draft["kind"])
+
+    def test_dayz_animal_territory_draft_must_use_the_selected_maps_real_zone_name(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "env/bear_territories.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": '<zone name="Graze" smin="0" smax="0" dmin="1" dmax="2" x="1" z="2" r="60"/>',
+            },
+            "Add one bear zone.",
+        )
+        bad = '<territory-type><territory color="1"><zone name="BearPack" smin="0" smax="0" dmin="1" dmax="2" x="1" z="2" r="60"/></territory></territory-type>'
+        good = bad.replace("BearPack", "Graze")
+
+        bad_draft, bad_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "env/bear_territories.xml", "kind": "patch", "content": bad}, context,
+        )
+        good_draft, good_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "env/bear_territories.xml", "kind": "patch", "content": good}, context,
+        )
+
+        self.assertIsNone(bad_draft)
+        self.assertIn("unknown zone", bad_error)
+        self.assertEqual("", good_error)
+        self.assertIsNotNone(good_draft)
+
+    def test_dayz_selected_large_spawnabletypes_preset_bypasses_model_truncation(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "cfgspawnabletypes.xml",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "preset",
+                "dayz_preset_id": "spawnabletypes_builder_trucks",
+            },
+            "Create the complete selected builder-truck cfgspawnabletypes preset.",
+        )
+
+        draft = dashboard.ai_agent_builtin_dayz_draft(
+            {"dayz_context": context}, "Create the complete selected builder-truck cfgspawnabletypes preset."
+        )
+
+        self.assertIsNotNone(draft)
+        self.assertGreater(len(draft["content"]), 90_000)
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(draft["target_path"], draft["content"]))
+
+    def test_dayz_objectspawner_and_sakhal_effect_area_are_built_from_exact_input(self):
+        object_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/QA_CastleCamp.json",
+                "dayz_map": "chernarus",
+            },
+            "Create ObjectSpawner placements.",
+        )
+        object_prompt = (
+            "Create ObjectSpawner JSON: Land_TentA_Big at [6500,125,7000] with ypr [135,0,0] "
+            "and Land_Campfire at [6504,125,7002] with ypr [0,0,0]."
+        )
+        object_draft = dashboard.ai_agent_builtin_dayz_draft({"dayz_context": object_context}, object_prompt)
+        objects = json.loads(object_draft["content"])["Objects"]
+
+        self.assertEqual("Land_TentA_Big", objects[0]["name"])
+        self.assertEqual([6500.0, 125.0, 7000.0], objects[0]["pos"])
+        self.assertEqual([135.0, 0.0, 0.0], objects[0]["ypr"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(object_draft["target_path"], object_draft["content"]))
+
+        effect_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/QA_Geyser.json",
+                "dayz_map": "sakhal",
+            },
+            "Create an effect area.",
+        )
+        effect_prompt = "Create an effect area named QAGeyser, Type GeyserArea, position [5000,0,5000], radius 3."
+        effect_draft = dashboard.ai_agent_builtin_dayz_draft({"dayz_context": effect_context}, effect_prompt)
+        effect = json.loads(effect_draft["content"])["Areas"][0]
+
+        self.assertEqual("GeyserTrigger", effect["TriggerType"])
+        self.assertEqual([5000.0, 0.0, 5000.0], effect["Data"]["Pos"])
+        self.assertIn("EffectInterval", effect["Data"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(effect_draft["target_path"], effect_draft["content"]))
+
+    def test_dayz_semantic_validator_blocks_out_of_map_geometry_and_wrong_map_effect_types(self):
+        object_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/OutsideMap.json",
+                "dayz_map": "chernarus",
+            },
+            "Create ObjectSpawner JSON outside the map.",
+        )
+        object_content = json.dumps({
+            "Objects": [{"name": "Land_TentA_Big", "pos": [16000, 0, 16000], "ypr": [0, 0, 0]}]
+        })
+        object_draft, object_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "custom/OutsideMap.json", "kind": "full_file", "content": object_content}, object_context,
+        )
+
+        self.assertIsNone(object_draft)
+        self.assertIn("outside the selected chernarus bounds", object_error)
+
+        spawn_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "cfgeventspawns.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": '<event name="VehicleQA"><pos x="16000" z="16000" a="0.000000"/></event>',
+            },
+            "Add a positioned event outside the map.",
+        )
+        spawn_content = '<eventposdef><event name="VehicleQA"><pos x="16000" z="16000" a="0.000000"/></event></eventposdef>'
+        spawn_draft, spawn_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "cfgeventspawns.xml", "kind": "patch", "content": spawn_content}, spawn_context,
+        )
+
+        self.assertIsNone(spawn_draft)
+        self.assertIn("outside the selected chernarus bounds", spawn_error)
+
+        effect_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/WrongMapGeyser.json",
+                "dayz_map": "chernarus",
+            },
+            "Create a GeyserArea on Chernarus.",
+        )
+        effect_content = json.dumps({
+            "Areas": [{
+                "AreaName": "WrongMapGeyser",
+                "Type": "GeyserArea",
+                "TriggerType": "GeyserTrigger",
+                "Data": {"Pos": [5000, 0, 5000], "Radius": 2},
+            }]
+        })
+        effect_draft, effect_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "custom/WrongMapGeyser.json", "kind": "full_file", "content": effect_content}, effect_context,
+        )
+
+        self.assertIsNone(effect_draft)
+        self.assertIn("does not exist in the selected chernarus vanilla schema", effect_error)
+
+    def test_dayz_semantic_validator_checks_core_xml_record_shapes(self):
+        context = {"map": "chernarus"}
+        valid_types = (
+            '<types><type name="M4A1"><nominal>10</nominal><lifetime>28800</lifetime>'
+            '<restock>0</restock><min>5</min><quantmin>-1</quantmin><quantmax>-1</quantmax>'
+            '<cost>100</cost><flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="0"/><category name="weapons"/></type></types>'
+        )
+        invalid_types = valid_types.replace('<nominal>10</nominal>', '')
+        valid_events = (
+            '<events><event name="VehicleQA"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>3888000</lifetime><restock>0</restock><saferadius>100</saferadius>'
+            '<distanceradius>50</distanceradius><cleanupradius>100</cleanupradius>'
+            '<flags deletable="0" init_random="0" remove_damaged="1"/><position>fixed</position>'
+            '<limit>custom</limit><active>1</active><children><child lootmax="0" lootmin="0" '
+            'max="1" min="1" type="OffroadHatchback"/></children></event></events>'
+        )
+        invalid_events = valid_events.replace(
+            '<children><child lootmax="0" lootmin="0" max="1" min="1" type="OffroadHatchback"/></children>', ''
+        )
+        valid_spawnable = (
+            '<spawnabletypes><type name="M4A1"><attachments chance="1.0"><item name="M4_CarryHandleOptic" '
+            'chance="1.0"/></attachments><cargo chance="1.0"><item name="Mag_STANAG_30Rnd" '
+            'quantmin="100" quantmax="100"/></cargo></type></spawnabletypes>'
+        )
+        invalid_spawnable = valid_spawnable.replace('chance="1.0"/>', 'chance="150"/>', 1)
+
+        self.assertEqual((True, ""), dashboard.ai_agent_validate_dayz_draft_semantics("db/types.xml", valid_types, context))
+        self.assertIn("missing <nominal>", dashboard.ai_agent_validate_dayz_draft_semantics("db/types.xml", invalid_types, context)[1])
+        self.assertEqual((True, ""), dashboard.ai_agent_validate_dayz_draft_semantics("db/events.xml", valid_events, context))
+        self.assertIn("missing <children>", dashboard.ai_agent_validate_dayz_draft_semantics("db/events.xml", invalid_events, context)[1])
+        self.assertEqual((True, ""), dashboard.ai_agent_validate_dayz_draft_semantics("cfgspawnabletypes.xml", valid_spawnable, context))
+        self.assertIn("between 0 and 100", dashboard.ai_agent_validate_dayz_draft_semantics("cfgspawnabletypes.xml", invalid_spawnable, context)[1])
+        full_mag_context = {
+            "map": "chernarus",
+            "objective": "Add Mag_STANAG_30Rnd and make the magazine 100% full.",
+        }
+        self.assertEqual(
+            (True, ""),
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgspawnabletypes.xml", valid_spawnable, full_mag_context
+            ),
+        )
+        not_full = valid_spawnable.replace('quantmin="100" quantmax="100"', 'quantmin="1" quantmax="1"')
+        self.assertIn(
+            'quantmin="100"',
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgspawnabletypes.xml", not_full, full_mag_context
+            )[1],
+        )
+
+        self.assertEqual(
+            (True, ""),
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "mapgrouppos.xml",
+                '<map><group name="Land_Test" pos="5000 25 6000" rpy="0 0 90"/></map>',
+                context,
+            ),
+        )
+        self.assertIn(
+            "outside the selected chernarus bounds",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "mapgrouppos.xml",
+                '<map><group name="Land_Test" pos="18000 25 6000" rpy="0 0 90"/></map>',
+                context,
+            )[1],
+        )
+
+    def test_dayz_cfgeconomycore_patch_uses_official_ce_file_shape(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "cfgeconomycore.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": '<ce folder="custom"><file name="qa_types.xml" type="types"/></ce>',
+            },
+            "Add a custom types include without replacing the current file.",
+        )
+        valid_content = '<economycore><ce folder="custom"><file name="qa_types.xml" type="types"/></ce></economycore>'
+        invalid_content = '<economycore><include folder="custom" type="types"/></economycore>'
+
+        valid_draft, valid_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "cfgeconomycore.xml", "kind": "patch", "content": valid_content}, context,
+        )
+        invalid_draft, invalid_error = dashboard.ai_agent_normalize_dayz_draft(
+            {"target_path": "cfgeconomycore.xml", "kind": "patch", "content": invalid_content}, context,
+        )
+
+        self.assertIsNotNone(valid_draft, valid_error)
+        self.assertTrue(valid_draft["merge_required"])
+        self.assertIsNone(invalid_draft)
+        self.assertIn("not an <include> element", invalid_error)
+
+    def test_dayz_limit_definition_files_keep_definitions_and_user_aliases_separate(self):
+        context = {"map": "chernarus"}
+        valid_definitions = (
+            '<lists><categories><category name="CastleLoot"/></categories>'
+            '<tags><tag name="shelves"/></tags><usageflags><usage name="Town"/></usageflags>'
+            '<valueflags><value name="Tier1"/></valueflags></lists>'
+        )
+        invalid_definitions = valid_definitions.replace(
+            '<category name="CastleLoot"/>', '<usage name="CastleLoot"/>'
+        )
+        valid_user_alias = (
+            '<lists><usageflags><user name="Settlements"><usage name="Town"/>'
+            '<usage name="Village"/></user></usageflags></lists>'
+        )
+        invalid_user_category = (
+            '<lists><categories><user name="Castle"><category name="CastleLoot"/>'
+            '</user></categories></lists>'
+        )
+        undefined_user_usage = (
+            '<lists><usageflags><user name="Castle"><usage name="CastleLoot"/>'
+            '</user></usageflags></lists>'
+        )
+
+        self.assertEqual(
+            (True, ""),
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfglimitsdefinition.xml", valid_definitions, context
+            ),
+        )
+        self.assertIn(
+            "must contain only named <category>",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfglimitsdefinition.xml", invalid_definitions, context
+            )[1],
+        )
+        self.assertEqual(
+            (True, ""),
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfglimitsdefinitionuser.xml", valid_user_alias, context
+            ),
+        )
+        self.assertIn(
+            "belongs in cfglimitsdefinition.xml",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfglimitsdefinitionuser.xml", invalid_user_category, context
+            )[1],
+        )
+        self.assertIn(
+            "references undefined usage CastleLoot",
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfglimitsdefinitionuser.xml", undefined_user_usage, context
+            )[1],
+        )
+
+    def test_dayz_auxiliary_xml_semantics_reject_common_model_mistakes(self):
+        context = {"map": "chernarus"}
+        valid_ignore = '<ignore><type name="OffroadHatchback"/><type name="Sedan_02"/></ignore>'
+        duplicate_ignore = '<ignore><type name="OffroadHatchback"/><type name="OffroadHatchback"/></ignore>'
+        valid_presets = (
+            '<randompresets><cargo name="QAAmmo" chance="0.5">'
+            '<item name="Mag_STANAG_30Rnd" chance="1"/></cargo></randompresets>'
+        )
+        percentage_presets = valid_presets.replace('chance="0.5"', 'chance="50"')
+        invalid_environment = (
+            '<env><territories><territory type="Herd" name="Bear" behavior="BlissBearGroupBeh">'
+            '<file path="env/bear_territories.xml"/></territory></territories></env>'
+        )
+        valid_spawnpoints = (
+            '<playerspawnpoints><fresh><spawn_params><min_dist_infected>30</min_dist_infected></spawn_params>'
+            '<generator_params><grid_density>4</grid_density></generator_params><group_params>'
+            '<enablegroups>true</enablegroups><groups_as_regular>true</groups_as_regular>'
+            '<lifetime>120</lifetime><counter>2</counter></group_params><generator_posbubbles>'
+            '<group name="Coast"><pos x="5000" z="3000"/></group></generator_posbubbles>'
+            '</fresh></playerspawnpoints>'
+        )
+        invalid_spawnpoints = valid_spawnpoints.replace(
+            '<enablegroups>true</enablegroups>', '<enablegroups>sometimes</enablegroups>'
+        )
+
+        self.assertEqual(
+            (True, ""), dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgignorelist.xml", valid_ignore, context
+            )
+        )
+        self.assertIn(
+            "duplicate named record", dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgignorelist.xml", duplicate_ignore, context
+            )[1]
+        )
+        self.assertEqual(
+            (True, ""), dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgrandompresets.xml", valid_presets, context
+            )
+        )
+        self.assertIn(
+            "between 0 and 1", dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgrandompresets.xml", percentage_presets, context
+            )[1]
+        )
+        self.assertIn(
+            "file usable", dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgenvironment.xml", invalid_environment, context
+            )[1]
+        )
+        self.assertEqual(
+            (True, ""), dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgplayerspawnpoints.xml", valid_spawnpoints, context
+            )
+        )
+        self.assertIn(
+            "must be true/false", dashboard.ai_agent_validate_dayz_draft_semantics(
+                "cfgplayerspawnpoints.xml", invalid_spawnpoints, context
+            )[1]
+        )
+
+        valid_cluster_placement = (
+            '<map><group name="PearTree2" pos="5000 25 6000" a="90.000000"/></map>'
+        )
+        invalid_cluster_placement = valid_cluster_placement.replace('a="90.000000"', 'a="east"')
+        invalid_cluster_prototype = (
+            '<prototype><clusters><export name="PathD10"/></clusters>'
+            '<cluster name="Tree" lootmax="2"><container name="branch">'
+            '<point pos="0 0 0"/></container></cluster></prototype>'
+        )
+        self.assertEqual(
+            (True, ""), dashboard.ai_agent_validate_dayz_draft_semantics(
+                "mapgroupcluster.xml", valid_cluster_placement, context
+            )
+        )
+        self.assertIn(
+            "rotation a must be numeric", dashboard.ai_agent_validate_dayz_draft_semantics(
+                "mapgroupcluster.xml", invalid_cluster_placement, context
+            )[1]
+        )
+        self.assertIn(
+            "missing shape", dashboard.ai_agent_validate_dayz_draft_semantics(
+                "mapclusterproto.xml", invalid_cluster_prototype, context
+            )[1]
+        )
+
+    def test_dayz_custom_non_sakhal_effect_type_is_structurally_allowed(self):
+        content = json.dumps({
+            "Areas": [{
+                "AreaName": "QAStaticSmoke",
+                "Type": "ContaminatedArea_Static",
+                "TriggerType": "EffectTrigger",
+                "Data": {"Pos": [5000, 0, 5000], "Radius": 25},
+            }]
+        })
+
+        self.assertEqual(
+            (True, ""),
+            dashboard.ai_agent_validate_dayz_draft_semantics(
+                "custom/QAStaticSmoke.json", content, {"map": "chernarus"}
+            ),
+        )
+
+    def test_dayz_spawn_gear_draft_rejects_unverified_new_classnames_but_preserves_existing_mod_classes(self):
+        def preset(item_type):
+            return json.dumps({
+                "name": "QA Mod Survivor",
+                "spawnWeight": 1,
+                "characterTypes": [],
+                "attachmentSlotItemSets": [{
+                    "slotName": "Body",
+                    "discreteItemSets": [{"itemType": item_type, "spawnWeight": 1, "quickBarSlot": -1}],
+                }],
+                "discreteUnsortedItemSets": [],
+            })
+
+        new_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/QAModGear.json",
+                "dayz_map": "livonia",
+            },
+            "Create spawn gear using ImaginaryModJacket.",
+        )
+        blocked_draft, blocked_error = dashboard.ai_agent_normalize_dayz_draft(
+            {
+                "target_path": "custom/QAModGear.json",
+                "kind": "full_file",
+                "content": preset("ImaginaryModJacket"),
+            },
+            new_context,
+        )
+        self.assertIsNone(blocked_draft)
+        self.assertIn("not found in the selected map/version", blocked_error)
+
+        existing_source = preset("ImaginaryModJacket")
+        existing_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/QAModGear.json",
+                "dayz_map": "livonia",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": existing_source,
+            },
+            "Validate the supplied existing modded spawn gear without changing its classname.",
+        )
+        preserved_draft, preserved_error = dashboard.ai_agent_normalize_dayz_draft(
+            {
+                "target_path": "custom/QAModGear.json",
+                "kind": "full_file",
+                "content": existing_source,
+            },
+            existing_context,
+        )
+        self.assertIsNotNone(preserved_draft, preserved_error)
+
+    def test_dayz_semantic_validator_accepts_bundled_vanilla_core_files_for_every_map(self):
+        references = (
+            ("db/types.xml", ("db", "types.xml")),
+            ("db/events.xml", ("db", "events.xml")),
+            ("cfgspawnabletypes.xml", ("cfgspawnabletypes.xml",)),
+            ("cfgeventspawns.xml", ("cfgeventspawns.xml",)),
+            ("cfgeventgroups.xml", ("cfgeventgroups.xml",)),
+            ("mapgrouppos.xml", ("mapgrouppos.xml",)),
+            ("mapgroupproto.xml", ("mapgroupproto.xml",)),
+            ("db/globals.xml", ("db", "globals.xml")),
+            ("db/economy.xml", ("db", "economy.xml")),
+            ("db/messages.xml", ("db", "messages.xml")),
+            ("cfgeconomycore.xml", ("cfgeconomycore.xml",)),
+            ("cfglimitsdefinition.xml", ("cfglimitsdefinition.xml",)),
+            ("cfglimitsdefinitionuser.xml", ("cfglimitsdefinitionuser.xml",)),
+            ("cfgrandompresets.xml", ("cfgrandompresets.xml",)),
+            ("cfgignorelist.xml", ("cfgignorelist.xml",)),
+            ("cfgplayerspawnpoints.xml", ("cfgplayerspawnpoints.xml",)),
+            ("cfgenvironment.xml", ("cfgenvironment.xml",)),
+            ("mapclusterproto.xml", ("mapclusterproto.xml",)),
+            ("mapgroupcluster.xml", ("mapgroupcluster.xml",)),
+            ("mapgroupcluster01.xml", ("mapgroupcluster01.xml",)),
+            ("mapgroupdirt.xml", ("mapgroupdirt.xml",)),
+            ("env/zombie_territories.xml", ("env", "zombie_territories.xml")),
+            ("env/bear_territories.xml", ("env", "bear_territories.xml")),
+        )
+        for map_key in ("chernarus", "livonia", "sakhal"):
+            for target_path, parts in references:
+                content = dashboard.load_dayz_reference_text(map_key, *parts)
+                if not content.strip():
+                    continue
+                with self.subTest(map=map_key, target=target_path):
+                    self.assertEqual(
+                        (True, ""),
+                        dashboard.ai_agent_validate_dayz_draft_semantics(
+                            target_path, content, {"map": map_key}
+                        ),
+                    )
+
+    def test_ai_agent_only_charges_completed_answers(self):
+        for status in ("deterministic_dayz_draft", "verified_dayz_reference"):
+            with self.subTest(status=status):
+                self.assertTrue(dashboard.ai_agent_answer_is_chargeable({"llm_status": status}))
+        self.assertTrue(dashboard.ai_agent_answer_is_chargeable({"llm_status": "ok"}))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable({
+            "llm_status": "ok",
+            "dayz_context": {"support_mode": "fix_error"},
+        }))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable({
+            "llm_status": "ok",
+            "dayz_context": {"support_mode": "edit_file"},
+            "dayz_draft_error": "invalid XML",
+        }))
+        self.assertTrue(dashboard.ai_agent_answer_is_chargeable({
+            "llm_status": "ok",
+            "dayz_context": {"support_mode": "edit_file"},
+            "dayz_draft": {"id": "draft-qa", "target_path": "db/types.xml", "content": "<types/>"},
+        }))
+        for status in ("failed", "not_configured", "dayz_input_required", ""):
+            with self.subTest(status=status):
+                self.assertFalse(dashboard.ai_agent_answer_is_chargeable({"llm_status": status}))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable(None))
+
+    def test_ai_agent_chat_does_not_charge_when_model_answer_failed(self):
+        auth = {"kind": "guild", "guild_id": "guild-qa"}
+        access = {"label": "QA owner", "subject_key": "guild:guild-qa"}
+        state = {}
+        run = {"id": "run-qa"}
+        task = {"id": "task-qa", "steps": [], "llm_status": "planned"}
+
+        def failed_reply(*_args, **_kwargs):
+            task["llm_status"] = "failed"
+            task["llm_error"] = "OpenAI timeout"
+            return "The model request failed; no completed answer was produced."
+
+        with (
+            patch.object(dashboard, "require_ai_agent_permission", return_value=(auth, access, state, None)),
+            patch.object(dashboard, "request_payload", return_value={"prompt": "Create a complete DayZ file draft"}),
+            patch.object(dashboard, "agent_credit_account_for_auth", return_value={"credits": 12}),
+            patch.object(dashboard, "ai_agent_resolve_run_for_prompt", return_value=(run, False)),
+            patch.object(dashboard, "ai_agent_chat_message", side_effect=[{"id": "user"}, {"id": "assistant"}]),
+            patch.object(dashboard, "ai_agent_run_context_summary", return_value={}),
+            patch.object(dashboard, "ai_agent_create_task_record", return_value=(task, None, "", 200)),
+            patch.object(dashboard, "ai_agent_llm_reply_for_task", side_effect=failed_reply),
+            patch.object(dashboard, "ai_agent_should_queue_chat_auto_job", return_value=False),
+            patch.object(dashboard, "agent_charge_for_prompt") as charge,
+            patch.object(dashboard, "agent_credit_balance_for_auth", return_value=12),
+            patch.object(dashboard, "save_ai_agent_state"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, body, *_args: body),
+        ):
+            response = dashboard.api_ai_agent_chat()
+
+        charge.assert_not_called()
+        self.assertTrue(response["ok"])
+        self.assertEqual(12, response["credits_remaining"])
+
+    def test_dayz_new_geometry_requests_stop_before_the_model_when_coordinates_are_missing(self):
+        restricted_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "pra/QA_Bunker.json",
+                "dayz_map": "sakhal",
+            },
+            "Create a restricted area with two boxes and six safe positions.",
+        )
+        underground_context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_custom_target_path": "custom/QA_Underground.json",
+                "dayz_map": "sakhal",
+            },
+            "Create an underground trigger and breadcrumbs.",
+        )
+
+        restricted = dashboard.ai_agent_custom_json_missing_input(
+            {"dayz_context": restricted_context}, "Create a restricted area with two boxes and six safe positions."
+        )
+        underground = dashboard.ai_agent_custom_json_missing_input(
+            {"dayz_context": underground_context}, "Create an underground trigger and breadcrumbs."
+        )
+
+        self.assertIn("exact restricted-area geometry", restricted)
+        self.assertIn("exact underground trigger geometry", underground)
+
+    def test_dayz_vehicle_event_preserves_requested_rotation(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "livonia",
+                "dayz_scenario_type": "vehicle_spawn",
+                "dayz_scenario_preset": "ada",
+                "dayz_scenario_name": "QA Rotated Ada",
+                "dayz_scenario_x": "5000",
+                "dayz_scenario_z": "5000",
+                "dayz_scenario_angle": "135.25",
+            },
+            "Prepare a rotated vehicle spawn event for offline review.",
+        )
+
+        drafts = dashboard.ai_agent_builtin_vehicle_event_drafts({"dayz_context": context})
+        spawn_draft = next(item for item in drafts if item["target_path"] == "cfgeventspawns.xml")
+        event_name = spawn_draft["scenario_event_name"]
+        pos = ET.fromstring(spawn_draft["content"]).find(f"./event[@name='{event_name}']/pos")
+
+        self.assertEqual(135.25, context["scenario"]["angle"])
+        self.assertEqual("135.250000", pos.get("a"))
+
+    def test_dayz_natural_language_profile_accepts_ordinary_non_military_clothing(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "db/types.xml",
+                "dayz_map": "livonia",
+                "dayz_reference_mode": "vanilla",
+            },
+            "Boost weapons, ammo and military clothing 200%; make ordinary non-Military clothing minimal.",
+        )
+
+        self.assertTrue(
+            dashboard.ai_agent_types_boost_profile_requested(
+                context, "Boost weapons, ammo and military clothing 200%; make ordinary non-Military clothing minimal."
+            )
+        )
+
     def test_dayz_agent_builds_matching_complete_vehicle_event_review_pair(self):
         context = dashboard.ai_agent_dayz_file_context(
             {
@@ -1932,6 +2618,102 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("failed the protected validator", reply)
         self.assertNotIn("Created a complete starter loadout", reply)
 
+    def test_model_plan_without_requested_file_is_incomplete_and_not_chargeable(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "cfgrandompresets.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": (
+                    '<randompresets><cargo name="Broken" chance="2.5">'
+                    '<item name="TunaCan" chance="1"/></randompresets>'
+                ),
+            },
+            "Repair the malformed complete cfgrandompresets.xml and return a validated file.",
+        )
+        task = {
+            "id": "qa-missing-repair-draft",
+            "dayz_context": context,
+            "project_type": "dayz_files",
+            "steps": [],
+            "suggested_commands": [],
+        }
+        model_reply = {
+            "reply": "I repaired the XML and it is ready for review.",
+            "summary": "Repair complete.",
+            "next_action": "Approve the repaired file.",
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard, "ai_agent_llm_json", return_value=(True, model_reply, "")
+        ):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Repair the malformed complete cfgrandompresets.xml and return a validated file.", False,
+            )
+
+        self.assertEqual("incomplete", task["llm_status"])
+        self.assertNotIn("dayz_draft", task)
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable(task))
+        self.assertIn("No usable DayZ draft", reply)
+        self.assertIn("no DayZ file draft", reply)
+        self.assertNotIn("I repaired the XML", reply)
+
+    def test_model_gets_one_guarded_retry_to_supply_an_omitted_repair_draft(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "cfgrandompresets.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": (
+                    '<randompresets><cargo name="Broken" chance="2.5">'
+                    '<item name="TunaCan" chance="1"/></randompresets>'
+                ),
+            },
+            "Repair the malformed complete cfgrandompresets.xml.",
+        )
+        task = {
+            "id": "qa-repair-retry",
+            "dayz_context": context,
+            "project_type": "dayz_files",
+            "steps": [],
+            "suggested_commands": [],
+        }
+        first_reply = {"reply": "The repair is ready.", "summary": "Repair complete."}
+        retry_reply = {
+            "reply": "Prepared the corrected complete XML draft.",
+            "dayz_draft": {
+                "target_path": "cfgrandompresets.xml",
+                "kind": "full_file",
+                "content": (
+                    '<randompresets><cargo name="Broken" chance="1">'
+                    '<item name="TunaCan" chance="1"/></cargo></randompresets>'
+                ),
+                "summary": "Closed the cargo record and supplied valid probabilities.",
+            },
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard, "ai_agent_llm_json",
+            side_effect=[(True, first_reply, ""), (True, retry_reply, "")],
+        ) as model_call:
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Repair the malformed complete cfgrandompresets.xml.", False,
+            )
+
+        self.assertEqual(2, model_call.call_count)
+        self.assertEqual("ok", task["llm_status"])
+        self.assertEqual("passed", task["dayz_draft"]["validation"])
+        self.assertTrue(dashboard.ai_agent_answer_is_chargeable(task))
+        self.assertIn("DayZ draft ready for download", reply)
+        retry_payload = model_call.call_args_list[1].args[1]
+        self.assertIn("omitted", retry_payload["draft_retry"]["reason"])
+
     def test_model_objectspawner_draft_is_saved_only_after_protected_validation(self):
         context = dashboard.ai_agent_dayz_file_context(
             {
@@ -1939,8 +2721,16 @@ class DashboardServerControlTests(unittest.TestCase):
                 "dayz_support_mode": "create_file",
                 "dayz_custom_target_path": "custom/QA_AirdropScene.json",
                 "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": json.dumps({
+                    "Objects": [{
+                        "name": "Land_Roadblock_WoodenCrate",
+                        "pos": [5000.0, 200.0, 5000.0],
+                        "ypr": [0.0, 0.0, 0.0],
+                    }]
+                }),
             },
-            "Create a static airdrop crate scene through ObjectSpawner and explain the cfgGameplay link.",
+            "Create ObjectSpawner JSON: Land_Roadblock_WoodenCrate at [5000,200,5000] with ypr [0,0,0].",
         )
         task = {
             "id": "qa-airdrop-scene",
@@ -1973,7 +2763,7 @@ class DashboardServerControlTests(unittest.TestCase):
         ):
             reply = dashboard.ai_agent_llm_reply_for_task(
                 {}, {}, {"label": "QA owner"}, {}, task, None,
-                "Create a static airdrop crate scene through ObjectSpawner and explain the cfgGameplay link.", False,
+                "Create ObjectSpawner JSON: Land_Roadblock_WoodenCrate at [5000,200,5000] with ypr [0,0,0].", False,
             )
 
         self.assertEqual("ok", task["llm_status"])
@@ -1981,6 +2771,102 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("objectspawner", task["dayz_draft"]["custom_json_schema"])
         self.assertEqual("passed", task["dayz_draft"]["validation"])
         self.assertIn("DayZ draft ready for download", reply)
+
+    def test_model_linked_event_package_requires_matching_names_and_valid_selected_map_class(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "chernarus",
+            },
+            "Create a custom vehicle event and matching event spawn at 5000 5000.",
+        )
+        event_patch = (
+            '<events><event name="VehicleQAPackage"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>3888000</lifetime><restock>0</restock><saferadius>500</saferadius>'
+            '<distanceradius>500</distanceradius><cleanupradius>200</cleanupradius>'
+            '<flags deletable="1" init_random="0" remove_damaged="1"/><position>fixed</position>'
+            '<limit>mixed</limit><active>1</active><children><child lootmax="0" lootmin="0" '
+            'max="1" min="1" type="OffroadHatchback"/></children></event></events>'
+        )
+        spawn_patch = (
+            '<eventposdef><event name="VehicleQAPackage"><pos x="5000" z="5000" '
+            'a="135.000000"/></event></eventposdef>'
+        )
+        data = {
+            "dayz_drafts": [
+                {"target_path": "db/events.xml", "kind": "patch", "content": event_patch},
+                {"target_path": "cfgeventspawns.xml", "kind": "patch", "content": spawn_patch},
+            ]
+        }
+
+        drafts, error = dashboard.ai_agent_normalize_dayz_draft_package(data, context)
+
+        self.assertEqual("", error)
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, {item["target_path"] for item in drafts})
+
+        mismatched = copy.deepcopy(data)
+        mismatched["dayz_drafts"][1]["content"] = spawn_patch.replace("VehicleQAPackage", "VehicleWrongName")
+        mismatch_drafts, mismatch_error = dashboard.ai_agent_normalize_dayz_draft_package(mismatched, context)
+        self.assertEqual([], mismatch_drafts)
+        self.assertIn("do not match exactly", mismatch_error)
+
+        unknown = copy.deepcopy(data)
+        unknown["dayz_drafts"][0]["content"] = event_patch.replace("OffroadHatchback", "DefinitelyNotAVanillaClass")
+        unknown_drafts, unknown_error = dashboard.ai_agent_normalize_dayz_draft_package(unknown, context)
+        self.assertEqual([], unknown_drafts)
+        self.assertIn("not present", unknown_error)
+
+        missing_child = copy.deepcopy(data)
+        missing_child["dayz_drafts"][0]["content"] = event_patch.replace(
+            '<child lootmax="0" lootmin="0" max="1" min="1" type="OffroadHatchback"/>', ''
+        )
+        missing_child_drafts, missing_child_error = dashboard.ai_agent_normalize_dayz_draft_package(missing_child, context)
+        self.assertEqual([], missing_child_drafts)
+        self.assertIn("needs at least one", missing_child_error)
+
+        missing_position = copy.deepcopy(data)
+        missing_position["dayz_drafts"][1]["content"] = spawn_patch.replace(
+            '<pos x="5000" z="5000" a="135.000000"/>', ''
+        )
+        missing_position_drafts, missing_position_error = dashboard.ai_agent_normalize_dayz_draft_package(missing_position, context)
+        self.assertEqual([], missing_position_drafts)
+        self.assertIn("needs at least one <pos>", missing_position_error)
+
+    def test_linked_map_group_package_requires_matching_placement_and_prototype_names(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "mapgrouppos.xml",
+                "dayz_map": "chernarus",
+            },
+            "Place a new loot-bearing static building and define its matching loot prototype.",
+        )
+        placement = (
+            '<map><group name="QACastleLoot" pos="5000 25 6000" rpy="0 0 90"/></map>'
+        )
+        prototype = (
+            '<prototype><group name="QACastleLoot" lootmax="1"><container name="loot" lootmax="1">'
+            '<point pos="0 0 0"/></container></group></prototype>'
+        )
+        package = {
+            "dayz_drafts": [
+                {"target_path": "mapgrouppos.xml", "kind": "patch", "content": placement},
+                {"target_path": "mapgroupproto.xml", "kind": "patch", "content": prototype},
+            ]
+        }
+
+        drafts, error = dashboard.ai_agent_normalize_dayz_draft_package(package, context)
+        self.assertEqual("", error)
+        self.assertEqual({"mapgrouppos.xml", "mapgroupproto.xml"}, {item["target_path"] for item in drafts})
+
+        mismatched = copy.deepcopy(package)
+        mismatched["dayz_drafts"][1]["content"] = prototype.replace("QACastleLoot", "QAWrongPrototype")
+        mismatch_drafts, mismatch_error = dashboard.ai_agent_normalize_dayz_draft_package(mismatched, context)
+        self.assertEqual([], mismatch_drafts)
+        self.assertIn("do not have matching mapgroupproto.xml prototypes", mismatch_error)
 
     def test_invalid_model_dayz_xml_is_never_reported_as_a_saved_draft(self):
         context = dashboard.ai_agent_dayz_file_context(

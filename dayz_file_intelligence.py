@@ -54,7 +54,7 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgplayerspawnpoints.xml": DayZFileSpec("cfgplayerspawnpoints.xml", "xml", "playerspawnpoints", ("fresh",), description="fresh-spawn positions and loadout settings"),
     "cfgignorelist.xml": DayZFileSpec("cfgignorelist.xml", "xml", "ignore", ("type",), description="economy cleanup ignore list"),
     "cfglimitsdefinition.xml": DayZFileSpec("cfglimitsdefinition.xml", "xml", "lists", description="central economy category, tag and usage lists"),
-    "cfglimitsdefinitionuser.xml": DayZFileSpec("cfglimitsdefinitionuser.xml", "xml", "user_lists", description="custom central economy category, tag and usage lists"),
+    "cfglimitsdefinitionuser.xml": DayZFileSpec("cfglimitsdefinitionuser.xml", "xml", "user_lists", description="user aliases combining existing CE usage/value definitions"),
     "cfgrandompresets.xml": DayZFileSpec("cfgrandompresets.xml", "xml", "randompresets", description="central economy random cargo presets"),
     "types.xml": DayZFileSpec("types.xml", "xml", "types", ("type",), description="loot economy types"),
     "globals.xml": DayZFileSpec("globals.xml", "xml", "variables", ("var",), description="global economy variables"),
@@ -173,7 +173,7 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     },
     "mapgroupproto.xml": {
         "purpose": "Reusable map-group prototypes, including compatible CE loot points, categories, usages and tiers for static objects/buildings.",
-        "dependencies": ["mapgrouppos.xml places a matching group on the selected map.", "types.xml item categories/usages must be compatible with the prototype's loot definitions.", "cfglimitsdefinition.xml or cfglimitsdefinitionuser.xml defines any custom category, tag or usage named by the prototype."],
+        "dependencies": ["mapgrouppos.xml places a matching group on the selected map.", "types.xml item categories/usages must be compatible with the prototype's loot definitions.", "cfglimitsdefinition.xml defines any genuinely new category, tag, usage or value name; cfglimitsdefinitionuser.xml can only alias existing usage/value names."],
         "variants": "A group can be inspected or preserved without being changed. It is required for a static loot-bearing group/object, not for a normal working vehicle or an ObjectSpawner JSON placement.",
         "safety": "Do not confuse prototypes with map placements. Preserve the selected map's existing group names, point structure and loot rules; never add loot points to an unrelated object just because a request mentions loot.",
     },
@@ -195,10 +195,16 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
         "variants": "Nested cargo and attachment structures are supported in modern DayZ; preserve the current schema and use matching item class names.",
         "safety": "Do not confuse attachment/cargo definitions with types.xml nominal world-loot settings.",
     },
+    "cfgignorelist.xml": {
+        "purpose": "Excludes listed classnames from Central Economy persistence/storage handling; it is not a keep-forever cleanup whitelist.",
+        "dependencies": ["Every <type name=...> must use the exact selected-version classname."],
+        "variants": "The vanilla file contains <type name=\"Classname\"/> records under the <ignore> root.",
+        "safety": "An ignored entity is not saved by CE and therefore may not return after restart. Adding a container here does not make it persist forever.",
+    },
     "cfgeconomycore.xml": {
         "purpose": "Central Economy root configuration, persistence/backup settings and optional custom CE XML include folders.",
-        "dependencies": ["A custom CE include declares the exact folder/file and its type (types, spawnabletypes, globals, economy, events or messages).", "Included partial files follow override/append rules rather than replacing the full vanilla mission file."],
-        "variants": "Core settings are map/mission-specific. Custom terrains and modded missions can have additional root classes and include structures.",
+        "dependencies": ["The official custom CE include shape is <ce folder=\"foldername\"><file name=\"my_changes_to_types.xml\" type=\"types\" /></ce>; use the exact supported file type.", "Included partial files follow override/append rules rather than replacing the full vanilla mission file."],
+        "variants": "The official mission-file modding schema uses a ce element with a folder attribute and nested file elements with name/type attributes. Core settings remain map/mission-specific.",
         "safety": "Do not use a partial include as a full-file replacement. Keep every file type and include path exact, then validate the resulting mission after restart.",
     },
     "globals.xml": {
@@ -216,14 +222,20 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     "territories": {
         "purpose": "Animal and infected spawn zone definitions, including ambient living-entity zones.",
         "dependencies": ["cfgenvironment.xml references the relevant environment territory files.", "Ambient zones use a matching db/events.xml event family; that event's distance/cleanup/restock controls activation and cooldown behaviour."],
-        "variants": "Territory records can use dynamic/static minimums and maximums; herd and behaviour fields vary by animal file. Ambient animals use territory dmin/dmax and event child min values as type weights.",
+        "variants": "Territory records can use dynamic/static minimums and maximums; herd and behaviour fields vary by animal file. Ambient animals use territory dmin/dmax and event child min values as type weights. Copy the zone name from the selected map's matching vanilla territory file; do not derive a name such as BearPack from the animal name.",
         "safety": "Use map coordinates and conservative population values. A very large static infected count can affect performance. Do not use cfgeventspawns.xml for an ambient territory zone unless the selected vanilla pattern also has a separate fixed event.",
     },
     "cfglimitsdefinition.xml": {
         "purpose": "Central Economy category, tag and usage definitions used by types.xml and map-group loot rules.",
         "dependencies": ["types.xml and mapgroupproto.xml can only refer to category/usage/tag names that are defined for the mission."],
-        "variants": "Use cfglimitsdefinitionuser.xml for custom user definitions where the selected mission/version supports that split; preserve the current file's root and list sections.",
+        "variants": "This <lists> file defines the actual category, tag, usage and value names. cfglimitsdefinitionuser.xml does not define new limiter names; it creates shorter named combinations from definitions that already exist here.",
         "safety": "Adding a new loot item does not automatically require a new category or usage. Add one only when the requested loot logic genuinely needs a new named definition.",
+    },
+    "cfglimitsdefinitionuser.xml": {
+        "purpose": "Named user aliases that combine limiter flags already defined by cfglimitsdefinition.xml, such as TownVillage or Tier234.",
+        "dependencies": ["Every nested usage/value name must already exist in cfglimitsdefinition.xml.", "Use cfglimitsdefinition.xml, not this file, to define a genuinely new category, tag, usage or value name."],
+        "variants": "The vanilla <user_lists> layout contains <usageflags> and <valueflags>, each with named <user> groups and nested <usage> or <value> members.",
+        "safety": "Do not put <category> or <tag> definitions here and do not invent nested limiter names that the selected mission has not defined.",
     },
     "cfgplayerspawnpoints.xml": {
         "purpose": "Fresh-spawn positions and selected spawn/loadout settings.",
@@ -326,6 +338,7 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
     spawn_gear_terms = ("spawn gear", "starting gear", "starter gear", "spawngear", "loadout json")
     restricted_terms = ("restricted area", "player restricted", "safe position", "safepositions3d")
     category_terms = ("custom category", "custom usage", "custom tag", "cfglimitsdefinition")
+    event_terms = ("custom event", "vehicle event", "static event", "loot event", "infected event", "animal event", "event spawn")
 
     if any(term in text for term in ambient_terms):
         return plan(
@@ -340,6 +353,21 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
             "Validate that the event's global max, the territory dmin/dmax and child min weights are compatible; child weights should describe the intended type distribution.",
         )
 
+    if filename in {"events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml"} or any(term in text for term in event_terms):
+        return plan(
+            "ce_event_package",
+            "A positioned CE event normally changes the definition and matching position together; event groups and map prototypes change only when the design actually references them.",
+            [
+                entry("db/events.xml", "changed", "Add or adjust the named CE definition, classname, counts, lifetime, radii, flags and children."),
+                entry("cfgeventspawns.xml", "changed", "Add or adjust positions using exactly the same case-sensitive event name and six-decimal rotation."),
+                entry("cfgeventgroups.xml", "conditional", "Change only when a cfgeventspawns position uses a group= reference."),
+                entry("mapgroupproto.xml", "conditional", "Change only when a loot-bearing static/group child needs a compatible prototype and loot points."),
+                entry("db/types.xml", "checked", "Confirm every requested child classname exists for the selected map/version."),
+                entry("cfgspawnabletypes.xml", "conditional", "Change only when requested attachments or cargo need an explicit spawnable-type record."),
+            ],
+            "Event names must match exactly in events.xml and cfgeventspawns.xml. Do not manufacture group/prototype records for an event that does not reference them.",
+        )
+
     if filename in {"mapgrouppos.xml", "mapgroupproto.xml"} or any(term in text for term in map_group_terms):
         placement_action = "changed" if filename == "mapgrouppos.xml" or any(term in text for term in ("place", "placement", "move", "position", "new building", "new group")) else "checked"
         prototype_action = "changed" if filename == "mapgroupproto.xml" or any(term in text for term in ("loot point", "lootpoint", "new building", "new group", "prototype")) else "checked"
@@ -351,7 +379,7 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
                 entry("mapgroupproto.xml", prototype_action, "Prototype group name, containers and loot points must match the placement and requested loot behaviour."),
                 entry("db/types.xml", "checked", "Any item expected to spawn from those loot points must have compatible categories/usages and a valid selected-map classname."),
                 entry("cfglimitsdefinition.xml", "conditional", "Only add a user/category/usage/tag definition if the requested loot rule introduces a new named definition."),
-                entry("cfglimitsdefinitionuser.xml", "conditional", "Use only when the selected mission's current structure stores custom CE definitions here."),
+                entry("cfglimitsdefinitionuser.xml", "conditional", "Use only to add a named alias combining usage/value names already present in cfglimitsdefinition.xml."),
             ],
             "Do not use MapGroup files for a normal ObjectSpawner JSON base. Do not add a prototype or loot points unless the placement/event actually requires them.",
         )
@@ -411,10 +439,10 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
     if filename in {"cfglimitsdefinition.xml", "cfglimitsdefinitionuser.xml"} or any(term in text for term in category_terms):
         return plan(
             "central_economy_definitions",
-            "Custom CE categories, usages and tags must be defined before types or map prototypes reference their exact names.",
+            "Actual CE categories, tags, usages and values belong in cfglimitsdefinition.xml; cfglimitsdefinitionuser.xml only creates named aliases from existing usage/value definitions.",
             [
                 entry("cfglimitsdefinition.xml", "changed" if filename == "cfglimitsdefinition.xml" else "checked", "Use the selected mission's primary CE definition file and preserve existing lists."),
-                entry("cfglimitsdefinitionuser.xml", "conditional", "Use only where the selected mission/version stores custom definitions separately."),
+                entry("cfglimitsdefinitionuser.xml", "changed" if filename == "cfglimitsdefinitionuser.xml" else "conditional", "Create only usage/value alias groups whose nested names already exist in cfglimitsdefinition.xml."),
                 entry("db/types.xml", "checked", "Confirm every item uses the exact defined category/usage/tag name."),
                 entry("mapgroupproto.xml", "checked", "Confirm static building/group loot rules use the same exact names where applicable."),
             ],
@@ -668,6 +696,8 @@ def _validate_string_path_list(value: Any, label: str, target_path: Any) -> tupl
 def _validate_restricted_area_payload(payload: Any, target_path: Any) -> tuple[bool, str]:
     if not isinstance(payload, dict):
         return False, f"Refusing to upload `{target_path}`: restricted-area JSON root must be an object."
+    if not isinstance(payload.get("areaName"), str) or not payload.get("areaName", "").strip():
+        return False, f"Refusing to upload `{target_path}`: restricted-area JSON needs a non-empty `areaName`."
     boxes = payload.get("PRABoxes")
     safe_positions = payload.get("safePositions3D")
     if not isinstance(boxes, list) or not boxes:
@@ -702,16 +732,23 @@ def _validate_effect_area_payload(payload: Any, target_path: Any) -> tuple[bool,
     for index, area in enumerate(areas):
         if not isinstance(area, dict):
             return False, f"Refusing to upload `{target_path}`: Areas[{index}] must be an object."
-        data = area.get("Data") if isinstance(area.get("Data"), dict) else area
-        for position_key in ("Pos", "Position"):
-            if position_key in data:
-                error = _validate_number_triplet(data.get(position_key), f"Areas[{index}].{position_key}")
-                if error:
-                    return False, f"Refusing to upload `{target_path}`: {error}"
-                break
+        for string_key in ("AreaName", "Type", "TriggerType"):
+            if not isinstance(area.get(string_key), str) or not area.get(string_key, "").strip():
+                return False, f"Refusing to upload `{target_path}`: Areas[{index}] needs a non-empty `{string_key}`."
+        data = area.get("Data")
+        if not isinstance(data, dict):
+            return False, f"Refusing to upload `{target_path}`: Areas[{index}].Data must be an object."
+        position_key = "Pos" if "Pos" in data else "Position" if "Position" in data else ""
+        if not position_key:
+            return False, f"Refusing to upload `{target_path}`: Areas[{index}].Data needs a `Pos` coordinate triplet."
+        error = _validate_number_triplet(data.get(position_key), f"Areas[{index}].Data.{position_key}")
+        if error:
+            return False, f"Refusing to upload `{target_path}`: {error}"
+        if not any(radius_key in data for radius_key in ("Radius", "OuterRingRadius", "InnerRingRadius")):
+            return False, f"Refusing to upload `{target_path}`: Areas[{index}].Data needs a radius value."
         for radius_key in ("Radius", "OuterRingRadius", "InnerRingRadius"):
-            if radius_key in data and not _is_number(data.get(radius_key)):
-                return False, f"Refusing to upload `{target_path}`: Areas[{index}].{radius_key} must be a number."
+            if radius_key in data and (not _is_number(data.get(radius_key)) or float(data.get(radius_key)) < 0):
+                return False, f"Refusing to upload `{target_path}`: Areas[{index}].Data.{radius_key} must be a non-negative number."
     return True, ""
 
 
@@ -725,20 +762,31 @@ def _validate_underground_payload(payload: Any, target_path: Any) -> tuple[bool,
         if not isinstance(trigger, dict):
             return False, f"Refusing to upload `{target_path}`: Triggers[{index}] must be an object."
         for vector_key in ("Position", "Orientation", "Size"):
-            if vector_key in trigger:
-                error = _validate_number_triplet(trigger.get(vector_key), f"Triggers[{index}].{vector_key}")
-                if error:
-                    return False, f"Refusing to upload `{target_path}`: {error}"
+            if vector_key not in trigger:
+                return False, f"Refusing to upload `{target_path}`: Triggers[{index}] is missing `{vector_key}`."
+            error = _validate_number_triplet(trigger.get(vector_key), f"Triggers[{index}].{vector_key}")
+            if error:
+                return False, f"Refusing to upload `{target_path}`: {error}"
+        accommodation = trigger.get("EyeAccommodation")
+        if not _is_number(accommodation) or not 0.0 <= float(accommodation) <= 1.0:
+            return False, f"Refusing to upload `{target_path}`: Triggers[{index}].EyeAccommodation must be a number between 0 and 1."
         breadcrumbs = trigger.get("Breadcrumbs", [])
         if not isinstance(breadcrumbs, list):
             return False, f"Refusing to upload `{target_path}`: Triggers[{index}].Breadcrumbs must be an array."
         for breadcrumb_index, breadcrumb in enumerate(breadcrumbs):
             if not isinstance(breadcrumb, dict):
                 return False, f"Refusing to upload `{target_path}`: Triggers[{index}].Breadcrumbs[{breadcrumb_index}] must be an object."
-            if "Position" in breadcrumb:
-                error = _validate_number_triplet(breadcrumb.get("Position"), f"Triggers[{index}].Breadcrumbs[{breadcrumb_index}].Position")
-                if error:
-                    return False, f"Refusing to upload `{target_path}`: {error}"
+            if "Position" not in breadcrumb:
+                return False, f"Refusing to upload `{target_path}`: Triggers[{index}].Breadcrumbs[{breadcrumb_index}] is missing `Position`."
+            error = _validate_number_triplet(breadcrumb.get("Position"), f"Triggers[{index}].Breadcrumbs[{breadcrumb_index}].Position")
+            if error:
+                return False, f"Refusing to upload `{target_path}`: {error}"
+            breadcrumb_accommodation = breadcrumb.get("EyeAccommodation")
+            if not _is_number(breadcrumb_accommodation) or not 0.0 <= float(breadcrumb_accommodation) <= 1.0:
+                return False, (
+                    f"Refusing to upload `{target_path}`: Triggers[{index}].Breadcrumbs[{breadcrumb_index}]"
+                    ".EyeAccommodation must be a number between 0 and 1."
+                )
     return True, ""
 
 
@@ -746,14 +794,125 @@ def _validate_spawn_gear_preset_payload(payload: Any, target_path: Any) -> tuple
     presets = payload if isinstance(payload, list) else [payload]
     if not presets or not all(isinstance(preset, dict) for preset in presets):
         return False, f"Refusing to upload `{target_path}`: spawning-gear JSON must be an object or array of objects."
+
+    def validate_weight(value: Any, label: str) -> str:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            return f"{label} must be an integer of at least 1."
+        return ""
+
+    def validate_attributes(value: Any, label: str) -> str:
+        if value is None:
+            return ""
+        if not isinstance(value, dict):
+            return f"{label} must be an object."
+        for key in ("healthMin", "healthMax", "quantityMin", "quantityMax"):
+            if key in value and (not _is_number(value.get(key)) or not 0.0 <= float(value.get(key)) <= 1.0):
+                return f"{label}.{key} must be a number between 0 and 1."
+        for minimum_key, maximum_key in (("healthMin", "healthMax"), ("quantityMin", "quantityMax")):
+            if minimum_key in value and maximum_key in value and float(value[minimum_key]) > float(value[maximum_key]):
+                return f"{label} must satisfy {minimum_key} <= {maximum_key}."
+        return ""
+
+    def validate_children(container: dict[str, Any], label: str, depth: int) -> str:
+        if depth > 8:
+            return f"{label} nesting exceeds the supported safety depth of 8."
+        if "simpleChildrenUseDefaultAttributes" in container and not isinstance(container.get("simpleChildrenUseDefaultAttributes"), bool):
+            return f"{label}.simpleChildrenUseDefaultAttributes must be true or false."
+        simple = container.get("simpleChildrenTypes")
+        if simple is not None:
+            if not isinstance(simple, list) or any(not isinstance(item, str) or not item.strip() for item in simple):
+                return f"{label}.simpleChildrenTypes must be an array of non-empty class-name strings."
+        complex_children = container.get("complexChildrenTypes")
+        if complex_children is not None:
+            if not isinstance(complex_children, list):
+                return f"{label}.complexChildrenTypes must be an array."
+            for child_index, child in enumerate(complex_children):
+                child_label = f"{label}.complexChildrenTypes[{child_index}]"
+                if not isinstance(child, dict):
+                    return f"{child_label} must be an object."
+                if not isinstance(child.get("itemType"), str) or not child.get("itemType", "").strip():
+                    return f"{child_label}.itemType must be a non-empty class name."
+                error = validate_attributes(child.get("attributes"), f"{child_label}.attributes")
+                if error:
+                    return error
+                if "quickBarSlot" in child and (
+                    isinstance(child.get("quickBarSlot"), bool)
+                    or not isinstance(child.get("quickBarSlot"), int)
+                    or child.get("quickBarSlot") < -1
+                ):
+                    return f"{child_label}.quickBarSlot must be an integer of -1 or greater."
+                error = validate_children(child, child_label, depth + 1)
+                if error:
+                    return error
+        return ""
+
     for index, preset in enumerate(presets):
-        if not any(key in preset for key in ("spawnWeight", "attachmentSlotItemSets", "discreteUnsortedItemSets", "discreteItemSets")):
+        label = f"spawning-gear preset {index}"
+        if not any(key in preset for key in ("spawnWeight", "attachmentSlotItemSets", "discreteUnsortedItemSets")):
             return False, f"Refusing to upload `{target_path}`: spawning-gear preset {index} has no recognised gear fields."
-        if "spawnWeight" in preset and not _is_number(preset.get("spawnWeight")):
-            return False, f"Refusing to upload `{target_path}`: spawning-gear preset {index}.spawnWeight must be a number."
-        for key in ("characterTypes", "attachmentSlotItemSets", "discreteUnsortedItemSets", "discreteItemSets"):
-            if key in preset and not isinstance(preset.get(key), list):
-                return False, f"Refusing to upload `{target_path}`: spawning-gear preset {index}.{key} must be an array."
+        if not isinstance(preset.get("name"), str) or not preset.get("name", "").strip():
+            return False, f"Refusing to upload `{target_path}`: {label}.name must be a non-empty string."
+        error = validate_weight(preset.get("spawnWeight"), f"{label}.spawnWeight")
+        if error:
+            return False, f"Refusing to upload `{target_path}`: {error}"
+        character_types = preset.get("characterTypes", [])
+        if not isinstance(character_types, list) or any(
+            not isinstance(item, str) or not item.strip() for item in character_types
+        ):
+            return False, f"Refusing to upload `{target_path}`: {label}.characterTypes must be an array of non-empty class-name strings."
+        attachment_sets = preset.get("attachmentSlotItemSets", [])
+        if not isinstance(attachment_sets, list):
+            return False, f"Refusing to upload `{target_path}`: {label}.attachmentSlotItemSets must be an array."
+        for slot_index, slot in enumerate(attachment_sets):
+            slot_label = f"{label}.attachmentSlotItemSets[{slot_index}]"
+            if not isinstance(slot, dict):
+                return False, f"Refusing to upload `{target_path}`: {slot_label} must be an object."
+            if not isinstance(slot.get("slotName"), str) or not slot.get("slotName", "").strip():
+                return False, f"Refusing to upload `{target_path}`: {slot_label}.slotName must be a non-empty string."
+            item_sets = slot.get("discreteItemSets")
+            if not isinstance(item_sets, list) or not item_sets:
+                return False, f"Refusing to upload `{target_path}`: {slot_label}.discreteItemSets must be a non-empty array."
+            for item_index, item in enumerate(item_sets):
+                item_label = f"{slot_label}.discreteItemSets[{item_index}]"
+                if not isinstance(item, dict):
+                    return False, f"Refusing to upload `{target_path}`: {item_label} must be an object."
+                # An empty itemType is an official way to represent a weighted
+                # "nothing in this slot" variant, but the field must be a string.
+                if not isinstance(item.get("itemType"), str):
+                    return False, f"Refusing to upload `{target_path}`: {item_label}.itemType must be a class-name string."
+                error = validate_weight(item.get("spawnWeight"), f"{item_label}.spawnWeight")
+                if error:
+                    return False, f"Refusing to upload `{target_path}`: {error}"
+                error = validate_attributes(item.get("attributes"), f"{item_label}.attributes")
+                if error:
+                    return False, f"Refusing to upload `{target_path}`: {error}"
+                if "quickBarSlot" in item and (
+                    isinstance(item.get("quickBarSlot"), bool)
+                    or not isinstance(item.get("quickBarSlot"), int)
+                    or item.get("quickBarSlot") < -1
+                ):
+                    return False, f"Refusing to upload `{target_path}`: {item_label}.quickBarSlot must be an integer of -1 or greater."
+                error = validate_children(item, item_label, 0)
+                if error:
+                    return False, f"Refusing to upload `{target_path}`: {error}"
+        cargo_sets = preset.get("discreteUnsortedItemSets", [])
+        if not isinstance(cargo_sets, list):
+            return False, f"Refusing to upload `{target_path}`: {label}.discreteUnsortedItemSets must be an array."
+        for cargo_index, cargo in enumerate(cargo_sets):
+            cargo_label = f"{label}.discreteUnsortedItemSets[{cargo_index}]"
+            if not isinstance(cargo, dict):
+                return False, f"Refusing to upload `{target_path}`: {cargo_label} must be an object."
+            if not isinstance(cargo.get("name"), str) or not cargo.get("name", "").strip():
+                return False, f"Refusing to upload `{target_path}`: {cargo_label}.name must be a non-empty string."
+            error = validate_weight(cargo.get("spawnWeight"), f"{cargo_label}.spawnWeight")
+            if error:
+                return False, f"Refusing to upload `{target_path}`: {error}"
+            error = validate_attributes(cargo.get("attributes"), f"{cargo_label}.attributes")
+            if error:
+                return False, f"Refusing to upload `{target_path}`: {error}"
+            error = validate_children(cargo, cargo_label, 0)
+            if error:
+                return False, f"Refusing to upload `{target_path}`: {error}"
     return True, ""
 
 
@@ -768,10 +927,10 @@ def dayz_json_schema_name(payload: Any) -> str:
             return "effect_area"
         if "Triggers" in payload:
             return "underground"
-        if any(key in payload for key in ("spawnWeight", "attachmentSlotItemSets", "discreteUnsortedItemSets", "discreteItemSets")):
+        if any(key in payload for key in ("spawnWeight", "attachmentSlotItemSets", "discreteUnsortedItemSets")):
             return "spawning_gear"
     if isinstance(payload, list) and payload and all(isinstance(item, dict) for item in payload):
-        if all(any(key in item for key in ("spawnWeight", "attachmentSlotItemSets", "discreteUnsortedItemSets", "discreteItemSets")) for item in payload):
+        if all(any(key in item for key in ("spawnWeight", "attachmentSlotItemSets", "discreteUnsortedItemSets")) for item in payload):
             return "spawning_gear"
     return ""
 
