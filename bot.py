@@ -5297,6 +5297,27 @@ async def repair_member_onboarding_reactions_for_guild(guild, config):
                     )
                     if changed:
                         repaired = True
+                        # A raw reaction event can be missed while the bot is
+                        # starting or redeploying.  The catch-up used to apply
+                        # the role silently, leaving the member with access but
+                        # no matching welcome.  Only welcome when this repair
+                        # actually added the role so normal restarts cannot
+                        # repost welcomes for every historical reaction.
+                        welcome_choice = dict(choice)
+                        choice_role = resolve_onboarding_role(guild, choice.get("role_id"))
+                        if choice_role and str(getattr(choice_role, "name", "")).strip():
+                            welcome_choice["label"] = str(choice_role.name).strip().lstrip("@").strip()
+                        await send_member_onboarding_choice_welcome(
+                            guild,
+                            config,
+                            settings,
+                            member,
+                            welcome_choice,
+                            access_text=(
+                                f"{welcome_choice.get('label') or welcome_choice.get('key') or 'Server'} "
+                                "role applied after a missed reaction."
+                            ),
+                        )
 
     return repaired
 

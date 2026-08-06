@@ -421,8 +421,9 @@ class ChannelMatchingTests(unittest.TestCase):
         choice_message.reactions = [FakeReaction("\U0001F535", [member])]
         rules_channel = FakeFetchChannel("rules", 10, [rules_message])
         choice_channel = FakeFetchChannel("pick-server", 20, [choice_message])
+        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
         guild = FakeOnboardingGuild(
-            [rules_channel, choice_channel],
+            [rules_channel, choice_channel, welcome_channel],
             roles=[rules_role, livo_role],
             member=member,
         )
@@ -439,6 +440,8 @@ class ChannelMatchingTests(unittest.TestCase):
                 "choice_require_rules": True,
                 "choice_livo_emoji": "\U0001F535",
                 "choice_livo_role_id": "102",
+                "choice_livo_welcome_channel_id": "31",
+                "choice_livo_welcome_message": "Welcome to Livo.",
             },
         }
 
@@ -447,6 +450,12 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(repaired)
         self.assertTrue(bot.member_has_role_id(member, "101"))
         self.assertTrue(bot.member_has_role_id(member, "102"))
+        self.assertEqual(1, len(welcome_channel.sent))
+
+        repaired_again = asyncio.run(bot.repair_member_onboarding_reactions_for_guild(guild, config))
+
+        self.assertFalse(repaired_again)
+        self.assertEqual(1, len(welcome_channel.sent))
 
     def test_onboarding_choice_welcome_refuses_feed_or_event_channel(self):
         event_channel = FakeFetchChannel("LiVo-eVeNt-sPAWNs", 30, [])
