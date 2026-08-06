@@ -7576,6 +7576,7 @@ PAGE_TEMPLATE = """
                       <option value="m3s">M3S covered truck</option>
                       <option value="civilian_zombie">Civilian infected</option>
                       <option value="military_zombie">Military infected</option>
+                      <option value="mummy_zombie">Mummy infected</option>
                       <option value="bear">Bears</option>
                       <option value="wolf">Wolves</option>
                       <option value="gas_temp">Temporary gas zone</option>
@@ -24519,6 +24520,23 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
                 "Choose the matching preset or remove the classname override so the linked event package is unambiguous."
             )
         }
+    requested_class_name = class_name
+    class_name_correction = ""
+    try:
+        selected_types_root = ET.fromstring(load_dayz_reference_text(clean_map, "db", "types.xml"))
+        selected_type_names = {
+            str(node.get("name") or "").strip().lower(): str(node.get("name") or "").strip()
+            for node in selected_types_root.findall("type")
+            if str(node.get("name") or "").strip()
+        }
+    except ET.ParseError:
+        selected_type_names = {}
+    canonical_class_name = selected_type_names.get(class_name.lower()) if class_name else ""
+    if canonical_class_name and canonical_class_name != class_name:
+        class_name_correction = (
+            f"Corrected classname case from {class_name} to the exact selected-map vanilla spelling {canonical_class_name}."
+        )
+        class_name = canonical_class_name
     radius_default = safe_int(preset.get("radius"), 35)
     radius = max(0, min(30000, safe_int(payload.get("dayz_scenario_radius"), radius_default)))
     if event_type == "gas_zone":
@@ -24562,6 +24580,8 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
         "event_type": event_type,
         "preset": preset_id,
         "class_name": class_name,
+        "requested_class_name": requested_class_name,
+        "class_name_correction": class_name_correction,
         "x": x,
         "y": y,
         "z": z,
@@ -26148,6 +26168,117 @@ def ai_agent_builtin_airdrop_event_drafts(task: dict[str, Any]) -> list[dict[str
     return normalized
 
 
+def ai_agent_builtin_infected_horde_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build a validated fixed-position infected CE event as two merge patches."""
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict):
+        return []
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if str(scenario.get("event_type") or "") != "zombie_horde" or scenario.get("error"):
+        return []
+    map_key = normalize_dayz_reference_map_key(scenario.get("map") or context.get("map"))
+    class_name = str(scenario.get("class_name") or "").strip()
+    if not class_name:
+        return []
+    try:
+        types_root = ET.fromstring(load_dayz_reference_text(map_key, "db", "types.xml"))
+        eventgroups_root = ET.fromstring(load_dayz_reference_text(map_key, "cfgeventgroups.xml"))
+        prototype_root = ET.fromstring(load_dayz_reference_text(map_key, "mapgroupproto.xml"))
+    except ET.ParseError:
+        return []
+    if not any(str(node.get("name") or "") == class_name for node in types_root.findall("type")):
+        return []
+    if eventgroups_root.tag != "eventgroupdef" or prototype_root.tag != "prototype":
+        return []
+
+    label = str(scenario.get("name") or scenario.get("preset") or "InfectedHorde").strip()
+    slug = re.sub(r"[^A-Za-z0-9]+", "", label) or "InfectedHorde"
+    x = safe_int(scenario.get("x"), 0)
+    z = safe_int(scenario.get("z"), 0)
+    angle = float(scenario.get("angle") or 0.0)
+    radius = max(0, min(30000, safe_int(scenario.get("radius"), 60)))
+    count = max(1, min(250, safe_int(scenario.get("apply_payload", {}).get("count"), 1)))
+    event_name = f"InfectedWanderingBot_{slug}_{x}_{z}"[:64]
+    event_patch = (
+        "<events>\n"
+        f"    <event name=\"{event_name}\">\n"
+        "        <nominal>1</nominal>\n"
+        "        <min>1</min>\n"
+        "        <max>1</max>\n"
+        "        <lifetime>1800</lifetime>\n"
+        "        <restock>0</restock>\n"
+        "        <saferadius>0</saferadius>\n"
+        f"        <distanceradius>{radius}</distanceradius>\n"
+        "        <cleanupradius>100</cleanupradius>\n"
+        "        <flags deletable=\"1\" init_random=\"0\" remove_damaged=\"1\"/>\n"
+        "        <position>fixed</position>\n"
+        "        <limit>child</limit>\n"
+        "        <active>1</active>\n"
+        "        <children>\n"
+        f"            <child lootmax=\"0\" lootmin=\"0\" max=\"{count}\" min=\"{count}\" type=\"{class_name}\"/>\n"
+        "        </children>\n"
+        "    </event>\n"
+        "</events>\n"
+    )
+    spawn_patch = (
+        "<eventposdef>\n"
+        f"    <event name=\"{event_name}\">\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"{angle:.6f}\"/>\n"
+        "    </event>\n"
+        "</eventposdef>\n"
+    )
+    normalized, error = ai_agent_normalize_dayz_draft_package(
+        {
+            "dayz_drafts": [
+                {
+                    "target_path": "db/events.xml",
+                    "kind": "patch",
+                    "content": event_patch,
+                    "summary": (
+                        f"Validated fixed-position infected CE definition for `{event_name}`: "
+                        f"{count} × `{class_name}` with CE distance radius {radius}. "
+                        f"{str(scenario.get('class_name_correction') or '').strip()}"
+                    ),
+                },
+                {
+                    "target_path": "cfgeventspawns.xml",
+                    "kind": "patch",
+                    "content": spawn_patch,
+                    "summary": f"Validated matching position for `{event_name}` at X {x}, Z {z}, rotation {angle:.6f}.",
+                },
+            ]
+        },
+        context,
+    )
+    if error or len(normalized) != 2:
+        return []
+    event_package = {
+        "core_files": list(DAYZ_EVENT_CORE_FILES),
+        "changed_files": ["db/events.xml", "cfgeventspawns.xml"],
+        "preserved_files": ["cfgeventgroups.xml", "mapgroupproto.xml"],
+        "linked_event_name": event_name,
+        "linked_class_name": class_name,
+        "checks": [
+            {
+                "path": "cfgeventgroups.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "The fixed infected position has no group= reference.",
+            },
+            {
+                "path": "mapgroupproto.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "A direct infected child is not a static loot-bearing map-group prototype.",
+            },
+        ],
+    }
+    for draft in normalized:
+        draft["event_package"] = event_package
+        draft["base"] = f"merge-only records validated against bundled DayZ {DAYZ_CE_FILE_VERSION} {map_key} references"
+    return normalized
+
+
 def ai_agent_full_survivor_loadout_draft_requested(context: dict[str, Any], prompt: Any) -> bool:
     """Recognise the one complete vanilla spawn-gear package we can verify locally.
 
@@ -27539,6 +27670,7 @@ def ai_agent_llm_reply_for_task(
     deterministic_drafts = (
         ai_agent_builtin_vehicle_event_drafts(task)
         or ai_agent_builtin_airdrop_event_drafts(task)
+        or ai_agent_builtin_infected_horde_drafts(task)
     )
     deterministic_draft = ai_agent_builtin_dayz_draft(task, prompt)
     if deterministic_drafts or deterministic_draft:

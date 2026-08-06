@@ -2717,6 +2717,51 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("merge-only offline review pair", reply)
         self.assertEqual("deterministic_dayz_draft", task["llm_status"])
 
+    def test_dayz_agent_builds_matching_merge_only_infected_horde_pair(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_map": "chernarus",
+                "dayz_scenario_type": "zombie_horde",
+                "dayz_scenario_preset": "mummy_zombie",
+                "dayz_scenario_name": "QA Castle Mummy Horde",
+                "dayz_scenario_class": "ZmbM_Mummy",
+                "dayz_scenario_x": "7714",
+                "dayz_scenario_y": "0",
+                "dayz_scenario_z": "12723",
+                "dayz_scenario_angle": "0",
+                "dayz_scenario_radius": "60",
+                "dayz_scenario_count": "10",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "cherno",
+            },
+            "Create a fixed CE mummy horde and return merge-only events.xml and cfgeventspawns.xml changes.",
+        )
+
+        drafts = dashboard.ai_agent_builtin_infected_horde_drafts({"dayz_context": context})
+        by_path = {draft["target_path"]: draft for draft in drafts}
+        event_node = ET.fromstring(by_path["db/events.xml"]["content"]).find("event")
+        spawn_node = ET.fromstring(by_path["cfgeventspawns.xml"]["content"]).find("event")
+        event_package = by_path["db/events.xml"]["event_package"]
+
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, set(by_path))
+        self.assertTrue(all(draft["kind"] == "patch" and draft["merge_required"] for draft in drafts))
+        self.assertEqual(event_node.get("name"), spawn_node.get("name"))
+        self.assertTrue(event_node.get("name").startswith("InfectedWanderingBot_"))
+        self.assertEqual("Zmbm_Mummy", context["scenario"]["class_name"])
+        self.assertIn("Corrected classname case", context["scenario"]["class_name_correction"])
+        self.assertEqual("Zmbm_Mummy", event_node.find("./children/child").get("type"))
+        self.assertEqual("10", event_node.find("./children/child").get("min"))
+        self.assertEqual("10", event_node.find("./children/child").get("max"))
+        self.assertEqual("60", event_node.findtext("distanceradius"))
+        self.assertEqual("7714", spawn_node.find("pos").get("x"))
+        self.assertEqual("12723", spawn_node.find("pos").get("z"))
+        self.assertEqual("0.000000", spawn_node.find("pos").get("a"))
+        self.assertEqual(["cfgeventgroups.xml", "mapgroupproto.xml"], event_package["preserved_files"])
+        self.assertTrue(all(item["valid"] for item in event_package["checks"]))
+        self.assertIn('value="mummy_zombie">Mummy infected', dashboard.PAGE_TEMPLATE)
+
     def test_builtin_dayz_draft_matrix_validates_across_supported_maps(self):
         maps = ("chernarus", "livonia", "sakhal")
         for map_key in maps:
