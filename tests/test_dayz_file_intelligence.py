@@ -186,6 +186,12 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         )
         self.assertEqual(bot.normalize_dayz_reference_map_key("dayzOffline.sakhal"), "sakhal")
 
+    def test_nonexistent_fixed_vanilla_filenames_are_not_registered(self):
+        self.assertIsNone(dayz_file_spec_for_path("/mission/cfgareaeffects.xml"))
+        self.assertIsNone(dayz_file_spec_for_path("/mission/cfgplayerspawn.json"))
+        self.assertIsNotNone(dayz_file_spec_for_path("/mission/cfgEffectArea.json"))
+        self.assertIsNotNone(dayz_file_spec_for_path("/mission/custom/MySpawnGear.json"))
+
     def test_extracted_vanilla_reference_shapes_validate(self):
         relative_paths = (
             "db/events.xml",
@@ -209,7 +215,6 @@ class DayZFileIntelligenceTests(unittest.TestCase):
             "env/fox_territories.xml",
             "env/hare_territories.xml",
             "env/hen_territories.xml",
-            "cfgareaeffects.xml",
             "cfggameplay.json",
             "cfgeffectarea.json",
             "cfgplayerspawnpoints.xml",

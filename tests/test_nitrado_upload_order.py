@@ -62,6 +62,16 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
         bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS = self.original_ftp_verify_retry_seconds
 
+    def test_gas_zone_paths_use_only_the_official_effect_area_json(self):
+        paths = bot.console_ce_default_paths("guild-1")
+        self.assertNotIn("cfgareaeffects_path", paths)
+        self.assertTrue(paths["cfgeffectarea_path"].endswith("/cfgEffectArea.json"))
+
+        config = {"console_ce_events": {"cfgareaeffects_path": "/mission/cfgareaeffects.xml"}}
+        settings = bot.console_ce_event_config(config)
+        self.assertNotIn("cfgareaeffects_path", settings)
+        self.assertIn("cfgeffectarea_path", settings)
+
     def test_protected_xml_uses_api_before_ftp(self):
         def api_upload(*_args):
             self.calls.append("api")

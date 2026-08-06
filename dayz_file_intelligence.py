@@ -49,7 +49,6 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgspawnabletypes.xml": DayZFileSpec("cfgspawnabletypes.xml", "xml", "spawnabletypes", ("type",), description="attachments and cargo"),
     "cfgenvironment.xml": DayZFileSpec("cfgenvironment.xml", "xml", "env", description="environment/territory references"),
     "zombie_territories.xml": DayZFileSpec("zombie_territories.xml", "xml", "territory-type", ("territory",), description="infected territory zones"),
-    "cfgareaeffects.xml": DayZFileSpec("cfgareaeffects.xml", "xml", "areaeffects", description="contaminated area presets"),
     "messages.xml": DayZFileSpec("messages.xml", "xml", "messages", description="server messages"),
     "cfgplayerspawnpoints.xml": DayZFileSpec("cfgplayerspawnpoints.xml", "xml", "playerspawnpoints", ("fresh",), description="fresh-spawn positions and loadout settings"),
     "cfgignorelist.xml": DayZFileSpec("cfgignorelist.xml", "xml", "ignore", ("type",), description="economy cleanup ignore list"),
@@ -63,8 +62,7 @@ DAYZ_FILE_SPECS: dict[str, DayZFileSpec] = {
     "cfgweather.xml": DayZFileSpec("cfgweather.xml", "xml", "weather", description="weather, rain, fog and storm settings"),
     "cfggameplay.json": DayZFileSpec("cfggameplay.json", "json", json_root_types=("object",), description="gameplay flags and object spawner references"),
     "cfgundergroundtriggers.json": DayZFileSpec("cfgundergroundtriggers.json", "json", json_root_types=("object",), description="underground area trigger settings"),
-    "cfgeffectarea.json": DayZFileSpec("cfgeffectarea.json", "json", json_root_types=("object",), description="gas particle settings"),
-    "cfgplayerspawn.json": DayZFileSpec("cfgplayerspawn.json", "json", json_root_types=("object",), description="fresh spawn loadouts"),
+    "cfgeffectarea.json": DayZFileSpec("cfgeffectarea.json", "json", json_root_types=("object",), description="static contaminated and map effect areas"),
     "objectspawner.json": DayZFileSpec("objectspawner.json", "json", json_root_types=("object",), description="ObjectSpawner object placements"),
 }
 
@@ -141,7 +139,7 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     "cfgeffectarea.json": {
         "purpose": "Map effect areas such as contaminated areas and map-specific effects.",
         "dependencies": [
-            "cfgareaeffects.xml may define related effect presets for the selected mission.",
+            "Dynamic contaminated areas are Central Economy events and use events.xml plus cfgeventspawns.xml rather than a companion area-effects XML file.",
             "An adjacent ObjectSpawner build remains a separate custom JSON file that must be linked in cfggameplay.json; do not add cfgEffectArea.json to objectSpawnersArr.",
         ],
         "variants": "The Area schema varies by map and version (for example particle/contaminated areas versus Sakhal geyser and volcanic area data). Static smoke around an airdrop scene can coexist with its ObjectSpawner file, but it is not a substitute for a dynamic CE airdrop event. Empty {} is the documented way to disable static areas on installations that support it.",

@@ -4081,7 +4081,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(125, scenario["radius"])
         self.assertEqual(["db/events.xml", "cfgeventspawns.xml"], scenario["changed_files"])
         self.assertEqual(["cfgeventgroups.xml", "mapgroupproto.xml"], scenario["preserved_files"])
-        self.assertTrue({"cfgareaeffects.xml", "cfgeffectarea.json"}.issubset(set(scenario["files"])))
+        self.assertIn("cfgeffectarea.json", scenario["files"])
+        self.assertNotIn("cfgareaeffects.xml", scenario["files"])
         self.assertTrue(scenario["can_apply"])
 
     def test_ai_agent_dayz_targets_cover_standard_dayz_support_files(self):
@@ -4096,6 +4097,8 @@ class DashboardServerControlTests(unittest.TestCase):
             "env/zombie_territories.xml",
             "env/bear_territories.xml",
         }.issubset(targets))
+        self.assertNotIn("cfgareaeffects.xml", targets)
+        self.assertNotIn("cfgplayerspawn.json", targets)
 
     def test_versioned_owner_reference_overlay_keeps_bundled_files_and_can_be_activated(self):
         class UploadedZip:
@@ -4187,6 +4190,14 @@ class DashboardServerControlTests(unittest.TestCase):
 
                 self.assertIn("NewOfficialRifle", analysis["changes"]["added_classnames"])
                 self.assertEqual(1, analysis["summary"]["new_classnames"])
+                server_experience = next(
+                    item for item in analysis["coverage"] if item["id"] == "server_experience"
+                )
+                self.assertIn("db/messages.xml", server_experience["optional_missing"])
+                self.assertNotIn("db/messages.xml", server_experience["missing"])
+                self.assertGreaterEqual(
+                    server_experience["coverage_percent"], server_experience["reference_percent"]
+                )
                 proposal = next(item for item in analysis["proposals"] if item["type"] == "new_official_file")
                 self.assertEqual("cfgnewfeature.xml", proposal["path"])
                 self.assertTrue(analysis["safe_to_activate"])

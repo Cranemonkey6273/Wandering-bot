@@ -3597,7 +3597,7 @@ APP_DASHBOARD_TEMPLATE = """
       <div class="section-head"><h2>Learn the files</h2><details class="info"><summary aria-label="About the field guide">i</summary><div>This area teaches what files do. It does not directly overwrite live server XML.</div></details></div>
       <div class="guide-list">
         <details class="guide-row" open><summary>Safe editing checklist</summary><div class="guide-body"><p>1. Stop and identify the map and mission folder. 2. Download the current live file. 3. Keep one clean backup outside FTP. 4. Edit the complete file, not a loose snippet. 5. Validate XML or JSON. 6. Upload to the exact path. 7. Restart only when the file requires it. 8. Check the newest RPT for errors.</p></div></details>
-        <details class="guide-row"><summary>File quick reference: where to start</summary><div class="guide-body"><p><code>db/types.xml</code> is world-loot quantities; <code>db/events.xml</code> is event behaviour; <code>cfgeventspawns.xml</code> is event positions; <code>cfgspawnabletypes.xml</code> is attachments/cargo; <code>db/globals.xml</code> is global economy values; and <code>db/messages.xml</code> is on-screen server messages.</p><p><code>env/*_territories.xml</code> controls animal/infected zones, <code>cfgplayerspawnpoints.xml</code> controls fresh-spawn locations, <code>cfgareaeffects.xml</code> and <code>cfgeffectarea.json</code> cover applicable contaminated/effect areas, and <code>cfgundergroundtriggers.json</code> covers underground transitions.</p></div></details>
+        <details class="guide-row"><summary>File quick reference: where to start</summary><div class="guide-body"><p><code>db/types.xml</code> is world-loot quantities; <code>db/events.xml</code> is event behaviour; <code>cfgeventspawns.xml</code> is event positions; <code>cfgspawnabletypes.xml</code> is attachments/cargo; <code>db/globals.xml</code> is global economy values; and <code>db/messages.xml</code> is on-screen server messages.</p><p><code>env/*_territories.xml</code> controls animal/infected zones, <code>cfgplayerspawnpoints.xml</code> controls fresh-spawn locations, <code>cfgEffectArea.json</code> defines static contaminated/effect areas, and <code>cfgundergroundtriggers.json</code> covers underground transitions. Dynamic contaminated areas are CE events and use the linked event files instead.</p></div></details>
         <details class="guide-row"><summary>Common XML and JSON mistakes</summary><div class="guide-body"><p>XML needs matching start and end tags. JSON needs double quotes around keys, no comments, no trailing comma, and matching braces and brackets. Coordinates are normally number triples such as <code>[x, y, z]</code>; event position XML normally uses <code>x</code> and <code>z</code> with an optional angle.</p><p>If DayZ reports an error, use the newest RPT from the restart you just made. Check the stated filename, line/column, missing classname and matching event name before changing anything else.</p></div></details>
         <details class="guide-row"><summary>Build anywhere: learn the settings</summary><div class="guide-body"><p>Build anywhere is controlled by <code>cfggameplay.json</code>. Enable that file in <code>serverDZ.cfg</code>, edit a downloaded copy, then upload the complete JSON file to the mission root.</p><div class="learn-flow"><div class="learn-step"><b>1</b><strong>Enable</strong><span>Set enableCfgGameplayFile in serverDZ.cfg.</span></div><div class="learn-step"><b>2</b><strong>Edit</strong><span>Change the HologramData and ConstructionData checks.</span></div><div class="learn-step"><b>3</b><strong>Validate</strong><span>Check the full JSON, upload it, then restart once.</span></div></div><pre class="guide-code">serverDZ.cfg
 enableCfgGameplayFile = 1;
@@ -7247,8 +7247,10 @@ PAGE_TEMPLATE = """
                         {% if capability.status == 'source_required' %}
                         <strong>Exact mod source required</strong>
                         {% else %}
-                        <strong>{{ capability.coverage_percent }}% referenced</strong>
-                        <span class="muted">{{ capability.uploaded_count }} uploaded · {{ capability.fallback_count }} bundled fallback{% if capability.missing_count %} · {{ capability.missing_count }} unavailable{% endif %}</span>
+                        <strong>{{ capability.coverage_percent }}% supported</strong>
+                        <span class="muted">{{ capability.uploaded_count }} uploaded · {{ capability.fallback_count }} bundled fallback{% if capability.optional_count %} · {{ capability.optional_count }} optional creatable{% endif %}{% if capability.missing_count %} · {{ capability.missing_count }} unavailable{% endif %}</span>
+                        {% if capability.optional_missing %}<span class="tool-note">Not shipped by this mission, but officially supported: {{ capability.optional_missing|join(', ') }}</span>{% endif %}
+                        {% if capability.missing %}<span class="tool-note">Exact source still required: {{ capability.missing|join(', ') }}</span>{% endif %}
                         {% endif %}
                       </div>
                       {% endfor %}
@@ -22750,9 +22752,7 @@ AI_AGENT_DAYZ_TARGETS = (
     ("db/economy.xml", "economy.xml - CE economy switches"),
     ("cfgeconomycore.xml", "cfgeconomycore.xml - central economy file includes"),
     ("cfgenvironment.xml", "cfgenvironment.xml - environment and territory references"),
-    ("cfgareaeffects.xml", "cfgareaeffects.xml - contaminated-area presets"),
-    ("cfgeffectarea.json", "cfgeffectarea.json - gas particle settings"),
-    ("cfgplayerspawn.json", "cfgplayerspawn.json - fresh-spawn loadout presets"),
+    ("cfgeffectarea.json", "cfgEffectArea.json - static contaminated/effect areas"),
     ("custom/objectspawner.json", "ObjectSpawner JSON - custom object placements"),
     ("custom/spawnGearPreset.json", "Custom JSON - fresh-spawn gear preset"),
     ("custom/playerRestrictedArea.json", "Custom JSON - player restricted-area definition"),
@@ -22813,7 +22813,7 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "title": "Map groups, territories and environment",
         "summary": "Work with MapGroupPos and prototypes, loot/exclusion zones, animal and infected territories, contaminated/gas areas, underground triggers and environment references.",
         "keywords": ("territory", "environment", "mapgroup", "exclusion", "underground", "area effect", "gas zone", "animal", "infected"),
-        "targets": ("mapgroupproto.xml", "mapgrouppos.xml", "cfgenvironment.xml", "cfgareaeffects.xml", "cfgeffectarea.json", "cfgundergroundtriggers.json", "custom/playerRestrictedArea.json", "env/zombie_territories.xml"),
+        "targets": ("mapgroupproto.xml", "mapgrouppos.xml", "cfgenvironment.xml", "cfgeffectarea.json", "cfgundergroundtriggers.json", "custom/playerRestrictedArea.json", "env/zombie_territories.xml"),
         "safety": "Coordinates are checked against the selected map; territory and environment edits stay merge-only unless the complete current file was supplied.",
     },
     {
@@ -22821,7 +22821,7 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "title": "Weather, gameplay, messages and player spawning",
         "summary": "Configure day/night timing, weather, messages, gameplay settings, fresh spawn points, player loadouts, server globals and Nitrado-oriented setup guidance.",
         "keywords": ("weather", "day", "night", "message", "gameplay", "loadout", "spawn point", "nitrado", "time acceleration"),
-        "targets": ("cfgweather.xml", "cfggameplay.json", "db/messages.xml", "cfgplayerspawnpoints.xml", "cfgplayerspawn.json", "custom/spawnGearPreset.json", "db/globals.xml"),
+        "targets": ("cfgweather.xml", "cfggameplay.json", "db/messages.xml", "cfgplayerspawnpoints.xml", "custom/spawnGearPreset.json", "db/globals.xml"),
         "safety": "It explains the effect before changing it, never requests or stores Nitrado secrets, and asks for the current config before a full-file replacement.",
     },
     {
@@ -22833,6 +22833,14 @@ AI_AGENT_DAYZ_CAPABILITIES = (
         "safety": "There is no universal vanilla NPC or airstrike file. The agent needs the exact mod and version first and must not invent its schema or classnames.",
     },
 )
+
+# Some official features use files which are deliberately absent until an
+# owner creates them.  A missing file here is not a sandbox capability gap.
+# For example, Bohemia's server-message documentation explicitly says that
+# db/messages.xml may need to be created by the server owner.
+AI_AGENT_DAYZ_OPTIONAL_CREATABLE_TARGETS = {
+    "db/messages.xml": "Bohemia-documented optional server messages file",
+}
 
 # Stable vanilla layouts the agent must preserve when it creates a draft. The
 # matching bundled reference remains the source of truth for full files; these
@@ -22854,10 +22862,8 @@ AI_AGENT_DAYZ_FORMAT_GUIDES = {
     "economy.xml": "XML <economy> root for central-economy switches and settings.",
     "cfgeconomycore.xml": "XML <economycore> root listing the central-economy files and folders DayZ loads.",
     "cfgenvironment.xml": "XML <env> root containing environment and territory references. Keep paths map-specific and merge additions rather than discarding existing references.",
-    "cfgareaeffects.xml": "XML <areaeffects> root for contaminated-area effect definitions used alongside cfgeffectarea.json where applicable.",
     "cfgeffectarea.json": "JSON object with the map's existing effect-area schema. Use the bundled/current file as the schema; do not invent particle or trigger keys.",
     "cfgplayerspawnpoints.xml": "XML <playerspawnpoints> root with a <fresh> configuration, spawn parameters and position bubbles/groups.",
-    "cfgplayerspawn.json": "JSON object for the installed fresh-spawn/loadout system. Its exact keys can vary by server version or mod, so use the actual current file as the schema.",
     "messages.xml": "XML <messages> root containing <message> records with delay, repeat, onconnect and text values.",
     "cfgignorelist.xml": "XML <ignore> root listing CE cleanup exceptions. Do not leave temporary reset entries behind after the planned restart flow.",
     "cfglimitsdefinition.xml": "XML <lists> root defining CE categories, tags and usages; cfglimitsdefinitionuser.xml is the custom user-list counterpart.",
@@ -24814,17 +24820,26 @@ def analyze_dayz_reference_release(
         targets = list(dict.fromkeys(targets))
         uploaded_count = sum(1 for path in targets if path in uploaded_paths)
         fallback_count = sum(1 for path in targets if path not in uploaded_paths and path in bundled_paths)
-        missing = [path for path in targets if path not in uploaded_paths and path not in bundled_paths]
+        unavailable = [path for path in targets if path not in uploaded_paths and path not in bundled_paths]
+        optional_missing = [
+            path for path in unavailable
+            if path in AI_AGENT_DAYZ_OPTIONAL_CREATABLE_TARGETS
+        ]
+        missing = [path for path in unavailable if path not in AI_AGENT_DAYZ_OPTIONAL_CREATABLE_TARGETS]
         available = uploaded_count + fallback_count
+        supported = available + len(optional_missing)
         coverage.append({
             "id": str(capability.get("id") or ""),
             "title": str(capability.get("title") or ""),
             "target_count": len(targets),
             "uploaded_count": uploaded_count,
             "fallback_count": fallback_count,
+            "optional_count": len(optional_missing),
+            "optional_missing": optional_missing[:20],
             "missing_count": len(missing),
             "missing": missing[:20],
-            "coverage_percent": round((available / len(targets)) * 100) if targets else 0,
+            "reference_percent": round((available / len(targets)) * 100) if targets else 0,
+            "coverage_percent": round((supported / len(targets)) * 100) if targets else 0,
             "status": "source_required" if not targets else ("covered" if not missing else "review"),
         })
 
@@ -25167,7 +25182,9 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
     elif event_type == "animal_pack":
         support_files.extend(["cfgenvironment.xml", "env/*_territories.xml"])
     elif event_type == "gas_zone":
-        support_files.extend(["cfgareaeffects.xml", "cfgeffectarea.json"])
+        # Static areas use cfgEffectArea.json. Dynamic contaminated areas are
+        # CE events and do not have a companion cfgareaeffects.xml file.
+        support_files.append("cfgeffectarea.json")
     files = list(dict.fromkeys([*core_files, *support_files]))
     apply_payload = {
         "guild_id": guild_id,

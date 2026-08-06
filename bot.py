@@ -18108,7 +18108,8 @@ async def setup_command(
                 "PC/custom hosts: add `SpawnWanderingDeliveries();` to your DayZ `init.c` after weather setup. "
                 "That enables restart delivery spawning from the XML this bot uploads.\n"
                 "Console hosts: `init.c` is not exposed. Use XML/JSON config files instead: `types.xml`, "
-                "`cfgspawnabletypes.xml`, `globals.xml`, `events.xml`, `cfgeventspawns.xml`, and `cfgplayerspawn.json`.\n\n"
+                "`cfgspawnabletypes.xml`, `globals.xml`, `events.xml`, `cfgeventspawns.xml`, and named spawn-gear JSON files "
+                "listed in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.\n\n"
                 "Console object spawns: run `/console setupobjects` to create `custom/WanderingBotObjects.json` and add it to "
                 "`cfggameplay.json` under `WorldsData.objectSpawnersArr`. Add spawns with `/console addobject`.\n"
                 "Item spawning: add shop items with `/addshopitem`, players use `/buy item_name x y`, then the bot uploads `deliveries.xml` for next restart.\n"
@@ -35075,7 +35076,6 @@ def console_ce_default_paths(guild_id):
         "types_path": f"{root}/{mission_folder}/db/types.xml",
         "spawnabletypes_path": f"{root}/{mission_folder}/cfgspawnabletypes.xml",
         "cfgenvironment_path": f"{root}/{mission_folder}/cfgenvironment.xml",
-        "cfgareaeffects_path": f"{root}/{mission_folder}/cfgareaeffects.xml",
         "cfgeffectarea_path": f"{root}/{mission_folder}/cfgEffectArea.json",
         "cfggameplay_path": f"{root}/{mission_folder}/cfggameplay.json",
     }
@@ -35119,8 +35119,6 @@ def console_ce_path_suffix(key):
         return "db/types.xml"
     if key == "cfgenvironment_path":
         return "cfgenvironment.xml"
-    if key == "cfgareaeffects_path":
-        return "cfgareaeffects.xml"
     if key == "cfgeffectarea_path":
         return "cfgEffectArea.json"
     if key == "cfggameplay_path":
@@ -35422,7 +35420,9 @@ def console_ce_event_config(config):
     settings.setdefault("spawnabletypes_path", "")
     settings.setdefault("cfgenvironment_path", "")
     settings.setdefault("zombie_territories_path", "")
-    settings.setdefault("cfgareaeffects_path", "")
+    # Remove the legacy invented XML path. DayZ uses cfgEffectArea.json for
+    # static contaminated areas; dynamic areas are CE events.
+    settings.pop("cfgareaeffects_path", None)
     settings.setdefault("cfgeffectarea_path", "")
     settings.setdefault("cfggameplay_path", "")
     return settings
@@ -35442,7 +35442,6 @@ def clear_console_ce_path_cache(config):
         "spawnabletypes_path",
         "cfgenvironment_path",
         "zombie_territories_path",
-        "cfgareaeffects_path",
         "cfgeffectarea_path",
     ):
         settings.pop(key, None)
@@ -36495,7 +36494,6 @@ def validate_console_ce_upload_scope(built):
         ("cfgeventgroups.xml", "eventgroups_source_text", "eventgroups_text"),
         ("mapgroupproto.xml", "mapgroupproto_source_text", "mapgroupproto_text"),
         ("cfgenvironment.xml", "cfgenvironment_source_text", "cfgenvironment_text"),
-        ("cfgareaeffects.xml", "cfgareaeffects_source_text", "cfgareaeffects_text"),
     ]
     messages = []
     scope_map_key = str(built.get("map_key") or "").strip()
@@ -36507,7 +36505,6 @@ def validate_console_ce_upload_scope(built):
         "cfgeventgroups.xml": "eventgroups_path",
         "mapgroupproto.xml": "mapgroupproto_path",
         "cfgenvironment.xml": "cfgenvironment_path",
-        "cfgareaeffects.xml": "cfgareaeffects_path",
     }
     for label, source_key, text_key in targets:
         merged_text = built.get(text_key)
@@ -36700,7 +36697,7 @@ def normalize_gas_particle_mode(value):
     return ""
 
 
-def console_ce_cfgareaeffects_mode(config):
+def console_ce_gas_particle_mode(config):
     modes = []
     for event in native_ce_scenario_events(config):
         if str(event.get("event_type") or "").strip().lower() != "gas_zone":
@@ -36713,10 +36710,6 @@ def console_ce_cfgareaeffects_mode(config):
     if "normal" in modes:
         return "normal"
     return ""
-
-
-def _xml_local_name(tag):
-    return str(tag or "").rsplit("}", 1)[-1].strip().lower()
 
 
 def _gas_particle_target(mode):
@@ -36732,35 +36725,6 @@ def _replace_gas_particle_value(value, target):
         target,
         text,
     )
-
-
-def patch_cfgareaeffects_gas_particle(root, mode):
-    target = _gas_particle_target(mode)
-    changed = 0
-    matched = 0
-    for node in root.iter():
-        local_name = _xml_local_name(node.tag)
-        node_name = str(node.get("name") or node.get("Name") or "").strip().lower()
-        if local_name == "particlename" and node.text is not None:
-            matched += 1
-            replacement = target if "contaminated_area_gas_bigass" in str(node.text) else None
-            if replacement and node.text != replacement:
-                node.text = replacement
-                changed += 1
-        elif node_name == "particlename" and "value" in node.attrib:
-            matched += 1
-            if node.get("value") != target:
-                node.set("value", target)
-                changed += 1
-
-        for attr, attr_value in list(node.attrib.items()):
-            replacement = _replace_gas_particle_value(attr_value, target)
-            if replacement is not None:
-                matched += 1
-                if attr_value != replacement:
-                    node.set(attr, replacement)
-                    changed += 1
-    return changed, matched, target
 
 
 def cfgspawnabletypes_loot_signature(cargo_node):
@@ -40109,9 +40073,6 @@ def download_console_ce_source(config, guild_id, key, requested_path=""):
     elif key == "cfgenvironment_path":
         reference_parts = ("cfgenvironment.xml",)
         fallback_root = "env"
-    elif key == "cfgareaeffects_path":
-        reference_parts = ("cfgareaeffects.xml",)
-        fallback_root = "areaeffects"
     else:
         reference_parts = ("cfgeventspawns.xml",)
         fallback_root = "eventposdef"
@@ -40454,9 +40415,6 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         "zombie_territories_path": "",
         "zombie_territories_text": "",
         "zombie_territories_source_text": "",
-        "cfgareaeffects_path": "",
-        "cfgareaeffects_text": "",
-        "cfgareaeffects_source_text": "",
         "cfgeffectarea_path": "",
         "cfgeffectarea_text": "",
         "animal_territory_files": [],
@@ -40643,8 +40601,8 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 f"Updated `env/{ZOMBIE_TERRITORY_FILE_NAME}` with `{len(zombie_records)}` Wandering Bot zombie zone(s), removed `{removed_zones}` old zone(s)."
             )
 
-    cfgareaeffects_mode = console_ce_cfgareaeffects_mode(config) if allow_unowned_repairs else ""
-    if cfgareaeffects_mode:
+    gas_particle_mode = console_ce_gas_particle_mode(config) if allow_unowned_repairs else ""
+    if gas_particle_mode:
         mission_base = remote_mission_base_from_ce_paths(output)
         cfgeffectarea_path = (
             canonical_remote_path(f"{mission_base}/cfgEffectArea.json")
@@ -40670,7 +40628,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                     "Events were still generated; only the red/normal gas particle patch was skipped."
                 )
             else:
-                changed, matched, target_particle = patch_cfgeffectarea_gas_particle(cfgeffectarea_payload, cfgareaeffects_mode)
+                changed, matched, target_particle = patch_cfgeffectarea_gas_particle(cfgeffectarea_payload, gas_particle_mode)
                 if matched <= 0:
                     output["messages"].append(
                         "cfgEffectArea.json gas colour skipped: no `ParticleName` containing "
@@ -40971,7 +40929,6 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
             or "<env><territories /></env>"
         ).encode("utf-8"))
         zombie_territories_root = ET.fromstring(str(built.get("zombie_territories_text") or "<territory-type></territory-type>").encode("utf-8"))
-        cfgareaeffects_root = ET.fromstring(str(built.get("cfgareaeffects_text") or "<areaeffects></areaeffects>").encode("utf-8"))
         if built.get("cfgeffectarea_text"):
             json.loads(str(built.get("cfgeffectarea_text") or ""))
     except Exception as error:
@@ -41390,7 +41347,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
         ("mapgroupproto.xml", "mapgroupproto_path", "mapgroupproto_text"),
         ("cfgenvironment.xml", "cfgenvironment_path", "cfgenvironment_text"),
         ("zombie_territories.xml", "zombie_territories_path", "zombie_territories_text"),
-        ("cfgareaeffects.xml", "cfgareaeffects_path", "cfgareaeffects_text"),
+        ("cfgEffectArea.json", "cfgeffectarea_path", "cfgeffectarea_text"),
     ]
     for label, path_key, text_key in targets:
         if not built.get(text_key):
@@ -41432,7 +41389,7 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
     messages.extend(validation_messages)
     if not validation_ok:
         return False, ["Final remote CE bundle verification failed after upload."] + validation_messages
-    return True, ["Final remote CE bundle verified across events.xml, cfgeventspawns.xml, cfgeventgroups.xml, mapgroupproto.xml, and managed territory files."]
+    return True, ["Final remote CE bundle verified across linked event files, managed territory files and cfgEffectArea.json when changed."]
 
 
 def successful_native_ce_fallback_message(message):
@@ -41546,7 +41503,6 @@ def backup_remote_ce_sources_before_upload(config, built):
         ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
         ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else ""),
         ("zombie_territories.xml", built.get("zombie_territories_path") if built.get("zombie_territories_text") else ""),
-        ("cfgareaeffects.xml", built.get("cfgareaeffects_path") if built.get("cfgareaeffects_text") else ""),
         ("cfgEffectArea.json", built.get("cfgeffectarea_path") if built.get("cfgeffectarea_text") else ""),
     ]
     for territory_file in built.get("animal_territory_files") or []:
@@ -41750,7 +41706,7 @@ def restore_console_ce_bundle_from_memory(config, built):
         ("mapgroupproto.xml", "mapgroupproto_path"),
         ("cfgenvironment.xml", "cfgenvironment_path"),
         ("zombie_territories.xml", "zombie_territories_path"),
-        ("cfgareaeffects.xml", "cfgareaeffects_path"),
+        ("cfgEffectArea.json", "cfgeffectarea_path"),
     ]
     for territory_file in built.get("animal_territory_files") or []:
         if not isinstance(territory_file, dict):
@@ -42038,28 +41994,19 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
         )
         messages.append(f"`zombie_territories.xml`: {zombie_territories_message}")
 
-    cfgareaeffects_ok = True
-    if built.get("cfgareaeffects_text"):
-        cfgareaeffects_ok, cfgareaeffects_message = upload_protected_ce_file_to_nitrado(
-            config,
-            "cfgareaeffects.xml",
-            built["cfgareaeffects_path"],
-            built["cfgareaeffects_text"],
-            restore_text=restore_texts.get(built["cfgareaeffects_path"]),
-            prefer_ftp=True,
-        )
-        messages.append(f"`cfgareaeffects.xml`: {cfgareaeffects_message}")
-
     cfgeffectarea_ok = True
     if built.get("cfgeffectarea_text"):
-        cfgeffectarea_ok, cfgeffectarea_message = upload_text_file_to_nitrado(
+        cfgeffectarea_ok, cfgeffectarea_message = upload_protected_ce_file_to_nitrado(
             config,
+            "cfgEffectArea.json",
             built["cfgeffectarea_path"],
-            built["cfgeffectarea_text"]
+            built["cfgeffectarea_text"],
+            restore_text=restore_texts.get(built["cfgeffectarea_path"]),
+            prefer_ftp=True,
         )
         messages.append(f"`cfgEffectArea.json`: {cfgeffectarea_message}")
 
-    success = events_ok and spawns_ok and types_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and zombie_territories_ok and cfgareaeffects_ok and cfgeffectarea_ok and territory_ok
+    success = events_ok and spawns_ok and types_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and zombie_territories_ok and cfgeffectarea_ok and territory_ok
     if success:
         final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
         messages.extend(final_bundle_messages)
@@ -42086,8 +42033,6 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
             settings["cfgenvironment_path"] = built["cfgenvironment_path"]
         if built.get("zombie_territories_path"):
             settings["zombie_territories_path"] = built["zombie_territories_path"]
-        if built.get("cfgareaeffects_path"):
-            settings["cfgareaeffects_path"] = built["cfgareaeffects_path"]
         if built.get("cfgeffectarea_path"):
             settings["cfgeffectarea_path"] = built["cfgeffectarea_path"]
         if consume_restart:
@@ -42318,7 +42263,6 @@ def queue_scenario_event_discord_notice(config, success, built=None, messages=No
         "spawnabletypes_path": str((built or {}).get("spawnabletypes_path") or ""),
         "cfgenvironment_path": str((built or {}).get("cfgenvironment_path") or ""),
         "zombie_territories_path": str((built or {}).get("zombie_territories_path") or ""),
-        "cfgareaeffects_path": str((built or {}).get("cfgareaeffects_path") or ""),
         "cfgeffectarea_path": str((built or {}).get("cfgeffectarea_path") or ""),
         "bridge_delivery_path": str((built or {}).get("bridge_delivery_path") or ""),
         "territory_paths": [
@@ -42458,7 +42402,6 @@ async def _post_scenario_event_discord_notice_verbose_legacy(guild_id, config, n
         ("cfgspawnabletypes.xml", "spawnabletypes_path"),
         ("cfgenvironment.xml", "cfgenvironment_path"),
         ("zombie_territories.xml", "zombie_territories_path"),
-        ("cfgareaeffects.xml", "cfgareaeffects_path"),
         ("cfgEffectArea.json", "cfgeffectarea_path"),
         ("deliveries.xml", "bridge_delivery_path"),
     ):
@@ -49098,7 +49041,7 @@ def console_bridge_unavailable_embed():
             "`types.xml` - core loot table: nominal/min/max, lifetime, restock, usage, value.\n"
             "`globals.xml` - core economy/game rules such as timers, weather, day/night, infected limits.\n"
             "`cfgeventspawns.xml` + `events.xml` - infected, vehicles, crashes, animal herds, and event positions.\n"
-            "`cfgplayerspawn.json` - fresh spawn clothing, inventory, and starting gear."
+            "`cfggameplay.json` + a named spawn-gear JSON file - fresh spawn clothing, inventory, and starting gear."
         ),
         inline=False
     )
@@ -50806,7 +50749,7 @@ async def event_bridgecode(interaction: discord.Interaction):
         "CONSOLE NOTE: Xbox/PlayStation DayZ servers do not expose an official `init.c`, so this bridge snippet is for PC/custom hosts only. "
         "On console, use the supported XML/JSON files instead: `cfgspawnabletypes.xml` for spawned attachments, `types.xml` for loot economy, "
         "`globals.xml` for core timers/rules, `cfgeventspawns.xml` and `events.xml` for event/infected/vehicle/animal placement, and "
-        "`cfgplayerspawn.json` for fresh spawn loadouts.\n\n"
+        "a named spawn-gear JSON file referenced from `cfggameplay.json` for fresh spawn loadouts.\n\n"
         "Paste the bridge functions below into your mission `init.c` above `void main()`. "
         "Then add `SpawnWanderingDeliveries();` inside `main()`, after weather setup or near the end. "
         "or use `/installdayzbridge install:true` when FTP/DNS works again.\n\n"
