@@ -2679,6 +2679,15 @@ class DashboardServerControlTests(unittest.TestCase):
             {"dayz_context": context, "objective": objective}, objective
         ))
 
+    def test_single_merge_patch_is_never_described_as_a_complete_file(self):
+        note = dashboard.ai_agent_dayz_draft_review_note([
+            {"target_path": "mapgrouppos.xml", "kind": "patch", "merge_required": True}
+        ])
+
+        self.assertIn("merge-only offline review patch", note)
+        self.assertIn("Do not upload a patch as a complete live file", note)
+        self.assertNotIn("complete-file draft", note)
+
     def test_read_only_dayz_explanation_with_negative_file_wording_does_not_require_draft(self):
         objective = (
             "Read-only advice only. In DayZ types.xml, explain clearly what nominal and min control, "

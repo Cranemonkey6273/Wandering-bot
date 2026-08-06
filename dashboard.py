@@ -27434,6 +27434,23 @@ def ai_agent_task_dayz_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
     return [legacy] if isinstance(legacy, dict) else []
 
 
+def ai_agent_dayz_draft_review_note(drafts: Any) -> str:
+    rows = [item for item in drafts if isinstance(item, dict)] if isinstance(drafts, list) else []
+    merge_count = sum(1 for item in rows if item.get("merge_required") or item.get("kind") == "patch")
+    if merge_count:
+        noun = "patch" if len(rows) == 1 else "pair" if len(rows) == 2 else "package"
+        return (
+            f"This is a merge-only offline review {noun}. Do not upload a patch as a complete live file; "
+            "merge every named record through the backup-first dashboard workflow."
+        )
+    if len(rows) > 1:
+        return (
+            "This is an offline complete-file review package made from bundled vanilla references. It is not a "
+            "live-server replacement: merge the requested changes into each current live file through the backup-first workflow."
+        )
+    return "This complete-file draft starts from a validated base. It has not been uploaded to any server."
+
+
 def ai_agent_dayz_draft_summaries(state: dict[str, Any]) -> list[dict[str, Any]]:
     summaries: list[dict[str, Any]] = []
     for task in state.get("tasks", []) if isinstance(state.get("tasks"), list) else []:
@@ -28403,18 +28420,7 @@ def ai_agent_llm_reply_for_task(
             core_audit_note = (
                 f" Four-core-file CE audit passed: changed {changed}; checked and preserved {preserved}."
             )
-        if len(drafts) > 1 and any(item.get("merge_required") for item in drafts):
-            package_note = (
-                "This is a merge-only offline review pair. Do not upload either patch as a complete live file; "
-                "merge both named records through the backup-first dashboard workflow."
-            )
-        elif len(drafts) > 1:
-            package_note = (
-                "This is an offline complete-file review pair made from bundled vanilla references. It is not a live-server replacement: "
-                "a live server must merge both records into its current files through the backup-first dashboard workflow."
-            )
-        else:
-            package_note = "This complete-file draft starts from the bundled vanilla reference. It has not been uploaded to any server."
+        package_note = ai_agent_dayz_draft_review_note(drafts)
         return f"Prepared and validated DayZ draft file(s): {target_names}.\n\n{task['summary']}\n\n{package_note}{core_audit_note}"
     wants_inspection = any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
     has_job_context = bool(run_context.get("latest_jobs"))
