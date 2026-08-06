@@ -1601,6 +1601,66 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("patch", draft["kind"])
         self.assertTrue(draft["merge_required"])
 
+    def test_dayz_file_workbench_validates_a_bare_named_record_as_merge_only_patch(self):
+        source = '<type name="M4A1"><nominal>20</nominal></typ>'
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "db/types.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": source,
+            },
+            "Correct only the mismatched closing tag and return a merge patch.",
+        )
+        repaired = (
+            '<type name="M4A1"><nominal>20</nominal><lifetime>28800</lifetime>'
+            '<restock>0</restock><min>10</min><quantmin>-1</quantmin>'
+            '<quantmax>-1</quantmax><cost>100</cost>'
+            '<flags count_in_cargo="0" count_in_hoarder="0" count_in_map="1" '
+            'count_in_player="0" crafted="0" deloot="0"/></type>'
+        )
+
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {
+                "target_path": "db/types.xml",
+                "kind": "patch",
+                "content": repaired,
+                "summary": "Corrected </typ> to </type>.",
+            },
+            context,
+        )
+
+        self.assertEqual("", error)
+        self.assertEqual("patch", draft["kind"])
+        self.assertTrue(draft["merge_required"])
+        self.assertEqual(repaired + "\n", draft["content"])
+        self.assertNotIn("<types>", draft["content"])
+
+    def test_dayz_file_workbench_still_rejects_invalid_bare_patch_content(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_file_target": "db/types.xml",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": '<type name="M4A1" />',
+            },
+            "Return a merge patch.",
+        )
+
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {
+                "target_path": "db/types.xml",
+                "kind": "patch",
+                "content": '<type name="M4A1"><nominal>20</nominal></typ>',
+            },
+            context,
+        )
+
+        self.assertIsNone(draft)
+        self.assertIn("validation failed", error)
+
     def test_dayz_full_draft_requires_complete_current_file_and_preserves_existing_types(self):
         current = '<types><type name="AKM" /><type name="M4A1" /></types>'
         context = dashboard.ai_agent_dayz_file_context(

@@ -25699,7 +25699,21 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
             # bare-array mistake in place.  The selected schema is unambiguous,
             # so wrap the preserved records before protected validation.
             content = json.dumps({"Objects": parsed_custom_json}, indent=2, ensure_ascii=False)
-    valid, validation_message = validate_dayz_upload_text(target_path, content)
+    validation_content = content
+    if kind == "patch" and spec.kind == "xml" and spec.xml_root:
+        # A safe merge patch may contain one or more named records rather than
+        # the complete file root. Validate those records inside a temporary
+        # expected root, but keep the saved/downloaded content as a merge-only
+        # fragment so it can never be mistaken for a replacement file.
+        content = re.sub(r"^\s*<\?xml\b[^?]*\?>\s*", "", content, count=1, flags=re.IGNORECASE)
+        validation_content = content
+        try:
+            patch_root = ET.fromstring(content)
+        except ET.ParseError:
+            patch_root = None
+        if patch_root is None or patch_root.tag != spec.xml_root:
+            validation_content = f"<{spec.xml_root}>\n{content}\n</{spec.xml_root}>"
+    valid, validation_message = validate_dayz_upload_text(target_path, validation_content)
     if not valid:
         return None, f"No file draft was saved because validation failed: {validation_message}"
     custom_json_schema = ""
@@ -25737,7 +25751,9 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
                 preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(target_path, base_text, content)
                 if not preserve_ok:
                     return None, f"No file draft was saved because it removes existing records: {preserve_message}"
-    semantic_ok, semantic_message = ai_agent_validate_dayz_draft_semantics(target_path, content, context)
+    semantic_ok, semantic_message = ai_agent_validate_dayz_draft_semantics(
+        target_path, validation_content, context
+    )
     if not semantic_ok:
         return None, f"No file draft was saved because semantic validation failed: {semantic_message}"
     now = datetime.now(UTC).isoformat()
