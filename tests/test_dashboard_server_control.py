@@ -2572,6 +2572,57 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("custom/spawnGearPreset.json", draft["target_path"])
         self.assertIn("PlayerData.spawnGearPresetFiles", draft["cfggameplay_reference"])
 
+    def test_full_spawn_gear_package_builds_custom_preset_and_exact_gameplay_link(self):
+        objective = (
+            "Draft only; never upload. Create a complete full field medic fresh-spawn loadout in "
+            "custom/QA_FieldMedic.json and add ./custom/QA_FieldMedic.json to "
+            "cfgGameplay.json PlayerData.spawnGearPresetFiles. Return both complete files."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "custom/spawnGearPreset.json",
+                "dayz_custom_target_path": "custom/QA_FieldMedic.json",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "none",
+            },
+            objective,
+        )
+
+        drafts = dashboard.ai_agent_builtin_spawn_gear_package_drafts(
+            {"dayz_context": context, "objective": objective}, objective
+        )
+
+        self.assertEqual(
+            ["custom/QA_FieldMedic.json", "cfggameplay.json"],
+            [item["target_path"] for item in drafts],
+        )
+        loadout = json.loads(drafts[0]["content"])
+        classnames = set(dashboard.iter_player_loadout_classnames(loadout))
+        self.assertTrue({"FirstAidKit", "BloodBagIV", "SalineBagIV", "M4A1"}.issubset(classnames))
+        gameplay = json.loads(drafts[1]["content"])
+        self.assertIn(
+            "./custom/QA_FieldMedic.json",
+            gameplay["PlayerData"]["spawnGearPresetFiles"],
+        )
+        normalized, error = dashboard.ai_agent_normalize_dayz_draft_package(
+            {
+                "dayz_drafts": [
+                    {
+                        "target_path": item["target_path"],
+                        "kind": item["kind"],
+                        "content": item["content"],
+                        "summary": item["summary"],
+                    }
+                    for item in drafts
+                ]
+            },
+            context,
+        )
+        self.assertEqual("", error)
+        self.assertEqual(2, len(normalized))
+
     def test_explicit_objectspawner_json_stays_primary_when_cfggameplay_reference_is_mentioned(self):
         objective = (
             "Create a complete custom/QA_Fort.json ObjectSpawner JSON containing "

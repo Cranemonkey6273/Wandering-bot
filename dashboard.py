@@ -26706,7 +26706,14 @@ def ai_agent_full_survivor_loadout_draft_requested(context: dict[str, Any], prom
     mod requests and edits to an existing preset for the model/current-file
     workflow instead of guessing their schema.
     """
-    if str(context.get("target_path") or "") != "custom/spawnGearPreset.json":
+    target_path = str(context.get("target_path") or "")
+    if not (
+        dayz_is_supported_custom_json_path(target_path)
+        and (
+            target_path == "custom/spawnGearPreset.json"
+            or str(context.get("custom_json_schema") or "") == "spawning_gear"
+        )
+    ):
         return False
     if str(context.get("source_text") or "").strip():
         return False
@@ -26732,6 +26739,7 @@ def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: A
     if not isinstance(context, dict) or not ai_agent_full_survivor_loadout_draft_requested(context, prompt):
         return None
     map_key = normalize_dayz_reference_map_key(context.get("map"))
+    target_path = str(context.get("target_path") or "custom/spawnGearPreset.json")
     request_text = str(prompt or "").lower()
     preset_name = "Wandering Bot Full Survivor"
     profile_rows: list[dict[str, Any]] = []
@@ -26808,13 +26816,13 @@ def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: A
     if missing_classes:
         return None
     content = json.dumps(payload, indent=2, ensure_ascii=False)
-    valid, validation_message = validate_dayz_upload_text("custom/spawnGearPreset.json", content)
+    valid, validation_message = validate_dayz_upload_text(target_path, content)
     if not valid:
         return None
     now = datetime.now(UTC).isoformat()
     return {
         "id": ai_agent_new_id("dayz-draft"),
-        "target_path": "custom/spawnGearPreset.json",
+        "target_path": target_path,
         "map": map_key,
         "kind": "full_file",
         "merge_required": False,
@@ -26827,11 +26835,80 @@ def ai_agent_builtin_full_survivor_loadout_draft(task: dict[str, Any], prompt: A
         ),
         "validation": "passed",
         "custom_json_schema": "spawning_gear",
-        "cfggameplay_reference": "Add ./custom/spawnGearPreset.json to PlayerData.spawnGearPresetFiles in the existing cfggameplay.json.",
+        "cfggameplay_reference": f"Add ./{target_path} to PlayerData.spawnGearPresetFiles in the existing cfggameplay.json.",
         "base": f"built-in DayZ {DAYZ_CE_FILE_VERSION} {map_key} vanilla class catalogue",
         "created_at": now,
         "updated_at": now,
     }
+
+
+def ai_agent_builtin_spawn_gear_package_drafts(task: dict[str, Any], prompt: Any) -> list[dict[str, Any]]:
+    """Build the verified vanilla loadout and its complete gameplay link."""
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return []
+    gear_draft = ai_agent_builtin_full_survivor_loadout_draft(task, prompt)
+    if not gear_draft:
+        return []
+    custom_path = str(gear_draft.get("target_path") or "")
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    try:
+        gameplay_payload = copy.deepcopy(load_dayz_reference_json(map_key, "cfggameplay.json"))
+    except ValueError:
+        return []
+    player_data = gameplay_payload.get("PlayerData")
+    if not isinstance(player_data, dict):
+        return []
+    preset_paths = player_data.get("spawnGearPresetFiles")
+    if preset_paths is None:
+        preset_paths = []
+        player_data["spawnGearPresetFiles"] = preset_paths
+    if not isinstance(preset_paths, list):
+        return []
+    relative_path = f"./{custom_path}"
+    normalised_existing = {
+        str(value or "").strip().replace("\\", "/").removeprefix("./")
+        for value in preset_paths
+    }
+    if custom_path not in normalised_existing:
+        preset_paths.append(relative_path)
+    gameplay_content = json.dumps(gameplay_payload, indent=2, ensure_ascii=False)
+    valid, _validation_message = validate_dayz_upload_text("cfggameplay.json", gameplay_content)
+    semantic_ok, _semantic_message = ai_agent_validate_dayz_draft_semantics(
+        "cfggameplay.json", gameplay_content, context
+    )
+    if not valid or not semantic_ok:
+        return []
+    now = datetime.now(UTC).isoformat()
+    package = {
+        "workflow": "spawn_gear",
+        "changed_files": [custom_path, "cfggameplay.json"],
+        "link_path": relative_path,
+        "link_field": "PlayerData.spawnGearPresetFiles",
+    }
+    gear_draft["summary"] = (
+        f"{gear_draft['summary']} Linked by exact path {relative_path}."
+    )
+    gear_draft["linked_package"] = package
+    gameplay_draft = {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "cfggameplay.json",
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": gameplay_content + "\n",
+        "content_chars": len(gameplay_content),
+        "summary": (
+            f"Complete validated {map_key.title()} vanilla cfgGameplay.json with {relative_path} added to "
+            "PlayerData.spawnGearPresetFiles; existing paths and unrelated settings were preserved."
+        ),
+        "validation": "passed",
+        "base": f"bundled vanilla {map_key} cfgGameplay.json",
+        "linked_package": package,
+        "created_at": now,
+        "updated_at": now,
+    }
+    return [gear_draft, gameplay_draft]
 
 
 _AI_AGENT_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
@@ -28541,7 +28618,8 @@ def ai_agent_llm_reply_for_task(
     # This prevents a model from truncating a large vanilla file or inventing a
     # linked CE event pair simply because it cannot fit the full base in context.
     deterministic_drafts = (
-        ai_agent_builtin_objectspawner_package_drafts(task, prompt)
+        ai_agent_builtin_spawn_gear_package_drafts(task, prompt)
+        or ai_agent_builtin_objectspawner_package_drafts(task, prompt)
         or ai_agent_builtin_restricted_area_package_drafts(task, prompt)
         or ai_agent_builtin_vehicle_event_drafts(task)
         or ai_agent_builtin_airdrop_event_drafts(task)
