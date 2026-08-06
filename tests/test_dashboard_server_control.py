@@ -2392,6 +2392,11 @@ class DashboardServerControlTests(unittest.TestCase):
         }))
         self.assertFalse(dashboard.ai_agent_answer_is_chargeable({
             "llm_status": "ok",
+            "objective": "Draft a complete validated cfgEffectArea.json file for offline review.",
+            "dayz_context": {"enabled": True, "support_mode": "ask"},
+        }))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable({
+            "llm_status": "ok",
             "dayz_context": {"support_mode": "edit_file"},
             "dayz_draft_error": "invalid XML",
         }))
@@ -2411,6 +2416,24 @@ class DashboardServerControlTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assertFalse(dashboard.ai_agent_answer_is_chargeable({"llm_status": status}))
         self.assertFalse(dashboard.ai_agent_answer_is_chargeable(None))
+
+    def test_plain_english_dayz_file_request_infers_protected_target_and_reference(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {},
+            "Draft only: create a complete validated cfgEffectArea.json for a contaminated gas zone.",
+        )
+
+        self.assertEqual("cfgeffectarea.json", context["target_path"])
+        self.assertTrue(context["target_inferred"])
+        self.assertEqual("vanilla", context["reference"]["mode"])
+        self.assertTrue(context["reference_base_available"])
+        self.assertTrue(dashboard.ai_agent_dayz_request_requires_draft(context, context["objective"]))
+
+    def test_draft_only_nitrado_wording_does_not_request_live_action_approval(self):
+        objective = "Draft only; do not upload or change Nitrado. Create a validated cfgEffectArea.json file."
+        plan = dashboard.ai_agent_plan_from_objective(objective, "auto", {"execute": False, "deploy": False}, {})
+
+        self.assertEqual([], plan["approvals"])
 
     def test_ai_agent_chat_does_not_charge_when_model_answer_failed(self):
         auth = {"kind": "guild", "guild_id": "guild-qa"}

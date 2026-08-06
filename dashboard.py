@@ -24187,6 +24187,42 @@ def ai_agent_dayz_target_path(value: Any) -> str:
     return ""
 
 
+def ai_agent_infer_dayz_target_path(objective: Any) -> str:
+    """Infer one protected target from an explicit natural-language request.
+
+    The compact chat UI intentionally lets a new owner ask in plain English.
+    Requiring them to discover the advanced workbench before a draft can be
+    validated defeats that flow, so exact filenames and a small set of
+    unambiguous DayZ phrases map to the same protected allow-list.
+    """
+    text = str(objective or "").replace("\\", "/").lower()
+    if not text.strip():
+        return ""
+    for target_path, _label in sorted(
+        AI_AGENT_DAYZ_TARGETS,
+        key=lambda item: len(os.path.basename(item[0])),
+        reverse=True,
+    ):
+        filename = os.path.basename(target_path).lower()
+        if re.search(rf"(?<![a-z0-9_]){re.escape(filename)}(?![a-z0-9_])", text):
+            return target_path
+    aliases = (
+        (("fresh spawn loadout", "player loadout", "spawn gear preset", "full loadout json"), "custom/spawnGearPreset.json"),
+        (("on-screen message", "onscreen message", "server message schedule"), "db/messages.xml"),
+        (("zombie territory", "infected territory", "zombie territories"), "env/zombie_territories.xml"),
+        (("player spawn point", "fresh spawn point"), "cfgplayerspawnpoints.xml"),
+        (("contaminated gas zone", "static gas zone", "effect area"), "cfgeffectarea.json"),
+        (("weather file", "rain and storm", "rain, fog", "thunderstorm"), "cfgweather.xml"),
+        (("vehicle event", "airdrop event", "custom event package", "personal vehicle spawn"), "db/events.xml"),
+        (("attachments and cargo", "nested cargo", "full magazines"), "cfgspawnabletypes.xml"),
+        (("boosted loot", "loot economy", "boost weapons", "reduce clothing"), "db/types.xml"),
+    )
+    for phrases, target_path in aliases:
+        if any(phrase in text for phrase in phrases):
+            return target_path
+    return ""
+
+
 def dayz_reference_library_rows() -> list[dict[str, Any]]:
     """A small, presentation-ready owner view of bundled and uploaded files."""
     library = load_dayz_reference_library()
@@ -24504,6 +24540,8 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
     payload = payload if isinstance(payload, dict) else {}
     project_type = str(payload.get("project_type") or "auto").strip().lower()
     requested_target = payload.get("dayz_custom_target_path") or payload.get("dayz_file_target") or payload.get("target_path")
+    inferred_target = "" if requested_target else ai_agent_infer_dayz_target_path(objective)
+    requested_target = requested_target or inferred_target
     target_path = ai_agent_dayz_target_path(requested_target)
     lower = " ".join([str(objective or ""), str(requested_target or ""), project_type]).lower()
     is_dayz_request = project_type == "dayz_files" or bool(requested_target) or bool(payload.get("dayz_scenario_type")) or any(
@@ -24532,7 +24570,13 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         source_text = source_text[:AI_AGENT_DAYZ_SOURCE_MAX_CHARS]
         source_mode = "fragment"
     spec = dayz_file_spec_for_path(target_path) if target_path else None
-    reference = ai_agent_dayz_reference_for_request(target_path, payload.get("dayz_map"), payload)
+    reference_payload = dict(payload)
+    if inferred_target and not source_text.strip() and not reference_payload.get("dayz_reference_mode"):
+        # Plain-English chat drafts start from the active validated reference,
+        # never from a fabricated empty replacement.  The resulting download
+        # remains an offline review draft and is not a live-server merge.
+        reference_payload["dayz_reference_mode"] = "vanilla"
+    reference = ai_agent_dayz_reference_for_request(target_path, payload.get("dayz_map"), reference_payload)
     reference_base_text, reference_base_error = ai_agent_dayz_reference_base_content(
         {
             "target_path": target_path,
@@ -24556,6 +24600,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "enabled": True,
         "support_mode": str(payload.get("dayz_support_mode") or "ask").strip().lower()[:40],
         "target_path": target_path,
+        "target_inferred": bool(inferred_target),
         "objective": str(objective or "")[:AI_AGENT_DAYZ_SOURCE_MAX_CHARS],
         "target_error": "" if target_path or not requested_target else validation_message,
         "map": normalize_dayz_reference_map_key(payload.get("dayz_map")),
@@ -27199,6 +27244,21 @@ def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str
     )
 
 
+def ai_agent_dayz_request_requires_draft(context: Any, prompt: Any = "") -> bool:
+    """Return whether a DayZ answer is incomplete without a file draft."""
+    if not isinstance(context, dict):
+        return False
+    support_mode = str(context.get("support_mode") or "").strip().lower()
+    if support_mode in {"fix_error", "edit_file", "create_file"}:
+        return True
+    text = " ".join((str(prompt or ""), str(context.get("objective") or ""))).lower()
+    if not text.strip():
+        return False
+    action = re.search(r"\b(create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write)\b", text)
+    output = re.search(r"\b(file|xml|json|package|snippet|draft|loadout)\b", text)
+    return bool(context.get("enabled") and action and output)
+
+
 def ai_agent_llm_reply_for_task(
     state: dict[str, Any],
     auth: dict[str, Any],
@@ -27222,7 +27282,7 @@ def ai_agent_llm_reply_for_task(
     # inputs carry a map, source content and/or an edit mode that must reach
     # the draft generator or the configured model below.
     support_mode = str(dayz_context.get("support_mode") or "").strip().lower()
-    is_dayz_edit_request = bool(str(dayz_context.get("source_text") or "").strip()) or support_mode in {"fix_error", "edit_file"}
+    is_dayz_edit_request = bool(str(dayz_context.get("source_text") or "").strip()) or ai_agent_dayz_request_requires_draft(dayz_context, prompt)
     verified_dayz_reply = "" if scenario.get("id") or is_dayz_edit_request else ai_agent_verified_dayz_event_link_reply(prompt)
     if verified_dayz_reply:
         # Do not spend a model call (or present unrelated project commands) for
@@ -27530,7 +27590,13 @@ def ai_agent_plan_from_objective(objective: str, project_type: str, requested: d
     if any(word in lower for word in ("deploy", "railway", "render", "vercel", "netlify", "docker", "vps")):
         steps.append({"agent": "Deployment", "title": "Stage deployment", "detail": "Build, verify health checks, and wait for owner approval before production deploy."})
     approvals = []
+    draft_only_no_live_write = bool(
+        ("draft only" in lower or "offline review" in lower)
+        and any(phrase in lower for phrase in ("do not upload", "don't upload", "do not change nitrado", "without uploading"))
+    )
     for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
+        if draft_only_no_live_write and keyword in {"deploy", "production", "push", "nitrado", "ftp"}:
+            continue
         if keyword in lower and reason not in approvals:
             approvals.append(reason)
     if requested.get("deploy") and "Deployment approval required" not in approvals:
@@ -28199,6 +28265,8 @@ def ai_agent_answer_is_chargeable(task: Any) -> bool:
         # guard deliberately prevents a draft in this case, so it must also
         # remain free even if the model request itself returned successfully.
         return False
+    if ai_agent_dayz_request_requires_draft(dayz_context, task.get("objective")):
+        return bool(ai_agent_task_dayz_drafts(task)) and not bool(task.get("dayz_draft_error"))
     support_mode = str(dayz_context.get("support_mode") or "").strip().lower()
     if support_mode in {"fix_error", "edit_file"}:
         # A prose plan is not a completed paid answer when the user explicitly
