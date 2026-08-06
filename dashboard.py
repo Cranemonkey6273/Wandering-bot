@@ -8587,22 +8587,22 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label class="full">Cherno welcome message <textarea name="choice_cherno_welcome_message">{{ onboarding.choice_cherno_welcome_message }}</textarea></label>
-            <label>Livo reaction
+            <label>Second server reaction (Livonia / Sakhal)
               <input name="choice_livo_emoji" value="{{ onboarding.choice_livo_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
-            <label>Livo role
+            <label>Second server role
               <select name="choice_livo_role_id">
-                <option value="" {% if not onboarding.choice_livo_role_id %}selected{% endif %}>No Livo role selected</option>
+                <option value="" {% if not onboarding.choice_livo_role_id %}selected{% endif %}>No second-server role selected</option>
                 {% for role in (server.discord_roles if server else []) %}{% if role.assignable %}<option value="{{ role.id }}" {% if role.id == onboarding.choice_livo_role_id %}selected{% endif %}>{{ role.label }}</option>{% endif %}{% endfor %}
               </select>
             </label>
-            <label>Livo welcome channel
+            <label>Second server welcome channel
               <select name="choice_livo_welcome_channel_key">
                 <option value="" {% if not onboarding.choice_livo_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_livo_welcome_channel_value or channel.id == onboarding.choice_livo_welcome_channel_value or channel.key == onboarding.choice_livo_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
-            <label class="full">Livo welcome message <textarea name="choice_livo_welcome_message">{{ onboarding.choice_livo_welcome_message }}</textarea></label>
+            <label class="full">Second server welcome message <textarea name="choice_livo_welcome_message">{{ onboarding.choice_livo_welcome_message }}</textarea></label>
             <label>Bot reaction
               <input name="choice_bot_emoji" value="{{ onboarding.choice_bot_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
@@ -28192,6 +28192,13 @@ def ai_agent_answer_is_chargeable(task: Any) -> bool:
     if status != "ok":
         return False
     dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    scenario = dayz_context.get("scenario") if isinstance(dayz_context.get("scenario"), dict) else {}
+    if str(scenario.get("error") or "").strip():
+        # Contradictory or otherwise invalid DayZ scenario input is a
+        # clarification/rejection, not a completed answer.  The scenario
+        # guard deliberately prevents a draft in this case, so it must also
+        # remain free even if the model request itself returned successfully.
+        return False
     support_mode = str(dayz_context.get("support_mode") or "").strip().lower()
     if support_mode in {"fix_error", "edit_file"}:
         # A prose plan is not a completed paid answer when the user explicitly

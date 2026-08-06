@@ -2400,6 +2400,13 @@ class DashboardServerControlTests(unittest.TestCase):
             "dayz_context": {"support_mode": "edit_file"},
             "dayz_draft": {"id": "draft-qa", "target_path": "db/types.xml", "content": "<types/>"},
         }))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable({
+            "llm_status": "ok",
+            "dayz_context": {
+                "support_mode": "create_file",
+                "scenario": {"error": "The selected vehicle preset conflicts with the requested class."},
+            },
+        }))
         for status in ("failed", "not_configured", "dayz_input_required", ""):
             with self.subTest(status=status):
                 self.assertFalse(dashboard.ai_agent_answer_is_chargeable({"llm_status": status}))

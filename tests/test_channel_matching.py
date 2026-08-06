@@ -484,6 +484,28 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertIs(channel, welcome_channel)
 
+    def test_onboarding_second_server_choice_accepts_renamed_sakhal_welcome_channel(self):
+        # This is the legacy-styled form used by the live community channel;
+        # lookup must normalise it as well as plain `sakhal-welcome`.
+        welcome_channel = FakeFetchChannel("ᔕᗩkᕼᗩᒪ-ᗯeᒪᑕoᗰe", 31, [])
+        guild = FakeOnboardingGuild([welcome_channel])
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "choice_livo_welcome_channel_id": "31",
+            }
+        }
+        settings = bot.member_onboarding_settings(config)
+
+        channel = bot.resolve_onboarding_choice_welcome_channel(
+            guild,
+            config,
+            settings,
+            {"key": "livo", "label": "Livo"},
+        )
+
+        self.assertIs(channel, welcome_channel)
+
     def test_onboarding_choice_remove_bypasses_rules_gate(self):
         livo_role = FakeRole("Wandering Around Livo", 102)
         member = FakeMember([livo_role], member_id=555)

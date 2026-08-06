@@ -463,6 +463,28 @@ LEGACY_CHANNEL_NAME_STYLE_MAP = str.maketrans(LEGACY_CHANNEL_NAME_STYLE_CHARS)
 LEGACY_CHANNEL_NAME_STYLE_REVERSE_MAP = str.maketrans({
     styled: plain for plain, styled in LEGACY_CHANNEL_NAME_STYLE_CHARS.items()
 })
+# A second decorative alphabet is present in older/community-created channel
+# names (for example `ᔕᗩkᕼᗩᒪ-ᗯeᒪᑕoᗰe`).  Discord keeps these as distinct
+# Unicode characters, so normal ASCII token checks otherwise miss even an
+# explicitly configured welcome channel.
+LEGACY_CHANNEL_NAME_DECORATIVE_REVERSE_MAP = str.maketrans({
+    "ᗩ": "A",
+    "ᗷ": "B",
+    "ᑕ": "C",
+    "ᗪ": "D",
+    "ᖴ": "F",
+    "ᕼ": "H",
+    "ᒪ": "L",
+    "ᗰ": "M",
+    "ᑎ": "N",
+    "ᑭ": "P",
+    "ᖇ": "R",
+    "ᔕ": "S",
+    "ᑌ": "U",
+    "ᐯ": "V",
+    "ᗯ": "W",
+    "ᘔ": "Z",
+})
 
 
 def styled_channel_name(text):
@@ -477,7 +499,11 @@ def styled_channel_name(text):
 
 def unstyled_channel_name(text):
     """Normalise legacy stylised channel names for backward-compatible lookup."""
-    return str(text or "").translate(LEGACY_CHANNEL_NAME_STYLE_REVERSE_MAP)
+    return (
+        str(text or "")
+        .translate(LEGACY_CHANNEL_NAME_STYLE_REVERSE_MAP)
+        .translate(LEGACY_CHANNEL_NAME_DECORATIVE_REVERSE_MAP)
+    )
 
 
 def is_legacy_styled_channel_name(text):
@@ -4703,7 +4729,10 @@ ONBOARDING_CHOICE_WELCOME_COLORS = {
 }
 ONBOARDING_CHOICE_WELCOME_CHANNEL_TOKENS = {
     "cherno": ("cherno", "chernarus"),
-    "livo": ("livo", "livonia"),
+    # `livo` is the persisted key for the community's second server choice.
+    # Keep that stable for existing configs, while allowing the same slot to
+    # be renamed to Sakhal without silently suppressing its welcome message.
+    "livo": ("livo", "livonia", "sakhal"),
     "bot": ("bot", "support"),
 }
 ONBOARDING_CHOICE_WELCOME_SAFE_TOKENS = ("welcome", "support", "help", "start")
@@ -5615,6 +5644,14 @@ async def apply_member_onboarding_server_choice(guild, config, payload, *, remov
     )
     if not choice:
         return False
+
+    # The persisted `livo` key represents the community's second server
+    # choice and may now point at a renamed Sakhal role.  Use the live role
+    # name in Discord-facing text while keeping the stable storage key.
+    choice = dict(choice)
+    choice_role = resolve_onboarding_role(guild, choice.get("role_id"))
+    if choice_role and str(getattr(choice_role, "name", "")).strip():
+        choice["label"] = str(choice_role.name).strip().lstrip("@").strip()
 
     member = await onboarding_member_from_payload(guild, payload, fresh=True)
     if not member:
