@@ -22842,6 +22842,11 @@ AI_AGENT_DAYZ_OPTIONAL_CREATABLE_TARGETS = {
     "db/messages.xml": "Bohemia-documented optional server messages file",
 }
 
+# Increment whenever the capability calculation or its target registry changes.
+# Stored reports with an older version are refreshed from the owner's stored ZIP
+# on the next owner-library view; no live server files are involved.
+DAYZ_CAPABILITY_ANALYSIS_VERSION = 2
+
 # Stable vanilla layouts the agent must preserve when it creates a draft. The
 # matching bundled reference remains the source of truth for full files; these
 # notes stop the model confusing files which have similarly named CE concepts.
@@ -24847,6 +24852,7 @@ def analyze_dayz_reference_release(
     pending_count = sum(1 for proposal in proposals if proposal.get("status") == "pending")
     approved_count = sum(1 for proposal in proposals if proposal.get("status") == "approved")
     return {
+        "analysis_version": DAYZ_CAPABILITY_ANALYSIS_VERSION,
         "release_id": release_id,
         "map": clean_map,
         "version": str(release_data.get("version") or ""),
@@ -24898,6 +24904,7 @@ def dayz_reference_library_rows() -> list[dict[str, Any]]:
     """A small, presentation-ready owner view of bundled and uploaded files."""
     library = load_dayz_reference_library()
     lab = load_dayz_capability_lab()
+    lab_changed = False
     rows: list[dict[str, Any]] = []
     for map_key in DAYZ_REFERENCE_MAP_FOLDERS:
         entry = library.get("maps", {}).get(map_key, {})
@@ -24912,7 +24919,17 @@ def dayz_reference_library_rows() -> list[dict[str, Any]]:
             item = dict(release)
             item["active"] = str(item.get("id") or "") == active_id
             item["uploaded_label"] = str(item.get("uploaded_at") or "").replace("T", " ")[:19] or "unknown"
-            item["analysis"] = dict(lab.get("analyses", {}).get(str(item.get("id") or ""), {}) or {})
+            release_id = str(item.get("id") or "")
+            stored_analysis = dict(lab.get("analyses", {}).get(release_id, {}) or {})
+            if safe_int(stored_analysis.get("analysis_version"), 0) < DAYZ_CAPABILITY_ANALYSIS_VERSION:
+                stored_analysis = analyze_dayz_reference_release(
+                    map_key,
+                    item,
+                    previous_analysis=stored_analysis,
+                )
+                lab.setdefault("analyses", {})[release_id] = stored_analysis
+                lab_changed = True
+            item["analysis"] = stored_analysis
             release_rows.append(item)
         rows.append({
             "key": map_key,
@@ -24923,6 +24940,8 @@ def dayz_reference_library_rows() -> list[dict[str, Any]]:
             "active_release_id": active_id,
             "releases": release_rows,
         })
+    if lab_changed:
+        save_dayz_capability_lab(lab)
     return rows
 
 

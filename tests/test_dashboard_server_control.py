@@ -4219,6 +4219,24 @@ class DashboardServerControlTests(unittest.TestCase):
                 entry["active_release_id"] = release["id"]
                 dashboard.save_dayz_reference_library(library)
 
+                stale_lab = dashboard.load_dayz_capability_lab()
+                stale_lab["analyses"][release["id"]]["analysis_version"] = 1
+                dashboard.save_dayz_capability_lab(stale_lab)
+                library_rows = dashboard.dayz_reference_library_rows()
+                refreshed_release = next(
+                    item
+                    for row in library_rows if row["key"] == "chernarus"
+                    for item in row["releases"] if item["id"] == release["id"]
+                )
+                self.assertEqual(
+                    dashboard.DAYZ_CAPABILITY_ANALYSIS_VERSION,
+                    refreshed_release["analysis"]["analysis_version"],
+                )
+                refreshed_proposal = next(
+                    item for item in refreshed_release["analysis"]["proposals"] if item["id"] == proposal["id"]
+                )
+                self.assertEqual("approved", refreshed_proposal["status"])
+
                 next_archive = io.BytesIO()
                 with zipfile.ZipFile(next_archive, "w", zipfile.ZIP_DEFLATED) as archive:
                     archive.writestr(
