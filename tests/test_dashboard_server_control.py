@@ -4109,6 +4109,140 @@ class DashboardServerControlTests(unittest.TestCase):
                 dashboard.DATA_ROOT = original_data_root
                 dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = original_library_folder
 
+    def test_capability_lab_detects_new_dayz_files_classnames_and_preserves_owner_decisions(self):
+        class UploadedZip:
+            filename = "dayzOffline.chernarusplus-1.30.154000.zip"
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def read(self, _limit=None):
+                return self.payload
+
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "release/dayzOffline.chernarusplus/db/types.xml",
+                "<?xml version='1.0'?><types><type name='ExistingRifle'/><type name='NewOfficialRifle'/></types>",
+            )
+            archive.writestr(
+                "release/dayzOffline.chernarusplus/cfgnewfeature.xml",
+                "<?xml version='1.0'?><newfeature><setting name='Enabled'/></newfeature>",
+            )
+
+        original_data_root = dashboard.DATA_ROOT
+        original_reference_folder = dashboard.DAYZ_REFERENCE_FOLDER
+        original_library_folder = dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER
+        with tempfile.TemporaryDirectory() as temp_root:
+            bundled_root = os.path.join(temp_root, "bundled")
+            mission_root = os.path.join(bundled_root, "dayzOffline.chernarusplus", "db")
+            os.makedirs(mission_root, exist_ok=True)
+            with open(os.path.join(mission_root, "types.xml"), "w", encoding="utf-8") as output:
+                output.write("<?xml version='1.0'?><types><type name='ExistingRifle'/></types>")
+            try:
+                dashboard.DATA_ROOT = temp_root
+                dashboard.DAYZ_REFERENCE_FOLDER = bundled_root
+                dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = os.path.join(temp_root, "reference-library")
+                release = dashboard.store_dayz_reference_archive(
+                    "chernarus", "1.30.154000", UploadedZip(archive_bytes.getvalue()), "official update"
+                )
+                analysis = dashboard.save_dayz_reference_analysis("chernarus", release)
+
+                self.assertIn("NewOfficialRifle", analysis["changes"]["added_classnames"])
+                self.assertEqual(1, analysis["summary"]["new_classnames"])
+                proposal = next(item for item in analysis["proposals"] if item["type"] == "new_official_file")
+                self.assertEqual("cfgnewfeature.xml", proposal["path"])
+                self.assertTrue(analysis["safe_to_activate"])
+                self.assertTrue(proposal["regression_test"])
+
+                lab = dashboard.load_dayz_capability_lab()
+                saved = lab["analyses"][release["id"]]
+                saved_proposal = next(item for item in saved["proposals"] if item["id"] == proposal["id"])
+                saved_proposal["status"] = "approved"
+                dashboard.save_dayz_capability_lab(lab)
+
+                reanalysed = dashboard.save_dayz_reference_analysis("chernarus", release)
+                reanalysed_proposal = next(item for item in reanalysed["proposals"] if item["id"] == proposal["id"])
+                self.assertEqual("approved", reanalysed_proposal["status"])
+
+                library = dashboard.load_dayz_reference_library()
+                entry = library["maps"].setdefault("chernarus", {"active_release_id": "", "releases": []})
+                entry["releases"].append(release)
+                entry["active_release_id"] = release["id"]
+                dashboard.save_dayz_reference_library(library)
+
+                next_archive = io.BytesIO()
+                with zipfile.ZipFile(next_archive, "w", zipfile.ZIP_DEFLATED) as archive:
+                    archive.writestr(
+                        "release/dayzOffline.chernarusplus/db/types.xml",
+                        "<?xml version='1.0'?><types><type name='ExistingRifle'/><type name='NewOfficialRifle'/><type name='NextVersionRifle'/></types>",
+                    )
+                    archive.writestr(
+                        "release/dayzOffline.chernarusplus/cfgnewfeature.xml",
+                        "<?xml version='1.0'?><newfeature><setting name='Enabled'/></newfeature>",
+                    )
+                next_release = dashboard.store_dayz_reference_archive(
+                    "chernarus", "1.31.155000", UploadedZip(next_archive.getvalue()), "next official update"
+                )
+                next_analysis = dashboard.save_dayz_reference_analysis("chernarus", next_release)
+                self.assertEqual("DayZ 1.30.154000", next_analysis["comparison_label"])
+                self.assertEqual(["NextVersionRifle"], next_analysis["changes"]["added_classnames"])
+                self.assertFalse(any(item["type"] == "new_official_file" for item in next_analysis["proposals"]))
+            finally:
+                dashboard.DATA_ROOT = original_data_root
+                dashboard.DAYZ_REFERENCE_FOLDER = original_reference_folder
+                dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = original_library_folder
+
+    def test_capability_lab_is_owner_controlled_and_never_claims_to_self_deploy(self):
+        self.assertIn("Capability Lab", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Approve + Queue Coding Brief", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Mark Coding + Tests Complete", dashboard.PAGE_TEMPLATE)
+        self.assertIn("never rewrites its own production code or uploads to Nitrado", dashboard.PAGE_TEMPLATE)
+        self.assertIn("/api/owner/dayz-capability-lab", dashboard.PAGE_TEMPLATE)
+
+    def test_capability_lab_blocks_a_partial_types_file_from_becoming_active(self):
+        class UploadedZip:
+            filename = "dayzOffline.chernarusplus-partial.zip"
+
+            def __init__(self, payload):
+                self.payload = payload
+
+            def read(self, _limit=None):
+                return self.payload
+
+        baseline_records = "".join(f"<type name='VanillaItem{index}'/>" for index in range(60))
+        archive_bytes = io.BytesIO()
+        with zipfile.ZipFile(archive_bytes, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(
+                "release/dayzOffline.chernarusplus/db/types.xml",
+                "<types><type name='VanillaItem0'/><type name='VanillaItem1'/></types>",
+            )
+
+        original_data_root = dashboard.DATA_ROOT
+        original_reference_folder = dashboard.DAYZ_REFERENCE_FOLDER
+        original_library_folder = dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER
+        with tempfile.TemporaryDirectory() as temp_root:
+            bundled_root = os.path.join(temp_root, "bundled")
+            mission_root = os.path.join(bundled_root, "dayzOffline.chernarusplus", "db")
+            os.makedirs(mission_root, exist_ok=True)
+            with open(os.path.join(mission_root, "types.xml"), "w", encoding="utf-8") as output:
+                output.write(f"<types>{baseline_records}</types>")
+            try:
+                dashboard.DATA_ROOT = temp_root
+                dashboard.DAYZ_REFERENCE_FOLDER = bundled_root
+                dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = os.path.join(temp_root, "reference-library")
+                release = dashboard.store_dayz_reference_archive(
+                    "chernarus", "1.30.154000", UploadedZip(archive_bytes.getvalue()), "partial file test"
+                )
+                analysis = dashboard.save_dayz_reference_analysis("chernarus", release)
+
+                self.assertFalse(analysis["safe_to_activate"])
+                self.assertTrue(any(item["type"] == "dangerous_types_shrink" for item in analysis["proposals"]))
+            finally:
+                dashboard.DATA_ROOT = original_data_root
+                dashboard.DAYZ_REFERENCE_FOLDER = original_reference_folder
+                dashboard.DAYZ_REFERENCE_LIBRARY_FOLDER = original_library_folder
+
     def test_public_setup_guide_uses_the_support_discord_invite(self):
         self.assertTrue(dashboard.SUPPORT_DISCORD_URL)
         self.assertIn(dashboard.SUPPORT_DISCORD_URL, dashboard.public_setup_guide_download_text())

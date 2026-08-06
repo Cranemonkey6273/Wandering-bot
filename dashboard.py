@@ -1312,6 +1312,7 @@ FILES = {
     "rpt_event_tracker": "rpt_event_tracker.json",
     "reviews": "reviews.json",
     "dayz_reference_library": "dayz_reference_library.json",
+    "dayz_capability_lab": "dayz_capability_lab.json",
 }
 
 # A DayZ profile ID is also the bot runtime key (for example
@@ -7157,6 +7158,7 @@ PAGE_TEMPLATE = """
             <div>
               <h3>DayZ Vanilla Reference Library</h3>
               <p class="tool-note">Add each official DayZ mission ZIP as its own version — for example <code>1.29.163451</code>. Uploading only stores and validates that release. It never replaces a prior version or changes a live server. Make a release active only when you want the AI, vanilla downloads and generators to use its files; every missing file safely falls back to the bundled reference.</p>
+              <p class="tool-note"><strong>Capability Lab:</strong> every new ZIP is compared with the bundled release, checked against every protected DayZ format, and turned into a reviewable coding and regression-test brief. New classnames become available automatically after activation. Approved briefs stay queued here for Codex or your maintainer to implement and test; the lab never rewrites its own production code or uploads to Nitrado.</p>
             </div>
           </div>
           <form method="post" action="/api/owner/dayz-reference" enctype="multipart/form-data" class="admin-form" data-html-submit="true">
@@ -7203,12 +7205,84 @@ PAGE_TEMPLATE = """
                 <div class="notification">
                   <strong>DayZ {{ release.version }}{% if release.active %} · Active{% endif %}</strong>
                   <span>{{ release.file_count }} files · {{ release.xml_count }} XML · {{ release.json_count }} JSON · added {{ release.uploaded_label }}{% if release.contains_types %} · includes types.xml{% endif %}{% if release.notes %}<br>{{ release.notes }}{% endif %}</span>
-                  {% if not release.active %}
-                  <form method="post" action="/api/owner/dayz-reference" style="margin-top:.45rem">
-                    <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="activate"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}">
-                    <button type="submit">Make DayZ {{ release.version }} Active</button>
-                  </form>
+                  {% set analysis = release.analysis %}
+                  {% if analysis %}
+                  <div class="owner-server-meta" style="margin-top:.5rem">
+                    <span class="pill {{ 'ok' if analysis.safe_to_activate else 'bad' }}">{{ 'Activation-safe' if analysis.safe_to_activate else 'Review required' }}</span>
+                    <span class="pill">{{ analysis.summary.changed_files }} changed</span>
+                    <span class="pill">{{ analysis.summary.new_files }} new files</span>
+                    <span class="pill">{{ analysis.summary.new_classnames }} new classnames</span>
+                    <span class="pill {{ 'warn' if analysis.summary.pending_proposals else 'ok' }}">{{ analysis.summary.pending_proposals }} coding reviews</span>
+                  </div>
+                  <details style="margin-top:.55rem">
+                    <summary><strong>Open Capability Lab report</strong></summary>
+                    <p class="tool-note"><strong>Compared with {{ analysis.comparison_label }}.</strong> {{ analysis.automation_note }}</p>
+                    <div class="mini-grid">
+                      {% for capability in analysis.coverage %}
+                      <div class="mini-card">
+                        <span class="muted">{{ capability.title }}</span>
+                        {% if capability.status == 'source_required' %}
+                        <strong>Exact mod source required</strong>
+                        {% else %}
+                        <strong>{{ capability.coverage_percent }}% referenced</strong>
+                        <span class="muted">{{ capability.uploaded_count }} uploaded · {{ capability.fallback_count }} bundled fallback{% if capability.missing_count %} · {{ capability.missing_count }} unavailable{% endif %}</span>
+                        {% endif %}
+                      </div>
+                      {% endfor %}
+                    </div>
+                    {% if analysis.changes.added_classnames %}
+                    <p class="tool-note"><strong>New classnames detected:</strong> {{ analysis.changes.added_classnames[:24]|join(', ') }}{% if analysis.changes.added_classnames|length > 24 %} and {{ analysis.changes.added_classnames|length - 24 }} more{% endif %}.</p>
+                    {% endif %}
+                    {% if analysis.changes.removed_classnames %}
+                    <p class="tool-note"><strong>Classnames no longer in this full upload:</strong> {{ analysis.changes.removed_classnames[:18]|join(', ') }}{% if analysis.changes.removed_classnames|length > 18 %} and {{ analysis.changes.removed_classnames|length - 18 }} more{% endif %}. Review before activation.</p>
+                    {% endif %}
+                    {% if analysis.warnings %}
+                    <div class="notification" style="margin-top:.5rem"><strong>Validator warnings</strong>{% for warning in analysis.warnings %}<span>{{ warning }}</span>{% endfor %}</div>
+                    {% endif %}
+                    {% for proposal in analysis.proposals %}
+                    <div class="notification" style="margin-top:.5rem">
+                      <strong>{{ proposal.title }} · {{ proposal.status|upper }}</strong>
+                      <span><strong>Evidence:</strong> {{ proposal.evidence }}</span>
+                      <span><strong>Coding brief:</strong> {{ proposal.coding_action }}</span>
+                      <span><strong>Required regression:</strong> {{ proposal.regression_test }}</span>
+                      <div class="toolbar" style="margin-top:.35rem">
+                        {% if proposal.status != 'approved' %}
+                        <form method="post" action="/api/owner/dayz-capability-lab">
+                          <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="proposal_status"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}"><input class="hidden-field" name="proposal_id" value="{{ proposal.id }}"><input class="hidden-field" name="status" value="approved">
+                          <button type="submit">Approve + Queue Coding Brief</button>
+                        </form>
+                        {% endif %}
+                        {% if proposal.status != 'dismissed' %}
+                        <form method="post" action="/api/owner/dayz-capability-lab">
+                          <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="proposal_status"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}"><input class="hidden-field" name="proposal_id" value="{{ proposal.id }}"><input class="hidden-field" name="status" value="dismissed">
+                          <button type="submit">Dismiss Confirmed Difference</button>
+                        </form>
+                        {% endif %}
+                        {% if proposal.status == 'approved' %}
+                        <form method="post" action="/api/owner/dayz-capability-lab">
+                          <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="proposal_status"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}"><input class="hidden-field" name="proposal_id" value="{{ proposal.id }}"><input class="hidden-field" name="status" value="completed">
+                          <button type="submit">Mark Coding + Tests Complete</button>
+                        </form>
+                        {% endif %}
+                      </div>
+                    </div>
+                    {% else %}
+                    <p class="tool-note"><strong>No application code changes detected.</strong> This version can use the current schemas and active vanilla lookup.</p>
+                    {% endfor %}
+                  </details>
                   {% endif %}
+                  <div class="toolbar" style="margin-top:.45rem">
+                    <form method="post" action="/api/owner/dayz-capability-lab">
+                      <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="reanalyze"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}">
+                      <button type="submit">{{ 'Reanalyse Release' if analysis else 'Analyse Release' }}</button>
+                    </form>
+                    {% if not release.active and analysis and analysis.safe_to_activate %}
+                    <form method="post" action="/api/owner/dayz-reference">
+                      <input class="hidden-field" name="dashboard_mode" value="owner"><input class="hidden-field" name="return_to" value="/owner?section=owner#dayz-reference-library"><input class="hidden-field" name="action" value="activate"><input class="hidden-field" name="map" value="{{ reference_map.key }}"><input class="hidden-field" name="release_id" value="{{ release.id }}">
+                      <button type="submit">Make DayZ {{ release.version }} Active</button>
+                    </form>
+                    {% endif %}
+                  </div>
                 </div>
                 {% else %}
                 <p class="muted">No uploaded {{ reference_map.label }} versions yet. The bundled DayZ {{ reference_map.built_in_version }} files remain available.</p>
@@ -19080,6 +19154,27 @@ def dayz_reference_library_default() -> dict[str, Any]:
     return {"schema_version": 1, "maps": {}}
 
 
+def dayz_capability_lab_default() -> dict[str, Any]:
+    return {"schema_version": 1, "analyses": {}}
+
+
+def load_dayz_capability_lab() -> dict[str, Any]:
+    raw = read_json_file(FILES["dayz_capability_lab"], dayz_capability_lab_default())
+    data = raw if isinstance(raw, dict) else dayz_capability_lab_default()
+    raw_analyses = data.get("analyses") if isinstance(data.get("analyses"), dict) else {}
+    analyses: dict[str, dict[str, Any]] = {}
+    for release_id, analysis in raw_analyses.items():
+        clean_id = str(release_id or "").strip()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{5,110}", clean_id) or not isinstance(analysis, dict):
+            continue
+        analyses[clean_id] = dict(analysis)
+    return {"schema_version": 1, "analyses": analyses}
+
+
+def save_dayz_capability_lab(data: dict[str, Any]) -> None:
+    save_store("dayz_capability_lab", data)
+
+
 def load_dayz_reference_library() -> dict[str, Any]:
     """Return the owner-managed DayZ reference overlay manifest.
 
@@ -19160,6 +19255,31 @@ def dayz_reference_override_path(map_key: Any, *parts: str) -> str:
     release_id = str(release.get("id") or "")
     mission_folder = DAYZ_REFERENCE_MAP_FOLDERS[clean_map]
     root = os.path.abspath(os.path.join(DAYZ_REFERENCE_LIBRARY_FOLDER, clean_map, release_id, mission_folder))
+    candidate = os.path.abspath(os.path.join(root, *safe_parts))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return ""
+    except ValueError:
+        return ""
+    return candidate if os.path.isfile(candidate) else ""
+
+
+def dayz_reference_release_root(map_key: Any, release: Any) -> str:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    if not isinstance(release, dict):
+        return ""
+    release_id = str(release.get("id") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{5,110}", release_id):
+        return ""
+    mission_folder = DAYZ_REFERENCE_MAP_FOLDERS[clean_map]
+    return os.path.abspath(os.path.join(DAYZ_REFERENCE_LIBRARY_FOLDER, clean_map, release_id, mission_folder))
+
+
+def dayz_reference_release_path(map_key: Any, release: Any, *parts: str) -> str:
+    root = dayz_reference_release_root(map_key, release)
+    safe_parts = dayz_reference_safe_parts(tuple(parts))
+    if not root or not safe_parts:
+        return ""
     candidate = os.path.abspath(os.path.join(root, *safe_parts))
     try:
         if os.path.commonpath([root, candidate]) != root:
@@ -24345,9 +24465,349 @@ def ai_agent_infer_dayz_target_path(objective: Any) -> str:
     return ""
 
 
+def _dayz_reference_inventory(root: Any) -> dict[str, dict[str, Any]]:
+    """Return a bounded, case-insensitive inventory for one mission folder."""
+    clean_root = os.path.abspath(str(root or ""))
+    if not clean_root or not os.path.isdir(clean_root):
+        return {}
+    inventory: dict[str, dict[str, Any]] = {}
+    for current_root, folders, filenames in os.walk(clean_root):
+        folders[:] = sorted(folders)
+        for filename in sorted(filenames):
+            extension = os.path.splitext(filename)[1].lower()
+            if extension not in DAYZ_REFERENCE_TEXT_EXTENSIONS:
+                continue
+            full_path = os.path.abspath(os.path.join(current_root, filename))
+            try:
+                if os.path.commonpath([clean_root, full_path]) != clean_root:
+                    continue
+                size = os.path.getsize(full_path)
+            except (OSError, ValueError):
+                continue
+            if size < 0 or size > DAYZ_REFERENCE_MAX_FILE_BYTES:
+                continue
+            relative_path = os.path.relpath(full_path, clean_root).replace("\\", "/")
+            key = relative_path.lower()
+            if key in inventory:
+                continue
+            try:
+                with open(full_path, "rb") as source:
+                    raw = source.read(DAYZ_REFERENCE_MAX_FILE_BYTES + 1)
+            except OSError:
+                continue
+            if len(raw) > DAYZ_REFERENCE_MAX_FILE_BYTES:
+                continue
+            inventory[key] = {
+                "path": relative_path,
+                "full_path": full_path,
+                "size": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "raw": raw,
+            }
+            if len(inventory) >= DAYZ_REFERENCE_MAX_FILES:
+                return inventory
+    return inventory
+
+
+def _dayz_reference_inventory_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    raw = item.get("raw")
+    if not isinstance(raw, bytes):
+        return ""
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", errors="ignore")
+
+
+def _dayz_reference_comparison_inventory(
+    map_key: str,
+    current_release: dict[str, Any],
+    bundled: dict[str, dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], str]:
+    """Build a historical comparison view without changing runtime fallback.
+
+    Uploaded overlays always fall back to the bundled files at runtime. For an
+    upgrade report, however, the useful baseline is the preceding uploaded
+    release over that bundled set so successive DayZ updates show only their
+    new differences.
+    """
+    library = load_dayz_reference_library()
+    entry = library.get("maps", {}).get(map_key, {})
+    releases = [item for item in (entry.get("releases", []) if isinstance(entry, dict) else []) if isinstance(item, dict)]
+    current_id = str(current_release.get("id") or "")
+    current_uploaded_at = str(current_release.get("uploaded_at") or "")
+    candidates = [item for item in releases if str(item.get("id") or "") != current_id]
+    historical = [
+        item for item in candidates
+        if not current_uploaded_at or str(item.get("uploaded_at") or "") < current_uploaded_at
+    ]
+    if historical:
+        candidates = historical
+    active_id = str(entry.get("active_release_id") or "") if isinstance(entry, dict) else ""
+    previous = next((item for item in candidates if str(item.get("id") or "") == active_id), None)
+    if not previous and candidates:
+        previous = max(candidates, key=lambda item: str(item.get("uploaded_at") or ""))
+    if not previous:
+        return dict(bundled), f"bundled DayZ {DAYZ_CE_FILE_VERSION}"
+    previous_inventory = _dayz_reference_inventory(dayz_reference_release_root(map_key, previous))
+    if not previous_inventory:
+        return dict(bundled), f"bundled DayZ {DAYZ_CE_FILE_VERSION}"
+    comparison = dict(bundled)
+    comparison.update(previous_inventory)
+    return comparison, f"DayZ {previous.get('version') or 'previous upload'}"
+
+
+def _dayz_reference_type_names(item: Any) -> set[str]:
+    text = _dayz_reference_inventory_text(item)
+    if not text.strip():
+        return set()
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return set()
+    return {
+        str(node.get("name") or "").strip()
+        for node in root.findall("type")
+        if str(node.get("name") or "").strip()
+    }
+
+
+def _dayz_capability_proposal(
+    release_id: str,
+    proposal_type: str,
+    path: str,
+    title: str,
+    evidence: str,
+    coding_action: str,
+    regression_test: str,
+    *,
+    severity: str = "review",
+    previous: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    stable = hashlib.sha256(f"{release_id}|{proposal_type}|{path}".encode("utf-8")).hexdigest()[:14]
+    proposal_id = f"cap-{stable}"
+    old = previous.get(proposal_id, {}) if isinstance(previous, dict) else {}
+    status = str(old.get("status") or "pending").strip().lower()
+    if status not in {"pending", "approved", "dismissed", "completed"}:
+        status = "pending"
+    return {
+        "id": proposal_id,
+        "type": proposal_type,
+        "path": path,
+        "title": title,
+        "evidence": evidence[:800],
+        "coding_action": coding_action[:800],
+        "regression_test": regression_test[:800],
+        "severity": severity if severity in {"info", "review", "blocking"} else "review",
+        "status": status,
+        "status_updated_at": str(old.get("status_updated_at") or ""),
+        "status_updated_by": str(old.get("status_updated_by") or ""),
+    }
+
+
+def analyze_dayz_reference_release(
+    map_key: Any,
+    release: Any,
+    *,
+    previous_analysis: Any = None,
+) -> dict[str, Any]:
+    """Analyse a stored vanilla release without changing code or a live server."""
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    release_data = dict(release) if isinstance(release, dict) else {}
+    release_id = str(release_data.get("id") or "").strip()
+    release_root = dayz_reference_release_root(clean_map, release_data)
+    bundled_root = os.path.join(DAYZ_REFERENCE_FOLDER, DAYZ_REFERENCE_MAP_FOLDERS[clean_map])
+    uploaded = _dayz_reference_inventory(release_root)
+    bundled = _dayz_reference_inventory(bundled_root)
+    comparison, comparison_label = _dayz_reference_comparison_inventory(clean_map, release_data, bundled)
+    target_labels = {str(path).lower(): str(label) for path, label in AI_AGENT_DAYZ_TARGETS}
+    previous_proposals = {
+        str(item.get("id") or ""): item
+        for item in ((previous_analysis or {}).get("proposals", []) if isinstance(previous_analysis, dict) else [])
+        if isinstance(item, dict) and item.get("id")
+    }
+
+    uploaded_paths = set(uploaded)
+    bundled_paths = set(bundled)
+    comparison_paths = set(comparison)
+    shared_paths = uploaded_paths & comparison_paths
+    added_paths = sorted(uploaded_paths - comparison_paths)
+    fallback_paths = sorted(bundled_paths - uploaded_paths)
+    changed_paths = sorted(
+        path for path in shared_paths
+        if uploaded[path].get("sha256") != comparison[path].get("sha256")
+    )
+
+    validations: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    proposals: list[dict[str, Any]] = []
+    for path in sorted(uploaded):
+        item = uploaded[path]
+        content = _dayz_reference_inventory_text(item)
+        valid, message = validate_dayz_upload_text(path, content)
+        validations.append({"path": item["path"], "valid": bool(valid), "message": str(message or "")[:500]})
+        if not valid:
+            warning = str(message or f"{item['path']} did not pass the DayZ semantic validator.")
+            warnings.append(warning[:500])
+            proposals.append(_dayz_capability_proposal(
+                release_id,
+                "validator_gap",
+                path,
+                f"Review validator support for {item['path']}",
+                warning,
+                "Compare this official file with the current DayZ file specification. Update the validator/schema only if the official format changed; otherwise record the upstream vanilla defect explicitly.",
+                f"Add a fixture from DayZ {release_data.get('version') or 'this release'} and prove valid official content passes while malformed or dangerously incomplete content still fails.",
+                severity="blocking",
+                previous=previous_proposals,
+            ))
+
+    unregistered_paths = [
+        path for path in added_paths
+        if os.path.splitext(path)[1].lower() in {".xml", ".json", ".c"} and path not in target_labels
+    ]
+    for path in unregistered_paths[:40]:
+        proposals.append(_dayz_capability_proposal(
+            release_id,
+            "new_official_file",
+            path,
+            f"Teach the sandbox about new official file {uploaded[path]['path']}",
+            f"The file exists in the uploaded DayZ {release_data.get('version') or ''} mission but not in the {comparison_label} comparison or protected target registry.",
+            "Document its purpose, dependencies, root/schema and safe merge rules; then register it as a protected DayZ target only after official-source review.",
+            "Add valid, wrong-root, malformed and destructive-replacement tests using the uploaded official file as the fixture.",
+            previous=previous_proposals,
+        ))
+
+    schema_key_changes: list[dict[str, Any]] = []
+    for path in changed_paths:
+        if not path.endswith(".json"):
+            continue
+        try:
+            current_json = json.loads(_dayz_reference_inventory_text(uploaded[path]))
+            bundled_json = json.loads(_dayz_reference_inventory_text(comparison[path]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(current_json, dict) or not isinstance(bundled_json, dict):
+            continue
+        added_keys = sorted(set(current_json) - set(bundled_json))
+        removed_keys = sorted(set(bundled_json) - set(current_json))
+        if not added_keys and not removed_keys:
+            continue
+        change = {"path": uploaded[path]["path"], "added_keys": added_keys[:30], "removed_keys": removed_keys[:30]}
+        schema_key_changes.append(change)
+        proposals.append(_dayz_capability_proposal(
+            release_id,
+            "json_schema_change",
+            path,
+            f"Review changed JSON schema in {uploaded[path]['path']}",
+            f"Top-level keys added: {', '.join(added_keys) or 'none'}; removed: {', '.join(removed_keys) or 'none'}.",
+            "Update the file guide, generator and validator for confirmed official keys while preserving compatibility with earlier active releases.",
+            "Add versioned fixtures proving both the previous and new official schemas validate and generated files retain required keys.",
+            previous=previous_proposals,
+        ))
+
+    bundled_types = _dayz_reference_type_names(comparison.get("db/types.xml"))
+    uploaded_types = _dayz_reference_type_names(uploaded.get("db/types.xml"))
+    added_classnames = sorted(uploaded_types - bundled_types) if uploaded_types else []
+    removed_classnames = sorted(bundled_types - uploaded_types) if uploaded_types else []
+    if uploaded_types and bundled_types:
+        retained_ratio = len(uploaded_types & bundled_types) / max(1, len(bundled_types))
+        if retained_ratio < 0.75 and len(removed_classnames) > 25:
+            proposals.append(_dayz_capability_proposal(
+                release_id,
+                "dangerous_types_shrink",
+                "db/types.xml",
+                "Review unexpectedly small types.xml reference",
+                (
+                    f"The uploaded types.xml retains only {round(retained_ratio * 100)}% of bundled classnames "
+                    f"and omits {len(removed_classnames)}. This often means a snippet or partial hotfix was uploaded as a full file."
+                ),
+                "Confirm that the ZIP contains the complete official mission types.xml. Do not weaken record-loss protection merely to accept a partial file.",
+                "Add a full-release fixture and prove partial types.xml files remain blocked while legitimate additions and small official removals are accepted.",
+                severity="blocking",
+                previous=previous_proposals,
+            ))
+
+    coverage: list[dict[str, Any]] = []
+    for capability in AI_AGENT_DAYZ_CAPABILITIES:
+        targets = [
+            str(target).replace("\\", "/").lower()
+            for target in capability.get("targets", ())
+            if not str(target).replace("\\", "/").lower().startswith(("custom/", "pra/"))
+        ]
+        targets = list(dict.fromkeys(targets))
+        uploaded_count = sum(1 for path in targets if path in uploaded_paths)
+        fallback_count = sum(1 for path in targets if path not in uploaded_paths and path in bundled_paths)
+        missing = [path for path in targets if path not in uploaded_paths and path not in bundled_paths]
+        available = uploaded_count + fallback_count
+        coverage.append({
+            "id": str(capability.get("id") or ""),
+            "title": str(capability.get("title") or ""),
+            "target_count": len(targets),
+            "uploaded_count": uploaded_count,
+            "fallback_count": fallback_count,
+            "missing_count": len(missing),
+            "missing": missing[:20],
+            "coverage_percent": round((available / len(targets)) * 100) if targets else 0,
+            "status": "source_required" if not targets else ("covered" if not missing else "review"),
+        })
+
+    blocking_count = sum(1 for proposal in proposals if proposal.get("severity") == "blocking" and proposal.get("status") != "dismissed")
+    pending_count = sum(1 for proposal in proposals if proposal.get("status") == "pending")
+    approved_count = sum(1 for proposal in proposals if proposal.get("status") == "approved")
+    return {
+        "release_id": release_id,
+        "map": clean_map,
+        "version": str(release_data.get("version") or ""),
+        "comparison_label": comparison_label,
+        "analysed_at": datetime.now(UTC).isoformat(),
+        "status": "review_required" if blocking_count or pending_count else "ready",
+        "safe_to_activate": blocking_count == 0,
+        "summary": {
+            "uploaded_files": len(uploaded),
+            "bundled_fallback_files": len(fallback_paths),
+            "changed_files": len(changed_paths),
+            "new_files": len(added_paths),
+            "semantic_warnings": len(warnings),
+            "new_classnames": len(added_classnames),
+            "removed_classnames": len(removed_classnames),
+            "pending_proposals": pending_count,
+            "approved_proposals": approved_count,
+        },
+        "changes": {
+            "added_paths": [uploaded[path]["path"] for path in added_paths[:80]],
+            "fallback_paths": [bundled[path]["path"] for path in fallback_paths[:80]],
+            "changed_paths": [uploaded[path]["path"] for path in changed_paths[:80]],
+            "schema_key_changes": schema_key_changes[:40],
+            "added_classnames": added_classnames[:250],
+            "removed_classnames": removed_classnames[:250],
+        },
+        "coverage": coverage,
+        "validations": validations[:DAYZ_REFERENCE_MAX_FILES],
+        "warnings": warnings[:80],
+        "proposals": proposals[:120],
+        "automation_note": (
+            "New classnames and unchanged supported schemas are available to the sandbox automatically when this release becomes active. "
+            "Proposed code changes remain owner-controlled and never alter application code or a live Nitrado server automatically."
+        ),
+    }
+
+
+def save_dayz_reference_analysis(map_key: Any, release: Any) -> dict[str, Any]:
+    release_id = str((release or {}).get("id") or "") if isinstance(release, dict) else ""
+    lab = load_dayz_capability_lab()
+    previous = lab.get("analyses", {}).get(release_id, {})
+    analysis = analyze_dayz_reference_release(map_key, release, previous_analysis=previous)
+    lab.setdefault("analyses", {})[release_id] = analysis
+    save_dayz_capability_lab(lab)
+    return analysis
+
+
 def dayz_reference_library_rows() -> list[dict[str, Any]]:
     """A small, presentation-ready owner view of bundled and uploaded files."""
     library = load_dayz_reference_library()
+    lab = load_dayz_capability_lab()
     rows: list[dict[str, Any]] = []
     for map_key in DAYZ_REFERENCE_MAP_FOLDERS:
         entry = library.get("maps", {}).get(map_key, {})
@@ -24362,6 +24822,7 @@ def dayz_reference_library_rows() -> list[dict[str, Any]]:
             item = dict(release)
             item["active"] = str(item.get("id") or "") == active_id
             item["uploaded_label"] = str(item.get("uploaded_at") or "").replace("T", " ")[:19] or "unknown"
+            item["analysis"] = dict(lab.get("analyses", {}).get(str(item.get("id") or ""), {}) or {})
             release_rows.append(item)
         rows.append({
             "key": map_key,
@@ -43837,12 +44298,24 @@ def api_owner_dayz_reference():
             raw_payload.get("notes"),
         )
         entry["releases"].append(release)
+        analysis = save_dayz_reference_analysis(map_key, release)
+        release["analysis_status"] = str(analysis.get("status") or "")
         if safe_bool(raw_payload.get("activate_now"), False):
-            entry["active_release_id"] = release["id"]
-            note = f"DayZ {release['version']} {map_key.title()} reference added and made active."
+            if not safe_bool(analysis.get("safe_to_activate"), False):
+                note = (
+                    f"DayZ {release['version']} {map_key.title()} was stored but not activated because the Capability Lab "
+                    f"found {analysis.get('summary', {}).get('semantic_warnings', 0)} blocking validator warning(s). "
+                    "Review the report first."
+                )
+            else:
+                entry["active_release_id"] = release["id"]
+                note = f"DayZ {release['version']} {map_key.title()} reference added and made active."
         else:
-            note = f"DayZ {release['version']} {map_key.title()} reference added. It is stored safely but not active yet."
-        body = {"ok": True, "release": release, "note": note}
+            note = (
+                f"DayZ {release['version']} {map_key.title()} reference added and analysed. "
+                "It is stored safely but not active yet."
+            )
+        body = {"ok": True, "release": release, "analysis": analysis, "note": note}
     elif action == "activate":
         release_id = str(raw_payload.get("release_id") or "").strip()
         release = next(
@@ -43859,6 +44332,16 @@ def api_owner_dayz_reference():
         )
         if not os.path.isdir(mission_root):
             return jsonify({"ok": False, "error": "The stored reference files are missing. Upload that release again."}), 409
+        lab = load_dayz_capability_lab()
+        analysis = lab.get("analyses", {}).get(release_id)
+        if not isinstance(analysis, dict):
+            analysis = save_dayz_reference_analysis(map_key, release)
+        if not safe_bool(analysis.get("safe_to_activate"), False):
+            return jsonify({
+                "ok": False,
+                "error": "This release has unresolved blocking Capability Lab warnings. Review them before activation.",
+                "analysis": analysis,
+            }), 409
         entry["active_release_id"] = release_id
         body = {"ok": True, "release": release, "note": f"DayZ {release.get('version')} {map_key.title()} reference is now active."}
     elif action in {"use_bundled", "restore_bundled"}:
@@ -43877,6 +44360,82 @@ def api_owner_dayz_reference():
         "actor": actor,
     }
     return dashboard_api_response(raw_payload, body, "owner", "#dayz-reference-library")
+
+
+@APP.post("/api/owner/dayz-capability-lab")
+def api_owner_dayz_capability_lab():
+    """Reanalyse releases and record owner decisions about coding proposals."""
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = dict(payload or {})
+    action = str(raw_payload.get("action") or "reanalyze").strip().lower()
+    map_key = normalize_dayz_reference_map_key(raw_payload.get("map"))
+    release_id = str(raw_payload.get("release_id") or "").strip()
+    library = load_dayz_reference_library()
+    entry = library.get("maps", {}).get(map_key, {})
+    release = next(
+        (
+            item for item in (entry.get("releases", []) if isinstance(entry, dict) else [])
+            if isinstance(item, dict) and str(item.get("id") or "") == release_id
+        ),
+        None,
+    )
+    if not release:
+        return jsonify({"ok": False, "error": "DayZ reference release not found."}), 404
+    actor = dashboard_audit_actor(current_auth())
+
+    if action in {"reanalyze", "analyse", "analyze"}:
+        analysis = save_dayz_reference_analysis(map_key, release)
+        note = f"DayZ {release.get('version')} {map_key.title()} was analysed again."
+    elif action == "proposal_status":
+        proposal_id = str(raw_payload.get("proposal_id") or "").strip()
+        status = str(raw_payload.get("status") or "pending").strip().lower()
+        if status not in {"pending", "approved", "dismissed", "completed"}:
+            return jsonify({"ok": False, "error": "Unsupported proposal status."}), 400
+        lab = load_dayz_capability_lab()
+        analysis = lab.get("analyses", {}).get(release_id)
+        if not isinstance(analysis, dict):
+            analysis = analyze_dayz_reference_release(map_key, release)
+        proposal = next(
+            (item for item in analysis.get("proposals", []) if isinstance(item, dict) and str(item.get("id") or "") == proposal_id),
+            None,
+        )
+        if not proposal:
+            return jsonify({"ok": False, "error": "Capability proposal not found."}), 404
+        proposal["status"] = status
+        proposal["status_updated_at"] = datetime.now(UTC).isoformat()
+        proposal["status_updated_by"] = actor
+        proposals = [item for item in analysis.get("proposals", []) if isinstance(item, dict)]
+        summary = analysis.setdefault("summary", {})
+        summary["pending_proposals"] = sum(1 for item in proposals if item.get("status") == "pending")
+        summary["approved_proposals"] = sum(1 for item in proposals if item.get("status") == "approved")
+        unresolved_blocking = sum(
+            1 for item in proposals
+            if item.get("severity") == "blocking" and item.get("status") not in {"dismissed", "completed"}
+        )
+        analysis["safe_to_activate"] = unresolved_blocking == 0
+        analysis["status"] = "review_required" if unresolved_blocking or summary["pending_proposals"] else "ready"
+        lab.setdefault("analyses", {})[release_id] = analysis
+        save_dayz_capability_lab(lab)
+        note = f"Capability proposal marked {status}. This records the decision only; it did not edit code or a live server."
+    else:
+        return jsonify({"ok": False, "error": "Unsupported Capability Lab action."}), 400
+
+    g.dashboard_audit_payload = {
+        "guild_id": "global",
+        "action": f"dayz_capability_{action}",
+        "map": map_key,
+        "release_id": release_id,
+        "proposal_id": str(raw_payload.get("proposal_id") or ""),
+        "actor": actor,
+    }
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "analysis": analysis, "note": note},
+        "owner",
+        "#dayz-reference-library",
+    )
 
 
 @APP.post("/api/owner/ai-agent-job-action")
