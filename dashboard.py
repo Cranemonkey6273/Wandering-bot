@@ -28530,8 +28530,12 @@ def ai_agent_verified_dayz_event_link_reply(prompt: str) -> str:
 
 def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str, continued: bool) -> bool:
     """Keep simple verified answers free from unrelated workspace jobs."""
-    if isinstance(task, dict) and task.get("llm_status") == "verified_dayz_reference":
-        return False
+    if isinstance(task, dict):
+        if task.get("llm_status") in {"verified_dayz_reference", "deterministic_dayz_draft"}:
+            return False
+        dayz_drafts = ai_agent_task_dayz_drafts(task)
+        if dayz_drafts and all(str(item.get("validation") or "") == "passed" for item in dayz_drafts):
+            return False
     return bool(
         continued
         or any(term in str(prompt or "").lower() for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
