@@ -4199,6 +4199,12 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Mark Coding + Tests Complete", dashboard.PAGE_TEMPLATE)
         self.assertIn("never rewrites its own production code or uploads to Nitrado", dashboard.PAGE_TEMPLATE)
         self.assertIn("/api/owner/dayz-capability-lab", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Vanilla Files & Updates", dashboard.PAGE_TEMPLATE)
+        self.assertIn('/owner?section=owner#dayz-reference-library', dashboard.PAGE_TEMPLATE)
+        self.assertIn('class="ai-section-nav"', dashboard.PAGE_TEMPLATE)
+        self.assertIn('id="ai-dayz-workbench"', dashboard.PAGE_TEMPLATE)
+        self.assertIn('class="ai-workspace-technical ai-side-technical"', dashboard.PAGE_TEMPLATE)
+        self.assertIn("Technical workspace, files, changes &amp; run details", dashboard.PAGE_TEMPLATE)
 
     def test_capability_lab_blocks_a_partial_types_file_from_becoming_active(self):
         class UploadedZip:

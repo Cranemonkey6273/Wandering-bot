@@ -4406,7 +4406,14 @@ PAGE_TEMPLATE = """
     .ai-agent-grid { display: grid; grid-template-columns: minmax(22rem, 1.2fr) minmax(18rem, .8fr); gap: .85rem; align-items: start; }
     .ai-agent-grid .admin-panel { min-height: 0; }
     .ai-agent-prompt textarea { min-height: 12rem; }
-    .ai-codex-workbench { display: grid; grid-template-columns: minmax(12.5rem, .45fr) minmax(30rem, 1.65fr) minmax(17rem, .55fr); gap: .85rem; align-items: start; margin-bottom: .85rem; }
+    .ai-agent-shell > .section-head { margin-bottom: .85rem; padding-bottom: .85rem; border-bottom: 2px solid rgba(236,161,64,.46); }
+    .ai-section-nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: .55rem; margin: 0 0 1rem; padding: .7rem; border: 1px solid rgba(236,161,64,.38); border-radius: .8rem; background: linear-gradient(135deg, rgba(236,161,64,.10), rgba(3,13,16,.9)); box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
+    .ai-section-nav a { display: grid; gap: .18rem; min-height: 3.25rem; align-content: center; padding: .58rem .68rem; border: 1px solid rgba(103,245,231,.18); border-radius: .58rem; background: rgba(2,9,12,.74); color: #effcff; text-decoration: none; font-weight: 900; }
+    .ai-section-nav a span { color: var(--muted); font-size: .73rem; font-weight: 600; line-height: 1.3; }
+    .ai-section-nav a:hover { border-color: rgba(103,245,231,.5); background: rgba(103,245,231,.11); }
+    .ai-section-nav a[data-tone="orange"] { border-color: rgba(236,161,64,.46); background: rgba(236,161,64,.12); }
+    .ai-section-nav a[data-tone="green"] { border-color: rgba(117,216,154,.35); background: rgba(117,216,154,.09); }
+    .ai-codex-workbench { display: grid; grid-template-columns: minmax(12.5rem, .45fr) minmax(30rem, 1.65fr) minmax(17rem, .55fr); gap: .85rem; align-items: start; margin-bottom: .85rem; padding-top: 1rem; border-top: 2px solid rgba(236,161,64,.34); }
     .ai-conversation-nav { display: grid; gap: .6rem; align-content: start; position: sticky; top: 4.8rem; max-height: calc(100vh - 6rem); overflow: auto; padding: .75rem; border: 1px solid rgba(103,245,231,.18); border-radius: .75rem; background: linear-gradient(180deg, rgba(6,20,24,.92), rgba(1,8,10,.94)); }
     .ai-conversation-nav h3 { margin: 0; color: #effcff; }
     .ai-conversation-new { display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem; border: 1px solid rgba(103,245,231,.44); border-radius: .55rem; padding: .55rem .65rem; background: rgba(103,245,231,.12); color: #effcff; font-weight: 900; text-decoration: none; }
@@ -4418,6 +4425,11 @@ PAGE_TEMPLATE = """
     .ai-workspace-technical, .ai-workspace-advanced { margin: 0 0 .85rem; border: 1px solid rgba(103,245,231,.17); border-radius: .7rem; padding: .68rem .78rem; background: rgba(2,9,12,.64); }
     .ai-workspace-technical summary, .ai-workspace-advanced summary { cursor: pointer; color: #effcff; font-weight: 850; }
     .ai-workspace-technical > *:not(summary), .ai-workspace-advanced > *:not(summary) { margin-top: .75rem; }
+    .ai-side-technical { border-color: rgba(236,161,64,.34); background: rgba(18,12,3,.42); }
+    .ai-side-technical > summary { color: #fff3d8; }
+    .ai-side-technical-grid { display: grid; gap: .7rem; }
+    .ai-codex-side > section { border-left: 2px solid rgba(103,245,231,.22); }
+    .ai-codex-side > section[data-ai-dayz-drafts-panel], .ai-codex-side > section[data-ai-dayz-references-panel], .ai-codex-side > section[data-ai-dayz-scenarios-panel] { border-left-color: rgba(117,216,154,.5); }
     .ai-dayz-capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .55rem; }
     .ai-dayz-capability-card { display: grid; gap: .32rem; border: 1px solid rgba(103,245,231,.16); border-radius: .55rem; padding: .65rem; background: rgba(1,8,10,.64); }
     .ai-dayz-capability-card strong { color: #effcff; }
@@ -4557,6 +4569,8 @@ PAGE_TEMPLATE = """
     .ai-agent-access-card strong { display: block; }
     .ai-agent-access-card span { color: var(--muted); font-size: .86rem; }
     .ai-agent-shell .check-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #dayz-reference-library { scroll-margin-top: 4.8rem; border: 2px solid rgba(236,161,64,.42); background: linear-gradient(145deg, rgba(236,161,64,.08), rgba(2,12,15,.9) 28%); }
+    #dayz-reference-library > .section-head { padding-bottom: .75rem; border-bottom: 2px solid rgba(236,161,64,.4); }
     .command-sidebar, .command-overview, .command-loadout-stage, .command-status-bar { display: none; }
     body[data-theme="command"] {
       --sidebar-w: 13.25rem;
@@ -4794,6 +4808,7 @@ PAGE_TEMPLATE = """
       color: #effcff;
       box-shadow: inset 3px 0 0 var(--orange), 0 0 0 1px rgba(255,159,67,.08);
     }
+    .command-side-nav a.command-side-special { margin-top: .2rem; border-color: rgba(255,159,67,.38); background: rgba(255,159,67,.09); color: #fff1dd; }
     .command-quick {
       display: grid;
       gap: .35rem;
@@ -6432,6 +6447,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
+      <a class="command-side-special" href="/owner?section=owner#dayz-reference-library">Vanilla Files & Updates</a>
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if customer_billing_plans %}<a href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
@@ -6455,6 +6471,7 @@ PAGE_TEMPLATE = """
       <span>Quick actions</span>
       {% if auth.kind == "owner" and mode == "owner" %}
       <a href="/owner?section=owner#owner-control">Server list</a>
+      <a href="/owner?section=owner#dayz-reference-library">Vanilla file library</a>
       <a href="/owner?section=billing#billing">Billing plans</a>
       <a href="/owner?section=access&setup_tool=servers{{ server_qs }}#access">Edit access</a>
       {% else %}
@@ -6588,6 +6605,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link {{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="tab-link {{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
       {% if section_allowed('ai-agent') %}<a class="tab-link {{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
+      <a class="tab-link" href="/owner?section=owner#dayz-reference-library">Vanilla Files</a>
       {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
       {% if customer_billing_plans %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
@@ -6624,6 +6642,7 @@ PAGE_TEMPLATE = """
           <option value="/owner?section=reviews" {{ 'selected' if active_section == 'reviews' else '' }}>Reviews</option>
           <option value="/owner?section=help" {{ 'selected' if active_section == 'help' else '' }}>Help & Guides</option>
           {% if section_allowed('ai-agent') %}<option value="/owner?section=ai-agent" {{ 'selected' if active_section == 'ai-agent' else '' }}>AI Sandbox</option>{% endif %}
+          <option value="/owner?section=owner#dayz-reference-library">Vanilla Files & Updates</option>
           {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
           {% if customer_billing_plans %}<option value="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</option>{% endif %}
@@ -7416,7 +7435,15 @@ PAGE_TEMPLATE = """
           <span class="pill {{ 'ok' if ai_agent_access.allowed else 'bad' }}">{{ ai_agent_access.role|upper }} - {{ ai_agent_access.status|upper }}</span>
         </div>
       </div>
-      <details class="ai-workspace-technical">
+      <nav class="ai-section-nav" aria-label="AI Sandbox sections">
+        <a href="#ai-agent-chat"><strong>Chat</strong><span>Ask questions and continue conversations</span></a>
+        <a href="#ai-dayz-workbench" data-tone="green"><strong>DayZ File Workbench</strong><span>Create, explain and validate server files</span></a>
+        {% if auth.kind == 'owner' %}<a href="/owner?section=owner#dayz-reference-library" data-tone="orange"><strong>Vanilla Files & Updates</strong><span>Upload map versions and open Capability Lab</span></a>{% endif %}
+        <a href="#ai-dayz-output" data-tone="green"><strong>Drafts & Results</strong><span>Downloads, references and event plans</span></a>
+        <a href="#ai-agent-live-work"><strong>Live Work</strong><span>Jobs and approval status</span></a>
+        <a href="#ai-technical-status"><strong>Technical Status</strong><span>Runner, model, safety and workspace details</span></a>
+      </nav>
+      <details class="ai-workspace-technical" id="ai-technical-status">
         <summary>Workspace status, safety and technical setup</summary>
       <div class="ai-agent-stat-grid">
         <div class="ai-agent-stat"><span>Visibility</span><strong>{{ 'Owner private' if auth.kind == 'owner' else 'Granted access' }}</strong></div>
@@ -7602,7 +7629,7 @@ PAGE_TEMPLATE = """
               </label>
               </div>
             </details>
-            <details class="ai-dayz-workbench">
+            <details class="ai-dayz-workbench" id="ai-dayz-workbench">
               <summary>DayZ File Workbench <span class="tool-note">Draft and validate protected DayZ files</span></summary>
               <p class="tool-note">Choose the file, map and what you need. It can explain a line, diagnose an error, prepare a safe change, or give you a verified DayZ {{ dayz_ce_file_version }} vanilla/boosted starting point. AI advice can be wrong: always review the validation result and a diff before any live upload.</p>
               <details class="ai-workspace-advanced">
@@ -7773,7 +7800,7 @@ PAGE_TEMPLATE = """
             {% endif %}
           </section>
           {% endif %}
-          <section class="admin-panel ai-agent-live-work">
+          <section class="admin-panel ai-agent-live-work" id="ai-agent-live-work">
             <h3>Live Work</h3>
             <div class="ai-agent-work-stream" data-ai-work-stream>
               {% for job in ai_agent_sandbox_jobs[:4] %}
@@ -7796,7 +7823,7 @@ PAGE_TEMPLATE = """
               {% endif %}
             </div>
           </section>
-          <section class="admin-panel" data-ai-dayz-drafts-panel>
+          <section class="admin-panel" id="ai-dayz-output" data-ai-dayz-drafts-panel>
             <h3>DayZ File Drafts</h3>
             <div class="ai-agent-plan" data-ai-dayz-draft-list>
               {% for draft in ai_agent_dayz_drafts %}
@@ -7831,6 +7858,9 @@ PAGE_TEMPLATE = """
               <div class="ai-agent-step"><strong>No event plan yet</strong><span>Use the DayZ File Workbench to prepare an airdrop, vehicle or other CE event.</span></div>
             </div>
           </section>
+          <details class="ai-workspace-technical ai-side-technical">
+            <summary>Technical workspace, files, changes &amp; run details</summary>
+            <div class="ai-side-technical-grid">
           <section class="admin-panel">
             <h3>Workspace</h3>
             <div class="ai-agent-context" data-ai-context>
@@ -7925,6 +7955,8 @@ PAGE_TEMPLATE = """
             <p class="tool-note">No task has been planned yet.</p>
             {% endif %}
           </section>
+            </div>
+          </details>
         </aside>
       </div>
       <details class="ai-workspace-technical">
