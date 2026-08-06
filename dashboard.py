@@ -22384,10 +22384,16 @@ except (TypeError, ValueError):
     AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = 20
 AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS = max(3, min(120, AI_AGENT_WORKER_HTTP_TIMEOUT_SECONDS))
 try:
-    AI_AGENT_LLM_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS", "45")))
+    AI_AGENT_LLM_TIMEOUT_SECONDS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_TIMEOUT_SECONDS", "120")))
 except (TypeError, ValueError):
-    AI_AGENT_LLM_TIMEOUT_SECONDS = 45
-AI_AGENT_LLM_TIMEOUT_SECONDS = max(5, min(120, AI_AGENT_LLM_TIMEOUT_SECONDS))
+    AI_AGENT_LLM_TIMEOUT_SECONDS = 120
+# Complete DayZ drafts can include a validated vanilla file plus a structured
+# response wrapper.  A 45-second read deadline repeatedly cut off otherwise
+# healthy OpenAI generations in production, so keep the connection deadline
+# short while allowing the model enough time to finish the protected draft.
+# Clamp old Railway values up as well as new defaults so an existing 45-second
+# environment variable cannot silently preserve the production failure.
+AI_AGENT_LLM_TIMEOUT_SECONDS = max(120, min(300, AI_AGENT_LLM_TIMEOUT_SECONDS))
 try:
     AI_AGENT_LLM_MAX_TOKENS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_MAX_TOKENS", "3600")))
 except (TypeError, ValueError):
@@ -27137,7 +27143,12 @@ def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tupl
         headers["Authorization"] = f"Bearer {AI_AGENT_LLM_API_KEY}"
     for attempt in range(2):
         try:
-            response = requests.post(endpoint, headers=headers, json=request_body, timeout=AI_AGENT_LLM_TIMEOUT_SECONDS)
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=request_body,
+                timeout=(10, AI_AGENT_LLM_TIMEOUT_SECONDS),
+            )
         except Exception as error:
             return False, {}, f"Model backend request failed: {error}"
         if response.status_code >= 400:

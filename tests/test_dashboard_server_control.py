@@ -2857,6 +2857,25 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("no DayZ file draft", reply)
         self.assertNotIn("I repaired the XML", reply)
 
+    def test_ai_agent_llm_uses_short_connect_and_production_safe_read_timeout(self):
+        response = types.SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": json.dumps({"reply": "ready"})}}]
+            },
+        )
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard.requests, "post", return_value=response
+        ) as post:
+            ok, payload, error = dashboard.ai_agent_llm_json("Return JSON.", {"prompt": "test"})
+
+        self.assertTrue(ok)
+        self.assertEqual("ready", payload["reply"])
+        self.assertEqual("", error)
+        self.assertGreaterEqual(dashboard.AI_AGENT_LLM_TIMEOUT_SECONDS, 120)
+        self.assertEqual((10, dashboard.AI_AGENT_LLM_TIMEOUT_SECONDS), post.call_args.kwargs["timeout"])
+
     def test_model_gets_one_guarded_retry_to_supply_an_omitted_repair_draft(self):
         context = dashboard.ai_agent_dayz_file_context(
             {
