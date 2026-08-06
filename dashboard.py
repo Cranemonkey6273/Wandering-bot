@@ -26914,6 +26914,95 @@ def ai_agent_custom_json_missing_input(task: dict[str, Any], prompt: Any) -> str
     return ""
 
 
+def ai_agent_builtin_messages_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    """Build the common welcome/countdown/rules messages file safely.
+
+    Some vanilla missions, including releases of Sakhal, do not ship a
+    populated messages.xml. DayZ still supports creating db/messages.xml.
+    This narrow generator uses numeric flags and the documented countdown
+    behaviour rather than allowing a model to emit true/false schedule tags.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("target_path") or "") != "db/messages.xml":
+        return None
+    if str(context.get("source_text") or "").strip():
+        return None
+    request = str(prompt or task.get("objective") or "")
+    lower = request.lower()
+    if not all(term in lower for term in ("welcome", "restart", "rules")):
+        return None
+    normalized_numbers = lower
+    for word, number in (
+        ("one", 1), ("two", 2), ("three", 3), ("four", 4), ("five", 5),
+        ("six", 6), ("seven", 7), ("eight", 8), ("nine", 9), ("ten", 10),
+    ):
+        normalized_numbers = re.sub(rf"\b{word}\b", str(number), normalized_numbers)
+    welcome_match = re.search(r"welcome[^.!?;]*?\b(\d{1,3})\s*minutes?", normalized_numbers)
+    restart_match = re.search(r"\b(\d{1,2})\s*(?:-\s*)?hours?\b", normalized_numbers)
+    rules_match = re.search(r"rules[^.!?;]*?\b(?:every\s+)?(\d{1,3})\s*minutes?", normalized_numbers)
+    if not welcome_match or not restart_match or not rules_match:
+        return None
+    welcome_delay = max(0, min(180, safe_int(welcome_match.group(1), 5)))
+    restart_minutes = max(10, min(1440, safe_int(restart_match.group(1), 4) * 60))
+    rules_repeat = max(1, min(1440, safe_int(rules_match.group(1), 45)))
+    content = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        "<messages>\n"
+        "    <message>\n"
+        f"        <delay>{welcome_delay}</delay>\n"
+        "        <repeat>0</repeat>\n"
+        "        <deadline>0</deadline>\n"
+        "        <onconnect>1</onconnect>\n"
+        "        <shutdown>0</shutdown>\n"
+        "        <text>Welcome to #name. Enjoy your survival.</text>\n"
+        "    </message>\n"
+        "    <message>\n"
+        "        <delay>0</delay>\n"
+        "        <repeat>0</repeat>\n"
+        f"        <deadline>{restart_minutes}</deadline>\n"
+        "        <onconnect>0</onconnect>\n"
+        "        <shutdown>1</shutdown>\n"
+        "        <text>#name will restart in #tmin minutes.</text>\n"
+        "    </message>\n"
+        "    <message>\n"
+        "        <delay>0</delay>\n"
+        f"        <repeat>{rules_repeat}</repeat>\n"
+        "        <deadline>0</deadline>\n"
+        "        <onconnect>0</onconnect>\n"
+        "        <shutdown>0</shutdown>\n"
+        "        <text>Please read and follow the server rules.</text>\n"
+        "    </message>\n"
+        "</messages>\n"
+    )
+    valid, _message = validate_dayz_upload_text("db/messages.xml", content)
+    semantic_ok, _semantic_message = ai_agent_validate_dayz_draft_semantics(
+        "db/messages.xml", content, context
+    )
+    if not valid or not semantic_ok:
+        return None
+    now = datetime.now(UTC).isoformat()
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "db/messages.xml",
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": content,
+        "content_chars": len(content),
+        "summary": (
+            f"Complete validated {map_key.title()} messages.xml: welcome {welcome_delay} minutes after each player connects, "
+            f"a {restart_minutes}-minute graceful restart countdown (including DayZ's automatic 10-minute warning), "
+            f"and a rules reminder every {rules_repeat} minutes. The mission messages system works when db/messages.xml "
+            "is created even if the selected vanilla mission did not include a populated file."
+        ),
+        "validation": "passed",
+        "base": "Bohemia-documented DayZ server messages schema",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
     """Return a deterministic full file for only the unambiguous built-in job.
 
@@ -26925,6 +27014,9 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     context = task.get("dayz_context") if isinstance(task, dict) else None
     if not isinstance(context, dict):
         return None
+    messages_draft = ai_agent_builtin_messages_draft(task, prompt)
+    if messages_draft:
+        return messages_draft
     preset_draft = ai_agent_builtin_selected_preset_draft(task, prompt)
     if preset_draft:
         return preset_draft

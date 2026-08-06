@@ -3511,6 +3511,37 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("failed the protected validator", reply)
         self.assertNotIn("Created a server message file", reply)
 
+    def test_sakhal_messages_request_uses_numeric_documented_schedule_flags(self):
+        prompt = (
+            "Create Sakhal on-screen messages with welcome text five minutes after connect, "
+            "a restart warning for a four-hour restart, and a rules reminder every 45 minutes."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/messages.xml",
+                "dayz_map": "sakhal",
+                "dayz_source_mode": "complete",
+            },
+            prompt,
+        )
+        draft = dashboard.ai_agent_builtin_messages_draft({"dayz_context": context}, prompt)
+
+        self.assertIsNotNone(draft)
+        self.assertEqual("db/messages.xml", draft["target_path"])
+        self.assertEqual("sakhal", draft["map"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text("db/messages.xml", draft["content"]))
+        root = ET.fromstring(draft["content"])
+        messages = root.findall("message")
+        self.assertEqual(3, len(messages))
+        self.assertEqual("5", messages[0].findtext("delay"))
+        self.assertEqual("1", messages[0].findtext("onconnect"))
+        self.assertEqual("240", messages[1].findtext("deadline"))
+        self.assertEqual("1", messages[1].findtext("shutdown"))
+        self.assertEqual("45", messages[2].findtext("repeat"))
+        self.assertIn("automatic 10-minute warning", draft["summary"])
+
     def test_dayz_event_plan_identifies_the_linked_ce_files_and_validates_coordinates(self):
         scenario = dashboard.ai_agent_dayz_scenario_from_payload(
             {
