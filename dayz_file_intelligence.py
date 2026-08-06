@@ -282,6 +282,16 @@ def dayz_custom_json_path(target_path: Any) -> str:
     return "/".join(parts)
 
 
+def dayz_custom_json_path_from_text(value: Any) -> str:
+    """Return the first explicit safe custom/pra JSON path in prose."""
+    match = re.search(
+        r"(?<![A-Za-z0-9_./-])(?:\./)?(?:custom|pra)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.json(?![A-Za-z0-9_.-])",
+        str(value or "").replace("\\", "/"),
+        re.IGNORECASE,
+    )
+    return dayz_custom_json_path(match.group(0)) if match else ""
+
+
 def dayz_is_supported_custom_json_path(target_path: Any) -> bool:
     return bool(dayz_custom_json_path(target_path))
 
@@ -323,7 +333,7 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
     """
     raw_path = str(target_path or "").replace("\\", "/").strip()
     filename = dayz_filename_for_path(raw_path)
-    custom_path = dayz_custom_json_path(raw_path)
+    custom_path = dayz_custom_json_path(raw_path) or dayz_custom_json_path_from_text(objective)
     text = f"{objective or ''} {raw_path}".lower()
 
     def entry(path: str, action: str, reason: str) -> dict[str, str]:

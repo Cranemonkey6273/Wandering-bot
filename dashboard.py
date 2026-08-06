@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -24294,20 +24294,14 @@ def ai_agent_infer_dayz_target_path(objective: Any) -> str:
     # recognised DayZ schema, that file is the primary target.  The request
     # will often also name cfggameplay.json because the finished custom file
     # needs a reference there; the linked reference must not steal the route.
-    custom_match = re.search(
-        r"(?<![A-Za-z0-9_./-])(?:\./)?(?:custom|pra)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.json(?![A-Za-z0-9_.-])",
-        raw_text,
-        re.IGNORECASE,
-    )
+    explicit_custom_path = dayz_custom_json_path_from_text(raw_text)
     custom_schema_markers = (
         "objectspawner", "object spawner", "spawn gear", "spawning gear",
         "restricted area", "player restricted", "effect area", "effect-area",
         "underground trigger", "underground area",
     )
-    if positive_create and custom_match and any(marker in text for marker in custom_schema_markers):
-        explicit_custom_path = dayz_custom_json_path(custom_match.group(0))
-        if explicit_custom_path:
-            return explicit_custom_path
+    if positive_create and explicit_custom_path and any(marker in text for marker in custom_schema_markers):
+        return explicit_custom_path
     # A loadout request often mentions cfggameplay.json because the finished
     # preset must be referenced there.  When the positive action is to create
     # the loadout itself, keep the spawning-gear JSON as the primary target and
@@ -25800,31 +25794,83 @@ def ai_agent_normalize_dayz_draft_package(data: Any, context: Any) -> tuple[list
         candidate_context = context
         if candidate_target != selected_target:
             raw_kind = str(raw.get("kind") or raw.get("draft_kind") or "").lower().replace("-", "_")
-            if raw_kind not in {"patch", "merge", "merge_patch", "snippet"}:
-                errors.append(f"linked {candidate_target} must be a merge-only patch, not a complete replacement")
-                continue
             spec = dayz_file_spec_for_path(candidate_target)
-            if not ai_agent_dayz_target_supports_patch(candidate_target, spec):
-                errors.append(f"linked {candidate_target} is not eligible for a safe named-record merge patch")
-                continue
             candidate_context = copy.deepcopy(context)
-            candidate_context.update({
-                "target_path": candidate_target,
-                "source_mode": "none",
-                "source_text": "",
-                "source_chars": 0,
-                "source_error": "",
-                "source_validation": {"ok": None, "message": "Linked merge-only package file."},
-                "reference": {},
-                "reference_base_available": False,
-                "reference_base_error": "Linked files are merge-only unless their current complete file is separately supplied.",
-                "file_kind": spec.kind,
-                "expected_root": spec.xml_root,
-                "description": spec.description,
-                "format_guide": ai_agent_dayz_format_guide(candidate_target),
-                "knowledge": dayz_agent_file_knowledge(candidate_target),
-                "allows_merge_patch": True,
-            })
+            is_full_file = raw_kind in {"", "full", "full_file"}
+            is_new_custom_json = bool(is_full_file and dayz_is_supported_custom_json_path(candidate_target))
+            is_linked_gameplay = bool(
+                is_full_file
+                and candidate_target == "cfggameplay.json"
+                and str(plan.get("workflow") or "") in {"object_spawner", "player_restricted_area", "spawn_gear"}
+            )
+            if is_new_custom_json:
+                candidate_context.update({
+                    "target_path": candidate_target,
+                    "source_mode": "none",
+                    "source_text": "",
+                    "source_chars": 0,
+                    "source_error": "",
+                    "source_validation": {"ok": None, "message": "New recognised linked custom JSON file."},
+                    "reference": {},
+                    "reference_base_available": False,
+                    "reference_base_error": "New recognised custom JSON file.",
+                    "file_kind": spec.kind,
+                    "expected_root": "",
+                    "description": spec.description,
+                    "format_guide": ai_agent_dayz_format_guide(candidate_target),
+                    "knowledge": dayz_agent_file_knowledge(candidate_target),
+                    "is_custom_json": True,
+                    "custom_json_schema": "recognised vanilla schema required",
+                    "allows_merge_patch": False,
+                })
+            elif is_linked_gameplay:
+                map_key = normalize_dayz_reference_map_key(context.get("map"))
+                candidate_context.update({
+                    "target_path": candidate_target,
+                    "source_mode": "none",
+                    "source_text": "",
+                    "source_chars": 0,
+                    "source_error": "",
+                    "source_validation": {"ok": None, "message": "Linked gameplay file uses the selected vanilla base."},
+                    "reference": {
+                        "mode": "vanilla",
+                        "target_path": candidate_target,
+                        "map": map_key,
+                        "validation": "passed",
+                    },
+                    "reference_base_available": True,
+                    "reference_base_error": "",
+                    "file_kind": spec.kind,
+                    "expected_root": "",
+                    "description": spec.description,
+                    "format_guide": ai_agent_dayz_format_guide(candidate_target),
+                    "knowledge": dayz_agent_file_knowledge(candidate_target),
+                    "allows_merge_patch": False,
+                })
+            else:
+                if raw_kind not in {"patch", "merge", "merge_patch", "snippet"}:
+                    errors.append(f"linked {candidate_target} must be a merge-only patch, not a complete replacement")
+                    continue
+                if not ai_agent_dayz_target_supports_patch(candidate_target, spec):
+                    errors.append(f"linked {candidate_target} is not eligible for a safe named-record merge patch")
+                    continue
+                candidate_context.update({
+                    "target_path": candidate_target,
+                    "source_mode": "none",
+                    "source_text": "",
+                    "source_chars": 0,
+                    "source_error": "",
+                    "source_validation": {"ok": None, "message": "Linked merge-only package file."},
+                    "reference": {},
+                    "reference_base_available": False,
+                    "reference_base_error": "Linked files are merge-only unless their current complete file is separately supplied.",
+                    "file_kind": spec.kind,
+                    "expected_root": spec.xml_root,
+                    "description": spec.description,
+                    "format_guide": ai_agent_dayz_format_guide(candidate_target),
+                    "knowledge": dayz_agent_file_knowledge(candidate_target),
+                    "allows_merge_patch": True,
+                })
         draft, error = ai_agent_normalize_dayz_draft(raw, candidate_context)
         if draft:
             drafts.append(draft)
@@ -25899,6 +25945,40 @@ def ai_agent_normalize_dayz_draft_package(data: Any, context: Any) -> tuple[list
                     "The linked mapgrouppos.xml group name(s) do not have matching mapgroupproto.xml prototypes: "
                     f"{', '.join(unresolved[:8])}."
                 )
+    linked_json_workflow = str(plan.get("workflow") or "")
+    if linked_json_workflow in {"object_spawner", "player_restricted_area", "spawn_gear"} and len(raw_values) > 1:
+        custom_targets = sorted(target for target in changed_targets if dayz_is_supported_custom_json_path(target))
+        if len(custom_targets) != 1:
+            return [], "A linked custom JSON package must identify exactly one changed custom/ or pra/ file."
+        custom_target = custom_targets[0]
+        required_targets = {custom_target, "cfggameplay.json"}
+        if not required_targets.issubset(seen_targets):
+            return [], (
+                "A linked custom JSON package must contain validated complete files for both "
+                f"{custom_target} and cfggameplay.json."
+            )
+        by_target = {item["target_path"]: item for item in drafts}
+        try:
+            custom_payload = json.loads(by_target[custom_target]["content"])
+            gameplay_payload = json.loads(by_target["cfggameplay.json"]["content"])
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            return [], f"The linked custom JSON package could not be cross-checked: {error}."
+        workflow_fields = {
+            "object_spawner": ("objectspawner", "WorldsData", "objectSpawnersArr"),
+            "player_restricted_area": ("restricted_area", "WorldsData", "playerRestrictedAreaFiles"),
+            "spawn_gear": ("spawning_gear", "PlayerData", "spawnGearPresetFiles"),
+        }
+        expected_schema, section_name, field_name = workflow_fields[linked_json_workflow]
+        if dayz_json_schema_name(custom_payload) != expected_schema:
+            return [], f"{custom_target} does not use the required {expected_schema} schema."
+        section = gameplay_payload.get(section_name)
+        linked_paths = section.get(field_name) if isinstance(section, dict) else None
+        normalised_paths = {
+            str(value or "").strip().replace("\\", "/").removeprefix("./")
+            for value in linked_paths
+        } if isinstance(linked_paths, list) else set()
+        if custom_target not in normalised_paths:
+            return [], f"cfggameplay.json does not reference ./{custom_target} in {section_name}.{field_name}."
     return drafts, ""
 
 
@@ -26805,13 +26885,15 @@ def ai_agent_builtin_objectspawner_draft(task: dict[str, Any], prompt: Any) -> d
         return None
     pair_pattern = re.compile(
         rf"(?P<name>[A-Za-z][A-Za-z0-9_./-]*)\s+at\s+(?P<pos>\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\])"
-        rf"(?:\s+with\s+ypr\s+(?P<ypr>\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\]))?",
+        rf"(?:\s+with\s+(?:ypr\s+(?P<ypr>\[\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*,\s*{_AI_AGENT_NUMBER_PATTERN}\s*\])|yaw\s*(?P<yaw>{_AI_AGENT_NUMBER_PATTERN})))?",
         re.IGNORECASE,
     )
     objects: list[dict[str, Any]] = []
     for match in pair_pattern.finditer(str(prompt or "")):
         position = ai_agent_prompt_vector(match.group("pos"))
-        orientation = ai_agent_prompt_vector(match.group("ypr")) if match.group("ypr") else [0.0, 0.0, 0.0]
+        orientation = ai_agent_prompt_vector(match.group("ypr")) if match.group("ypr") else [
+            float(match.group("yaw") or 0.0), 0.0, 0.0
+        ]
         if not position or not orientation:
             continue
         objects.append({
@@ -26843,6 +26925,107 @@ def ai_agent_builtin_objectspawner_draft(task: dict[str, Any], prompt: Any) -> d
         "created_at": now,
         "updated_at": now,
     }
+
+
+def ai_agent_builtin_objectspawner_package_drafts(task: dict[str, Any], prompt: Any) -> list[dict[str, Any]]:
+    """Build the complete ObjectSpawner JSON and its vanilla gameplay link.
+
+    These two JSON files are a real linked package, unlike an XML named-record
+    patch.  The custom file is new and complete; cfgGameplay is rebuilt from
+    the selected map's validated vanilla reference with every existing array
+    entry preserved.  A live server still needs a guarded merge against its
+    current cfgGameplay so customer-specific paths are not lost.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
+        return []
+    request = str(prompt or task.get("objective") or "")
+    custom_path = dayz_custom_json_path_from_text(request)
+    selected_target = str(context.get("target_path") or "")
+    if not custom_path or "objectspawner" not in request.lower():
+        return []
+    if selected_target not in {custom_path, "cfggameplay.json"}:
+        return []
+
+    custom_context = copy.deepcopy(context)
+    custom_context.update({
+        "target_path": custom_path,
+        "source_mode": "none",
+        "source_text": "",
+        "source_chars": 0,
+        "source_error": "",
+        "source_validation": {"ok": None, "message": "New recognised ObjectSpawner file."},
+        "reference": {},
+        "reference_base_available": False,
+        "reference_base_error": "New recognised custom JSON file.",
+        "file_kind": "json",
+        "custom_json_schema": "objectspawner",
+        "is_custom_json": True,
+    })
+    object_draft = ai_agent_builtin_objectspawner_draft(
+        {**task, "dayz_context": custom_context},
+        request,
+    )
+    if not object_draft:
+        return []
+
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    try:
+        gameplay_payload = copy.deepcopy(load_dayz_reference_json(map_key, "cfggameplay.json"))
+    except ValueError:
+        return []
+    worlds_data = gameplay_payload.get("WorldsData")
+    if not isinstance(worlds_data, dict):
+        return []
+    existing_paths = worlds_data.get("objectSpawnersArr")
+    if not isinstance(existing_paths, list):
+        return []
+    relative_path = f"./{custom_path}"
+    normalised_existing = {
+        str(value or "").strip().replace("\\", "/").removeprefix("./")
+        for value in existing_paths
+    }
+    if custom_path not in normalised_existing:
+        existing_paths.append(relative_path)
+    gameplay_content = json.dumps(gameplay_payload, indent=2, ensure_ascii=False)
+    valid, _validation_message = validate_dayz_upload_text("cfggameplay.json", gameplay_content)
+    semantic_ok, _semantic_message = ai_agent_validate_dayz_draft_semantics(
+        "cfggameplay.json", gameplay_content, context
+    )
+    if not valid or not semantic_ok:
+        return []
+    now = datetime.now(UTC).isoformat()
+    object_draft["base"] = "new recognised ObjectSpawner JSON schema"
+    object_draft["summary"] = (
+        f"Complete validated ObjectSpawner file with {len(json.loads(object_draft['content']).get('Objects', []))} "
+        f"requested placement(s), linked by exact path {relative_path}."
+    )
+    gameplay_draft = {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "cfggameplay.json",
+        "map": map_key,
+        "kind": "full_file",
+        "merge_required": False,
+        "content": gameplay_content + "\n",
+        "content_chars": len(gameplay_content),
+        "summary": (
+            f"Complete validated {map_key.title()} vanilla cfgGameplay.json with {relative_path} added to "
+            "WorldsData.objectSpawnersArr; all bundled existing path entries and unrelated settings were preserved."
+        ),
+        "validation": "passed",
+        "base": f"bundled vanilla {map_key} cfgGameplay.json",
+        "created_at": now,
+        "updated_at": now,
+    }
+    package = {
+        "workflow": "object_spawner",
+        "changed_files": [custom_path, "cfggameplay.json"],
+        "link_path": relative_path,
+        "link_field": "WorldsData.objectSpawnersArr",
+    }
+    object_draft["linked_package"] = package
+    gameplay_draft["linked_package"] = package
+    return [object_draft, gameplay_draft]
 
 
 def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
@@ -28089,7 +28272,8 @@ def ai_agent_llm_reply_for_task(
     # This prevents a model from truncating a large vanilla file or inventing a
     # linked CE event pair simply because it cannot fit the full base in context.
     deterministic_drafts = (
-        ai_agent_builtin_vehicle_event_drafts(task)
+        ai_agent_builtin_objectspawner_package_drafts(task, prompt)
+        or ai_agent_builtin_vehicle_event_drafts(task)
         or ai_agent_builtin_airdrop_event_drafts(task)
         or ai_agent_builtin_infected_horde_drafts(task)
         or ai_agent_builtin_animal_pack_drafts(task)

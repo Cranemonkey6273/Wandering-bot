@@ -2540,6 +2540,95 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("custom/QA_Fort.json", draft["target_path"])
         self.assertIn("WorldsData.objectSpawnersArr", draft["cfggameplay_reference"])
 
+    def test_objectspawner_package_builds_and_cross_validates_both_complete_files(self):
+        objective = (
+            "Draft only; never upload. Create custom/QA_Camp.json ObjectSpawner with "
+            "Land_TentHangar_V1 at [6500,12,6500] with yaw 90 and "
+            "Land_Camp_House_brown at [6515,12,6500] with yaw 180. "
+            "Register ./custom/QA_Camp.json in cfgGameplay.json."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "cfggameplay.json",
+                "dayz_map": "sakhal",
+                "dayz_reference_mode": "vanilla",
+            },
+            objective,
+        )
+
+        drafts = dashboard.ai_agent_builtin_objectspawner_package_drafts(
+            {"dayz_context": context, "objective": objective},
+            objective,
+        )
+
+        self.assertEqual(["custom/QA_Camp.json", "cfggameplay.json"], [item["target_path"] for item in drafts])
+        objects = json.loads(drafts[0]["content"])["Objects"]
+        self.assertEqual([90.0, 0.0, 0.0], objects[0]["ypr"])
+        self.assertEqual([180.0, 0.0, 0.0], objects[1]["ypr"])
+        gameplay = json.loads(drafts[1]["content"])
+        self.assertIn("./custom/QA_Camp.json", gameplay["WorldsData"]["objectSpawnersArr"])
+
+        normalized, error = dashboard.ai_agent_normalize_dayz_draft_package(
+            {
+                "dayz_drafts": [
+                    {
+                        "target_path": item["target_path"],
+                        "kind": item["kind"],
+                        "content": item["content"],
+                        "summary": item["summary"],
+                    }
+                    for item in drafts
+                ]
+            },
+            context,
+        )
+        self.assertEqual("", error)
+        self.assertEqual(2, len(normalized))
+
+    def test_objectspawner_package_rejects_gameplay_without_exact_custom_path(self):
+        objective = (
+            "Create custom/QA_Camp.json ObjectSpawner with Land_TentHangar_V1 at "
+            "[6500,12,6500] with ypr [90,0,0] and register it in cfgGameplay.json."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "cfggameplay.json",
+                "dayz_map": "sakhal",
+                "dayz_reference_mode": "vanilla",
+            },
+            objective,
+        )
+        drafts = dashboard.ai_agent_builtin_objectspawner_package_drafts(
+            {"dayz_context": context, "objective": objective}, objective
+        )
+        gameplay = json.loads(drafts[1]["content"])
+        gameplay["WorldsData"]["objectSpawnersArr"] = []
+
+        normalized, error = dashboard.ai_agent_normalize_dayz_draft_package(
+            {
+                "dayz_drafts": [
+                    {
+                        "target_path": drafts[0]["target_path"],
+                        "kind": "full_file",
+                        "content": drafts[0]["content"],
+                    },
+                    {
+                        "target_path": "cfggameplay.json",
+                        "kind": "full_file",
+                        "content": json.dumps(gameplay),
+                    },
+                ]
+            },
+            context,
+        )
+
+        self.assertEqual([], normalized)
+        self.assertIn("does not reference ./custom/QA_Camp.json", error)
+
     def test_read_only_dayz_explanation_with_negative_file_wording_does_not_require_draft(self):
         objective = (
             "Read-only advice only. In DayZ types.xml, explain clearly what nominal and min control, "

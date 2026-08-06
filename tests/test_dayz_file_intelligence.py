@@ -63,6 +63,17 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertEqual("preserved", object_paths["mapgrouppos.xml"]["action"])
         self.assertEqual("preserved", object_paths["mapgroupproto.xml"]["action"])
 
+    def test_dependency_plan_uses_explicit_objectspawner_path_named_in_prompt(self):
+        plan = dayz_dependency_plan_for_request(
+            "Create custom/QA_Camp.json ObjectSpawner and register it in cfgGameplay.json.",
+            "cfggameplay.json",
+        )
+        files = {item["path"]: item for item in plan["files"]}
+
+        self.assertEqual("object_spawner", plan["workflow"])
+        self.assertEqual("changed", files["custom/QA_Camp.json"]["action"])
+        self.assertEqual("changed", files["cfggameplay.json"]["action"])
+
     def test_limits_user_file_is_planned_as_aliases_not_new_definitions(self):
         plan = dayz_dependency_plan_for_request(
             "Create a TownVillage alias from the existing Town and Village usages.",
