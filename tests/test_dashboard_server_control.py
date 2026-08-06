@@ -3280,6 +3280,107 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("passed", task["dayz_draft"]["validation"])
         self.assertIn("DayZ draft ready for download", reply)
 
+    def test_objectspawner_repair_wraps_a_valid_bare_object_array_before_validation(self):
+        broken_source = (
+            '[{"name":"Land_Container_1Moh_Grey","pos":[7500.0,10.0,7500.0],'
+            '"ypr":[0.0,0.0,0.0],"scale":1.0,},'
+            '{"name":"Land_Misc_Well_Pump_Blue","pos":[7505.0,10.0,7500.0],'
+            '"ypr":[90.0,0.0,0.0],"scale":1.0}]'
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "custom/objectspawner.json",
+                "dayz_custom_target_path": "custom/QA_BrokenBase.json",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_file_source": broken_source,
+            },
+            "Repair this complete ObjectSpawner JSON and preserve every placement.",
+        )
+        repaired_array = [
+            {
+                "name": "Land_Container_1Moh_Grey",
+                "pos": [7500.0, 10.0, 7500.0],
+                "ypr": [0.0, 0.0, 0.0],
+                "scale": 1.0,
+            },
+            {
+                "name": "Land_Misc_Well_Pump_Blue",
+                "pos": [7505.0, 10.0, 7500.0],
+                "ypr": [90.0, 0.0, 0.0],
+                "scale": 1.0,
+            },
+        ]
+
+        draft, error = dashboard.ai_agent_normalize_dayz_draft(
+            {
+                "target_path": "custom/QA_BrokenBase.json",
+                "kind": "full_file",
+                "content": json.dumps(repaired_array),
+            },
+            context,
+        )
+
+        self.assertEqual("", error)
+        self.assertIsNotNone(draft)
+        self.assertEqual("objectspawner", draft["custom_json_schema"])
+        payload = json.loads(draft["content"])
+        self.assertEqual(repaired_array, payload["Objects"])
+        self.assertEqual((True, ""), dashboard.validate_dayz_upload_text(draft["target_path"], draft["content"]))
+
+    def test_plain_language_vehicle_request_uses_deterministic_linked_ce_builder(self):
+        prompt = (
+            "Draft only; never upload. Create a persistent personal Olga 24 vehicle spawn "
+            "named QA Green Mountain Olga at Chernarus X 3700 Z 6000 rotation 135. "
+            "Return valid linked events.xml and cfgeventspawns.xml files."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "fragment",
+            },
+            prompt,
+        )
+        task = {
+            "id": "qa-plain-vehicle",
+            "project_type": "dayz_files",
+            "dayz_context": context,
+            "steps": [],
+            "suggested_commands": [],
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_json") as model_call:
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None, prompt, False,
+            )
+
+        model_call.assert_not_called()
+        self.assertEqual("deterministic_dayz_draft", task["llm_status"])
+        self.assertEqual(2, len(task["dayz_drafts"]))
+        self.assertEqual(
+            {"db/events.xml", "cfgeventspawns.xml"},
+            {draft["target_path"] for draft in task["dayz_drafts"]},
+        )
+        event_root = ET.fromstring(next(
+            draft["content"] for draft in task["dayz_drafts"] if draft["target_path"] == "db/events.xml"
+        ))
+        spawn_root = ET.fromstring(next(
+            draft["content"] for draft in task["dayz_drafts"] if draft["target_path"] == "cfgeventspawns.xml"
+        ))
+        event = next(node for node in event_root.findall("event") if node.get("name", "").startswith("VehicleWanderingBot_"))
+        spawn = spawn_root.find(f"./event[@name='{event.get('name')}']")
+        self.assertIsNotNone(spawn)
+        self.assertEqual("Sedan_02", event.find("./children/child").get("type"))
+        self.assertEqual("3700", spawn.find("pos").get("x"))
+        self.assertEqual("6000", spawn.find("pos").get("z"))
+        self.assertEqual("135.000000", spawn.find("pos").get("a"))
+        self.assertIn("checked and preserved", reply)
+
     def test_model_linked_event_package_requires_matching_names_and_valid_selected_map_class(self):
         context = dashboard.ai_agent_dayz_file_context(
             {

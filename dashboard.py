@@ -24600,9 +24600,60 @@ def ai_agent_dayz_scenario_from_payload(payload: dict[str, Any], map_key: Any) -
     }
 
 
+def ai_agent_infer_vehicle_scenario_from_prompt(prompt: Any, map_key: Any) -> dict[str, Any]:
+    """Infer only an unambiguous vanilla personal-vehicle event request.
+
+    The normal event workbench remains the broad input path. This narrow
+    fallback lets a newcomer type the same exact details in plain English
+    without handing a linked CE package to the model. Coordinates, rotation
+    and a supported vanilla vehicle name must all be present.
+    """
+    text = str(prompt or "").strip()
+    lower = text.lower()
+    if not text or not any(term in lower for term in ("vehicle spawn", "vehicle event", "personal vehicle")):
+        return {}
+    preset_aliases = (
+        ("ada 4x4", "ada"),
+        ("gunter 2", "gunter"),
+        ("sarka 120", "sarka"),
+        ("olga 24", "olga"),
+        ("m3s", "m3s"),
+    )
+    preset_id = next((preset for label, preset in preset_aliases if label in lower), "")
+    if not preset_id:
+        return {}
+    coordinate_match = re.search(
+        r"\bx\s*[:=]?\s*(-?\d+(?:\.\d+)?)\b[\s,;/]*(?:y\s*[:=]?\s*-?\d+(?:\.\d+)?\b[\s,;/]*)?z\s*[:=]?\s*(-?\d+(?:\.\d+)?)\b",
+        text,
+        re.IGNORECASE,
+    )
+    rotation_match = re.search(r"\b(?:rotation|angle|heading)\s*[:=]?\s*(-?\d+(?:\.\d+)?)\b", text, re.IGNORECASE)
+    if not coordinate_match or not rotation_match:
+        return {}
+    name_match = re.search(
+        r"\bnamed\s+(.+?)\s+(?:at|on)\s+(?:the\s+)?(?:chernarus|livonia|sakhal|x\b)",
+        text,
+        re.IGNORECASE,
+    )
+    payload = {
+        "dayz_scenario_type": "vehicle_spawn",
+        "dayz_scenario_preset": preset_id,
+        "dayz_scenario_name": name_match.group(1).strip() if name_match else SCENARIO_VEHICLE_PRESETS[preset_id]["label"],
+        "dayz_scenario_x": coordinate_match.group(1),
+        "dayz_scenario_z": coordinate_match.group(2),
+        "dayz_scenario_y": "0",
+        "dayz_scenario_angle": rotation_match.group(1),
+        "dayz_scenario_radius": "0",
+        "dayz_scenario_count": "1",
+        "dayz_scenario_permanent": "1",
+    }
+    return ai_agent_dayz_scenario_from_payload(payload, map_key)
+
+
 def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = "") -> dict[str, Any]:
     payload = payload if isinstance(payload, dict) else {}
     project_type = str(payload.get("project_type") or "auto").strip().lower()
+    selected_target_path = ai_agent_dayz_target_path(payload.get("dayz_file_target"))
     requested_target = payload.get("dayz_custom_target_path") or payload.get("dayz_file_target") or payload.get("target_path")
     inferred_target = "" if requested_target else ai_agent_infer_dayz_target_path(objective)
     requested_target = requested_target or inferred_target
@@ -24661,6 +24712,15 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
     elif reference_is_valid:
         validation_message = "The selected validated vanilla/preset file can be used as the complete base for a custom draft."
 
+    custom_json_schema_hints = {
+        "custom/objectspawner.json": "objectspawner",
+        "custom/spawnGearPreset.json": "spawning_gear",
+        "custom/playerRestrictedArea.json": "restricted_area",
+        "custom/cfgEffectArea.json": "effect_area",
+        "custom/cfgundergroundtriggers.json": "underground",
+    }
+    custom_json_schema = custom_json_schema_hints.get(selected_target_path, "")
+
     return {
         "enabled": True,
         "support_mode": str(payload.get("dayz_support_mode") or "ask").strip().lower()[:40],
@@ -24689,7 +24749,9 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "knowledge": dayz_agent_file_knowledge(target_path) if target_path else {},
         "dependency_plan": dayz_dependency_plan_for_request(objective, target_path),
         "is_custom_json": dayz_is_supported_custom_json_path(target_path),
-        "custom_json_schema": "recognised vanilla schema required" if dayz_is_supported_custom_json_path(target_path) else "",
+        "custom_json_schema": custom_json_schema or (
+            "recognised vanilla schema required" if dayz_is_supported_custom_json_path(target_path) else ""
+        ),
         "allows_merge_patch": ai_agent_dayz_target_supports_patch(target_path, spec),
     }
 
@@ -25539,6 +25601,27 @@ def ai_agent_normalize_dayz_draft(value: Any, context: Any) -> tuple[dict[str, A
     source_validation = context.get("source_validation") if isinstance(context.get("source_validation"), dict) else {}
     if kind == "full_file" and source_validation.get("ok") is False and not repairing_invalid_complete_file:
         return None, f"No file draft was saved: the supplied current {target_path} did not pass validation. {source_validation.get('message') or ''}".strip()
+    if (
+        custom_new_file
+        and support_mode == "fix_error"
+        and context.get("custom_json_schema") == "objectspawner"
+    ):
+        try:
+            parsed_custom_json = json.loads(content)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed_custom_json = None
+        if isinstance(parsed_custom_json, list) and all(
+            isinstance(item, dict)
+            and str(item.get("name") or "").strip()
+            and isinstance(item.get("pos"), list)
+            for item in parsed_custom_json
+        ):
+            # The official ObjectSpawner schema requires an object root with
+            # an ``Objects`` array.  During an explicit repair request the
+            # model may correctly repair every placement but leave the common
+            # bare-array mistake in place.  The selected schema is unambiguous,
+            # so wrap the preserved records before protected validation.
+            content = json.dumps({"Objects": parsed_custom_json}, indent=2, ensure_ascii=False)
     valid, validation_message = validate_dayz_upload_text(target_path, content)
     if not valid:
         return None, f"No file draft was saved because validation failed: {validation_message}"
@@ -27819,6 +27902,14 @@ def ai_agent_llm_reply_for_task(
         task["next_action"] = "Provide the requested exact classnames, coordinates, dimensions and orientations."
         task["updated_at"] = datetime.now(UTC).isoformat()
         return missing_custom_input
+    if not scenario.get("id") and not scenario.get("error"):
+        inferred_vehicle_scenario = ai_agent_infer_vehicle_scenario_from_prompt(
+            prompt,
+            dayz_context.get("map"),
+        )
+        if inferred_vehicle_scenario:
+            dayz_context["scenario"] = inferred_vehicle_scenario
+            scenario = inferred_vehicle_scenario
     # Prefer deterministic generators for the narrow DayZ jobs they cover.
     # This prevents a model from truncating a large vanilla file or inventing a
     # linked CE event pair simply because it cannot fit the full base in context.
