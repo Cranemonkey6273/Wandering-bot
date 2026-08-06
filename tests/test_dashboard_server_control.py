@@ -2429,6 +2429,27 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(context["reference_base_available"])
         self.assertTrue(dashboard.ai_agent_dayz_request_requires_draft(context, context["objective"]))
 
+    def test_read_only_dayz_explanation_with_negative_file_wording_does_not_require_draft(self):
+        objective = (
+            "Read-only advice only. In DayZ types.xml, explain clearly what nominal and min control, "
+            "and state one important rule between them. Do not create or upload any file."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {"dayz_support_mode": "ask", "dayz_reference_mode": "none"},
+            objective,
+        )
+
+        self.assertFalse(dashboard.ai_agent_dayz_request_requires_draft(context, objective))
+
+        draft_objective = (
+            "Draft only; never upload or change Nitrado. Produce a complete validated cfgEffectArea.json file."
+        )
+        draft_context = dashboard.ai_agent_dayz_file_context(
+            {"dayz_support_mode": "ask", "dayz_reference_mode": "none"},
+            draft_objective,
+        )
+        self.assertTrue(dashboard.ai_agent_dayz_request_requires_draft(draft_context, draft_objective))
+
     def test_draft_only_nitrado_wording_does_not_request_live_action_approval(self):
         objective = "Draft only; do not upload or change Nitrado. Create a validated cfgEffectArea.json file."
         plan = dashboard.ai_agent_plan_from_objective(objective, "auto", {"execute": False, "deploy": False}, {})
@@ -2908,11 +2929,11 @@ class DashboardServerControlTests(unittest.TestCase):
                 "dayz_source_mode": "complete",
                 "dayz_reference_mode": "vanilla",
             },
-            "Create contaminated gas centred at X 4520 Z 8290 with radius 150 and red debug gas.",
+            "Create contaminated gas centred at X 4520 Z 8290 with a 150 metre radius and red debug gas.",
         )
         prompt = (
             "Create a complete cfgEffectArea.json contaminated gas zone centred at X 4520 Z 8290 "
-            "with radius 150 and red debug gas. Preserve unrelated vanilla data."
+            "with a 150 metre radius and red debug gas. Preserve unrelated vanilla data."
         )
 
         draft = dashboard.ai_agent_builtin_effect_area_draft({"dayz_context": context}, prompt)

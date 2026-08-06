@@ -26260,6 +26260,12 @@ def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dic
         re.IGNORECASE,
     )
     radius_match = re.search(rf"\bradius\s*(?:=|of)?\s*({_AI_AGENT_NUMBER_PATTERN})", text, re.IGNORECASE)
+    if not radius_match:
+        radius_match = re.search(
+            rf"\b({_AI_AGENT_NUMBER_PATTERN})\s*(?:metres?|meters?|m)?\s+radius\b",
+            text,
+            re.IGNORECASE,
+        )
     inferred_type = "ContaminatedArea_Static" if "contaminated" in lower_text and "gas" in lower_text else ""
     requested_type = type_match.group(1) if type_match else inferred_type
     if not (requested_type and (position_match or centred_match) and radius_match):
@@ -27314,8 +27320,18 @@ def ai_agent_dayz_request_requires_draft(context: Any, prompt: Any = "") -> bool
     text = " ".join((str(prompt or ""), str(context.get("objective") or ""))).lower()
     if not text.strip():
         return False
-    action = re.search(r"\b(create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write)\b", text)
-    output = re.search(r"\b(file|xml|json|package|snippet|draft|loadout)\b", text)
+    # Safety wording such as "do not create or upload a file" must not turn a
+    # read-only explanation into a mandatory file-generation task. Remove only
+    # the negated clause, then look for a separate positive file action.
+    positive_text = re.sub(
+        r"\b(?:do\s+not|don't|never|without)\s+"
+        r"(?:create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write|upload)\b"
+        r"[^.!?;]*",
+        " ",
+        text,
+    )
+    action = re.search(r"\b(create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write)\b", positive_text)
+    output = re.search(r"\b(file|xml|json|package|snippet|draft|loadout)\b", positive_text)
     return bool(context.get("enabled") and action and output)
 
 
