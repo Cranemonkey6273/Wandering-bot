@@ -2419,7 +2419,7 @@ class DashboardServerControlTests(unittest.TestCase):
 
     def test_plain_english_dayz_file_request_infers_protected_target_and_reference(self):
         context = dashboard.ai_agent_dayz_file_context(
-            {},
+            {"dayz_reference_mode": "none"},
             "Draft only: create a complete validated cfgEffectArea.json for a contaminated gas zone.",
         )
 

@@ -24571,7 +24571,8 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         source_mode = "fragment"
     spec = dayz_file_spec_for_path(target_path) if target_path else None
     reference_payload = dict(payload)
-    if inferred_target and not source_text.strip() and not reference_payload.get("dayz_reference_mode"):
+    reference_mode = str(reference_payload.get("dayz_reference_mode") or "").strip().lower()
+    if inferred_target and not source_text.strip() and reference_mode in {"", "none"}:
         # Plain-English chat drafts start from the active validated reference,
         # never from a fabricated empty replacement.  The resulting download
         # remains an offline review draft and is not a live-server merge.
