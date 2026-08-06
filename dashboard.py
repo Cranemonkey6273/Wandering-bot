@@ -4418,6 +4418,10 @@ PAGE_TEMPLATE = """
     .ai-conversation-nav h3 { margin: 0; color: #effcff; }
     .ai-conversation-new { display: inline-flex; align-items: center; justify-content: center; min-height: 2.5rem; border: 1px solid rgba(103,245,231,.44); border-radius: .55rem; padding: .55rem .65rem; background: rgba(103,245,231,.12); color: #effcff; font-weight: 900; text-decoration: none; }
     .ai-conversation-list { display: grid; gap: .4rem; }
+    .ai-conversation-history { border: 1px solid rgba(236,161,64,.24); border-radius: .6rem; padding: .5rem; background: rgba(18,12,3,.34); }
+    .ai-conversation-history[hidden] { display: none; }
+    .ai-conversation-history summary { cursor: pointer; color: #fff3d8; font-size: .8rem; font-weight: 850; }
+    .ai-conversation-history[open] summary { margin-bottom: .5rem; }
     .ai-conversation-link { display: grid; gap: .22rem; border: 1px solid rgba(103,245,231,.12); border-radius: .55rem; padding: .58rem .62rem; color: var(--muted); text-decoration: none; background: rgba(2,9,12,.68); overflow: hidden; }
     .ai-conversation-link:hover, .ai-conversation-link.active { border-color: rgba(103,245,231,.48); background: rgba(103,245,231,.11); color: #effcff; }
     .ai-conversation-link strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .84rem; }
@@ -7437,11 +7441,12 @@ PAGE_TEMPLATE = """
       </div>
       <nav class="ai-section-nav" aria-label="AI Sandbox sections">
         <a href="#ai-agent-chat"><strong>Chat</strong><span>Ask questions and continue conversations</span></a>
-        <a href="#ai-dayz-workbench" data-tone="green"><strong>DayZ File Workbench</strong><span>Create, explain and validate server files</span></a>
-        {% if auth.kind == 'owner' %}<a href="/owner?section=owner#dayz-reference-library" data-tone="orange"><strong>Vanilla Files & Updates</strong><span>Upload map versions and open Capability Lab</span></a>{% endif %}
+        <a href="#ai-dayz-workbench" data-tone="green" data-ai-open-details="#ai-dayz-workbench"><strong>DayZ File Workbench</strong><span>Create, explain and validate server files</span></a>
+        <a href="#ai-dayz-workbench" data-tone="orange" data-ai-open-details="#ai-dayz-workbench"><strong>Vanilla Reference Files</strong><span>Choose the map, target file and active vanilla base</span></a>
+        {% if auth.kind == 'owner' %}<a href="/owner?section=owner#dayz-reference-library" data-tone="orange"><strong>Upload Vanilla Updates</strong><span>Add map versions and open Capability Lab</span></a>{% endif %}
         <a href="#ai-dayz-output" data-tone="green"><strong>Drafts & Results</strong><span>Downloads, references and event plans</span></a>
         <a href="#ai-agent-live-work"><strong>Live Work</strong><span>Jobs and approval status</span></a>
-        <a href="#ai-technical-status"><strong>Technical Status</strong><span>Runner, model, safety and workspace details</span></a>
+        <a href="#ai-technical-status" data-ai-open-details="#ai-technical-status"><strong>Technical Status</strong><span>Runner, model, safety and workspace details</span></a>
       </nav>
       <details class="ai-workspace-technical" id="ai-technical-status">
         <summary>Workspace status, safety and technical setup</summary>
@@ -7542,11 +7547,11 @@ PAGE_TEMPLATE = """
       </details>
       <div class="ai-codex-workbench">
         <aside class="ai-conversation-nav" aria-label="AI conversations" data-ai-run-list>
-          <h3>Conversations</h3>
+          <h3>Recent Conversations</h3>
           <a class="ai-conversation-new" href="{{ dashboard_path }}?section=ai-agent&new_conversation=1{{ server_qs }}{{ profile_qs }}{{ auth_qs }}">+ New conversation</a>
-          <span class="tool-note">Each conversation keeps its own messages, plan, files and DayZ drafts.</span>
-          <div class="ai-conversation-list">
-            {% for run in ai_agent_runs[:30] %}
+          <span class="tool-note">The latest eight stay visible. Older work is folded away below.</span>
+          <div class="ai-conversation-list" data-ai-run-recent>
+            {% for run in ai_agent_runs[:8] %}
             <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ profile_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
               <strong>{{ run.title or 'Untitled conversation' }}</strong>
               <span>{{ run.status|replace('_', ' ')|title }} · {{ run.updated_at[:16]|replace('T', ' ') if run.updated_at else 'New' }}</span>
@@ -7555,6 +7560,17 @@ PAGE_TEMPLATE = """
             <span class="tool-note">No conversations yet. Start your first one here.</span>
             {% endfor %}
           </div>
+          <details class="ai-conversation-history" data-ai-run-history {% if ai_agent_runs|length <= 8 %}hidden{% endif %}>
+            <summary>Older conversations (<span data-ai-run-older-count>{{ ai_agent_runs[8:30]|length }}</span>)</summary>
+            <div class="ai-conversation-list" data-ai-run-older>
+              {% for run in ai_agent_runs[8:30] %}
+              <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ profile_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
+                <strong>{{ run.title or 'Untitled conversation' }}</strong>
+                <span>{{ run.status|replace('_', ' ')|title }} · {{ run.updated_at[:16]|replace('T', ' ') if run.updated_at else 'New' }}</span>
+              </a>
+              {% endfor %}
+            </div>
+          </details>
         </aside>
         <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
           <div class="ai-codex-title">
@@ -16913,18 +16929,24 @@ PAGE_TEMPLATE = """
       window.history.replaceState({}, "", aiAgentConversationUrl(runId));
     }
     function aiAgentUpdateRunList(state) {
-      const list = document.querySelector("[data-ai-run-list] .ai-conversation-list");
-      if (!list || !Array.isArray(state?.runs)) return;
+      const recentList = document.querySelector("[data-ai-run-recent]");
+      const olderList = document.querySelector("[data-ai-run-older]");
+      const history = document.querySelector("[data-ai-run-history]");
+      const olderCount = document.querySelector("[data-ai-run-older-count]");
+      if (!recentList || !olderList || !history || !Array.isArray(state?.runs)) return;
       const selected = String(state?.selected_run?.id || state?.active_run?.id || "");
-      list.replaceChildren();
+      recentList.replaceChildren();
+      olderList.replaceChildren();
       if (!state.runs.length) {
         const empty = document.createElement("span");
         empty.className = "tool-note";
         empty.textContent = "No conversations yet. Start your first one here.";
-        list.append(empty);
+        recentList.append(empty);
+        history.hidden = true;
+        if (olderCount) olderCount.textContent = "0";
         return;
       }
-      state.runs.slice(0, 30).forEach((run) => {
+      const appendRun = (list, run) => {
         if (!run?.id) return;
         const link = document.createElement("a");
         link.className = `ai-conversation-link${String(run.id) === selected ? " active" : ""}`;
@@ -16938,7 +16960,14 @@ PAGE_TEMPLATE = """
         meta.textContent = `${status.charAt(0).toUpperCase()}${status.slice(1)} · ${updated}`;
         link.append(title, meta);
         list.append(link);
-      });
+      };
+      const visibleRuns = state.runs.slice(0, 30);
+      visibleRuns.slice(0, 8).forEach((run) => appendRun(recentList, run));
+      const olderRuns = visibleRuns.slice(8);
+      olderRuns.forEach((run) => appendRun(olderList, run));
+      history.hidden = olderRuns.length === 0;
+      if (olderList.querySelector(".ai-conversation-link.active")) history.open = true;
+      if (olderCount) olderCount.textContent = String(olderRuns.length);
     }
     function aiAgentUpdateCurrentRun(state, form) {
       const target = document.querySelector("[data-ai-current-run]");
@@ -17563,6 +17592,19 @@ PAGE_TEMPLATE = """
         aiAgentFetchState(form, thread, {silent: true});
       }, 5000);
     }
+    function setupAiAgentSectionNavigation() {
+      const conversationHistory = document.querySelector("[data-ai-run-history]");
+      if (conversationHistory?.querySelector(".ai-conversation-link.active")) conversationHistory.open = true;
+      document.querySelectorAll("[data-ai-open-details]").forEach((link) => {
+        if (link.dataset.aiOpenDetailsReady === "true") return;
+        link.dataset.aiOpenDetailsReady = "true";
+        link.addEventListener("click", () => {
+          const selector = String(link.dataset.aiOpenDetails || "");
+          const details = selector ? document.querySelector(selector) : null;
+          if (details && details.tagName === "DETAILS") details.open = true;
+        });
+      });
+    }
     function setupAiAgentChat() {
       const form = document.querySelector("[data-ai-chat-form]");
       const thread = document.querySelector("[data-ai-chat-thread]");
@@ -17756,6 +17798,7 @@ PAGE_TEMPLATE = """
     }
     setupOwnerServerManager();
     document.querySelectorAll("[data-scenario-event-row]").forEach(pollScenarioStatusRow);
+    setupAiAgentSectionNavigation();
     setupAiAgentChat();
     document.addEventListener("click", async (event) => {
       const reveal = event.target.closest("[data-temp-login-reveal]");

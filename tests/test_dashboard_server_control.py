@@ -4239,9 +4239,22 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Vanilla Files & Updates", dashboard.PAGE_TEMPLATE)
         self.assertIn('/owner?section=owner#dayz-reference-library', dashboard.PAGE_TEMPLATE)
         self.assertIn('class="ai-section-nav"', dashboard.PAGE_TEMPLATE)
+        self.assertIn("Vanilla Reference Files", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Upload Vanilla Updates", dashboard.PAGE_TEMPLATE)
+        self.assertIn('data-ai-open-details="#ai-dayz-workbench"', dashboard.PAGE_TEMPLATE)
         self.assertIn('id="ai-dayz-workbench"', dashboard.PAGE_TEMPLATE)
         self.assertIn('class="ai-workspace-technical ai-side-technical"', dashboard.PAGE_TEMPLATE)
         self.assertIn("Technical workspace, files, changes &amp; run details", dashboard.PAGE_TEMPLATE)
+
+    def test_ai_sandbox_keeps_old_conversations_folded_out_of_the_main_workspace(self):
+        self.assertIn("Recent Conversations", dashboard.PAGE_TEMPLATE)
+        self.assertIn("The latest eight stay visible", dashboard.PAGE_TEMPLATE)
+        self.assertIn("ai_agent_runs[:8]", dashboard.PAGE_TEMPLATE)
+        self.assertIn("ai_agent_runs[8:30]", dashboard.PAGE_TEMPLATE)
+        self.assertIn('data-ai-run-history', dashboard.PAGE_TEMPLATE)
+        self.assertIn("visibleRuns.slice(0, 8)", dashboard.PAGE_TEMPLATE)
+        self.assertIn("history.hidden = olderRuns.length === 0", dashboard.PAGE_TEMPLATE)
+        self.assertIn('olderList.querySelector(".ai-conversation-link.active")', dashboard.PAGE_TEMPLATE)
 
     def test_capability_lab_blocks_a_partial_types_file_from_becoming_active(self):
         class UploadedZip:
