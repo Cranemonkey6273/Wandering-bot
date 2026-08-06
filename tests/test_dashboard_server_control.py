@@ -2629,6 +2629,56 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual([], normalized)
         self.assertIn("does not reference ./custom/QA_Camp.json", error)
 
+    def test_existing_mapgroup_placement_uses_real_mapgrouppos_shape_and_verified_prototype(self):
+        objective = (
+            "Add one placement of existing map group Land_Mil_Barracks4 at X 5000, Z 5000, "
+            "Y 0 with yaw 90, pitch 0, roll 0."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "mapgrouppos.xml",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "vanilla",
+            },
+            objective,
+        )
+
+        draft = dashboard.ai_agent_builtin_mapgroup_placement_draft(
+            {"dayz_context": context, "objective": objective}, objective
+        )
+
+        self.assertIsNotNone(draft)
+        self.assertEqual("patch", draft["kind"])
+        root = ET.fromstring(draft["content"])
+        self.assertEqual("map", root.tag)
+        group = root.find("group")
+        self.assertEqual("Land_Mil_Barracks4", group.get("name"))
+        self.assertEqual("5000.000000 0.000000 5000.000000", group.get("pos"))
+        self.assertEqual("0.000000 0.000000 90.000000", group.get("rpy"))
+        self.assertEqual("0.000000", group.get("a"))
+        self.assertIn("mapgroupproto.xml", draft["summary"])
+
+    def test_existing_mapgroup_placement_refuses_unknown_selected_map_group(self):
+        objective = (
+            "Add one placement of existing map group Land_NotARealVanillaGroup at X 5000, Z 5000 "
+            "with yaw 90."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "mapgrouppos.xml",
+                "dayz_map": "chernarus",
+            },
+            objective,
+        )
+
+        self.assertIsNone(dashboard.ai_agent_builtin_mapgroup_placement_draft(
+            {"dayz_context": context, "objective": objective}, objective
+        ))
+
     def test_read_only_dayz_explanation_with_negative_file_wording_does_not_require_draft(self):
         objective = (
             "Read-only advice only. In DayZ types.xml, explain clearly what nominal and min control, "

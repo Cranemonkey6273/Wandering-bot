@@ -27028,6 +27028,94 @@ def ai_agent_builtin_objectspawner_package_drafts(task: dict[str, Any], prompt: 
     return [object_draft, gameplay_draft]
 
 
+def ai_agent_builtin_mapgroup_placement_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
+    """Create one verified placement for an existing selected-map prototype."""
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict) or str(context.get("target_path") or "") != "mapgrouppos.xml":
+        return None
+    if str(context.get("source_text") or "").strip():
+        return None
+    request = str(prompt or task.get("objective") or "")
+    lower = request.lower()
+    if "existing" not in lower or "group" not in lower or "placement" not in lower:
+        return None
+    group_match = re.search(r"\b(?:group|named)\s+([A-Za-z][A-Za-z0-9_.-]*)", request, re.IGNORECASE)
+    coordinates = {
+        axis: re.search(rf"\b{axis}\s*(?:=|:)?\s*({_AI_AGENT_NUMBER_PATTERN})", request, re.IGNORECASE)
+        for axis in ("X", "Y", "Z")
+    }
+    yaw_match = re.search(rf"\byaw\s*(?:=|:)?\s*({_AI_AGENT_NUMBER_PATTERN})", request, re.IGNORECASE)
+    pitch_match = re.search(rf"\bpitch\s*(?:=|:)?\s*({_AI_AGENT_NUMBER_PATTERN})", request, re.IGNORECASE)
+    roll_match = re.search(rf"\broll\s*(?:=|:)?\s*({_AI_AGENT_NUMBER_PATTERN})", request, re.IGNORECASE)
+    if not group_match or not coordinates["X"] or not coordinates["Z"] or not yaw_match:
+        return None
+    group_name = group_match.group(1)
+    map_key = normalize_dayz_reference_map_key(context.get("map"))
+    try:
+        prototype_root = ET.fromstring(load_dayz_reference_text(map_key, "mapgroupproto.xml"))
+    except ET.ParseError:
+        return None
+    prototype_names = {
+        str(node.get("name") or "").strip()
+        for node in prototype_root.findall("group")
+        if str(node.get("name") or "").strip()
+    }
+    if group_name not in prototype_names:
+        return None
+    x = float(coordinates["X"].group(1))
+    y = float(coordinates["Y"].group(1)) if coordinates["Y"] else 0.0
+    z = float(coordinates["Z"].group(1))
+    yaw = float(yaw_match.group(1))
+    pitch = float(pitch_match.group(1)) if pitch_match else 0.0
+    roll = float(roll_match.group(1)) if roll_match else 0.0
+    if not all(math.isfinite(value) for value in (x, y, z, yaw, pitch, roll)):
+        return None
+    # DayZ mapgrouppos stores roll/pitch/yaw in rpy and also stores the CE
+    # heading as a = 90 - yaw, normalised to the common [-180, 180] range.
+    heading = 90.0 - yaw
+    while heading > 180.0:
+        heading -= 360.0
+    while heading < -180.0:
+        heading += 360.0
+    content = (
+        "<map>\n"
+        f"    <group name=\"{group_name}\" pos=\"{x:.6f} {y:.6f} {z:.6f}\" "
+        f"rpy=\"{roll:.6f} {pitch:.6f} {yaw:.6f}\" a=\"{heading:.6f}\" />\n"
+        "</map>\n"
+    )
+    valid, _validation_message = validate_dayz_upload_text("mapgrouppos.xml", content)
+    semantic_ok, _semantic_message = ai_agent_validate_dayz_draft_semantics(
+        "mapgrouppos.xml", content, context
+    )
+    if not valid or not semantic_ok:
+        return None
+    now = datetime.now(UTC).isoformat()
+    return {
+        "id": ai_agent_new_id("dayz-draft"),
+        "target_path": "mapgrouppos.xml",
+        "map": map_key,
+        "kind": "patch",
+        "merge_required": True,
+        "content": content,
+        "content_chars": len(content),
+        "summary": (
+            f"Validated merge-only mapgrouppos.xml placement for existing {map_key.title()} prototype "
+            f"{group_name} at X {x:g}, Y {y:g}, Z {z:g}, yaw {yaw:g}. The matching mapgroupproto.xml group "
+            "was verified and preserved; types and CE limits files do not change for this additional placement."
+        ),
+        "validation": "passed",
+        "base": f"existing bundled vanilla {map_key} mapgroupproto.xml group",
+        "linked_package": {
+            "workflow": "map_group_placement",
+            "changed_files": ["mapgrouppos.xml"],
+            "checked_files": ["mapgroupproto.xml", "db/types.xml"],
+            "preserved_files": ["mapgroupproto.xml", "db/types.xml", "cfglimitsdefinition.xml"],
+        },
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 def ai_agent_builtin_effect_area_draft(task: dict[str, Any], prompt: Any) -> dict[str, Any] | None:
     context = task.get("dayz_context") if isinstance(task, dict) else None
     if not isinstance(context, dict) or str(context.get("source_text") or "").strip():
@@ -27286,6 +27374,9 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     preset_draft = ai_agent_builtin_selected_preset_draft(task, prompt)
     if preset_draft:
         return preset_draft
+    mapgroup_placement_draft = ai_agent_builtin_mapgroup_placement_draft(task, prompt)
+    if mapgroup_placement_draft:
+        return mapgroup_placement_draft
     objectspawner_draft = ai_agent_builtin_objectspawner_draft(task, prompt)
     if objectspawner_draft:
         return objectspawner_draft
