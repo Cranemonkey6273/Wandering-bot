@@ -2762,6 +2762,64 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(all(item["valid"] for item in event_package["checks"]))
         self.assertIn('value="mummy_zombie">Mummy infected', dashboard.PAGE_TEMPLATE)
 
+    def test_dayz_agent_builds_matching_fixed_animal_pack_and_preserves_territories(self):
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_map": "chernarus",
+                "dayz_scenario_type": "animal_pack",
+                "dayz_scenario_preset": "wolf",
+                "dayz_scenario_name": "QA Tisy Wolf Pack",
+                "dayz_scenario_x": "1600",
+                "dayz_scenario_y": "0",
+                "dayz_scenario_z": "14100",
+                "dayz_scenario_angle": "0",
+                "dayz_scenario_radius": "120",
+                "dayz_scenario_count": "6",
+                "dayz_scenario_guild_id": "guild-1",
+                "dayz_scenario_profile_id": "cherno",
+            },
+            "Create a fixed CE wolf pack and distinguish it from an ambient territory edit.",
+        )
+
+        drafts = dashboard.ai_agent_builtin_animal_pack_drafts({"dayz_context": context})
+        by_path = {draft["target_path"]: draft for draft in drafts}
+        event_node = ET.fromstring(by_path["db/events.xml"]["content"]).find("event")
+        spawn_node = ET.fromstring(by_path["cfgeventspawns.xml"]["content"]).find("event")
+        event_package = by_path["db/events.xml"]["event_package"]
+
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, set(by_path))
+        self.assertTrue(all(draft["kind"] == "patch" and draft["merge_required"] for draft in drafts))
+        self.assertEqual(event_node.get("name"), spawn_node.get("name"))
+        self.assertTrue(event_node.get("name").startswith("AnimalWanderingBot_"))
+        self.assertEqual("Animal_CanisLupus_Grey", event_node.find("./children/child").get("type"))
+        self.assertEqual("6", event_node.find("./children/child").get("min"))
+        self.assertEqual("6", event_node.find("./children/child").get("max"))
+        self.assertEqual("120", event_node.findtext("distanceradius"))
+        self.assertEqual("1600", spawn_node.find("pos").get("x"))
+        self.assertEqual("14100", spawn_node.find("pos").get("z"))
+        self.assertEqual("0.000000", spawn_node.find("pos").get("a"))
+        self.assertEqual("fixed_ce_event", event_package["mechanism"])
+        self.assertTrue(all(item["valid"] for item in event_package["checks"]))
+        self.assertIn("ambient animal territory zones", event_package["checks"][2]["reason"])
+
+        task = {
+            "id": "qa-animal-pack",
+            "project_type": "dayz_files",
+            "dayz_context": context,
+            "steps": [],
+            "suggested_commands": [],
+        }
+        with patch.object(dashboard, "ai_agent_llm_json", side_effect=AssertionError("model should not run")):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None,
+                "Create the fixed QA Tisy wolf pack package.", False,
+            )
+        self.assertEqual("deterministic_dayz_draft", task["llm_status"])
+        self.assertIn("merge-only offline review pair", reply)
+        self.assertIn("direct CE event", reply)
+
     def test_builtin_dayz_draft_matrix_validates_across_supported_maps(self):
         maps = ("chernarus", "livonia", "sakhal")
         for map_key in maps:

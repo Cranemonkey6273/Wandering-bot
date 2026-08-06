@@ -26279,6 +26279,161 @@ def ai_agent_builtin_infected_horde_drafts(task: dict[str, Any]) -> list[dict[st
     return normalized
 
 
+def ai_agent_builtin_animal_pack_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build a validated fixed-position animal CE event as two merge patches.
+
+    A fixed custom pack is intentionally different from DayZ's ambient animal
+    territory system.  The direct event uses ``events.xml`` plus one matching
+    ``cfgeventspawns.xml`` position.  ``cfgenvironment.xml`` and the relevant
+    ``env/*_territories.xml`` file remain untouched; those are the right files
+    only when the customer asks for a distributed ambient territory/zone.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict):
+        return []
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if str(scenario.get("event_type") or "") != "animal_pack" or scenario.get("error"):
+        return []
+    # Ordinary animal requests belong to the ambient territory workflow. This
+    # helper is deliberately narrower: the customer explicitly asked for one
+    # fixed CE position. Validate that pair against a positioned-event plan so
+    # cfgeventspawns.xml is accepted without weakening the ambient guard.
+    package_context = copy.deepcopy(context)
+    package_context["target_path"] = "db/events.xml"
+    package_context["dependency_plan"] = {
+        "workflow": "ce_event_package",
+        "summary": "Fixed-position animal CE event with one matching position.",
+        "files": [
+            {"path": "db/events.xml", "action": "changed"},
+            {"path": "cfgeventspawns.xml", "action": "changed"},
+            {"path": "cfgeventgroups.xml", "action": "checked"},
+            {"path": "mapgroupproto.xml", "action": "checked"},
+        ],
+    }
+    map_key = normalize_dayz_reference_map_key(scenario.get("map") or context.get("map"))
+    class_name = str(scenario.get("class_name") or "").strip()
+    if not class_name:
+        return []
+    try:
+        types_root = ET.fromstring(load_dayz_reference_text(map_key, "db", "types.xml"))
+        eventgroups_root = ET.fromstring(load_dayz_reference_text(map_key, "cfgeventgroups.xml"))
+        prototype_root = ET.fromstring(load_dayz_reference_text(map_key, "mapgroupproto.xml"))
+        environment_root = ET.fromstring(load_dayz_reference_text(map_key, "cfgenvironment.xml"))
+    except ET.ParseError:
+        return []
+    if not any(str(node.get("name") or "") == class_name for node in types_root.findall("type")):
+        return []
+    if (
+        eventgroups_root.tag != "eventgroupdef"
+        or prototype_root.tag != "prototype"
+        or environment_root.tag != "env"
+    ):
+        return []
+
+    label = str(scenario.get("name") or scenario.get("preset") or "AnimalPack").strip()
+    slug = re.sub(r"[^A-Za-z0-9]+", "", label) or "AnimalPack"
+    x = safe_int(scenario.get("x"), 0)
+    z = safe_int(scenario.get("z"), 0)
+    angle = float(scenario.get("angle") or 0.0)
+    radius = max(0, min(30000, safe_int(scenario.get("radius"), 100)))
+    count = max(1, min(250, safe_int(scenario.get("apply_payload", {}).get("count"), 1)))
+    event_name = f"AnimalWanderingBot_{slug}_{x}_{z}"[:64]
+    event_patch = (
+        "<events>\n"
+        f"    <event name=\"{event_name}\">\n"
+        "        <nominal>1</nominal>\n"
+        "        <min>1</min>\n"
+        "        <max>1</max>\n"
+        "        <lifetime>3600</lifetime>\n"
+        "        <restock>0</restock>\n"
+        "        <saferadius>2</saferadius>\n"
+        f"        <distanceradius>{radius}</distanceradius>\n"
+        "        <cleanupradius>100</cleanupradius>\n"
+        "        <flags deletable=\"1\" init_random=\"0\" remove_damaged=\"1\"/>\n"
+        "        <position>fixed</position>\n"
+        "        <limit>child</limit>\n"
+        "        <active>1</active>\n"
+        "        <children>\n"
+        f"            <child lootmax=\"0\" lootmin=\"0\" max=\"{count}\" min=\"{count}\" type=\"{class_name}\"/>\n"
+        "        </children>\n"
+        "    </event>\n"
+        "</events>\n"
+    )
+    spawn_patch = (
+        "<eventposdef>\n"
+        f"    <event name=\"{event_name}\">\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"{angle:.6f}\"/>\n"
+        "    </event>\n"
+        "</eventposdef>\n"
+    )
+    normalized, error = ai_agent_normalize_dayz_draft_package(
+        {
+            "dayz_drafts": [
+                {
+                    "target_path": "db/events.xml",
+                    "kind": "patch",
+                    "content": event_patch,
+                    "summary": (
+                        f"Validated fixed-position animal CE definition for `{event_name}`: "
+                        f"{count} × `{class_name}` with player activation distance {radius}. "
+                        "This is a direct CE event, not an ambient animal territory."
+                    ),
+                },
+                {
+                    "target_path": "cfgeventspawns.xml",
+                    "kind": "patch",
+                    "content": spawn_patch,
+                    "summary": (
+                        f"Validated matching position for `{event_name}` at X {x}, Z {z}, "
+                        f"rotation {angle:.6f}."
+                    ),
+                },
+            ]
+        },
+        package_context,
+    )
+    if error or len(normalized) != 2:
+        return []
+    event_package = {
+        "core_files": list(DAYZ_EVENT_CORE_FILES),
+        "changed_files": ["db/events.xml", "cfgeventspawns.xml"],
+        "preserved_files": ["cfgeventgroups.xml", "mapgroupproto.xml"],
+        "linked_event_name": event_name,
+        "linked_class_name": class_name,
+        "mechanism": "fixed_ce_event",
+        "checks": [
+            {
+                "path": "cfgeventgroups.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "The fixed animal position has no group= reference.",
+            },
+            {
+                "path": "mapgroupproto.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "A direct animal child is not a static loot-bearing map-group prototype.",
+            },
+            {
+                "path": "cfgenvironment.xml and env/*_territories.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": (
+                    "Those files define ambient animal territory zones. They are not changed for this "
+                    "explicit fixed CE position."
+                ),
+            },
+        ],
+    }
+    for draft in normalized:
+        draft["event_package"] = event_package
+        draft["base"] = (
+            f"merge-only fixed CE records validated against bundled DayZ {DAYZ_CE_FILE_VERSION} "
+            f"{map_key} references; ambient territory files checked and preserved"
+        )
+    return normalized
+
+
 def ai_agent_full_survivor_loadout_draft_requested(context: dict[str, Any], prompt: Any) -> bool:
     """Recognise the one complete vanilla spawn-gear package we can verify locally.
 
@@ -27671,6 +27826,7 @@ def ai_agent_llm_reply_for_task(
         ai_agent_builtin_vehicle_event_drafts(task)
         or ai_agent_builtin_airdrop_event_drafts(task)
         or ai_agent_builtin_infected_horde_drafts(task)
+        or ai_agent_builtin_animal_pack_drafts(task)
     )
     deterministic_draft = ai_agent_builtin_dayz_draft(task, prompt)
     if deterministic_drafts or deterministic_draft:
