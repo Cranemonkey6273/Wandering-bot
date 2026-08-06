@@ -459,6 +459,78 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(body["cleanup_queued"])
         self.assertTrue(body["cleanup_started"])
 
+    def test_uploaded_event_retry_is_a_noop_and_keeps_confirmed_metadata(self):
+        configs = {"guild-1": {}}
+        event = {
+            "id": 36,
+            "created_by": "dashboard",
+            "upload_status": "uploaded",
+            "status": "XML uploaded to Nitrado; restart once",
+            "native_ce_uploaded_at": "2026-08-04T15:54:00+00:00",
+            "native_ce_events_path": "/mission/db/events.xml",
+        }
+        profile = {"scenario_events": [event]}
+        payload = {"guild_id": "guild-1", "server_profile_id": "cherno", "event_id": "36", "action": "upload"}
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload") as schedule,
+            patch.object(dashboard, "save_store") as save,
+            patch.object(dashboard, "sync_runtime_store") as sync,
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event_action()
+
+        body = response["args"][0]
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["already_uploaded"])
+        self.assertFalse(body["upload_started"])
+        self.assertIn("RPT tracker", body["note"])
+        self.assertEqual("uploaded", event["upload_status"])
+        self.assertEqual("2026-08-04T15:54:00+00:00", event["native_ce_uploaded_at"])
+        schedule.assert_not_called()
+        save.assert_not_called()
+        sync.assert_not_called()
+
+    def test_targeted_upload_failure_does_not_poison_unrelated_dashboard_events(self):
+        configs = {"guild-1": {}}
+        target = {
+            "id": 34,
+            "created_by": "dashboard",
+            "upload_status": "waiting_for_bot_upload",
+            "status": "Retry queued",
+        }
+        unrelated = {
+            "id": 32,
+            "created_by": "dashboard",
+            "upload_status": "waiting_for_bot_upload",
+            "status": "Waiting for bot upload",
+        }
+        profile = {"scenario_events": [unrelated, target]}
+        result = {
+            "ok": False,
+            "built": {},
+            "messages": [
+                "Dashboard event 34 is not pending upload (status: XML uploaded to Nitrado; upload_status: uploaded)."
+            ],
+        }
+
+        with (
+            patch.object(dashboard, "run_runtime_scenario_xml_upload", return_value=result),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_runtime", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+        ):
+            dashboard.apply_runtime_scenario_xml_upload("guild-1:cherno", 34)
+
+        self.assertEqual("failed", target["upload_status"])
+        self.assertIn("Dashboard event 34", target["upload_error"])
+        self.assertEqual("waiting_for_bot_upload", unrelated["upload_status"])
+        self.assertEqual("Waiting for bot upload", unrelated["status"])
+
     def test_legacy_zones_are_copied_into_matching_server_profile_once(self):
         base_config = {
             "server_map": "chernarus",

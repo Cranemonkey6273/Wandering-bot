@@ -3434,7 +3434,9 @@ APP_DASHBOARD_TEMPLATE = """
           <span>{{ event.event_type|replace('_', ' ')|title }} | {{ event.location or 'Custom location' }} | {{ event.x }}, {{ event.z }}</span>
           <span><b>{{ display.title|default(event.status or 'Queued') }}</b>{% if display.brief %} - {{ display.brief }}{% endif %}</span>
           <div class="event-actions">
+            {% if not (event.native_ce_uploaded_at or event.bridge_uploaded_at or event.upload_status == 'uploaded') %}
             <form method="post" action="/api/admin/scenario-event-action"><input type="hidden" name="guild_id" value="{{ server.guild_id }}"><input type="hidden" name="server_profile_id" value="{{ selected_dayz_profile_id }}"><input type="hidden" name="event_id" value="{{ event.id }}"><input type="hidden" name="action" value="upload"><input type="hidden" name="return_to" value="{{ app_urls.events }}"><button type="submit">Retry upload</button></form>
+            {% else %}<span>Already uploaded - restart once, then check the live RPT tracker.</span>{% endif %}
           </div>
           <details>
             <summary>Manage or remove event</summary>
@@ -9577,7 +9579,7 @@ PAGE_TEMPLATE = """
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ dashboard_scenario_preset(event) }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-timing-preset="{{ event.timing_preset or 'custom' }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
-                    {% if action != 'upload' or event.upload_status in ['failed', 'blocked', 'uploaded', 'waiting_for_bot_upload', 'queued', 'uploading', 'starting'] %}
+                    {% if action != 'upload' or (event.upload_status in ['failed', 'blocked', 'waiting_for_bot_upload', 'queued', 'uploading', 'starting'] and not event.native_ce_uploaded_at and not event.bridge_uploaded_at) %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
                       <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
                       <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
@@ -20800,7 +20802,16 @@ def apply_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, removed:
             event_in_bridge_batch = safe_int(event.get("id"), 0) in bridge_event_ids if bridge_event_ids else is_target
             if not event_in_bridge_batch:
                 continue
-        elif event_id and not is_target and not is_dashboard_scenario:
+        elif upload_ok:
+            if event_id and not is_target and not is_dashboard_scenario:
+                continue
+        elif event_id and not is_target:
+            # A targeted retry can rebuild the shared CE files on success, so
+            # successful metadata may apply to the other managed dashboard
+            # events.  A target-specific refusal/failure must never poison
+            # unrelated rows with the target event's error.
+            continue
+        elif not event_id and not is_dashboard_scenario:
             continue
         event["updated_at"] = now_text
         if upload_ok:
@@ -20917,7 +20928,9 @@ def schedule_runtime_scenario_xml_upload(guild_id: str, event_id: int = 0, remov
                     if not isinstance(event, dict):
                         continue
                     is_target = safe_int(event.get("id"), 0) == safe_int(event_id, 0)
-                    if event_id and not is_target and not is_dashboard_native_ce_event(event):
+                    if event_id and not is_target:
+                        continue
+                    if not event_id and not is_dashboard_native_ce_event(event):
                         continue
                     event["updated_at"] = datetime.now(UTC).isoformat()
                     if scenario_event_has_confirmed_upload(event):
@@ -40034,6 +40047,20 @@ def api_scenario_event_action():
     for index, event in enumerate(events):
         if not isinstance(event, dict) or safe_int(event.get("id"), 0) != event_id:
             continue
+        if action == "upload" and scenario_event_has_confirmed_upload(event):
+            # "Retry" is an upload retry, not a spawn refresh.  Re-uploading
+            # an already confirmed record cannot make DayZ spawn it and may
+            # race the bot's persisted state.  Preserve the good upload
+            # metadata and direct the operator to restart/RPT verification.
+            if not wants_json_response():
+                return redirect(return_to)
+            return jsonify({
+                "ok": True,
+                "event": event,
+                "upload_started": False,
+                "already_uploaded": True,
+                "note": "XML is already uploaded. Restart the selected DayZ server once, then check the fresh RPT tracker instead of retrying the upload.",
+            })
         if action in {"delete", "cancel"}:
             removed = events.pop(index)
             mark_scenario_event_deleted(config, event_id, action, removed)
