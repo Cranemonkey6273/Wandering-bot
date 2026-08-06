@@ -11743,7 +11743,7 @@ PAGE_TEMPLATE = """
           </div>
           <div class="schedule-status-row is-{{ schedule_status.restart.status_class }}">
             <div><span class="schedule-kicker">Restart</span><strong>{{ schedule_status.restart.status }}</strong><span class="schedule-pill">{{ schedule_status.restart.minutes_label }}</span></div>
-            <div class="schedule-status-main"><span>Next restart: {{ schedule_status.restart.next_label }}</span><span>{{ schedule_status.restart.interval_label }}</span><small>Warnings: {{ schedule_status.restart.warnings_label }} minutes</small></div>
+            <div class="schedule-status-main"><span>Next restart: {{ schedule_status.restart.next_label }}</span><span>{{ schedule_status.restart.interval_label }}</span><small>Warnings: {{ schedule_status.restart.warnings_label }} minutes</small><small class="{{ 'schedule-error' if schedule_status.restart.status == 'Paused' else '' }}">{{ schedule_status.restart.execution_note }}</small></div>
             <div class="schedule-status-meta">
               <span>Notify: {{ channel_label(server.channels if server else [], restart_status.warning_channel_id or restart_status.warning_channel_key, 'Not set') }}</span>
               <span>Audit: {{ channel_label(server.channels if server else [], restart_status.log_channel_id or restart_status.log_channel_key, 'Not set') }}</span>
@@ -34166,11 +34166,21 @@ def dashboard_live_schedule_status(config: dict[str, Any]) -> dict[str, Any]:
         config = {}
     normalize_dashboard_server_control_schedules(config)
     restart = dashboard_restart_status(config)
+    worker = dashboard_worker_schedule_status(config)
     restart_enabled = dashboard_bool(restart.get("enabled"), False)
-    restart_status_label = "On" if restart_enabled else "Off"
-    restart_status_class = "ok" if restart_enabled else "off"
+    worker_running = worker.get("status") == "Running"
+    if restart_enabled and not worker_running:
+        restart_status_label = "Paused"
+        restart_status_class = "danger" if worker.get("status") == "Error" else "warn"
+        restart_minutes_label = "Worker not running"
+        execution_note = "The time is saved, but automatic restart execution is paused until the bot worker heartbeat resumes."
+    else:
+        restart_status_label = "On" if restart_enabled else "Off"
+        restart_status_class = "ok" if restart_enabled else "off"
+        restart_minutes_label = f"In about {restart.get('minutes_until')} min" if restart.get("minutes_until") is not None else "Schedule disabled"
+        execution_note = "The scheduler worker is running." if restart_enabled else "The restart schedule is disabled."
     return {
-        "worker": dashboard_worker_schedule_status(config),
+        "worker": worker,
         "restart": {
             "title": "Restarts",
             "status": restart_status_label,
@@ -34178,7 +34188,8 @@ def dashboard_live_schedule_status(config: dict[str, Any]) -> dict[str, Any]:
             "next_label": restart.get("next_restart_local") or "Not scheduled",
             "interval_label": f"Every {restart.get('interval_hours', 4)}h from {int(restart.get('start_hour') or 0):02d}:00 {restart.get('timezone') or 'Europe/Dublin'}",
             "warnings_label": ", ".join(str(item) for item in restart.get("warnings", [])) or "None",
-            "minutes_label": f"In about {restart.get('minutes_until')} min" if restart.get("minutes_until") is not None else "Schedule disabled",
+            "minutes_label": restart_minutes_label,
+            "execution_note": execution_note,
             "last_status": str((restart.get("last_restart") or {}).get("status") or "No log yet").replace("_", " ").title(),
             "last_source": str((restart.get("last_restart") or {}).get("source") or "Waiting for bot/RPT").replace("_", " ").title(),
         },

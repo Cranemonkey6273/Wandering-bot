@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 from tests._bot_loader import import_bot_module
@@ -29,6 +31,35 @@ class RestartTimezoneTests(unittest.TestCase):
         self.assertEqual([1, 5, 9, 13, 17, 21], self.bot._restart_schedule_hours(17, 4))
         self.assertTrue(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 13, 0, tzinfo=UTC), 17, 4))
         self.assertFalse(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 14, 0, tzinfo=UTC), 17, 4))
+
+    def test_restart_schedule_has_a_bounded_catch_up_window(self):
+        due = self.bot._restart_schedule_due_slot(datetime(2026, 7, 1, 13, 7, tzinfo=UTC), 1, 4, 10)
+
+        self.assertEqual(datetime(2026, 7, 1, 13, 0, tzinfo=UTC), due)
+        self.assertIsNone(self.bot._restart_schedule_due_slot(datetime(2026, 7, 1, 13, 11, tzinfo=UTC), 1, 4, 10))
+        self.assertIsNone(self.bot._restart_schedule_due_slot(datetime(2026, 7, 1, 14, 2, tzinfo=UTC), 1, 4, 10))
+
+    def test_scheduled_restart_proceeds_when_discord_channel_is_unavailable(self):
+        class Response:
+            status_code = 202
+
+        config = {
+            "nitrado_token": "test-token",
+            "service_id": "1234567",
+            "restart_timezone": "UTC",
+        }
+        now = datetime(2026, 7, 1, 13, 4, tzinfo=UTC)
+        with patch.object(self.bot, "nitrado_restart_headers_or_error", return_value=({"Authorization": "Bearer test"}, "")), \
+             patch.object(self.bot.requests, "post", return_value=Response()) as restart_post, \
+             patch.object(self.bot, "save_guild_configs_for_runtime"), \
+             patch.object(self.bot, "publish_restart_history", new=AsyncMock()), \
+             patch.object(self.bot, "clear_online_state_for_restart", return_value=False):
+            ok = asyncio.run(self.bot.request_scheduled_restart_without_discord_channel("guild-1", config, now, 13))
+
+        self.assertTrue(ok)
+        restart_post.assert_called_once()
+        self.assertEqual("requested", config["restart_history"][0]["status"])
+        self.assertIn("without a Discord announcement channel", config["restart_history"][0]["details"])
 
     def test_nitrado_token_reports_hidden_lookalike_character(self):
         ok, _token, message = self.bot.validate_nitrado_api_token("\u0435abc123")

@@ -1060,6 +1060,7 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "restart_channel_key",
     "restart_history",
     "restart_interval_hours",
+    "restart_last_trigger_marker",
     "restart_log_channel_id",
     "restart_log_channel_key",
     "restart_schedule_confirmed",
@@ -28202,6 +28203,84 @@ def _restart_schedule_matches(local_now, restart_offset, restart_interval):
     )
 
 
+def _restart_schedule_due_slot(local_now, restart_offset, restart_interval, grace_minutes=10):
+    """Return the scheduled local slot during a small post-hour catch-up window.
+
+    Railway deploys, Discord reconnects and Nitrado/API stalls can cross the
+    exact ``HH:00`` tick.  A persisted marker prevents the catch-up window from
+    issuing the same restart twice after a process restart.
+    """
+    try:
+        grace = max(0, min(30, int(grace_minutes or 0)))
+    except Exception:
+        grace = 10
+    if local_now.hour not in _restart_schedule_hours(restart_offset, restart_interval):
+        return None
+    if local_now.minute < 0 or local_now.minute > grace:
+        return None
+    return local_now.replace(minute=0, second=0, microsecond=0)
+
+
+async def request_scheduled_restart_without_discord_channel(guild_id, config, now, current_hour):
+    """Issue the scheduled Nitrado restart even when Discord cannot announce it."""
+    token = config.get("nitrado_token")
+    service_id = config.get("service_id")
+    timezone_label = restart_timezone_name(config)
+    if not token or not service_id:
+        record = append_restart_history(
+            guild_id,
+            config,
+            "bot_schedule",
+            "blocked",
+            "Scheduled restart reached its time, but Nitrado token or service id is missing. Discord announcement channel was also unavailable.",
+            "scheduled_restart_loop",
+        )
+        save_guild_configs_for_runtime(config)
+        await publish_restart_history(guild_id, config, record)
+        return False
+
+    try:
+        headers, header_error = nitrado_restart_headers_or_error(config)
+        if header_error:
+            raise ValueError(header_error)
+        url = f"https://api.nitrado.net/services/{service_id}/gameservers/restart"
+        restart_response = await asyncio.to_thread(requests.post, url, headers=headers, timeout=30)
+        restart_ok = restart_response.status_code in {200, 201, 202, 204}
+        record = append_restart_history(
+            guild_id,
+            config,
+            "bot_schedule",
+            "requested" if restart_ok else "failed",
+            (
+                f"Scheduled restart at {current_hour:02d}:00 {timezone_label} "
+                f"({now.strftime('%Y-%m-%d %H:%M UTC')}). Nitrado status {restart_response.status_code}. "
+                "Restart proceeded without a Discord announcement channel."
+            ),
+            "scheduled_restart_loop",
+        )
+        save_guild_configs_for_runtime(config)
+        await publish_restart_history(guild_id, config, record)
+        if restart_ok and clear_online_state_for_restart(guild_id):
+            try:
+                await upsert_online_dashboard_message(guild_id, config, "scheduled restart", force=True)
+            except Exception as online_reset_error:
+                print(f"[ONLINE STATE] scheduled restart clear failed for {guild_id}: {online_reset_error}")
+        return restart_ok
+    except Exception as restart_error:
+        print(f"SCHEDULED RESTART WITHOUT DISCORD ERROR {guild_id}: {restart_error}")
+        record = append_restart_history(
+            guild_id,
+            config,
+            "bot_schedule",
+            "failed",
+            f"Scheduled restart exception without Discord announcement channel: {restart_error}",
+            "scheduled_restart_loop",
+        )
+        save_guild_configs_for_runtime(config)
+        await publish_restart_history(guild_id, config, record)
+        return False
+
+
 def schedule_reminder_minutes(config):
     minutes = []
     for item in config.get("schedule_reminder_minutes") or [30]:
@@ -28475,6 +28554,8 @@ async def scheduled_restart_loop():
     # ────────────────────────────────────────────────────────────────
     for guild_id, config in active_adm_config_items():
         try:
+            if mark_server_control_scheduler_status(config, now):
+                save_guild_configs_for_runtime(config)
             await maybe_send_server_control_schedule_reminders(guild_id, config, now)
         except Exception as reminder_error:
             print(f"SCHEDULE REMINDER ERROR {guild_id}: {reminder_error}")
@@ -28585,19 +28666,23 @@ async def scheduled_restart_loop():
         restart_offset = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
         local_tz = restart_timezone_for_config(config)
         local_now = now.astimezone(local_tz)
-        current_hour = local_now.hour
-        current_minute = local_now.minute
-
-        should_restart = _restart_schedule_matches(local_now, restart_offset, restart_interval)
+        due_slot = _restart_schedule_due_slot(local_now, restart_offset, restart_interval, 10)
+        should_restart = _restart_schedule_matches(local_now, restart_offset, restart_interval) or due_slot is not None
 
         if not should_restart:
             continue
 
-        trigger_marker = f"{local_now.date().isoformat()}-{current_hour:02d}-{restart_timezone_name(config)}"
-        if last_restart_hour.get(guild_id) == trigger_marker:
+        if due_slot is None:
+            due_slot = local_now.replace(minute=0, second=0, microsecond=0)
+        current_hour = due_slot.hour
+
+        trigger_marker = f"{due_slot.date().isoformat()}-{current_hour:02d}-{restart_timezone_name(config)}"
+        if last_restart_hour.get(guild_id) == trigger_marker or str(config.get("restart_last_trigger_marker") or "") == trigger_marker:
             continue
 
         last_restart_hour[guild_id] = trigger_marker
+        config["restart_last_trigger_marker"] = trigger_marker
+        save_guild_configs_for_runtime(config)
 
         print(f"SCHEDULED RESTART TRIGGERED {guild_id} @ {current_hour}:00 {restart_timezone_name(config)}")
 
@@ -28794,6 +28879,14 @@ async def scheduled_restart_loop():
                     )
                     save_guild_configs_for_runtime(config)
                     await publish_restart_history(guild_id, config, record)
+            else:
+                print(f"SCHEDULED RESTART {guild_id}: Discord announcement channel unavailable; continuing with Nitrado restart.")
+                await request_scheduled_restart_without_discord_channel(
+                    guild_id,
+                    config,
+                    now,
+                    current_hour,
+                )
 
         except Exception as error:
 

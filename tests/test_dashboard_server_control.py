@@ -1361,6 +1361,43 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIsNone(status)
         self.assertIn("token or service ID is missing", message)
 
+    def test_stale_worker_pauses_restart_status_instead_of_claiming_it_is_on(self):
+        config = {
+            "restart_schedule_enabled": True,
+            "restart_schedule_confirmed": True,
+            "restart_interval_hours": 4,
+            "restart_start_hour": 23,
+            "restart_timezone": "Europe/London",
+            "server_control_scheduler_status": {
+                "last_checked_at": "2020-01-01T00:00:00+00:00",
+            },
+        }
+
+        status = dashboard.dashboard_live_schedule_status(config)
+
+        self.assertEqual("Stale", status["worker"]["status"])
+        self.assertEqual("Paused", status["restart"]["status"])
+        self.assertEqual("Worker not running", status["restart"]["minutes_label"])
+        self.assertIn("execution is paused", status["restart"]["execution_note"])
+
+    def test_running_worker_reports_an_enabled_restart_schedule_as_on(self):
+        config = {
+            "restart_schedule_enabled": True,
+            "restart_schedule_confirmed": True,
+            "restart_interval_hours": 4,
+            "restart_start_hour": 23,
+            "restart_timezone": "Europe/London",
+            "server_control_scheduler_status": {
+                "last_checked_at": dashboard.datetime.now(dashboard.UTC).isoformat(),
+            },
+        }
+
+        status = dashboard.dashboard_live_schedule_status(config)
+
+        self.assertEqual("Running", status["worker"]["status"])
+        self.assertEqual("On", status["restart"]["status"])
+        self.assertEqual("The scheduler worker is running.", status["restart"]["execution_note"])
+
     def test_missing_scenario_uploader_marks_event_failed_instead_of_waiting(self):
         old_provider = dashboard.CUSTOM_STATE_PROVIDER
         event = {
