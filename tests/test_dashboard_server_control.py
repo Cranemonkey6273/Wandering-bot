@@ -4606,6 +4606,8 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_public_homepage_has_discord_and_email_support_routes(self):
         self.assertIn("Join support Discord", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("mailto:{{ support_email }}", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Owner support is built in", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("/supportbot issue:describe the problem", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Android + iPhone App", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Activate, monitor and control your server from your phone", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Let your community speak its own language", dashboard.PUBLIC_LANDING_TEMPLATE)

@@ -659,6 +659,17 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual(1, len(linked_players_channel.sent))
         self.assertIn("embed", linked_players_channel.sent[0])
 
+    def test_new_server_owner_support_notice_uses_private_fallback_when_dm_is_unavailable(self):
+        owner_channel = FakeFetchChannel("company-announcements", 77, [])
+        guild = FakeOnboardingGuild([], member=FakeMember())
+        guild.name = "Test community"
+
+        delivered_to = asyncio.run(bot.announce_new_guild_owner_support(guild, owner_channel))
+
+        self.assertEqual("company_announcements", delivered_to)
+        self.assertEqual(1, len(owner_channel.sent))
+        self.assertIn("embed", owner_channel.sent[0])
+
     def test_onboarding_choice_add_reports_role_hierarchy_failure_without_welcome(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)

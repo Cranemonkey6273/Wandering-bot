@@ -2037,6 +2037,10 @@ PUBLIC_LANDING_TEMPLATE = """
     }
     .button.primary { border-color: rgba(142, 232, 95, .48); background: var(--green); color: var(--ink); }
     .button.ghost { background: rgba(0, 0, 0, .18); }
+    .owner-support-callout { display: grid; gap: .38rem; max-width: 46rem; margin-top: 1rem; padding: .9rem; border: 1px solid rgba(53, 212, 194, .48); border-left: .28rem solid var(--teal); border-radius: .5rem; background: linear-gradient(135deg, rgba(53, 212, 194, .14), rgba(10, 18, 16, .88)); box-shadow: 0 .9rem 2rem rgba(0,0,0,.18); }
+    .owner-support-callout strong { color: var(--text); font-size: 1.02rem; }
+    .owner-support-callout p { margin: 0; color: #d7e4dc; }
+    .owner-support-callout small { color: var(--teal); font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
     .setup-panel, .band, .feature {
       border: 1px solid var(--line);
       background: var(--panel);
@@ -2178,6 +2182,13 @@ PUBLIC_LANDING_TEMPLATE = """
           {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Join support Discord</a>{% endif %}
           {% if support_email %}<a class="button" href="mailto:{{ support_email }}">Email support</a>{% endif %}
         </div>
+        {% if page.path == "/" %}
+        <aside class="owner-support-callout" aria-label="Discord owner support">
+          <small>Owner support is built in</small>
+          <strong>Need help after adding the bot? Open a ticket straight from your Discord.</strong>
+          <p>Any server administrator can use <code>/supportbot issue:describe the problem</code>. It sends your issue directly to the Wandering Bot owner and keeps the reply in your server’s support ticket.</p>
+        </aside>
+        {% endif %}
         <div class="features">
           {% for feature in page.features %}
           <div class="feature"><strong>{{ feature[0] }}</strong><span>{{ feature[1] }}</span></div>

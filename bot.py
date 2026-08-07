@@ -17290,6 +17290,49 @@ async def announce_slash_sync_status(guild, synced_commands):
         print(f"GUILD SLASH SYNC STATUS ERROR {guild.id}: {status_error}")
 
 
+async def announce_new_guild_owner_support(guild, fallback_channel=None):
+    """Tell a new server owner how to contact support without cluttering feeds."""
+    embed = discord.Embed(
+        title="OWNER SUPPORT IS READY",
+        description=(
+            "Need a hand with setup, feeds, billing, files, events or the dashboard? "
+            "You can open a ticket with the Wandering Bot owner directly from this Discord server."
+        ),
+        color=0x35D4C2,
+    )
+    embed.add_field(
+        name="Open a support ticket",
+        value="`/supportbot issue:describe the problem`\nOnly server administrators can open tickets.",
+        inline=False,
+    )
+    embed.add_field(
+        name="What happens next",
+        value=(
+            "Your issue is sent to the bot owner. Replies are kept in your server's "
+            "support ticket so your staff can follow the conversation."
+        ),
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    embed.set_footer(text="Wandering Bot - Owner Support")
+
+    owner = getattr(guild, "owner", None)
+    if owner and hasattr(owner, "send"):
+        try:
+            await owner.send(embed=style_embed(embed))
+            return "direct_message"
+        except Exception as error:
+            print(f"[OWNER SUPPORT] could not DM owner for {getattr(guild, 'id', '')}: {error}")
+
+    if fallback_channel:
+        try:
+            await fallback_channel.send(embed=style_embed(embed))
+            return "company_announcements"
+        except Exception as error:
+            print(f"[OWNER SUPPORT] could not post support note for {getattr(guild, 'id', '')}: {error}")
+    return ""
+
+
 @bot.event
 async def on_guild_join(guild):
 
@@ -17490,6 +17533,8 @@ async def on_guild_join(guild):
         pass
 
     save_guild_configs()
+
+    await announce_new_guild_owner_support(guild, company_announcements)
 
     try:
         await publish_bot_update_notes(guild, guild_configs[guild_id])
