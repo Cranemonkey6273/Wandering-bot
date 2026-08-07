@@ -433,6 +433,63 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(all(event["zombie_min_count"] == 3 and event["zombie_max_count"] == 10 for event in profile["scenario_events"]))
         self.assertTrue(all(event["permanent"] for event in profile["scenario_events"]))
 
+    def test_random_airdrop_pool_creates_one_native_ce_event(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "airdrop",
+            "spawn_preset": "military_crate",
+            "location_mode": "random_pool",
+            "location_pool": "NWAF, 4481, 10355, 15\nTisy, 1612, 14175, 120\nSkalisty, 13532, 3131, 240",
+            "permanent": "true",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_runtime_scenario_uploader_error", return_value=""),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload", return_value=True),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event()
+
+        body = response["args"][0]
+        self.assertTrue(body["ok"])
+        self.assertEqual(1, body["created_count"])
+        event = profile["scenario_events"][0]
+        self.assertEqual("random_pool", event["location_mode"])
+        self.assertEqual(3, len(event["location_pool"]))
+        self.assertFalse(event["use_delivery_bridge"], "the delivery bridge would spawn every candidate")
+        self.assertEqual((4481, 10355), (event["x"], event["z"]))
+
+    def test_random_airdrop_pool_requires_two_unique_locations(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "airdrop",
+            "location_mode": "random_pool",
+            "location_pool": "NWAF, 4481, 10355\nDuplicate NWAF, 4481, 10355",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+        ):
+            response, status = dashboard.api_scenario_event()
+
+        self.assertEqual(400, status)
+        self.assertIn("at least two", response["args"][0]["error"].lower())
+
     def test_native_event_delete_starts_guarded_cleanup_immediately(self):
         configs = {"guild-1": {}}
         profile = {"scenario_events": [{"id": 37, "created_by": "dashboard", "native_ce_uploaded_at": "2026-08-03T10:00:00+00:00"}]}

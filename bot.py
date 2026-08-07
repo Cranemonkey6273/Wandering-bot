@@ -34858,6 +34858,47 @@ def active_scenario_events(config):
     ]
 
 
+def scenario_event_location_pool(event):
+    """Return safe CE positions for a single random-location scenario event.
+
+    DayZ's native CE selects from multiple ``cfgeventspawns.xml`` positions
+    while the matching event definition stays nominal/min/max 1.  That is the
+    only safe console implementation: it does not need a background rewrite
+    or a server restart for every airdrop cycle.
+    """
+    if not isinstance(event, dict):
+        return []
+    if str(event.get("location_mode") or "").strip().lower() != "random_pool":
+        return []
+    if str(event.get("event_type") or "").strip().lower() not in {"airdrop", "loot_crate"}:
+        return []
+
+    raw_locations = event.get("location_pool")
+    if not isinstance(raw_locations, list):
+        return []
+    locations = []
+    seen = set()
+    for raw in raw_locations[:50]:
+        if not isinstance(raw, dict):
+            continue
+        x = parse_dayz_map_number(raw.get("x"))
+        z = parse_dayz_map_number(raw.get("z"))
+        if x is None or z is None or x < 0 or z < 0 or x > 30000 or z > 30000:
+            continue
+        angle = parse_dayz_map_number(raw.get("angle", raw.get("a", 0))) or 0
+        key = (round(x, 3), round(z, 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({
+            "name": str(raw.get("name") or f"{ce_decimal(x)}, {ce_decimal(z)}")[:80],
+            "x": x,
+            "z": z,
+            "angle": angle % 360,
+        })
+    return locations if len(locations) >= 2 else []
+
+
 def is_economy_vehicle_reset_event(event):
     return (
         str(event.get("event_type") or "") == "vehicle_reset_all"
@@ -38621,16 +38662,17 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
     radius = max(0, int(radius or 0))
     if clear_existing:
         remove_wandering_marked_spawn_children(event_node)
-    if not group_name and event_name.startswith("Static") and is_wandering_managed_name(event_name):
+    if clear_existing and not group_name and event_name.startswith("Static") and is_wandering_managed_name(event_name):
         for child in list(event_node):
             if getattr(child, "tag", "") in {"pos", "zone"}:
                 event_node.remove(child)
     remove_matching_console_ce_spawn_children(event_node, x, z, radius, group_name)
     # DayZ samples terrain height for cfgeventspawns positions; forcing y can reject spawns.
     if group_name:
-        for child in list(event_node):
-            if getattr(child, "tag", "") in {"pos", "zone"}:
-                event_node.remove(child)
+        if clear_existing:
+            for child in list(event_node):
+                if getattr(child, "tag", "") in {"pos", "zone"}:
+                    event_node.remove(child)
         attrs = {
             "x": ce_decimal(x),
             "z": ce_decimal(z),
@@ -39588,6 +39630,7 @@ def console_ce_records_for_event(event, map_key=""):
     event_name_override = ""
     records = []
     warnings = []
+    location_pool = scenario_event_location_pool(event)
 
     if event_type in {"vehicle_reset_all", "vehicle_reset_point"}:
         warnings.append(
@@ -39816,6 +39859,9 @@ def console_ce_records_for_event(event, map_key=""):
         "x": event.get("x"),
         "y": event.get("y"),
         "z": event.get("z"),
+        # A single CE definition with several positions keeps nominal at one,
+        # so an airdrop pool never creates all of its candidates at once.
+        "spawn_positions": location_pool,
         "radius": event.get("radius"),
         "use_eventgroup": use_eventgroup,
         "limit_type": limit_type,
@@ -39901,14 +39947,22 @@ def console_ce_records_for_event(event, map_key=""):
     records.append(record)
 
     if event_type == "airdrop":
-        guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
-        if guard_warning:
-            warnings.append(guard_warning)
-        if guard_record:
-            records.append(guard_record)
+        # A separate infected CE event would choose independently from the
+        # airdrop's location pool, so it could put guards at a different
+        # candidate.  Omit guards rather than producing a misleading scene.
+        if location_pool and safe_int(event.get("guard_count"), 0) > 0:
             warnings.append(
-                f"`{event.get('id')}` creates infected guard event `{guard_record['name']}` separate from the Static airdrop loot event."
+                f"`{event.get('id')}` uses a native random location pool; infected guards were not generated because separate CE events cannot reliably share the selected pool position."
             )
+        elif not location_pool:
+            guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
+            if guard_warning:
+                warnings.append(guard_warning)
+            if guard_record:
+                records.append(guard_record)
+                warnings.append(
+                    f"`{event.get('id')}` creates infected guard event `{guard_record['name']}` separate from the Static airdrop loot event."
+                )
         marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
@@ -39920,6 +39974,10 @@ def console_ce_records_for_event(event, map_key=""):
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
             warnings.append(
                 f"`{event.get('id')}` has loot preset `{event.get('loot_preset')}` but no resolved loot items, so the crate event will spawn without cargo."
+            )
+        if location_pool:
+            warnings.append(
+                f"`{event.get('id')}` writes one nominal-1 airdrop definition with {len(location_pool)} `cfgeventspawns.xml` candidates. DayZ CE randomly chooses a candidate at each respawn; native console CE cannot guarantee a no-repeat shuffle."
             )
 
     if event_type == "vehicle_spawn" and event.get("vehicle_condition") and event.get("vehicle_condition") != "no_parts":
@@ -40320,20 +40378,31 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         if record.get("skip_spawn"):
             continue
         spawn_name = str(record.get("name") or "").strip()
-        add_console_ce_event_spawn(
-            spawns_root,
-            spawn_name,
-            record["x"],
-            record["z"],
-            y=record.get("y"),
-            count=record["count"],
-            radius=record.get("radius") or 45,
-            group_name=record["name"] if record.get("use_eventgroup") else "",
-            empty=bool(record.get("empty_spawn")),
-            vehicle_exclusion_center=record.get("vehicle_exclusion_center"),
-            vehicle_exclusion_radius=record.get("vehicle_exclusion_radius", 0),
-            clear_existing=spawn_name not in spawn_names_seen,
-        )
+        positions = record.get("spawn_positions")
+        if not isinstance(positions, list) or not positions:
+            positions = [{
+                "x": record.get("x"),
+                "z": record.get("z"),
+                "angle": record.get("angle", 0),
+            }]
+        for position_index, position in enumerate(positions):
+            if not isinstance(position, dict):
+                continue
+            add_console_ce_event_spawn(
+                spawns_root,
+                spawn_name,
+                position.get("x", record.get("x")),
+                position.get("z", record.get("z")),
+                angle=position.get("angle", position.get("a", record.get("angle", 0))),
+                y=record.get("y"),
+                count=record["count"],
+                radius=record.get("radius") or 45,
+                group_name=record["name"] if record.get("use_eventgroup") else "",
+                empty=bool(record.get("empty_spawn")),
+                vehicle_exclusion_center=record.get("vehicle_exclusion_center"),
+                vehicle_exclusion_radius=record.get("vehicle_exclusion_radius", 0),
+                clear_existing=spawn_name not in spawn_names_seen and position_index == 0,
+            )
         spawn_names_seen.add(spawn_name)
 
     messages = [
@@ -42059,6 +42128,7 @@ def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path=
 def _scenario_notice_event_summary(event):
     if not isinstance(event, dict):
         return {}
+    pool = scenario_event_location_pool(event)
     return {
         "id": event.get("id", ""),
         "name": event.get("name", ""),
@@ -42070,6 +42140,7 @@ def _scenario_notice_event_summary(event):
         "permanent": bool(event.get("permanent")),
         "status": event.get("status", ""),
         "runs": event.get("remaining_restarts", event.get("runs", "")),
+        "location_pool_count": len(pool),
     }
 
 
@@ -42103,6 +42174,9 @@ def _scenario_notice_event_line(event, guild_id):
     radius = str(event.get("radius") or "").strip()
     mode = "permanent" if event.get("permanent") else f"{event.get('runs') or 1} run(s)"
     radius_text = f" · r{radius}m" if radius else ""
+    pool_count = safe_int(event.get("location_pool_count"), 0)
+    pool_text = f" / random pool: {pool_count} locations" if pool_count > 1 else ""
+    radius_text += pool_text
     return (
         f"- {_scenario_notice_type_icon(event_type)} **{name}** `{event_type}` / `{class_name}` "
         f"at {_scenario_notice_coord_text(event, guild_id)}{radius_text} · {mode}"

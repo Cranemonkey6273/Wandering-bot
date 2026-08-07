@@ -122,6 +122,50 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual("Wreck_Mi8_Crashed", child.get("type"))
         self.assertGreater(int(child.get("lootmax") or 0), 0)
 
+    def test_random_airdrop_location_pool_uses_one_definition_and_many_ce_positions(self):
+        event = _base_event(
+            57,
+            "airdrop",
+            "Wreck_Mi8_Crashed",
+            location_mode="random_pool",
+            location_pool=[
+                {"name": "NWAF", "x": 4481, "z": 10355, "angle": 15},
+                {"name": "Tisy", "x": 1612, "z": 14175, "angle": 120},
+                {"name": "Skalisty", "x": 13532, "z": 3131, "angle": 240},
+            ],
+            guard_class="ZmbM_SoldierNormal",
+            guard_count=8,
+        )
+
+        records, warnings = bot.console_ce_records_for_event(event)
+
+        self.assertEqual(1, len(records), "pool guards must not become a second independently-random event")
+        record = records[0]
+        self.assertEqual(3, len(record["spawn_positions"]))
+        self.assertTrue(any("cannot reliably share" in warning for warning in warnings))
+        self.assertTrue(any("one nominal-1 airdrop definition" in warning for warning in warnings))
+
+        spawns_root = ET.Element("eventposdef")
+        for index, position in enumerate(record["spawn_positions"]):
+            bot.add_console_ce_event_spawn(
+                spawns_root,
+                record["name"],
+                position["x"],
+                position["z"],
+                angle=position["angle"],
+                count=record["count"],
+                radius=record["radius"],
+                clear_existing=index == 0,
+            )
+
+        positions = spawns_root.findall("event/pos")
+        self.assertEqual(3, len(positions))
+        self.assertEqual(
+            {("4481", "10355", "15"), ("1612", "14175", "120"), ("13532", "3131", "240")},
+            {(node.get("x"), node.get("z"), node.get("a")) for node in positions},
+        )
+        self.assertTrue(all("y" not in node.attrib for node in positions))
+
     def test_airdrop_vanilla_mi8_timing_preserves_large_radii(self):
         event = _base_event(
             30,
@@ -1340,6 +1384,68 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertTrue(built.get("mapgroupproto_context_text"))
         proto_after = ET.fromstring(built["mapgroupproto_context_text"])
         self.assertIsNotNone(proto_after.find("./group[@name='Wreck_Mi8_Crashed']"))
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertTrue(ok, "\n".join(messages))
+
+    def test_native_airdrop_location_pool_emits_all_candidates_in_one_spawn_block(self):
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        proto_root = ET.Element("prototype")
+        proto_root.append(bot.dayz_reference_mapgroupproto_group("chernarus", "Wreck_Mi8_Crashed"))
+        sources = {
+            "events_path": ("<events></events>", f"{base_path}/db/events.xml"),
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": (bot.xml_text_from_root(proto_root), f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    57,
+                    "airdrop",
+                    "Wreck_Mi8_Crashed",
+                    location_mode="random_pool",
+                    location_pool=[
+                        {"name": "NWAF", "x": 4481, "z": 10355},
+                        {"name": "Tisy", "x": 1612, "z": 14175},
+                        {"name": "Skalisty", "x": 13532, "z": 3131},
+                    ],
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        event_node = events_root.find("./event[@name='StaticWanderingBot_57_airdrop']")
+        self.assertIsNotNone(event_node)
+        self.assertEqual("1", event_node.findtext("nominal"))
+        spawns_root = ET.fromstring(built["spawns_text"])
+        positions = spawns_root.findall("./event[@name='StaticWanderingBot_57_airdrop']/pos")
+        self.assertEqual(3, len(positions))
+        self.assertEqual(
+            {("4481", "10355"), ("1612", "14175"), ("13532", "3131")},
+            {(node.get("x"), node.get("z")) for node in positions},
+        )
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
