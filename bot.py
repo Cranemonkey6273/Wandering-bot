@@ -5469,20 +5469,11 @@ async def apply_member_onboarding_link_role(guild, config, member):
         return False
     changed = await add_onboarding_role(member, settings.get("linked_role_id"), "Wandering Bot gamertag linked")
     await remove_onboarding_role(member, settings.get("pending_role_id"), "Wandering Bot gamertag linked")
-    if changed:
-        channel = resolve_onboarding_channel(guild, config, settings, "next", "general_chat") or resolve_onboarding_channel(guild, config, settings, "rules", "welcome")
-        if channel:
-            embed = discord.Embed(
-                title="GAMERTAG LINK COMPLETE",
-                description=f"{member.mention}\n\n{settings['linked_message']}",
-                color=0x00D1B2,
-            )
-            embed.set_thumbnail(url=BOT_IMAGE)
-            embed.set_footer(text="Wandering Bot - Member Onboarding")
-            try:
-                await channel.send(embed=style_embed(embed), allowed_mentions=discord.AllowedMentions(users=True, roles=False, everyone=False))
-            except Exception as error:
-                print(f"[ONBOARDING] linked notice failed for {member}: {error}")
+    # A verified link is announced exactly once by announce_verified_gamer_link()
+    # in the dedicated Linked Players feed.  The old role-completion message
+    # used the configurable "next" onboarding channel, which can legitimately
+    # be the Pick Your Poison reaction panel.  That made the picker noisy and
+    # produced a duplicate notification for every successful link.
     return changed
 
 

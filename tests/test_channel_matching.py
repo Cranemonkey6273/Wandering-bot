@@ -613,6 +613,33 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual(1, len(audit_channel.sent))
         self.assertEqual(1, len(next_channel.sent))
 
+    def test_onboarding_link_completion_does_not_post_in_choice_picker(self):
+        linked_role = FakeRole("Linked Player", 104)
+        member = FakeMember([], member_id=555)
+        choice_channel = FakeFetchChannel("pick-your-poison", 20, [])
+        guild = FakeOnboardingGuild(
+            [choice_channel],
+            roles=[linked_role],
+            member=member,
+        )
+        member.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "linked_role_id": "104",
+                # This deliberately mirrors a real setup where the next
+                # onboarding channel is the role picker.
+                "next_channel_id": "20",
+                "choice_channel_id": "20",
+            },
+        }
+
+        changed = asyncio.run(bot.apply_member_onboarding_link_role(guild, config, member))
+
+        self.assertTrue(changed)
+        self.assertTrue(bot.member_has_role_id(member, "104"))
+        self.assertEqual([], choice_channel.sent)
+
     def test_onboarding_choice_add_reports_role_hierarchy_failure_without_welcome(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)
