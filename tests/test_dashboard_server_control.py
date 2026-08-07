@@ -444,6 +444,8 @@ class DashboardServerControlTests(unittest.TestCase):
             "spawn_preset": "military_crate",
             "location_mode": "random_pool",
             "location_pool": "NWAF, 4481, 10355, 15\nTisy, 1612, 14175, 120\nSkalisty, 13532, 3131, 240",
+            "active_count": "2",
+            "pool_duration_minutes": "30",
             "permanent": "true",
         }
 
@@ -465,8 +467,33 @@ class DashboardServerControlTests(unittest.TestCase):
         event = profile["scenario_events"][0]
         self.assertEqual("random_pool", event["location_mode"])
         self.assertEqual(3, len(event["location_pool"]))
+        self.assertEqual(2, event["active_count"])
+        self.assertEqual(1800, event["lifetime"])
         self.assertFalse(event["use_delivery_bridge"], "the delivery bridge would spawn every candidate")
         self.assertEqual((4481, 10355), (event["x"], event["z"]))
+
+    def test_random_airdrop_pool_rejects_more_active_drops_than_locations(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "airdrop",
+            "location_mode": "random_pool",
+            "location_pool": "NWAF, 4481, 10355\nTisy, 1612, 14175",
+            "active_count": "3",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+        ):
+            response, status = dashboard.api_scenario_event()
+
+        self.assertEqual(400, status)
+        self.assertIn("active airdrops", response["args"][0]["error"].lower())
 
     def test_random_airdrop_pool_requires_two_unique_locations(self):
         configs = {"guild-1": {"channels": {}}}

@@ -133,6 +133,7 @@ class AirdropEventGroupTests(unittest.TestCase):
                 {"name": "Tisy", "x": 1612, "z": 14175, "angle": 120},
                 {"name": "Skalisty", "x": 13532, "z": 3131, "angle": 240},
             ],
+            active_count=2,
             guard_class="ZmbM_SoldierNormal",
             guard_count=8,
         )
@@ -142,8 +143,12 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual(1, len(records), "pool guards must not become a second independently-random event")
         record = records[0]
         self.assertEqual(3, len(record["spawn_positions"]))
+        self.assertEqual(1, record["count"], "each selected location must receive one airdrop scene")
+        self.assertEqual(2, record["nominal"])
+        self.assertEqual(2, record["min_count"])
+        self.assertEqual(2, record["max_count"])
         self.assertTrue(any("cannot reliably share" in warning for warning in warnings))
-        self.assertTrue(any("one nominal-1 airdrop definition" in warning for warning in warnings))
+        self.assertTrue(any("one nominal-2 airdrop definition" in warning for warning in warnings))
 
         spawns_root = ET.Element("eventposdef")
         for index, position in enumerate(record["spawn_positions"]):
@@ -1428,6 +1433,7 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
                         {"name": "Tisy", "x": 1612, "z": 14175},
                         {"name": "Skalisty", "x": 13532, "z": 3131},
                     ],
+                    active_count=2,
                 )
             ],
         }
@@ -1438,7 +1444,13 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         events_root = ET.fromstring(built["events_text"])
         event_node = events_root.find("./event[@name='StaticWanderingBot_57_airdrop']")
         self.assertIsNotNone(event_node)
-        self.assertEqual("1", event_node.findtext("nominal"))
+        self.assertEqual("2", event_node.findtext("nominal"))
+        self.assertEqual("2", event_node.findtext("min"))
+        self.assertEqual("2", event_node.findtext("max"))
+        child = event_node.find("./children/child")
+        self.assertIsNotNone(child)
+        self.assertEqual("1", child.get("min"))
+        self.assertEqual("1", child.get("max"))
         spawns_root = ET.fromstring(built["spawns_text"])
         positions = spawns_root.findall("./event[@name='StaticWanderingBot_57_airdrop']/pos")
         self.assertEqual(3, len(positions))

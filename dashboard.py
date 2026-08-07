@@ -9525,7 +9525,7 @@ PAGE_TEMPLATE = """
 
     {% if mode in ["admin", "owner"] and active_section == "pve" %}
     {% set edit_event_key = request.args.get('edit_event', '') %}
-    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', preset='military_crate', class_name=airdrop_marker_class, x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, timing_preset='vanilla_mi8', lifetime=2100, restock=0, saferadius=1000, distanceradius=1000, cleanupradius=1000, gas_lifetime=1800, gas_particle='server_default', location_mode='fixed', location_pool=[]) %}
+    {% set edit_event = namespace(id='', name='Supply drop', event_type='airdrop', preset='military_crate', class_name=airdrop_marker_class, x=7500, y=0, z=7500, count=1, radius=35, permanent='false', restarts=1, loot_preset='none', loot_count_range='default', loot_mix={}, visual_marker='true', scene_type='compact_crater', guard_class='ZmbM_SoldierNormal', guard_count=8, guard_radius=35, timing_preset='vanilla_mi8', lifetime=2100, restock=0, saferadius=1000, distanceradius=1000, cleanupradius=1000, gas_lifetime=1800, gas_particle='server_default', location_mode='fixed', location_pool=[], active_count=1) %}
     {% if server and edit_event_key %}
       {% for event in server.scenario_events %}
         {% if event.id|string == edit_event_key or event.name == edit_event_key %}
@@ -9565,6 +9565,7 @@ PAGE_TEMPLATE = """
           {% set edit_event.gas_particle = event.gas_particle or 'server_default' %}
           {% set edit_event.location_mode = event.location_mode or 'fixed' %}
           {% set edit_event.location_pool = event.location_pool or [] %}
+          {% set edit_event.active_count = event.active_count or 1 %}
         {% endif %}
       {% endfor %}
     {% endif %}
@@ -9685,14 +9686,24 @@ PAGE_TEMPLATE = """
             <label>Airdrop location plan
               <select name="location_mode" data-scenario-location-mode>
                 <option value="fixed" {% if edit_event.location_mode != 'random_pool' %}selected{% endif %}>One fixed location</option>
-                <option value="random_pool" {% if edit_event.location_mode == 'random_pool' %}selected{% endif %}>Random pool (one active drop)</option>
+                <option value="random_pool" {% if edit_event.location_mode == 'random_pool' %}selected{% endif %}>Random location pool</option>
               </select>
-              <small class="field-help">Random pools are for airdrop loot only.</small>
+              <small class="field-help">Random pools are for airdrop loot only. Choose how many drops stay active below.</small>
             </label>
             <label class="full" data-scenario-location-pool-row>
-              <span>Random airdrop location pool</span>
-              <textarea name="location_pool" data-scenario-location-pool placeholder="Skalisty Island, 13532, 3131&#10;NWAF, 4481, 10355&#10;Tisy, 1612, 14175">{% for location in edit_event.location_pool %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea>
-              <small class="field-help">🗺️ One per line: name, X, Z, optional heading. DayZ CE uses one candidate at a time whenever the event respawns. Native console CE is random, so it cannot guarantee a no-repeat shuffle.</small>
+              <span>Random airdrop locations</span>
+              <input type="hidden" name="location_pool" data-scenario-location-pool value="{% for location in edit_event.location_pool %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
+              <div class="mini-grid" data-scenario-location-pool-rows></div>
+              <button type="button" data-add-scenario-location>Add location</button>
+              <small class="field-help">🗺️ Each card is one possible location: give it an optional name, X, Z and heading. Add at least two different locations.</small>
+            </label>
+            <label data-scenario-location-pool-row>Airdrops active at once
+              <input name="active_count" data-scenario-active-count type="number" min="1" max="50" value="{{ edit_event.active_count }}">
+              <small class="field-help">For example: 10 active drops from 15 saved locations. This never exceeds the number of locations.</small>
+            </label>
+            <label data-scenario-location-pool-row>Each drop stays for minutes
+              <input name="pool_duration_minutes" type="number" min="1" max="10080" value="{{ [1, (edit_event.lifetime|int // 60)]|max }}">
+              <small class="field-help">After this CE lifetime, DayZ replaces the drop from the location pool. The default is 35 minutes.</small>
             </label>
             <div class="full" data-zombie-mix-builder>
               <h4>Zombie Horde Mix</h4>
@@ -9835,10 +9846,10 @@ PAGE_TEMPLATE = """
               {% for event in (server.scenario_events if server else []) %}
               {% set status_display = event.status_display or {} %}
               <tr class="{% if status_display.state %}status-{{ status_display.state }}{% endif %}" data-scenario-event-row="{{ event.id }}" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{% if event.location_mode == 'random_pool' and event.location_pool %}<strong>Random pool</strong><br><small class="muted">{{ event.location_pool|length }} locations · one active</small>{% else %}{{ event.x }}, {{ event.z }}{% endif %}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{% if event.location_mode == 'random_pool' and event.location_pool %}<strong>Random pool</strong><br><small class="muted">{{ event.active_count or 1 }} active · {{ event.location_pool|length }} locations</small>{% else %}{{ event.x }}, {{ event.z }}{% endif %}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
-                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ dashboard_scenario_preset(event) }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-timing-preset="{{ event.timing_preset or 'custom' }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}" data-location-mode="{{ event.location_mode or 'fixed' }}" data-location-pool-text="{% for location in event.location_pool or [] %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}">Edit</a>
+                    <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ dashboard_scenario_preset(event) }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-timing-preset="{{ event.timing_preset or 'custom' }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}" data-location-mode="{{ event.location_mode or 'fixed' }}" data-active-count="{{ event.active_count or 1 }}" data-location-pool-text="{% for location in event.location_pool or [] %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}">Edit</a>
                     {% for action, label in [('upload', 'Retry'), ('pause', 'Pause'), ('cancel', 'Cancel'), ('delete', 'Delete')] %}
                     {% if action != 'upload' or (event.upload_status in ['failed', 'blocked', 'waiting_for_bot_upload', 'queued', 'uploading', 'starting'] and not event.native_ce_uploaded_at and not event.bridge_uploaded_at) %}
                     <form class="admin-form inline-action" action="/api/admin/scenario-event-action" method="post" data-route="/api/admin/scenario-event-action" data-scenario-action-form="true" {% if action in ['cancel', 'delete'] %}data-confirm="{{ 'Delete' if action == 'delete' else 'Cancel' }} event {{ event.name }} for this server? This will also rebuild native CE XML without that event when possible."{% endif %}>
@@ -9862,7 +9873,7 @@ PAGE_TEMPLATE = """
                     {% if event.native_ce_mission_folder %}<span><strong>Mission</strong> {{ event.native_ce_mission_folder }}</span>{% endif %}
                     {% if event.native_ce_restart_required %}<span class="event-chip-warn"><strong>Restart</strong> one server restart needed</span>{% endif %}
                     {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names|length }} managed</span>{% endif %}
-                    {% if event.location_mode == 'random_pool' and event.location_pool %}<span class="event-chip-warn"><strong>Location pool</strong> {{ event.location_pool|length }} candidates · DayZ chooses one per respawn</span>{% endif %}
+                    {% if event.location_mode == 'random_pool' and event.location_pool %}<span class="event-chip-warn"><strong>Location pool</strong> {{ event.active_count or 1 }} active · {{ event.location_pool|length }} candidates · DayZ selects locations on respawn</span>{% endif %}
                     {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_types_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths %}<span class="event-chip-path"><strong>Files</strong> open details</span>{% endif %}
                     {% if event.upload_error %}<span class="event-chip-bad"><strong>Error</strong> open details</span>{% endif %}
                     {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_types_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths or event.upload_error %}
@@ -12258,8 +12269,9 @@ PAGE_TEMPLATE = """
           <h3>PVE Airdrops</h3>
           <ol>
             <li>Use Saved location for common places, or type exact iZurvive X/Z coordinates.</li>
-            <li>Choose Random pool when one airdrop should rotate between several locations with the same loot settings.</li>
-            <li>Enter one candidate per line: name, X, Z, optional heading. DayZ CE chooses one candidate when the event respawns; console CE cannot promise a no-repeat order.</li>
+            <li>Choose Random location pool when the same airdrop should rotate between several locations.</li>
+            <li>Add each candidate in its own card, then choose the number of airdrops active at once. For example, 10 active drops can be drawn from 15 locations.</li>
+            <li>Set how many minutes each drop stays. DayZ CE refills the selected active count after cleanup and randomly selects candidates; console CE cannot promise a no-repeat order.</li>
             <li>The dashboard saves the event immediately and asks the bot to upload native CE XML in the background.</li>
             <li>Console airdrops apply after server restart because they use events.xml, cfgeventspawns.xml, and eventgroups.xml.</li>
           </ol>
@@ -18234,6 +18246,11 @@ PAGE_TEMPLATE = """
         if (form.elements.gas_particle) form.elements.gas_particle.value = button.dataset.gasParticle || "server_default";
         if (form.elements.location_mode) form.elements.location_mode.value = button.dataset.locationMode || "fixed";
         if (form.elements.location_pool) form.elements.location_pool.value = button.dataset.locationPoolText || "";
+        if (form.elements.active_count) form.elements.active_count.value = button.dataset.activeCount || 1;
+        if (form.elements.pool_duration_minutes) {
+          const lifetime = Number(button.dataset.lifetime || 2100) || 2100;
+          form.elements.pool_duration_minutes.value = Math.max(1, Math.round(lifetime / 60));
+        }
         form.dispatchEvent(new CustomEvent("scenario-prefill"));
         form.classList.add("dashboard-edit-modal");
         form.scrollIntoView({behavior: "smooth", block: "start"});
@@ -18485,16 +18502,103 @@ PAGE_TEMPLATE = """
       }
       select.addEventListener("change", syncScenarioLocation);
     });
+    document.querySelectorAll("[data-scenario-location-pool-rows]").forEach((rows) => {
+      const form = rows.closest("form");
+      const hidden = form?.querySelector("[data-scenario-location-pool]");
+      const addButton = form?.querySelector("[data-add-scenario-location]");
+      const activeCount = form?.querySelector("[data-scenario-active-count]");
+      if (!form || !hidden || !addButton) return;
+
+      function cards() {
+        return Array.from(rows.querySelectorAll("[data-scenario-location-card]"));
+      }
+      function field(card, name) {
+        return card.querySelector(`[data-scenario-location-${name}]`);
+      }
+      function normalNumber(value) {
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.round(number) : "";
+      }
+      function syncHidden() {
+        const values = cards().map((card) => {
+          const name = String(field(card, "name")?.value || "").trim().replace(/[\\r\\n,;|]+/g, " ");
+          const x = normalNumber(field(card, "x")?.value);
+          const z = normalNumber(field(card, "z")?.value);
+          const angle = normalNumber(field(card, "angle")?.value);
+          if (x === "" || z === "") return "";
+          return [name || `${x}, ${z}`, x, z, angle === "" ? 0 : angle].join(", ");
+        }).filter(Boolean);
+        hidden.value = values.join("\\n");
+        if (activeCount) {
+          const maximum = Math.max(1, cards().length);
+          activeCount.max = String(maximum);
+          const requested = Math.max(1, Number(activeCount.value || 1) || 1);
+          if (requested > maximum) activeCount.value = String(maximum);
+        }
+      }
+      function addCard(location = {}) {
+        const card = document.createElement("article");
+        card.className = "admin-panel";
+        card.dataset.scenarioLocationCard = "true";
+        card.innerHTML = `
+          <div class="section-head"><strong>Possible drop location</strong><button type="button" class="danger" data-remove-scenario-location>Remove</button></div>
+          <div class="mini-grid">
+            <label>Name <input type="text" maxlength="80" data-scenario-location-name placeholder="NWAF"></label>
+            <label>X coordinate <input type="number" min="0" max="30000" data-scenario-location-x placeholder="4481"></label>
+            <label>Z coordinate <input type="number" min="0" max="30000" data-scenario-location-z placeholder="10355"></label>
+            <label>Heading <input type="number" min="0" max="359" data-scenario-location-angle value="0"></label>
+          </div>`;
+        field(card, "name").value = location.name || "";
+        field(card, "x").value = location.x ?? "";
+        field(card, "z").value = location.z ?? "";
+        field(card, "angle").value = location.angle ?? 0;
+        card.querySelector("[data-remove-scenario-location]").addEventListener("click", () => {
+          card.remove();
+          syncHidden();
+        });
+        card.querySelectorAll("input").forEach((input) => input.addEventListener("input", syncHidden));
+        rows.append(card);
+        syncHidden();
+      }
+      function parseLocations(text) {
+        return String(text || "").split(/\\r?\\n/).map((line) => {
+          const parts = line.split(/[,;|\\t]+/).map((item) => item.trim()).filter(Boolean);
+          const numbers = parts.filter((item) => /^-?\\d+(?:\\.\\d+)?$/.test(item));
+          const words = parts.filter((item) => !/^-?\\d+(?:\\.\\d+)?$/.test(item));
+          if (numbers.length < 2) return null;
+          return {name: words.join(" "), x: numbers[0], z: numbers[1], angle: numbers[2] || 0};
+        }).filter(Boolean);
+      }
+      function ensureMinimumCards() {
+        while (cards().length < 2) addCard({});
+      }
+      function renderCards(text, addDefaults = true) {
+        rows.replaceChildren();
+        const locations = parseLocations(text);
+        locations.forEach((location) => addCard(location));
+        if (!locations.length && addDefaults) ensureMinimumCards();
+        syncHidden();
+      }
+      rows._ensureScenarioLocationCards = ensureMinimumCards;
+      rows._renderScenarioLocationCards = renderCards;
+      addButton.addEventListener("click", () => addCard({}));
+      activeCount?.addEventListener("input", syncHidden);
+      form.addEventListener("scenario-prefill", () => renderCards(hidden.value));
+      form.addEventListener("submit", syncHidden);
+      renderCards(hidden.value);
+    });
     document.querySelectorAll("[data-scenario-location-mode]").forEach((select) => {
       const form = select.closest("form");
       if (!form) return;
       const typeSelect = form.querySelector("[data-scenario-type]");
-      const poolRow = form.querySelector("[data-scenario-location-pool-row]");
+      const poolRows = form.querySelectorAll("[data-scenario-location-pool-row]");
+      const locationCards = form.querySelector("[data-scenario-location-pool-rows]");
       function syncLocationPool() {
-        if (!poolRow) return;
         const eventType = String(typeSelect?.value || "airdrop").toLowerCase();
         const isAirdrop = eventType === "airdrop" || eventType === "loot_crate";
-        poolRow.hidden = !isAirdrop || select.value !== "random_pool";
+        const visible = isAirdrop && select.value === "random_pool";
+        poolRows.forEach((row) => { row.hidden = !visible; });
+        if (visible && locationCards?._ensureScenarioLocationCards) locationCards._ensureScenarioLocationCards();
       }
       select.addEventListener("change", syncLocationPool);
       typeSelect?.addEventListener("change", syncLocationPool);
@@ -42501,6 +42605,7 @@ def api_scenario_event():
     requested_location_mode = str(payload.get("location_mode") or "").strip().lower()
     location_mode = "random_pool" if requested_location_mode == "random_pool" else "fixed"
     location_pool: list[dict[str, Any]] = []
+    active_count = 1
     if event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool":
         location_pool = parse_scenario_location_pool(payload.get("location_pool"), map_size)
         if len(location_pool) < 2:
@@ -42508,12 +42613,18 @@ def api_scenario_event():
                 "ok": False,
                 "error": "A random airdrop pool needs at least two different in-map X/Z locations.",
             }), 400
+        active_count = max(1, min(50, safe_int(payload.get("active_count"), 1)))
+        if active_count > len(location_pool):
+            return jsonify({
+                "ok": False,
+                "error": f"You selected {active_count} active airdrops but only supplied {len(location_pool)} different locations. Add more locations or lower the active count.",
+            }), 400
         # One durable dashboard event, one DayZ CE definition and several
-        # cfgeventspawns positions.  Nominal remains one, so the server has
-        # only one instance of this airdrop alive at a time.
+        # cfgeventspawns positions.  Nominal/min/max is the requested active
+        # count, while each CE instance remains one complete airdrop scene.
         x = safe_int(location_pool[0].get("x"), x)
         z = safe_int(location_pool[0].get("z"), z)
-        location_name = f"Random pool ({len(location_pool)} locations)"
+        location_name = f"Random pool ({active_count} active / {len(location_pool)} locations)"
         location_records = [{"name": location_name, "x": x, "z": z}]
     else:
         # Keep existing API callers working: before the location-pool control
@@ -42592,6 +42703,9 @@ def api_scenario_event():
     }.get(event_type, 3600)
     event_lifetime_default = safe_int(timing_defaults.get("lifetime"), event_lifetime_default)
     raw_lifetime = safe_int(payload.get("lifetime"), event_lifetime_default)
+    pool_duration_minutes = safe_int(payload.get("pool_duration_minutes"), 0)
+    if location_pool and pool_duration_minutes > 0:
+        raw_lifetime = pool_duration_minutes * 60
     if event_type == "vehicle_spawn" and raw_lifetime == 7200:
         raw_lifetime = event_lifetime_default
     event_lifetime = max(60, min(3888000, raw_lifetime))
@@ -42726,6 +42840,7 @@ def api_scenario_event():
             "location": loc_name or "Dashboard",
             "location_mode": location_mode if event_type in {"airdrop", "loot_crate"} else "fixed",
             "location_pool": location_pool if event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool" else [],
+            "active_count": active_count if event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool" else 1,
             "x": max(0, min(map_size, safe_int(location.get("x"), x))),
             "y": safe_int(payload.get("y"), 0),
             "z": max(0, min(map_size, safe_int(location.get("z"), z))),
@@ -42817,6 +42932,7 @@ def api_scenario_event():
         "spawn_preset": event.get("preset"),
         "class_name": event.get("class_name"),
         "count": event.get("count"),
+        "active_count": event.get("active_count", 1),
         "created_count": len(created_events),
         "x": event.get("x"),
         "z": event.get("z"),

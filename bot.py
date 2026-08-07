@@ -34899,6 +34899,21 @@ def scenario_event_location_pool(event):
     return locations if len(locations) >= 2 else []
 
 
+def scenario_event_pool_active_count(event, locations=None):
+    """Return the safe number of concurrent CE instances for a location pool.
+
+    ``count`` remains the number of child objects in one scene.  A separate
+    active count is essential here: setting the child count to ten would put
+    ten wreck/crate scenes at one selected position instead of maintaining ten
+    airdrops across the candidate pool.
+    """
+    locations = scenario_event_location_pool(event) if locations is None else locations
+    if not locations:
+        return 1
+    requested = safe_int(event.get("active_count"), 1)
+    return max(1, min(len(locations), 50, requested))
+
+
 def is_economy_vehicle_reset_event(event):
     return (
         str(event.get("event_type") or "") == "vehicle_reset_all"
@@ -39631,6 +39646,7 @@ def console_ce_records_for_event(event, map_key=""):
     records = []
     warnings = []
     location_pool = scenario_event_location_pool(event)
+    pool_active_count = scenario_event_pool_active_count(event, location_pool)
 
     if event_type in {"vehicle_reset_all", "vehicle_reset_point"}:
         warnings.append(
@@ -39859,8 +39875,9 @@ def console_ce_records_for_event(event, map_key=""):
         "x": event.get("x"),
         "y": event.get("y"),
         "z": event.get("z"),
-        # A single CE definition with several positions keeps nominal at one,
-        # so an airdrop pool never creates all of its candidates at once.
+        # A single CE definition with several candidate positions keeps each
+        # child scene at one.  Nominal/min/max below controls how many of
+        # those airdrop scenes DayZ CE maintains concurrently.
         "spawn_positions": location_pool,
         "radius": event.get("radius"),
         "use_eventgroup": use_eventgroup,
@@ -39874,9 +39891,9 @@ def console_ce_records_for_event(event, map_key=""):
         "eventgroup_children": eventgroup_children,
         # Eventgroup-routed Static events resolve children from cfgeventgroups.xml.
         "empty_event_children": bool(use_eventgroup),
-        "nominal": 1 if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
-        "min_count": 1 if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
-        "max_count": 1 if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
+        "nominal": pool_active_count if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
+        "min_count": pool_active_count if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
+        "max_count": pool_active_count if event_type in {"airdrop", "loot_crate"} else (1 if use_eventgroup else None),
         "restock": restock,
         "saferadius": saferadius,
         "distanceradius": distanceradius,
@@ -39977,7 +39994,7 @@ def console_ce_records_for_event(event, map_key=""):
             )
         if location_pool:
             warnings.append(
-                f"`{event.get('id')}` writes one nominal-1 airdrop definition with {len(location_pool)} `cfgeventspawns.xml` candidates. DayZ CE randomly chooses a candidate at each respawn; native console CE cannot guarantee a no-repeat shuffle."
+                f"`{event.get('id')}` writes one nominal-{pool_active_count} airdrop definition with {len(location_pool)} `cfgeventspawns.xml` candidates. DayZ CE maintains up to {pool_active_count} active drops and randomly chooses candidates on respawn; native console CE cannot guarantee a no-repeat shuffle."
             )
 
     if event_type == "vehicle_spawn" and event.get("vehicle_condition") and event.get("vehicle_condition") != "no_parts":
@@ -42141,6 +42158,7 @@ def _scenario_notice_event_summary(event):
         "status": event.get("status", ""),
         "runs": event.get("remaining_restarts", event.get("runs", "")),
         "location_pool_count": len(pool),
+        "location_pool_active_count": scenario_event_pool_active_count(event, pool),
     }
 
 
@@ -42175,7 +42193,8 @@ def _scenario_notice_event_line(event, guild_id):
     mode = "permanent" if event.get("permanent") else f"{event.get('runs') or 1} run(s)"
     radius_text = f" · r{radius}m" if radius else ""
     pool_count = safe_int(event.get("location_pool_count"), 0)
-    pool_text = f" / random pool: {pool_count} locations" if pool_count > 1 else ""
+    pool_active_count = safe_int(event.get("location_pool_active_count"), 1)
+    pool_text = f" / random pool: {pool_active_count} active from {pool_count} locations" if pool_count > 1 else ""
     radius_text += pool_text
     return (
         f"- {_scenario_notice_type_icon(event_type)} **{name}** `{event_type}` / `{class_name}` "
