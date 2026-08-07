@@ -4397,6 +4397,54 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('class="ai-workspace-technical ai-side-technical"', dashboard.PAGE_TEMPLATE)
         self.assertIn("Technical workspace, files, changes &amp; run details", dashboard.PAGE_TEMPLATE)
 
+    def test_dayz_eval_lab_runs_offline_against_real_builders_and_records_a_clean_result(self):
+        state = dashboard.ai_agent_default_state()
+        result = dashboard.ai_agent_run_dayz_eval_lab(state, "test-owner")
+
+        self.assertEqual("passed", result["status"])
+        self.assertEqual(15, result["case_count"])
+        self.assertEqual(15, result["passed_count"])
+        self.assertEqual(0, result["failed_count"])
+        self.assertTrue(result["no_model_calls"])
+        self.assertEqual(0, result["credit_cost"])
+        self.assertEqual(0, result["live_server_writes"])
+        self.assertEqual(result["id"], state["eval_runs"][0]["id"])
+        self.assertIn("reject-mismatched-ce", {item["id"] for item in result["results"]})
+        self.assertIn("/api/owner/ai-agent-eval-lab", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Run DayZ Eval Lab", dashboard.PAGE_TEMPLATE)
+        self.assertIn("It never calls OpenAI, spends credits, starts a worker, touches Nitrado or changes a live server file", dashboard.PAGE_TEMPLATE)
+
+    def test_dayz_eval_lab_flags_a_previously_passing_case_when_it_regresses(self):
+        state = dashboard.ai_agent_default_state()
+        first = dashboard.ai_agent_run_dayz_eval_lab(state, "test-owner")
+        self.assertEqual("passed", first["status"])
+
+        with patch.object(dashboard, "ai_agent_builtin_messages_draft", return_value=None):
+            second = dashboard.ai_agent_run_dayz_eval_lab(state, "test-owner")
+
+        self.assertEqual("failed", second["status"])
+        self.assertIn("messages-file", second["regressions"])
+        failed = next(item for item in second["results"] if item["id"] == "messages-file")
+        self.assertEqual("failed", failed["status"])
+
+    def test_owner_eval_lab_endpoint_saves_only_lab_state(self):
+        state = dashboard.ai_agent_default_state()
+        with (
+            patch.object(dashboard, "require_owner_payload", return_value=({"action": "run", "return_to": "/owner"}, None)),
+            patch.object(dashboard, "load_ai_agent_state", return_value=state),
+            patch.object(dashboard, "save_ai_agent_state") as save_state,
+            patch.object(dashboard, "dashboard_audit_actor", return_value="test-owner"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, body, *_args: body),
+        ):
+            response = dashboard.api_owner_ai_agent_eval_lab()
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("passed", response["eval_run"]["status"])
+        self.assertTrue(response["eval_run"]["no_model_calls"])
+        self.assertEqual(0, response["eval_run"]["credit_cost"])
+        self.assertEqual(0, response["eval_run"]["live_server_writes"])
+        save_state.assert_called_once_with(state)
+
     def test_ai_sandbox_keeps_old_conversations_folded_out_of_the_main_workspace(self):
         self.assertIn("Recent Conversations", dashboard.PAGE_TEMPLATE)
         self.assertIn("The latest eight stay visible", dashboard.PAGE_TEMPLATE)

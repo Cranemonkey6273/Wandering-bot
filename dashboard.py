@@ -7446,6 +7446,7 @@ PAGE_TEMPLATE = """
         <a href="#ai-dayz-workbench" data-tone="green" data-ai-open-details="#ai-dayz-workbench"><strong>DayZ File Workbench</strong><span>Create, explain and validate server files</span></a>
         <a href="#ai-dayz-workbench" data-tone="orange" data-ai-open-details="#ai-dayz-workbench"><strong>Vanilla Reference Files</strong><span>Choose the map, target file and active vanilla base</span></a>
         {% if auth.kind == 'owner' %}<a href="/owner?section=owner#dayz-reference-library" data-tone="orange"><strong>Upload Vanilla Updates</strong><span>Add map versions and open Capability Lab</span></a>{% endif %}
+        {% if auth.kind == 'owner' %}<a href="#ai-agent-eval-lab" data-tone="orange"><strong>DayZ Eval Lab</strong><span>Offline generation and validation regression checks</span></a>{% endif %}
         <a href="#ai-dayz-output" data-tone="green"><strong>Drafts & Results</strong><span>Downloads, references and event plans</span></a>
         <a href="#ai-agent-live-work"><strong>Live Work</strong><span>Jobs and approval status</span></a>
         <a href="#ai-technical-status" data-ai-open-details="#ai-technical-status"><strong>Technical Status</strong><span>Runner, model, safety and workspace details</span></a>
@@ -8110,6 +8111,42 @@ PAGE_TEMPLATE = """
               <code>WANDERING_AI_AGENT_COMMAND_TIMEOUT_SECONDS=900</code>
             </div>
           </div>
+        </section>
+        {% endif %}
+        {% if auth.kind == "owner" %}
+        {% set ai_eval_latest = ai_agent_eval_runs[0] if ai_agent_eval_runs else {} %}
+        <section class="admin-panel" id="ai-agent-eval-lab">
+          <h3>DayZ Eval Lab</h3>
+          <p class="tool-note">Runs the sandbox's real local builders and validators against a fixed DayZ test matrix: complete files, linked CE event names, JSON/gameplay links, map groups, weather, messages and deliberately broken inputs. It never calls OpenAI, spends credits, starts a worker, touches Nitrado or changes a live server file.</p>
+          <div class="ai-agent-plan">
+            <div class="ai-agent-step"><strong>Mode</strong><span>Offline deterministic regression suite</span></div>
+            <div class="ai-agent-step"><strong>Model calls</strong><span>0 per lab run</span></div>
+            <div class="ai-agent-step"><strong>Credits</strong><span>0 per lab run</span></div>
+            <div class="ai-agent-step"><strong>Live writes</strong><span>0 per lab run</span></div>
+            <div class="ai-agent-step"><strong>Last result</strong><span>{{ (ai_eval_latest.passed_count|string ~ '/' ~ ai_eval_latest.case_count ~ ' passed') if ai_eval_latest else 'Not run yet' }}</span></div>
+            <div class="ai-agent-step"><strong>Regression rule</strong><span>A check that passed on the prior run and now fails is highlighted for owner review.</span></div>
+          </div>
+          <form class="admin-form" method="post" action="/api/owner/ai-agent-eval-lab" data-route="/api/owner/ai-agent-eval-lab">
+            <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-eval-lab">
+            <input class="hidden-field" name="guild_id" value="global">
+            <input class="hidden-field" name="action" value="run">
+            <div class="full modal-actions"><button type="submit">Run DayZ Eval Lab</button><span class="result muted"></span></div>
+          </form>
+          {% for eval_run in ai_agent_eval_runs[:3] %}
+          <details class="ai-workspace-technical" {% if loop.first %}open{% endif %}>
+            <summary>Run {{ eval_run.completed_at or eval_run.started_at }} · {{ eval_run.passed_count }}/{{ eval_run.case_count }} passed · {{ eval_run.status|upper }}{% if eval_run.regressions %} · {{ eval_run.regressions|length }} regression{{ '' if eval_run.regressions|length == 1 else 's' }}{% endif %}</summary>
+            <div class="ai-agent-plan">
+              {% for eval_case in eval_run.results %}
+              <div class="ai-agent-step">
+                <strong>{{ 'PASS' if eval_case.status == 'passed' else 'FAIL' }} · {{ eval_case.title }}</strong>
+                <span>{{ eval_case.detail }}</span>
+                {% if eval_case.checks %}<small>{{ eval_case.checks|join(' · ') }}</small>{% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            {% if eval_run.regressions %}<p class="tool-note"><strong>Regression IDs:</strong> {{ eval_run.regressions|join(', ') }}. Keep customer access unchanged until the failed check has been investigated and this lab passes again.</p>{% endif %}
+          </details>
+          {% endfor %}
         </section>
         {% endif %}
         <section class="admin-panel">
@@ -23370,6 +23407,7 @@ def ai_agent_default_state() -> dict[str, Any]:
         "sandbox_jobs": [],
         "chat_messages": [],
         "activity": [],
+        "eval_runs": [],
         "memory": ai_agent_default_memory(),
         "sandbox": {
             "status": "not_connected",
@@ -23429,6 +23467,8 @@ def load_ai_agent_state() -> dict[str, Any]:
         merged["chat_messages"] = []
     if not isinstance(merged.get("activity"), list):
         merged["activity"] = []
+    if not isinstance(merged.get("eval_runs"), list):
+        merged["eval_runs"] = []
     merged["memory"] = ai_agent_normalize_memory(merged.get("memory"))
     if not isinstance(merged.get("approval_rules"), dict):
         merged["approval_rules"] = dict(AI_AGENT_DEFAULT_APPROVAL_RULES)
@@ -28449,6 +28489,268 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
         "updated_at": now,
         "base": "bundled vanilla cfgweather.xml",
     }
+
+
+AI_AGENT_DAYZ_EVAL_LAB_VERSION = 1
+
+
+def ai_agent_eval_runs(state: dict[str, Any], limit: int = 10) -> list[dict[str, Any]]:
+    """Return compact, owner-safe DayZ Eval Lab history (newest first)."""
+    rows = state.get("eval_runs") if isinstance(state, dict) else []
+    if not isinstance(rows, list):
+        return []
+    output: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        item = {
+            "id": str(row.get("id") or ""),
+            "version": safe_int(row.get("version"), AI_AGENT_DAYZ_EVAL_LAB_VERSION),
+            "status": str(row.get("status") or "unknown"),
+            "started_at": str(row.get("started_at") or ""),
+            "completed_at": str(row.get("completed_at") or ""),
+            "actor": str(row.get("actor") or ""),
+            "case_count": safe_int(row.get("case_count"), 0),
+            "passed_count": safe_int(row.get("passed_count"), 0),
+            "failed_count": safe_int(row.get("failed_count"), 0),
+            "regressions": [str(value) for value in row.get("regressions", []) if str(value).strip()][:20],
+            "no_model_calls": bool(row.get("no_model_calls", True)),
+            "credit_cost": safe_int(row.get("credit_cost"), 0),
+            "live_server_writes": safe_int(row.get("live_server_writes"), 0),
+            "results": [],
+        }
+        for result in row.get("results", []) if isinstance(row.get("results"), list) else []:
+            if isinstance(result, dict):
+                item["results"].append({
+                    "id": str(result.get("id") or ""),
+                    "title": ai_agent_compact_text(result.get("title"), 120),
+                    "category": ai_agent_compact_text(result.get("category"), 80),
+                    "status": str(result.get("status") or "unknown"),
+                    "detail": ai_agent_compact_text(result.get("detail"), 600),
+                    "checks": [ai_agent_compact_text(value, 180) for value in result.get("checks", []) if str(value).strip()][:12],
+                })
+        output.append(item)
+    return output[:max(1, min(20, safe_int(limit, 10)))]
+
+
+def ai_agent_eval_lab_context(target_path: str, objective: str, **extra: Any) -> dict[str, Any]:
+    payload = {
+        "project_type": "dayz_files",
+        "dayz_map": "chernarus",
+        "dayz_file_target": target_path,
+        "dayz_reference_mode": "vanilla",
+        **extra,
+    }
+    return ai_agent_dayz_file_context(payload, objective)
+
+
+def ai_agent_eval_lab_require(condition: Any, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
+
+
+def ai_agent_eval_lab_drafts(drafts: Any, expected_paths: list[str], merge_required: bool | None = None) -> list[dict[str, Any]]:
+    rows = [item for item in drafts if isinstance(item, dict)] if isinstance(drafts, list) else []
+    actual_paths = [str(item.get("target_path") or "") for item in rows]
+    ai_agent_eval_lab_require(actual_paths == expected_paths, f"Expected {expected_paths}; got {actual_paths or 'no drafts'}.")
+    for draft in rows:
+        valid, validation_message = validate_dayz_upload_text(str(draft.get("target_path") or ""), str(draft.get("content") or ""))
+        ai_agent_eval_lab_require(valid and draft.get("validation") == "passed", f"{draft.get('target_path')} did not validate: {validation_message}")
+        if merge_required is not None:
+            ai_agent_eval_lab_require(bool(draft.get("merge_required")) is merge_required, f"Unexpected merge mode for {draft.get('target_path')}.")
+    return rows
+
+
+def ai_agent_eval_lab_task(context: dict[str, Any], objective: str) -> dict[str, Any]:
+    return {"id": ai_agent_new_id("eval-task"), "objective": objective, "dayz_context": context}
+
+
+def ai_agent_eval_lab_scenario(event_type: str, preset: str, name: str, **extra: Any) -> dict[str, Any]:
+    objective = f"Create a {event_type.replace('_', ' ')} test package named {name}."
+    return ai_agent_eval_lab_context(
+        "db/events.xml", objective,
+        dayz_scenario_type=event_type,
+        dayz_scenario_preset=preset,
+        dayz_scenario_name=name,
+        dayz_scenario_x="7000",
+        dayz_scenario_y="0",
+        dayz_scenario_z="7000",
+        dayz_scenario_angle="90",
+        dayz_scenario_radius=str(extra.get("radius", 60)),
+        dayz_scenario_count=str(extra.get("count", 4)),
+        dayz_scenario_permanent="1" if extra.get("permanent") else "0",
+    )
+
+
+def ai_agent_dayz_eval_lab_cases() -> list[tuple[str, str, str, Any]]:
+    """The deterministic DayZ generation/validation checks used by the owner lab."""
+    def reference_core() -> tuple[str, list[str]]:
+        checked = 0
+        for map_key in ("chernarus", "livonia", "sakhal"):
+            for target_path in ("db/types.xml", "cfgweather.xml", "cfggameplay.json", "db/events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml", "mapgroupproto.xml"):
+                content = load_dayz_reference_text(map_key, *target_path.split("/"))
+                valid, message = validate_dayz_upload_text(target_path, content)
+                ai_agent_eval_lab_require(valid, f"{map_key}/{target_path}: {message or 'missing or invalid reference'}")
+                checked += 1
+        return f"Validated {checked} core references across Chernarus, Livonia and Sakhal.", ["offline references only", "XML/JSON validation"]
+
+    def types_profile() -> tuple[str, list[str]]:
+        prompt = "Create a 200% boosted types.xml with weapons, ammo and military clothing doubled, while reducing common clothing."
+        context = ai_agent_eval_lab_context("db/types.xml", prompt)
+        draft = ai_agent_builtin_dayz_draft(ai_agent_eval_lab_task(context, prompt), prompt)
+        ai_agent_eval_lab_require(isinstance(draft, dict), "No deterministic types profile was produced.")
+        ai_agent_eval_lab_drafts([draft], ["db/types.xml"], False)
+        ai_agent_eval_lab_require(str(draft.get("content") or "") != load_dayz_reference_text("chernarus", "db", "types.xml"), "Types profile did not change its vanilla base.")
+        return "Generated and validated a complete vanilla-based boosted types profile.", ["full file", "2x enabled weapons/ammo/military clothing", "zero-nominal items preserved"]
+
+    def weather_full() -> tuple[str, list[str]]:
+        prompt = "Produce a full weather file that is mainly sunny with occasional rain and thunderstorms."
+        context = ai_agent_eval_lab_context("cfgweather.xml", prompt)
+        draft = ai_agent_builtin_dayz_draft(ai_agent_eval_lab_task(context, prompt), prompt)
+        ai_agent_eval_lab_require(isinstance(draft, dict), "No deterministic sunny/rain/storm weather file was produced.")
+        ai_agent_eval_lab_drafts([draft], ["cfgweather.xml"], False)
+        return "Generated and validated the complete sunny/rain/thunderstorm weather file.", ["full XML", "weather schema", "no live upload"]
+
+    def vehicle_linked() -> tuple[str, list[str]]:
+        context = ai_agent_eval_lab_scenario("vehicle_spawn", "m3s", "Eval Vehicle", permanent=True)
+        rows = ai_agent_eval_lab_drafts(ai_agent_builtin_vehicle_event_drafts(ai_agent_eval_lab_task(context, "Create the permanent M3S vehicle event.")), ["db/events.xml", "cfgeventspawns.xml"], False)
+        package = rows[0].get("event_package") if isinstance(rows[0].get("event_package"), dict) else {}
+        ai_agent_eval_lab_require(package.get("linked_event_name"), "Vehicle package did not retain a linked event name.")
+        ai_agent_eval_lab_require(package.get("preserved_files") == ["cfgeventgroups.xml", "mapgroupproto.xml"], "Vehicle package changed unrelated CE files.")
+        return "Built a permanent vehicle package while preserving unrelated CE files.", ["matching event name", "events + positions only", "four-core-file audit"]
+
+    def airdrop_linked() -> tuple[str, list[str]]:
+        context = ai_agent_eval_lab_scenario("airdrop", "military_crate", "Eval Airdrop")
+        rows = ai_agent_eval_lab_drafts(ai_agent_builtin_airdrop_event_drafts(ai_agent_eval_lab_task(context, "Create the ground-loot airdrop package.")), ["db/events.xml", "cfgeventspawns.xml"], True)
+        ai_agent_eval_lab_require(bool((rows[0].get("event_package") or {}).get("linked_event_name")), "Airdrop package did not retain a linked event name.")
+        return "Built a merge-only airdrop CE pair after checking its static prototype.", ["merge-only records", "matching event name", "prototype checked"]
+
+    def infected_linked() -> tuple[str, list[str]]:
+        context = ai_agent_eval_lab_scenario("zombie_horde", "civilian_zombie", "Eval Infected Horde", radius=85, count=7)
+        rows = ai_agent_eval_lab_drafts(ai_agent_builtin_infected_horde_drafts(ai_agent_eval_lab_task(context, "Create an infected horde package.")), ["db/events.xml", "cfgeventspawns.xml"], True)
+        ai_agent_eval_lab_require("ZmbM_CitizenASkinny_Brown" in str(rows[0].get("content") or ""), "Horde event did not use the selected vanilla infected classname.")
+        return "Built a merge-only infected horde and matching spawn position.", ["classname checked", "matching event name", "bounded radius/count"]
+
+    def spawn_gear() -> tuple[str, list[str]]:
+        prompt = "Create a full survivor fresh-spawn loadout JSON with all the bells and whistles in custom/spawnGearPreset.json."
+        context = ai_agent_eval_lab_context("custom/spawnGearPreset.json", prompt, dayz_reference_mode="none")
+        rows = ai_agent_eval_lab_drafts(ai_agent_builtin_spawn_gear_package_drafts(ai_agent_eval_lab_task(context, prompt), prompt), ["custom/spawnGearPreset.json", "cfggameplay.json"], False)
+        ai_agent_eval_lab_require("./custom/spawnGearPreset.json" in str(rows[1].get("content") or ""), "cfgGameplay did not link the starter kit.")
+        return "Generated a full spawn-gear JSON and validated cfgGameplay link.", ["full JSON", "full cfgGameplay", "exact spawnGearPresetFiles link"]
+
+    def objectspawner() -> tuple[str, list[str]]:
+        prompt = "Create ObjectSpawner custom/EvalObjects.json with Land_Mil_Barracks5 at [7000, 10, 7000] with yaw 90."
+        context = ai_agent_eval_lab_context("custom/EvalObjects.json", prompt, dayz_reference_mode="none")
+        rows = ai_agent_eval_lab_drafts(ai_agent_builtin_objectspawner_package_drafts(ai_agent_eval_lab_task(context, prompt), prompt), ["custom/EvalObjects.json", "cfggameplay.json"], False)
+        ai_agent_eval_lab_require("./custom/EvalObjects.json" in str(rows[1].get("content") or ""), "cfgGameplay did not link ObjectSpawner JSON.")
+        return "Generated ObjectSpawner JSON and its exact WorldsData link.", ["object schema", "full cfgGameplay", "exact link path"]
+
+    def restricted_area() -> tuple[str, list[str]]:
+        prompt = "Create restricted area custom/EvalRestricted.json areaName EvalRestricted. PRA box size [50, 10, 50] orientation [0, 0, 0] position [7000, 10, 7000]. safePositions3D [7010, 10, 7010], [7020, 10, 7020]."
+        context = ai_agent_eval_lab_context("custom/EvalRestricted.json", prompt, dayz_reference_mode="none")
+        rows = ai_agent_eval_lab_drafts(ai_agent_builtin_restricted_area_package_drafts(ai_agent_eval_lab_task(context, prompt), prompt), ["custom/EvalRestricted.json", "cfggameplay.json"], False)
+        ai_agent_eval_lab_require("./custom/EvalRestricted.json" in str(rows[1].get("content") or ""), "cfgGameplay did not link the restricted-area file.")
+        return "Generated correctly nested PRA data and its playerRestrictedAreaFiles link.", ["PRABoxes nesting", "safe positions", "full cfgGameplay"]
+
+    def effect_area() -> tuple[str, list[str]]:
+        prompt = "Create a contaminated gas effect area named EvalGas centred at X 7000 Y 10 Z 7000 with radius 120."
+        context = ai_agent_eval_lab_context("cfgeffectarea.json", prompt)
+        draft = ai_agent_builtin_effect_area_draft(ai_agent_eval_lab_task(context, prompt), prompt)
+        ai_agent_eval_lab_require(isinstance(draft, dict), "No static contaminated effect-area draft was produced.")
+        ai_agent_eval_lab_drafts([draft], ["cfgeffectarea.json"], False)
+        return "Generated a complete effect-area file from the selected vanilla static-gas schema.", ["full JSON", "vanilla schema", "position/radius"]
+
+    def messages_file() -> tuple[str, list[str]]:
+        prompt = "Create welcome messages after 5 minutes, a 4 hour restart countdown, and rules every 45 minutes."
+        context = ai_agent_eval_lab_context("db/messages.xml", prompt, dayz_reference_mode="none")
+        draft = ai_agent_builtin_messages_draft(ai_agent_eval_lab_task(context, prompt), prompt)
+        ai_agent_eval_lab_require(isinstance(draft, dict), "No messages.xml draft was produced.")
+        ai_agent_eval_lab_drafts([draft], ["db/messages.xml"], False)
+        return "Generated an optional on-screen messages file safely, including for maps without a bundled one.", ["messages root", "numeric DayZ flags", "optional file"]
+
+    def mapgroup_placement() -> tuple[str, list[str]]:
+        root = ET.fromstring(load_dayz_reference_text("chernarus", "mapgroupproto.xml"))
+        group_name = next((str(node.get("name") or "") for node in root.findall("group") if str(node.get("name") or "")), "")
+        ai_agent_eval_lab_require(group_name, "No bundled map-group prototype was available.")
+        prompt = f"Create an existing map placement for group {group_name} at X=7000 Y=10 Z=7000 yaw=90."
+        context = ai_agent_eval_lab_context("mapgrouppos.xml", prompt)
+        draft = ai_agent_builtin_mapgroup_placement_draft(ai_agent_eval_lab_task(context, prompt), prompt)
+        ai_agent_eval_lab_require(isinstance(draft, dict), "No linked map-group placement patch was produced.")
+        ai_agent_eval_lab_drafts([draft], ["mapgrouppos.xml"], True)
+        return "Generated a placement for an existing prototype without inventing a new map-group definition.", ["prototype verified", "rpy/a derived", "prototype preserved"]
+
+    def malformed_xml() -> tuple[str, list[str]]:
+        valid, _message = validate_dayz_upload_text("db/events.xml", "<events><event name=\"Broken\"><children></event></events>")
+        ai_agent_eval_lab_require(not valid, "Malformed events.xml was accepted.")
+        return "Confirmed malformed XML is rejected before a DayZ draft can be used.", ["negative test", "XML parser"]
+
+    def mismatched_ce() -> tuple[str, list[str]]:
+        context = ai_agent_eval_lab_scenario("airdrop", "military_crate", "Eval Mismatch")
+        source_rows = ai_agent_builtin_airdrop_event_drafts(ai_agent_eval_lab_task(context, "Build mismatch source."))
+        ai_agent_eval_lab_require(len(source_rows) == 2, "Could not prepare a valid CE patch pair for the negative test.")
+        event_name = str((source_rows[0].get("event_package") or {}).get("linked_event_name") or "")
+        normalized, error = ai_agent_normalize_dayz_draft_package({"dayz_drafts": [
+            {"target_path": source_rows[0]["target_path"], "kind": source_rows[0]["kind"], "content": source_rows[0]["content"]},
+            {"target_path": source_rows[1]["target_path"], "kind": source_rows[1]["kind"], "content": str(source_rows[1]["content"]).replace(event_name, f"{event_name}Other")},
+        ]}, context)
+        ai_agent_eval_lab_require(not normalized and "do not match exactly" in str(error).lower(), "Mismatched CE event names were not rejected.")
+        return "Confirmed non-matching event names are rejected as a linked-file error.", ["negative test", "case-sensitive link guard"]
+
+    def outside_map() -> tuple[str, list[str]]:
+        scenario = ai_agent_dayz_scenario_from_payload({"dayz_scenario_type": "vehicle_spawn", "dayz_scenario_preset": "m3s", "dayz_scenario_x": str(map_size_for("chernarus") + 1), "dayz_scenario_z": "7000", "dayz_scenario_angle": "0"}, "chernarus")
+        ai_agent_eval_lab_require("bounds" in str(scenario.get("error") or "").lower(), "Outside-map coordinates were not rejected.")
+        return "Confirmed event coordinates outside the selected map are rejected.", ["negative test", "map-boundary guard"]
+
+    return [
+        ("reference-core", "Core vanilla references validate", "Reference files", reference_core),
+        ("types-profile", "Boosted types profile", "Loot economy", types_profile),
+        ("weather-full", "Full sunny/rain/storm weather file", "Weather", weather_full),
+        ("vehicle-linked", "Permanent vehicle CE package", "Events and vehicles", vehicle_linked),
+        ("airdrop-linked", "Airdrop CE merge package", "Events and vehicles", airdrop_linked),
+        ("infected-linked", "Infected horde CE merge package", "Events and vehicles", infected_linked),
+        ("spawn-gear-linked", "Full spawn-gear JSON package", "Player spawning", spawn_gear),
+        ("objectspawner-linked", "ObjectSpawner JSON package", "Map and gameplay links", objectspawner),
+        ("restricted-area-linked", "Restricted-area JSON package", "Map and gameplay links", restricted_area),
+        ("effect-area", "Static gas effect-area file", "Map and environment", effect_area),
+        ("messages-file", "On-screen server messages file", "Messages and gameplay", messages_file),
+        ("mapgroup-placement", "Existing map-group placement", "Map and environment", mapgroup_placement),
+        ("reject-bad-xml", "Reject malformed XML", "Validation guard", malformed_xml),
+        ("reject-mismatched-ce", "Reject mismatched linked CE names", "Validation guard", mismatched_ce),
+        ("reject-outside-map", "Reject outside-map coordinates", "Validation guard", outside_map),
+    ]
+
+
+def ai_agent_run_dayz_eval_lab(state: dict[str, Any], actor: str) -> dict[str, Any]:
+    """Run deterministic DayZ generation/validation checks without model or live-server access."""
+    started_at = datetime.now(UTC).isoformat()
+    results: list[dict[str, Any]] = []
+    for case_id, title, category, check in ai_agent_dayz_eval_lab_cases():
+        try:
+            detail, checks = check()
+            results.append({"id": case_id, "title": title, "category": category, "status": "passed", "detail": detail, "checks": checks})
+        except Exception as error:
+            results.append({"id": case_id, "title": title, "category": category, "status": "failed", "detail": ai_agent_compact_text(error, 500), "checks": []})
+    previous = next((item for item in ai_agent_eval_runs(state, 20) if item.get("version") == AI_AGENT_DAYZ_EVAL_LAB_VERSION), None)
+    previous_statuses = {str(item.get("id") or ""): str(item.get("status") or "") for item in previous.get("results", [])} if isinstance(previous, dict) else {}
+    regressions = [str(item["id"]) for item in results if item.get("status") == "failed" and previous_statuses.get(str(item.get("id") or "")) == "passed"]
+    passed_count = sum(1 for item in results if item.get("status") == "passed")
+    run = {
+        "id": ai_agent_new_id("dayz-eval"), "version": AI_AGENT_DAYZ_EVAL_LAB_VERSION,
+        "status": "passed" if passed_count == len(results) else "failed", "started_at": started_at,
+        "completed_at": datetime.now(UTC).isoformat(), "actor": str(actor or "owner"),
+        "case_count": len(results), "passed_count": passed_count, "failed_count": len(results) - passed_count,
+        "regressions": regressions, "no_model_calls": True, "credit_cost": 0, "live_server_writes": 0,
+        "results": results,
+    }
+    history = state.setdefault("eval_runs", [])
+    if not isinstance(history, list):
+        history = []
+        state["eval_runs"] = history
+    history.insert(0, run)
+    del history[20:]
+    summary = f"{passed_count}/{len(results)} checks passed" + (f"; {len(regressions)} regression(s) detected" if regressions else "")
+    ai_agent_activity(state, "DayZ Eval Lab completed", summary, str(actor or "owner"), {"eval_run_id": run["id"], "status": run["status"], "failed_count": run["failed_count"], "regressions": regressions, "no_model_calls": True, "live_server_writes": 0})
+    return run
 
 
 def ai_agent_task_dayz_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
@@ -39065,6 +39367,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_memory=ai_agent_memory_snapshot(ai_agent_state, 12),
         ai_agent_memory_labels=AI_AGENT_MEMORY_LABELS,
         ai_agent_learning_proposals=ai_agent_learning_proposals(ai_agent_state, limit=30) if auth.get("kind") == "owner" else [],
+        ai_agent_eval_runs=ai_agent_eval_runs(ai_agent_state, limit=10) if auth.get("kind") == "owner" else [],
         ai_agent_credit_packs=agent_credit_packs() if auth.get("kind") in {"owner", "agent_account", "guild"} else [],
         ai_agent_credit_ledger=agent_credit_ledger_for_account(agent_credit_account_id_for_auth(auth), 12) if auth.get("kind") in {"agent_account", "guild"} else [],
         ai_agent_credits=ai_agent_credits,
@@ -44383,6 +44686,7 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
     }
     if auth.get("kind") == "owner":
         payload["learning_proposals"] = ai_agent_learning_proposals(state, limit=40)
+        payload["eval_runs"] = ai_agent_eval_runs(state, limit=10)
     return payload
 
 
@@ -45019,6 +45323,39 @@ def api_owner_ai_agent_job_sync():
     save_ai_agent_state(state)
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="sync_worker_jobs", synced=synced)
     return dashboard_api_response(raw_payload, {"ok": True, "synced": synced, "note": f"Synced {synced} worker job(s)."}, "ai-agent", "#ai-agent-jobs")
+
+
+@APP.post("/api/owner/ai-agent-eval-lab")
+def api_owner_ai_agent_eval_lab():
+    payload, error = require_owner_payload()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    action = str(payload.get("action") or "run").strip().lower()
+    if action != "run":
+        return jsonify({"ok": False, "error": "unsupported DayZ Eval Lab action"}), 400
+    state = load_ai_agent_state()
+    actor = dashboard_audit_actor(current_auth())
+    eval_run = ai_agent_run_dayz_eval_lab(state, actor)
+    save_ai_agent_state(state)
+    g.dashboard_audit_payload = dict(
+        raw_payload,
+        guild_id="global",
+        action="run_dayz_eval_lab",
+        eval_run_id=eval_run.get("id"),
+        status=eval_run.get("status"),
+    )
+    note = (
+        f"DayZ Eval Lab finished: {eval_run.get('passed_count', 0)}/{eval_run.get('case_count', 0)} checks passed. "
+        "No model, credits, worker, Nitrado or live server files were used."
+    )
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "eval_run": eval_run, "eval_runs": ai_agent_eval_runs(state, limit=10), "note": note},
+        "ai-agent",
+        "#ai-agent-eval-lab",
+    )
 
 
 @APP.post("/api/owner/ai-agent-memory")
