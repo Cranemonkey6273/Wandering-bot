@@ -88,6 +88,15 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("channel.id == restart_status.warning_channel_id", template)
         self.assertNotIn("channel.key == 'restart' or channel.key == 'admin_logs'", template)
 
+    def test_scenario_builder_keeps_the_spawn_type_the_owner_selects(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn("} else if (event && event.target === presetSelect) {", template)
+        self.assertIn(
+            'presetSelect.dataset.currentPreset = selectedBeforeFilter ? (selectedBeforeFilter.value || "") : "";',
+            template,
+        )
+
     def test_dayz_profile_id_rename_preserves_profile_and_rewrites_references(self):
         configs = {
             "guild-1": {

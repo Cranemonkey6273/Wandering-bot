@@ -18629,9 +18629,15 @@ PAGE_TEMPLATE = """
         if (event && event.target === typeSelect) {
           presetSelect.dataset.currentPreset = "";
           chooseFirstPresetForType(true);
-        } else if (event && event.target === presetSelect && typeSelect && selectedBeforeFilter && selectedBeforeFilter.dataset.type && normalScenarioType(selectedBeforeFilter.dataset.type) !== normalScenarioType(typeSelect.value)) {
-          typeSelect.value = normalScenarioType(selectedBeforeFilter.dataset.type);
-          presetSelect.dataset.currentPreset = selectedBeforeFilter.value || "";
+        } else if (event && event.target === presetSelect) {
+          // Keep the option the owner just chose.  Previously a same-type
+          // selection (for example Civilian -> Military infected) fell
+          // through to applyStoredPresetForType and was immediately changed
+          // back to the first stored horde option.
+          presetSelect.dataset.currentPreset = selectedBeforeFilter ? (selectedBeforeFilter.value || "") : "";
+          if (typeSelect && selectedBeforeFilter && selectedBeforeFilter.dataset.type && normalScenarioType(selectedBeforeFilter.dataset.type) !== normalScenarioType(typeSelect.value)) {
+            typeSelect.value = normalScenarioType(selectedBeforeFilter.dataset.type);
+          }
           chooseFirstPresetForType(false);
         } else if (event && event.type === "scenario-prefill") {
           applyStoredPresetForType();
