@@ -2077,7 +2077,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .pricing-head { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .85rem; }
     .pricing-head p { max-width: 42rem; margin: .25rem 0 0; }
     .pricing-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-    .pricing-card { min-width: 0; display: grid; grid-template-rows: auto auto auto 1fr auto; gap: .8rem; align-content: start; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: 1rem; background: rgba(0, 0, 0, .23); }
+    .pricing-card { min-width: 0; display: flex; flex-direction: column; gap: .8rem; border: 1px solid rgba(126, 204, 184, .18); border-radius: .5rem; padding: 1rem; background: rgba(0, 0, 0, .23); }
     .pricing-card.featured { border-color: var(--line-warm); box-shadow: inset 0 1px 0 rgba(236, 161, 64, .16); }
     .pricing-card-title { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
     .pricing-card h3 { color: var(--text); overflow-wrap: anywhere; }
@@ -2088,7 +2088,7 @@ PUBLIC_LANDING_TEMPLATE = """
     .pricing-features li::before { content: ""; position: absolute; left: 0; top: .72rem; width: .38rem; height: .38rem; border-radius: 50%; background: var(--green); }
     .pricing-ai-note { display: grid; gap: .28rem; padding: .72rem; border: 1px solid rgba(103, 245, 231, .26); border-radius: .45rem; background: rgba(103, 245, 231, .07); color: #d7e4dc; line-height: 1.42; }
     .pricing-ai-note strong { color: #eafffd; }
-    .pricing-card .button { width: 100%; align-self: end; }
+    .pricing-card .button { width: 100%; align-self: end; margin-top: auto; }
     .pricing-pill { display: inline-flex; align-items: center; border: 1px solid rgba(236, 161, 64, .36); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .72rem; font-weight: 950; white-space: nowrap; }
     .search-copy { margin-top: 1rem; padding: .9rem; border: 1px solid rgba(236, 161, 64, .28); border-radius: .5rem; background: rgba(236, 161, 64, .08); }
     .app-section { margin-top: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-strong); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
