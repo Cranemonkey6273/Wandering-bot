@@ -729,6 +729,20 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Placed Shelter Kit", [part["name"] for part in recipes["tarp-shelter"]["ingredients"]])
         self.assertEqual(60, next(part["quantity"] for part in recipes["flag-pole"]["ingredients"] if part["name"] == "Nails"))
 
+    def test_illness_library_filters_symptoms_maps_and_treatments(self):
+        sakhal = dashboard.dayz_illness_library_view("sakhal", "Sakhal survival", "chelating")
+
+        self.assertEqual("1.29.163451", sakhal["release"])
+        self.assertEqual(11, sakhal["total_illnesses"])
+        self.assertEqual("sakhal", sakhal["filters"]["map"])
+        self.assertEqual("Sakhal survival", sakhal["filters"]["category"])
+        self.assertEqual(["heavy-metal-poisoning"], [item["id"] for item in sakhal["illnesses"]])
+        self.assertTrue(any("Chelating" in step for step in sakhal["illnesses"][0]["treatment"]))
+
+        vomiting = dashboard.dayz_illness_library_view(query="vomiting")
+        self.assertGreaterEqual(len(vomiting["illnesses"]), 3)
+        self.assertTrue(any(item["id"] == "cholera" for item in vomiting["illnesses"]))
+
     def test_public_crafting_page_and_image_are_available_without_login(self):
         page_request = types.SimpleNamespace(args={"platform": "pc", "map": "sakhal", "q": "splint"})
         with patch.object(dashboard, "request", page_request), patch.object(
@@ -748,12 +762,35 @@ class DashboardServerControlTests(unittest.TestCase):
             response = dashboard.crafting_image("splint")
         self.assertEqual("image/svg+xml", response[1]["mimetype"])
 
+    def test_public_illness_page_uses_the_same_player_library_shell(self):
+        page_request = types.SimpleNamespace(args={"tab": "illnesses", "map": "sakhal", "q": "heavy"})
+        with patch.object(dashboard, "request", page_request), patch.object(
+            dashboard,
+            "render_template_string",
+            side_effect=lambda _template, **context: context,
+        ):
+            context = dashboard.crafting_library_page()
+
+        self.assertEqual("illnesses", context["library_mode"])
+        self.assertEqual("sakhal", context["library"]["filters"]["map"])
+        self.assertEqual("heavy-metal-poisoning", context["library"]["illnesses"][0]["id"])
+        self.assertEqual("/crafting?tab=illnesses", context["illness_url"])
+        self.assertEqual("/crafting?tab=illnesses", context["clear_url"])
+
+        image_request = types.SimpleNamespace(args={})
+        with patch.object(dashboard, "request", image_request):
+            response = dashboard.crafting_image("cholera")
+        self.assertEqual("image/svg+xml", response[1]["mimetype"])
+
     def test_mobile_app_templates_link_to_free_crafting_library(self):
         self.assertIn("Browse free Crafting &amp; Survival library", dashboard.APP_WELCOME_TEMPLATE)
         self.assertIn(">Crafting</a>", dashboard.APP_DASHBOARD_TEMPLATE)
         self.assertIn("Crafting library", dashboard.APP_DASHBOARD_TEMPLATE)
         self.assertIn("Vanilla first.", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("Community servers can change", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("Illnesses &amp; treatment", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("What to take / do", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("sickness icon does not tell you the diagnosis", dashboard.CRAFTING_LIBRARY_TEMPLATE)
 
     def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
         template = dashboard.APP_DASHBOARD_TEMPLATE

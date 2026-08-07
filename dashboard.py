@@ -55,6 +55,10 @@ DAYZ_CRAFTING_LIBRARY_FILE = os.getenv(
     "WANDERING_DAYZ_CRAFTING_LIBRARY_FILE",
     os.path.join(APP_ROOT, "dayz_crafting_library.json"),
 )
+DAYZ_ILLNESS_LIBRARY_FILE = os.getenv(
+    "WANDERING_DAYZ_ILLNESS_LIBRARY_FILE",
+    os.path.join(APP_ROOT, "dayz_illness_library.json"),
+)
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 DAYZ_REFERENCE_LIBRARY_FOLDER = os.getenv(
     "WANDERING_DAYZ_REFERENCE_LIBRARY_DIR",
@@ -1911,8 +1915,8 @@ CRAFTING_LIBRARY_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>DayZ Crafting &amp; Survival Library | Wandering Bot</title>
-  <meta name="description" content="Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.">
+  <title>{% if library_mode == 'illnesses' %}DayZ Illness &amp; Treatment Guide{% else %}DayZ Crafting &amp; Survival Library{% endif %} | Wandering Bot</title>
+  <meta name="description" content="{% if library_mode == 'illnesses' %}Versioned vanilla DayZ illness symptoms, causes, treatment and prevention guidance for console and PC players.{% else %}Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.{% endif %}">
   <meta name="theme-color" content="#eef3ef">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/brand-image">
@@ -1937,6 +1941,9 @@ CRAFTING_LIBRARY_TEMPLATE = """
     .release,.tag { display:inline-flex; align-items:center; min-height:1.8rem; padding:.32rem .52rem; border:1px solid var(--line); border-radius:999px; background:var(--panel-alt); color:var(--forest); font-size:.72rem; font-weight:850; }
     .release { border-color:#dfb67a; background:var(--orange-soft); color:#875018; }
     .coverage { margin:0; padding:.7rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#edf8f7; color:#285b5c; font-size:.82rem; line-height:1.45; }
+    .library-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
+    .library-tabs a { display:grid; place-items:center; min-height:2.65rem; padding:.55rem; border:1px solid var(--line); border-radius:.5rem; background:var(--panel); color:var(--forest); font-size:.82rem; font-weight:900; text-align:center; text-decoration:none; }
+    .library-tabs a.active { border-color:var(--teal); background:#eaf8f6; color:#115f60; }
     .filter-card { display:grid; gap:.65rem; padding:.8rem; }
     .filter-card h2 { margin:0; color:var(--forest); font-size:1rem; }
     .filters { display:grid; gap:.55rem; grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -1972,6 +1979,12 @@ CRAFTING_LIBRARY_TEMPLATE = """
     .alternative { display:grid; gap:.35rem; padding:.6rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#eef8f7; }
     .alternative b { color:#285b5c; font-size:.78rem; }
     .note { margin:0; padding:.6rem; border-left:.25rem solid var(--orange); border-radius:.35rem; background:var(--orange-soft); color:#76421d; font-size:.8rem; line-height:1.45; }
+    .priority { display:inline-flex; align-items:center; min-height:1.8rem; padding:.32rem .52rem; border:1px solid var(--line); border-radius:999px; font-size:.72rem; font-weight:900; }
+    .priority.emergency { border-color:#d9909c; background:#fff0f2; color:#982e40; }
+    .priority.urgent { border-color:#e6ba7d; background:#fff5e8; color:#8c571a; }
+    .priority.standard { border-color:#b9d9bf; background:#edf8ef; color:#285b34; }
+    .priority.permanent { border-color:#c6bdd9; background:#f4f0ff; color:#574076; }
+    .symptom-check { margin:0; padding:.7rem; border-left:.25rem solid var(--orange); border-radius:.35rem; background:var(--orange-soft); color:#76421d; font-size:.82rem; line-height:1.45; }
     .empty { padding:1rem; color:var(--muted); line-height:1.5; }
     .footer-note { margin:0; color:var(--muted); font-size:.75rem; line-height:1.45; text-align:center; }
     @media (min-width:650px) { .shell { width:min(66rem,calc(100% - 2rem)); } .hero { grid-template-columns:minmax(0,1fr) auto; align-items:end; } .hero > .coverage { grid-column:1 / -1; } .filters { grid-template-columns:repeat(4,minmax(0,1fr)); } label.search { grid-column:span 2; } .filter-actions { grid-column:span 2; } .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } .recipe-card { height:max-content; } }
@@ -1986,25 +1999,66 @@ CRAFTING_LIBRARY_TEMPLATE = """
     <section class="hero">
       <div>
         <p class="eyebrow">Free player library</p>
+        {% if library_mode == 'illnesses' %}
+        <h1>DayZ Illness &amp; Treatment</h1>
+        <p class="lead">Use symptoms and what just happened to narrow down the likely vanilla illness, then see the treatment, prevention and urgency in one clear card.</p>
+        {% else %}
         <h1>DayZ Crafting &amp; Survival</h1>
         <p class="lead">Clear vanilla recipes, building stages and the tools needed to make them — designed for a phone in the middle of a DayZ session.</p>
+        {% endif %}
       </div>
       <div class="release-row"><span class="release">Reviewed for DayZ {{ library.release }}</span>{% if library.reviewed_at %}<span class="tag">Reviewed {{ library.reviewed_at }}</span>{% endif %}</div>
       <p class="coverage"><strong>Vanilla first.</strong> {{ library.coverage_note }}</p>
     </section>
 
+    <nav class="library-tabs" aria-label="Player library sections">
+      <a class="{{ 'active' if library_mode == 'crafting' else '' }}" href="{{ crafting_url }}">Crafting &amp; survival</a>
+      <a class="{{ 'active' if library_mode == 'illnesses' else '' }}" href="{{ illness_url }}">Illnesses &amp; treatment</a>
+    </nav>
+
     <section class="filter-card" aria-labelledby="crafting-filters-title">
-      <div class="library-head"><h2 id="crafting-filters-title">Find a recipe</h2><span>{{ library.total_recipes }} reviewed recipes</span></div>
+      <div class="library-head"><h2 id="crafting-filters-title">{% if library_mode == 'illnesses' %}Check symptoms{% else %}Find a recipe{% endif %}</h2><span>{% if library_mode == 'illnesses' %}{{ library.total_illnesses }} reviewed conditions{% else %}{{ library.total_recipes }} reviewed recipes{% endif %}</span></div>
       <form class="filters" method="get" action="/crafting">
+        {% if library_mode == 'illnesses' %}<input type="hidden" name="tab" value="illnesses">{% endif %}
         {% if app_source %}<input type="hidden" name="source" value="{{ app_source }}">{% endif %}
-        <label class="search">Search recipe or ingredient<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. flag, rope, splint, fence"></label>
+        <label class="search">{% if library_mode == 'illnesses' %}Search symptom, cause or medicine<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. vomiting, cough, charcoal, dirty water">{% else %}Search recipe or ingredient<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. flag, rope, splint, fence">{% endif %}</label>
+        {% if library_mode != 'illnesses' %}
         <label>Platform<select name="platform"><option value="all" {% if library.filters.platform == 'all' %}selected{% endif %}>Console + PC</option><option value="console" {% if library.filters.platform == 'console' %}selected{% endif %}>Console (Xbox / PlayStation)</option><option value="pc" {% if library.filters.platform == 'pc' %}selected{% endif %}>PC vanilla</option></select></label>
+        {% endif %}
         <label>Map<select name="map"><option value="all" {% if library.filters.map == 'all' %}selected{% endif %}>All official maps</option>{% for key, label in map_options %}<option value="{{ key }}" {% if library.filters.map == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
         <label>Category<select name="category"><option value="all">All categories</option>{% for item in library.categories %}<option value="{{ item }}" {% if library.filters.category == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
-        <div class="filter-actions"><button type="submit">Apply</button><a class="clear" href="/crafting{% if app_source %}?source={{ app_source|urlencode }}{% endif %}">Clear</a></div>
+        <div class="filter-actions"><button type="submit">Apply</button><a class="clear" href="{{ clear_url }}">Clear</a></div>
       </form>
     </section>
 
+    {% if library_mode == 'illnesses' %}
+    <p class="symptom-check"><strong>Important:</strong> DayZ's sickness icon does not tell you the diagnosis. Match the symptoms with the recent cause. Vomiting can be cholera, salmonellosis, food poisoning or gas poisoning; simply eating or drinking too much can also make a healthy survivor vomit.</p>
+    <div class="library-head"><h2>{% if library.filters.query or library.filters.map != 'all' or library.filters.category != 'all' %}Matching conditions{% else %}Illnesses &amp; treatment{% endif %}</h2><span>{{ library.illnesses|length }} shown</span></div>
+    {% if library.illnesses %}
+    <section class="recipe-grid" aria-label="DayZ illnesses and treatment">
+      {% for illness in library.illnesses %}
+      <details class="recipe-card" {% if loop.index == 1 and not library.filters.query %}open{% endif %}>
+        <summary>
+          <img class="craft-art" src="{{ illness.image_url }}" alt="Illustration for {{ illness.name }}">
+          <span class="recipe-title"><strong>{{ illness.name }}</strong><span>{{ illness.symptoms[:2]|join('; ') }}</span><span>{{ illness.category }}</span></span>
+          <span class="chevron" aria-hidden="true">&rsaquo;</span>
+        </summary>
+        <div class="recipe-body">
+          <div class="tag-row"><span class="priority {{ illness.priority }}">{{ illness.priority|title }}</span><span class="tag">Console + PC vanilla</span><span class="tag">{{ illness.maps|map('title')|join(' &middot; ') }}</span></div>
+          <div><h3>Symptoms to look for</h3><ol class="steps">{% for item in illness.symptoms %}<li>{{ item }}</li>{% endfor %}</ol></div>
+          {% if illness.causes %}<div><h3>Likely cause</h3><ol class="steps">{% for item in illness.causes %}<li>{{ item }}</li>{% endfor %}</ol></div>{% endif %}
+          <div><h3>What to take / do</h3><ol class="steps">{% for item in illness.treatment %}<li>{{ item }}</li>{% endfor %}</ol></div>
+          {% if illness.prevention %}<div><h3>Prevent it next time</h3><ol class="steps">{% for item in illness.prevention %}<li>{{ item }}</li>{% endfor %}</ol></div>{% endif %}
+          {% if illness.notes %}<p class="note"><strong>Good to know:</strong> {{ illness.notes }}</p>{% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty"><strong>No condition matches those filters.</strong><br>Try a symptom such as vomiting, cough, fever or blurred vision, or clear the filters.</section>
+    {% endif %}
+    <p class="footer-note">This is in-game vanilla DayZ guidance for the displayed release, not real-world medical advice. Community servers can change medical behaviour with mods or custom configuration.</p>
+    {% else %}
     <div class="library-head"><h2>{% if library.filters.query or library.filters.platform != 'all' or library.filters.map != 'all' or library.filters.category != 'all' %}Matching recipes{% else %}Crafting library{% endif %}</h2><span>{{ library.recipes|length }} shown</span></div>
     {% if library.recipes %}
     <section class="recipe-grid" aria-label="DayZ crafting recipes">
@@ -2013,13 +2067,13 @@ CRAFTING_LIBRARY_TEMPLATE = """
         <summary>
           <img class="craft-art" src="{{ recipe.image_url }}" alt="Illustration of {{ recipe.result }}">
           <span class="recipe-title"><strong>{{ recipe.name }}</strong><span>Makes: {{ recipe.result }}</span><span>{{ recipe.category }}</span></span>
-          <span class="chevron" aria-hidden="true">›</span>
+          <span class="chevron" aria-hidden="true">&rsaquo;</span>
         </summary>
         <div class="recipe-body">
-          <div class="tag-row"><span class="tag">{% if recipe.platforms|length == 2 %}Console + PC vanilla{% elif recipe.platforms[0] == 'console' %}Console vanilla{% else %}PC vanilla{% endif %}</span><span class="tag">{{ recipe.maps|map('title')|join(' · ') }}</span></div>
-          <div><h3>Ingredients</h3><div class="parts">{% for part in recipe.ingredients %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong>{% if part.quantity %}<span>× {{ part.quantity }}</span>{% endif %}</span></div>{% endfor %}</div></div>
+          <div class="tag-row"><span class="tag">{% if recipe.platforms|length == 2 %}Console + PC vanilla{% elif recipe.platforms[0] == 'console' %}Console vanilla{% else %}PC vanilla{% endif %}</span><span class="tag">{{ recipe.maps|map('title')|join(' &middot; ') }}</span></div>
+          <div><h3>Ingredients</h3><div class="parts">{% for part in recipe.ingredients %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong>{% if part.quantity %}<span>&times; {{ part.quantity }}</span>{% endif %}</span></div>{% endfor %}</div></div>
           {% if recipe.tools %}<div><h3>Tools</h3><div class="parts">{% for part in recipe.tools %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong></span></div>{% endfor %}</div></div>{% endif %}
-          {% for alternative in recipe.alternatives %}<div class="alternative"><b>{{ alternative.label }}</b><div class="parts">{% for part in alternative.ingredients %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong>{% if part.quantity %}<span>× {{ part.quantity }}</span>{% endif %}</span></div>{% endfor %}</div></div>{% endfor %}
+          {% for alternative in recipe.alternatives %}<div class="alternative"><b>{{ alternative.label }}</b><div class="parts">{% for part in alternative.ingredients %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong>{% if part.quantity %}<span>&times; {{ part.quantity }}</span>{% endif %}</span></div>{% endfor %}</div></div>{% endfor %}
           {% if recipe.steps %}<div><h3>How to make it</h3><ol class="steps">{% for step in recipe.steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
           {% if recipe.notes %}<p class="note"><strong>Good to know:</strong> {{ recipe.notes }}</p>{% endif %}
         </div>
@@ -2030,6 +2084,7 @@ CRAFTING_LIBRARY_TEMPLATE = """
     <section class="empty"><strong>No recipe matches those filters.</strong><br>Try a broader search, another map, or clear the filters. If you are looking for a modded recipe, its exact mod source must be reviewed before it is added.</section>
     {% endif %}
     <p class="footer-note">Recipes are shown as reviewed vanilla guidance for the displayed DayZ release. Community servers can change availability, lifetimes and recipes with mods or custom configuration.</p>
+    {% endif %}
   </main>
 </body>
 </html>
@@ -37945,6 +38000,119 @@ def dayz_crafting_library_view(
     }
 
 
+def _illness_text_list(value: Any, limit: int = 8) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    values = [_crafting_clean_text(item, 280) for item in value]
+    return [item for item in values if item][:limit]
+
+
+def load_dayz_illness_library() -> dict[str, Any]:
+    """Load reviewed, game-specific medical guidance separate from recipes."""
+    fallback = {
+        "schema_version": 1,
+        "active_release": DAYZ_CE_FILE_VERSION,
+        "reviewed_at": "",
+        "coverage_note": "The illness library is being prepared for this DayZ release.",
+        "illnesses": [],
+    }
+    try:
+        with open(DAYZ_ILLNESS_LIBRARY_FILE, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    if not isinstance(raw, dict):
+        return fallback
+    library = dict(fallback)
+    library["schema_version"] = safe_int(raw.get("schema_version"), 1) or 1
+    library["active_release"] = _crafting_clean_text(raw.get("active_release"), 40) or DAYZ_CE_FILE_VERSION
+    library["reviewed_at"] = _crafting_clean_text(raw.get("reviewed_at"), 40)
+    library["coverage_note"] = _crafting_clean_text(raw.get("coverage_note"), 500) or fallback["coverage_note"]
+    illnesses: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    allowed_visuals = {"medical", "illness", "water", "gas"}
+    allowed_priorities = {"standard", "urgent", "emergency", "permanent"}
+    raw_illnesses = raw.get("illnesses") if isinstance(raw.get("illnesses"), list) else []
+    for raw_illness in raw_illnesses:
+        if not isinstance(raw_illness, dict):
+            continue
+        illness_id = _crafting_safe_id(raw_illness.get("id"))
+        name = _crafting_clean_text(raw_illness.get("name"))
+        symptoms = _illness_text_list(raw_illness.get("symptoms"))
+        treatment = _illness_text_list(raw_illness.get("treatment"))
+        if not illness_id or illness_id in seen_ids or not name or not symptoms or not treatment:
+            continue
+        seen_ids.add(illness_id)
+        visual = _crafting_safe_id(raw_illness.get("visual"))
+        priority = _crafting_safe_id(raw_illness.get("priority"))
+        illness = {
+            "id": illness_id,
+            "name": name,
+            "category": _crafting_clean_text(raw_illness.get("category"), 60) or "Illnesses",
+            "visual": visual if visual in allowed_visuals else "illness",
+            "priority": priority if priority in allowed_priorities else "standard",
+            "symptoms": symptoms,
+            "causes": _illness_text_list(raw_illness.get("causes")),
+            "treatment": treatment,
+            "prevention": _illness_text_list(raw_illness.get("prevention")),
+            "maps": _crafting_maps(raw_illness.get("maps")),
+            "notes": _crafting_clean_text(raw_illness.get("notes"), 400),
+            "platforms": ["console", "pc"],
+        }
+        illness["image_url"] = f"/crafting-image/{urllib.parse.quote(illness_id)}?library=illness"
+        illnesses.append(illness)
+    library["illnesses"] = illnesses
+    return library
+
+
+def dayz_illness_library_view(
+    map_name: Any = "all",
+    category: Any = "all",
+    query: Any = "",
+) -> dict[str, Any]:
+    library = load_dayz_illness_library()
+    requested_map = map_key_for(map_name) if str(map_name or "").strip().lower() not in {"", "all"} else "all"
+    if requested_map not in {"all", "chernarus", "livonia", "sakhal"}:
+        requested_map = "all"
+    requested_category = _crafting_clean_text(category, 60)
+    category_keys = {str(illness.get("category") or "") for illness in library["illnesses"]}
+    if requested_category.lower() == "all" or requested_category not in category_keys:
+        requested_category = "all"
+    requested_query = _crafting_clean_text(query, 100)
+    query_terms = requested_query.lower()
+
+    visible: list[dict[str, Any]] = []
+    for illness in library["illnesses"]:
+        if requested_map != "all" and requested_map not in illness["maps"]:
+            continue
+        if requested_category != "all" and requested_category != illness["category"]:
+            continue
+        if query_terms:
+            haystack = " ".join([
+                illness["name"], illness["category"], illness["notes"],
+                *illness["symptoms"], *illness["causes"], *illness["treatment"], *illness["prevention"],
+            ]).lower()
+            if query_terms not in haystack:
+                continue
+        visible.append(illness)
+    priorities = {"emergency": 0, "urgent": 1, "standard": 2, "permanent": 3}
+    visible.sort(key=lambda illness: (priorities.get(str(illness.get("priority")), 4), str(illness.get("name")).lower()))
+    categories = sorted(category_keys, key=str.lower)
+    return {
+        "release": library["active_release"],
+        "reviewed_at": library["reviewed_at"],
+        "coverage_note": library["coverage_note"],
+        "total_illnesses": len(library["illnesses"]),
+        "illnesses": visible,
+        "categories": categories,
+        "filters": {
+            "map": requested_map,
+            "category": requested_category,
+            "query": requested_query,
+        },
+    }
+
+
 def shop_catalog_seed_items() -> list[dict[str, str]]:
     global _SHOP_CATALOG_SEED_CACHE
     if _SHOP_CATALOG_SEED_CACHE is not None:
@@ -40357,9 +40525,13 @@ def crafting_recipe_for_image(recipe_id: Any) -> dict[str, Any]:
     wanted_id = _crafting_safe_id(recipe_id)
     if not wanted_id:
         return {}
-    for recipe in load_dayz_crafting_library().get("recipes", []):
-        if isinstance(recipe, dict) and recipe.get("id") == wanted_id:
-            return recipe
+    for collection in (
+        load_dayz_crafting_library().get("recipes", []),
+        load_dayz_illness_library().get("illnesses", []),
+    ):
+        for recipe in collection:
+            if isinstance(recipe, dict) and recipe.get("id") == wanted_id:
+                return recipe
     return {}
 
 
@@ -40374,7 +40546,10 @@ def crafting_image(recipe_id: str):
     recipe = crafting_recipe_for_image(recipe_id)
     if not recipe:
         return ("", 404)
-    label = _crafting_clean_text(request.args.get("label") or recipe.get("result"), 34) or "DayZ item"
+    label = _crafting_clean_text(
+        request.args.get("label") or recipe.get("result") or recipe.get("name"),
+        34,
+    ) or "DayZ item"
     visual = str(recipe.get("visual") or "materials")
     colours = {
         "rope": ("#d6b47a", "#5f4424"), "medical": ("#ff9db0", "#8d2941"),
@@ -40384,6 +40559,8 @@ def crafting_image(recipe_id: str):
         "fence": ("#d6a774", "#704421"), "tower": ("#a9b5bf", "#425967"),
         "shelter": ("#98c487", "#3e6d41"), "flag": ("#7bc6b0", "#166457"),
         "weapon": ("#bbc5d2", "#465364"),
+        "illness": ("#e6c4d5", "#784162"), "water": ("#a8dced", "#276d91"),
+        "gas": ("#c5d890", "#567124"),
     }
     fill, stroke = colours.get(visual, colours["materials"])
     art = {
@@ -40400,6 +40577,9 @@ def crafting_image(recipe_id: str):
         "shelter": '<path d="M20 72 47 24l29 48z" fill="none" stroke="{stroke}" stroke-width="7" stroke-linejoin="round"/><path d="M38 72V55h18v17" fill="{stroke}"/>',
         "flag": '<path d="M35 79V20M37 25c15-8 22 9 35 0v26c-13 9-20-8-35 0" fill="none" stroke="{stroke}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>',
         "weapon": '<path d="M21 65 72 32M28 70l-7-5 6-7M62 39l9-7-1 11" fill="none" stroke="{stroke}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>',
+        "illness": '<path d="M30 60c-7-16 2-36 18-36s25 20 18 36c-5 11-11 16-18 16s-13-5-18-16z" fill="none" stroke="{stroke}" stroke-width="5"/><path d="M35 48h.1M61 48h.1M40 62c5 4 11 4 16 0" fill="none" stroke="{stroke}" stroke-width="4" stroke-linecap="round"/>',
+        "water": '<path d="M48 18c12 18 21 30 21 42a21 21 0 1 1-42 0c0-12 9-24 21-42z" fill="none" stroke="{stroke}" stroke-width="6"/><path d="M38 62c4 5 10 7 16 4" fill="none" stroke="#fff" opacity=".72" stroke-width="4" stroke-linecap="round"/>',
+        "gas": '<path d="M30 62c-14 0-15-20-2-22 0-13 18-16 23-4 11-8 25 3 19 15 9 8 1 22-10 19H30z" fill="none" stroke="{stroke}" stroke-width="6" stroke-linejoin="round"/><circle cx="41" cy="51" r="2.5" fill="{stroke}"/><circle cx="53" cy="57" r="2.5" fill="{stroke}"/>',
     }.get(visual, '')
     art = art.format(stroke=stroke)
     safe_label = html.escape(label, quote=True)
@@ -40417,30 +40597,62 @@ def crafting_image(recipe_id: str):
 
 @APP.get("/api/crafting")
 def crafting_library_api():
-    library = dayz_crafting_library_view(
-        request.args.get("platform"),
-        request.args.get("map"),
-        request.args.get("category"),
-        request.args.get("q"),
-    )
-    return jsonify({"ok": True, "library": library})
+    mode = "illnesses" if str(request.args.get("tab") or "").strip().lower() in {"illness", "illnesses", "medical"} else "crafting"
+    if mode == "illnesses":
+        library = dayz_illness_library_view(
+            request.args.get("map"),
+            request.args.get("category"),
+            request.args.get("q"),
+        )
+    else:
+        library = dayz_crafting_library_view(
+            request.args.get("platform"),
+            request.args.get("map"),
+            request.args.get("category"),
+            request.args.get("q"),
+        )
+    return jsonify({"ok": True, "mode": mode, "library": library})
 
 
 @APP.get("/crafting")
 def crafting_library_page():
-    library = dayz_crafting_library_view(
-        request.args.get("platform"),
-        request.args.get("map"),
-        request.args.get("category"),
-        request.args.get("q"),
-    )
+    mode = "illnesses" if str(request.args.get("tab") or "").strip().lower() in {"illness", "illnesses", "medical"} else "crafting"
+    if mode == "illnesses":
+        library = dayz_illness_library_view(
+            request.args.get("map"),
+            request.args.get("category"),
+            request.args.get("q"),
+        )
+    else:
+        library = dayz_crafting_library_view(
+            request.args.get("platform"),
+            request.args.get("map"),
+            request.args.get("category"),
+            request.args.get("q"),
+        )
     source = native_app_source()
     app_url = f"/app?source={urllib.parse.quote(source)}" if source else "/app"
+    source_query = {"source": source} if source else {}
+    crafting_url = "/crafting"
+    if source_query:
+        crafting_url = f"/crafting?{urllib.parse.urlencode(source_query)}"
+    illness_query = {**source_query, "tab": "illnesses"}
+    illness_url = f"/crafting?{urllib.parse.urlencode(illness_query)}"
+    clear_query = dict(source_query)
+    if mode == "illnesses":
+        clear_query["tab"] = "illnesses"
+    clear_url = "/crafting"
+    if clear_query:
+        clear_url = f"/crafting?{urllib.parse.urlencode(clear_query)}"
     return render_template_string(
         CRAFTING_LIBRARY_TEMPLATE,
         library=library,
+        library_mode=mode,
         app_source=source,
         app_url=app_url,
+        crafting_url=crafting_url,
+        illness_url=illness_url,
+        clear_url=clear_url,
         map_options=[("chernarus", "Chernarus"), ("livonia", "Livonia"), ("sakhal", "Sakhal")],
     )
 
