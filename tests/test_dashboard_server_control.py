@@ -3496,6 +3496,12 @@ class DashboardServerControlTests(unittest.TestCase):
         task = {"id": "qa-invalid-spawn-gear", "dayz_context": context, "project_type": "dayz_files"}
         model_reply = {
             "reply": "Created a complete starter loadout.",
+            "learning": [{
+                "category": "approved_patterns",
+                "title": "Starter loadout shape",
+                "detail": "Use this generated shape for future starter loadouts.",
+                "tags": ["dayz", "loadout"],
+            }],
             "dayz_draft": {
                 "target_path": "custom/spawnGearPreset.json",
                 "kind": "full_file",
@@ -3503,17 +3509,94 @@ class DashboardServerControlTests(unittest.TestCase):
                 "summary": "Invalid test draft",
             },
         }
+        state = {}
         with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
             dashboard, "ai_agent_llm_json", return_value=(True, model_reply, "")
         ):
             reply = dashboard.ai_agent_llm_reply_for_task(
-                {}, {}, {"label": "QA owner"}, {}, task, None,
+                state, {}, {"label": "QA owner"}, {}, task, None,
                 "Create a simple starter gear preset.", False,
             )
 
         self.assertNotIn("dayz_draft", task)
         self.assertIn("failed the protected validator", reply)
         self.assertNotIn("Created a complete starter loadout", reply)
+        self.assertNotIn("memory", state)
+        self.assertEqual("blocked_validation", task["learning_proposals"][0]["status"])
+
+    def test_model_learning_waits_for_owner_approval_before_becoming_memory(self):
+        task = {
+            "id": "qa-owner-reviewed-learning",
+            "objective": "Explain the project's stable release process.",
+            "project_type": "python",
+            "steps": [],
+            "suggested_commands": [],
+        }
+        state = {"tasks": [task]}
+        model_reply = {
+            "reply": "The release process is documented.",
+            "learning": [{
+                "category": "project_facts",
+                "title": "Release verification",
+                "detail": "Run the full regression suite before every production deployment.",
+                "tags": ["release", "tests"],
+            }],
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard, "ai_agent_llm_json", return_value=(True, model_reply, "")
+        ):
+            dashboard.ai_agent_llm_reply_for_task(
+                state, {}, {"label": "QA owner"}, {}, task, None,
+                "Explain the project's stable release process.", False,
+            )
+
+        proposal = task["learning_proposals"][0]
+        self.assertEqual("pending", proposal["status"])
+        self.assertNotIn("memory", state)
+        self.assertEqual(1, len(dashboard.ai_agent_learning_proposals(state)))
+
+        approved, error = dashboard.ai_agent_review_learning_proposal(
+            state, task["id"], proposal["id"], "approve_learning", "Primary Owner"
+        )
+        self.assertEqual("", error)
+        self.assertEqual("approved", approved["status"])
+        self.assertEqual("Release verification", state["memory"]["project_facts"][0]["title"])
+        self.assertEqual([], dashboard.ai_agent_learning_proposals(state))
+
+    def test_learning_review_can_dismiss_and_never_stages_secrets(self):
+        task = {"id": "qa-learning-dismiss", "objective": "Review lessons"}
+        state = {"tasks": [task]}
+        staged = dashboard.ai_agent_stage_llm_learning(
+            state,
+            {
+                "learning": [
+                    {
+                        "category": "lessons",
+                        "title": "Safe validation lesson",
+                        "detail": "Validate complete JSON before presenting it for download.",
+                        "tags": ["validation"],
+                    },
+                    {
+                        "category": "project_facts",
+                        "title": "Private token",
+                        "detail": "Remember token sk_live_12345678901234567890.",
+                        "tags": ["billing"],
+                    },
+                ]
+            },
+            task,
+            "QA owner",
+            eligible=True,
+        )
+
+        self.assertEqual(1, len(staged))
+        dismissed, error = dashboard.ai_agent_review_learning_proposal(
+            state, task["id"], staged[0]["id"], "dismiss_learning", "Primary Owner"
+        )
+        self.assertEqual("", error)
+        self.assertEqual("dismissed", dismissed["status"])
+        self.assertNotIn("memory", state)
 
     def test_model_plan_without_requested_file_is_incomplete_and_not_chargeable(self):
         context = dashboard.ai_agent_dayz_file_context(
@@ -3562,11 +3645,17 @@ class DashboardServerControlTests(unittest.TestCase):
         response = types.SimpleNamespace(
             status_code=200,
             json=lambda: {
-                "choices": [{"message": {"content": json.dumps({"reply": "ready"})}}]
+                "status": "completed",
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps({"reply": "ready"})}],
+                }],
             },
         )
 
-        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+        with patch.object(dashboard, "AI_AGENT_LLM_PROVIDER", "openai"), patch.object(
+            dashboard, "ai_agent_llm_is_configured", return_value=True
+        ), patch.object(
             dashboard.requests, "post", return_value=response
         ) as post:
             ok, payload, error = dashboard.ai_agent_llm_json("Return JSON.", {"prompt": "test"})
@@ -3576,28 +3665,61 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("", error)
         self.assertGreaterEqual(dashboard.AI_AGENT_LLM_TIMEOUT_SECONDS, 120)
         self.assertEqual((10, dashboard.AI_AGENT_LLM_TIMEOUT_SECONDS), post.call_args.kwargs["timeout"])
+        self.assertEqual("https://api.openai.com/v1/responses", post.call_args.args[0])
+        request_body = post.call_args.kwargs["json"]
+        self.assertEqual("json_schema", request_body["text"]["format"]["type"])
+        self.assertTrue(request_body["text"]["format"]["strict"])
+        self.assertTrue(request_body["safety_identifier"].startswith("wb_"))
+        self.assertFalse(request_body["store"])
+        self.assertNotIn("messages", request_body)
 
     def test_ai_agent_llm_invalid_json_reports_safe_finish_diagnostics(self):
         response = types.SimpleNamespace(
             status_code=200,
             json=lambda: {
-                "choices": [{
-                    "finish_reason": "length",
-                    "message": {"content": '{"reply":"cut off"'},
-                }]
+                "status": "incomplete",
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": '{"reply":"cut off"'}],
+                }],
             },
         )
 
-        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+        with patch.object(dashboard, "AI_AGENT_LLM_PROVIDER", "openai"), patch.object(
+            dashboard, "ai_agent_llm_is_configured", return_value=True
+        ), patch.object(
             dashboard.requests, "post", return_value=response
         ):
             ok, payload, error = dashboard.ai_agent_llm_json("Return JSON.", {"prompt": "test"})
 
         self.assertFalse(ok)
         self.assertEqual({}, payload)
-        self.assertIn("finish_reason=length", error)
-        self.assertIn("content_chars=18", error)
+        self.assertIn("status=incomplete", error)
+        self.assertIn("incomplete_reason=max_output_tokens", error)
+        self.assertIn("output_text_chars=18", error)
         self.assertNotIn("cut off", error)
+
+    def test_custom_model_provider_keeps_chat_completions_compatibility(self):
+        response = types.SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": json.dumps({"reply": "custom ready"})}}]
+            },
+        )
+
+        with patch.object(dashboard, "AI_AGENT_LLM_PROVIDER", "custom"), patch.object(
+            dashboard, "AI_AGENT_LLM_BASE_URL", "https://models.example.test/v1"
+        ), patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard.requests, "post", return_value=response
+        ) as post:
+            ok, payload, error = dashboard.ai_agent_llm_json("Return JSON.", {"prompt": "test"})
+
+        self.assertTrue(ok)
+        self.assertEqual("custom ready", payload["reply"])
+        self.assertEqual("", error)
+        self.assertEqual("https://models.example.test/v1/chat/completions", post.call_args.args[0])
+        self.assertEqual({"type": "json_object"}, post.call_args.kwargs["json"]["response_format"])
 
     def test_builtin_root_effect_area_preserves_vanilla_and_adds_requested_gas_zone(self):
         context = dashboard.ai_agent_dayz_file_context(

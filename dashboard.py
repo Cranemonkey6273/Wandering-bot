@@ -7982,7 +7982,49 @@ PAGE_TEMPLATE = """
       <div class="ai-agent-grid">
         <section class="admin-panel" id="ai-agent-memory">
           <h3>Sandbox Memory</h3>
-          <p class="tool-note">Durable notes the sandbox can reuse on future requests. This is how it learns from owner decisions without training on secrets or changing production by itself.</p>
+          <p class="tool-note">Only owner-approved notes become durable memory. The sandbox can propose lessons after an answer, but it cannot teach itself or change production by itself.</p>
+          {% if auth.kind == "owner" %}
+          <div class="ai-agent-step">
+            <strong>Proposed lessons awaiting review</strong>
+            {% if ai_agent_learning_proposals %}
+            <div class="ai-agent-memory-list">
+              {% for proposal in ai_agent_learning_proposals %}
+              <div class="ai-agent-memory-row">
+                <span>
+                  <em>{{ proposal.title }}</em>: {{ proposal.detail }}
+                  <small class="muted">{{ ai_agent_memory_labels.get(proposal.category, proposal.category) }} · {{ proposal.task_title }}</small>
+                  {% if proposal.status == "blocked_validation" %}
+                  <small class="status-bad">Blocked — its DayZ answer did not pass validation. {{ proposal.validation_error }}</small>
+                  {% endif %}
+                </span>
+                <div class="modal-actions">
+                  {% if proposal.status == "pending" %}
+                  <form class="admin-form" method="post" action="/api/owner/ai-agent-memory" data-route="/api/owner/ai-agent-memory">
+                    <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-memory">
+                    <input class="hidden-field" name="guild_id" value="global">
+                    <input class="hidden-field" name="action" value="approve_learning">
+                    <input class="hidden-field" name="task_id" value="{{ proposal.task_id }}">
+                    <input class="hidden-field" name="proposal_id" value="{{ proposal.id }}">
+                    <button type="submit">Approve Learning</button><span class="result muted"></span>
+                  </form>
+                  {% endif %}
+                  <form class="admin-form" method="post" action="/api/owner/ai-agent-memory" data-route="/api/owner/ai-agent-memory">
+                    <input class="hidden-field" name="return_to" value="/owner?section=ai-agent{{ server_qs }}#ai-agent-memory">
+                    <input class="hidden-field" name="guild_id" value="global">
+                    <input class="hidden-field" name="action" value="dismiss_learning">
+                    <input class="hidden-field" name="task_id" value="{{ proposal.task_id }}">
+                    <input class="hidden-field" name="proposal_id" value="{{ proposal.id }}">
+                    <button type="submit">Dismiss</button><span class="result muted"></span>
+                  </form>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% else %}
+            <span>No proposed lessons are waiting. New model suggestions will appear here only after the answer has passed its required checks.</span>
+            {% endif %}
+          </div>
+          {% endif %}
           <div class="ai-agent-plan">
             <div class="ai-agent-step"><strong>Project Summary</strong><span>{{ ai_agent_memory.project_summary }}</span></div>
             <div class="ai-agent-step"><strong>Standing Rules</strong><span>{% for standard in ai_agent_memory.coding_standards %}{{ standard }}{% if not loop.last %}<br>{% endif %}{% endfor %}</span></div>
@@ -23102,40 +23144,216 @@ def ai_agent_record_memory(
     return item, True
 
 
-def ai_agent_store_llm_learning(
+AI_AGENT_LEARNING_PROPOSAL_STATUSES = {
+    "pending",
+    "approved",
+    "dismissed",
+    "blocked_validation",
+}
+
+
+def ai_agent_learning_proposal_id(task_id: str, category: str, title: str, detail: str) -> str:
+    identity = "\n".join((str(task_id or ""), category, title.lower(), detail.lower()))
+    return f"learn-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:18]}"
+
+
+def ai_agent_stage_llm_learning(
     state: dict[str, Any],
     data: dict[str, Any],
     task: dict[str, Any],
     actor: str,
+    *,
+    eligible: bool,
+    validation_error: str = "",
 ) -> list[dict[str, Any]]:
+    """Stage model-proposed lessons for owner review; never write memory directly."""
     raw_items = data.get("learning") if isinstance(data, dict) else None
     if raw_items is None and isinstance(data, dict):
         raw_items = data.get("memory_updates")
     if not isinstance(raw_items, list):
         return []
-    stored: list[dict[str, Any]] = []
+    now = datetime.now(UTC).isoformat()
     task_id = str((task or {}).get("id") or "").strip()
+    existing_rows = task.get("learning_proposals") if isinstance(task.get("learning_proposals"), list) else []
+    existing_by_id = {
+        str(item.get("id") or ""): item
+        for item in existing_rows
+        if isinstance(item, dict) and str(item.get("id") or "")
+    }
+    staged: list[dict[str, Any]] = []
     for raw in raw_items[:8]:
         if not isinstance(raw, dict):
             continue
         category = str(raw.get("category") or "lessons").strip()
-        title = raw.get("title") or raw.get("summary")
-        detail = raw.get("detail") or raw.get("reason") or raw.get("body")
-        tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+        title = str(raw.get("title") or raw.get("summary") or "").strip()
+        detail = str(raw.get("detail") or raw.get("reason") or raw.get("body") or "").strip()
+        raw_tags = raw.get("tags") if isinstance(raw.get("tags"), list) else []
+        tags = [str(tag).strip()[:40] for tag in raw_tags if str(tag).strip()][:10]
+        if category not in AI_AGENT_MEMORY_CATEGORIES or not title or not detail:
+            continue
+        if not ai_agent_memory_text_is_safe(title, detail, *tags):
+            continue
+        proposal_id = ai_agent_learning_proposal_id(task_id, category, title, detail)
+        existing = existing_by_id.get(proposal_id)
+        status = "pending" if eligible else "blocked_validation"
+        if isinstance(existing, dict) and str(existing.get("status") or "") in {
+            "approved",
+            "dismissed",
+        }:
+            status = str(existing.get("status"))
+        proposal = {
+            "id": proposal_id,
+            "task_id": task_id,
+            "run_id": str((task or {}).get("run_id") or "").strip(),
+            "category": category,
+            "title": title[:140],
+            "detail": detail[:1400],
+            "tags": tags,
+            "proposed_by": str(actor or "Sandbox Assistant")[:120],
+            "status": status,
+            "validation": "passed" if eligible else "blocked",
+            "validation_error": ai_agent_compact_text(validation_error, 420) if not eligible else "",
+            "created_at": str((existing or {}).get("created_at") or now),
+            "updated_at": now,
+            "reviewed_at": str((existing or {}).get("reviewed_at") or ""),
+            "reviewed_by": str((existing or {}).get("reviewed_by") or ""),
+            "memory_id": str((existing or {}).get("memory_id") or ""),
+        }
+        staged.append(proposal)
+
+    if not staged:
+        return []
+    staged_ids = {str(item.get("id") or "") for item in staged}
+    retained = [
+        item
+        for item in existing_rows
+        if isinstance(item, dict) and str(item.get("id") or "") not in staged_ids
+    ]
+    task["learning_proposals"] = [*staged, *retained][:40]
+    task["learning_status"] = "awaiting_owner_review" if eligible else "blocked_validation"
+    new_count = sum(1 for item in staged if str(item.get("id") or "") not in existing_by_id)
+    if new_count:
+        title = "AI learning proposed" if eligible else "AI learning blocked by validation"
+        summary = (
+            f"{new_count} lesson(s) await owner review"
+            if eligible
+            else f"{new_count} lesson(s) cannot be approved because the DayZ output failed validation"
+        )
+        ai_agent_activity(
+            state,
+            title,
+            summary,
+            actor,
+            {"task_id": task_id, "proposal_ids": [item.get("id") for item in staged]},
+        )
+    return staged
+
+
+def ai_agent_learning_proposals(
+    state: dict[str, Any],
+    *,
+    statuses: set[str] | None = None,
+    limit: int = 40,
+) -> list[dict[str, Any]]:
+    wanted = statuses or {"pending", "blocked_validation"}
+    rows: list[dict[str, Any]] = []
+    tasks = state.get("tasks") if isinstance(state, dict) else []
+    for task in tasks if isinstance(tasks, list) else []:
+        if not isinstance(task, dict):
+            continue
+        proposals = task.get("learning_proposals")
+        if not isinstance(proposals, list):
+            continue
+        for proposal in proposals:
+            if not isinstance(proposal, dict) or str(proposal.get("status") or "") not in wanted:
+                continue
+            rows.append(
+                {
+                    **proposal,
+                    "task_id": str(task.get("id") or proposal.get("task_id") or ""),
+                    "run_id": str(task.get("run_id") or proposal.get("run_id") or ""),
+                    "task_title": ai_agent_compact_text(task.get("objective") or task.get("title") or "Sandbox task", 120),
+                }
+            )
+    rows.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return rows[:max(1, int(limit or 1))]
+
+
+def ai_agent_review_learning_proposal(
+    state: dict[str, Any],
+    task_id: str,
+    proposal_id: str,
+    action: str,
+    actor: str,
+) -> tuple[dict[str, Any] | None, str]:
+    task = ai_agent_find_by_id(state.get("tasks", []), task_id)
+    if not isinstance(task, dict):
+        return None, "learning task not found"
+    proposals = task.get("learning_proposals")
+    if not isinstance(proposals, list):
+        return None, "learning proposal not found"
+    proposal = next(
+        (item for item in proposals if isinstance(item, dict) and str(item.get("id") or "") == proposal_id),
+        None,
+    )
+    if not isinstance(proposal, dict):
+        return None, "learning proposal not found"
+    status = str(proposal.get("status") or "pending")
+    normalized_action = str(action or "").strip().lower()
+    now = datetime.now(UTC).isoformat()
+    if normalized_action in {"approve", "approve_learning"}:
+        if status == "blocked_validation":
+            return None, "This lesson is blocked because its DayZ answer failed validation and cannot be approved."
+        if status != "pending":
+            return None, f"This lesson is already {status}."
         item, created = ai_agent_record_memory(
             state,
-            category,
-            title,
-            detail,
-            source=f"task:{task_id}" if task_id else "assistant",
+            str(proposal.get("category") or "lessons"),
+            proposal.get("title"),
+            proposal.get("detail"),
+            source=f"task:{task_id}",
             actor=actor,
-            tags=tags,
+            tags=proposal.get("tags") if isinstance(proposal.get("tags"), list) else [],
         )
-        if item:
-            stored.append({**item, "created": created})
-    if stored:
-        ai_agent_activity(state, "AI memory updated", f"{len(stored)} durable note(s) saved", actor, {"task_id": task_id, "memory_ids": [item.get("id") for item in stored]})
-    return stored
+        if not item:
+            return None, "The proposed lesson could not be saved safely."
+        proposal.update(
+            {
+                "status": "approved",
+                "reviewed_at": now,
+                "reviewed_by": actor,
+                "updated_at": now,
+                "memory_id": str(item.get("id") or ""),
+            }
+        )
+        ai_agent_activity(
+            state,
+            "AI learning approved",
+            str(proposal.get("title") or proposal_id),
+            actor,
+            {"task_id": task_id, "proposal_id": proposal_id, "memory_id": item.get("id"), "created": created},
+        )
+        return proposal, ""
+    if normalized_action in {"dismiss", "dismiss_learning", "reject"}:
+        if status in {"approved", "dismissed"}:
+            return None, f"This lesson is already {status}."
+        proposal.update(
+            {
+                "status": "dismissed",
+                "reviewed_at": now,
+                "reviewed_by": actor,
+                "updated_at": now,
+            }
+        )
+        ai_agent_activity(
+            state,
+            "AI learning dismissed",
+            str(proposal.get("title") or proposal_id),
+            actor,
+            {"task_id": task_id, "proposal_id": proposal_id},
+        )
+        return proposal, ""
+    return None, "unsupported learning review action"
 
 
 def ai_agent_default_state() -> dict[str, Any]:
@@ -28367,6 +28585,7 @@ def ai_agent_dayz_scenario_summaries(state: dict[str, Any]) -> list[dict[str, An
 
 def ai_agent_public_task(task: dict[str, Any]) -> dict[str, Any]:
     public = dict(task)
+    public.pop("learning_proposals", None)
     context = public.get("dayz_context")
     if isinstance(context, dict):
         public_context = dict(context)
@@ -28846,11 +29065,159 @@ def ai_agent_extract_json_object(content: str) -> dict[str, Any]:
     return {}
 
 
+AI_AGENT_LLM_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "reply": {"type": "string"},
+        "steps": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "agent": {"type": "string"},
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                },
+                "required": ["agent", "title", "detail"],
+            },
+        },
+        "suggested_commands": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "label": {"type": "string"},
+                    "command": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "project_path": {"type": "string"},
+                    "risk": {"type": "string"},
+                },
+                "required": ["label", "command", "reason", "project_path", "risk"],
+            },
+        },
+        "next_action": {"type": "string"},
+        "summary": {"type": "string"},
+        "risk_notes": {"type": "array", "items": {"type": "string"}},
+        "dayz_draft": {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "target_path": {"type": "string"},
+                        "kind": {"type": "string", "enum": ["patch", "full_file"]},
+                        "content": {"type": "string"},
+                        "summary": {"type": "string"},
+                    },
+                    "required": ["target_path", "kind", "content", "summary"],
+                },
+                {"type": "null"},
+            ]
+        },
+        "dayz_drafts": {
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "target_path": {"type": "string"},
+                            "kind": {"type": "string", "enum": ["patch", "full_file"]},
+                            "content": {"type": "string"},
+                            "summary": {"type": "string"},
+                        },
+                        "required": ["target_path", "kind", "content", "summary"],
+                    },
+                },
+                {"type": "null"},
+            ]
+        },
+        "learning": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": list(AI_AGENT_MEMORY_CATEGORIES),
+                    },
+                    "title": {"type": "string"},
+                    "detail": {"type": "string"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["category", "title", "detail", "tags"],
+            },
+        },
+    },
+    "required": [
+        "reply",
+        "steps",
+        "suggested_commands",
+        "next_action",
+        "summary",
+        "risk_notes",
+        "dayz_draft",
+        "dayz_drafts",
+        "learning",
+    ],
+}
+
+
+def ai_agent_safety_identifier(user_payload: dict[str, Any]) -> str:
+    access = user_payload.get("access") if isinstance(user_payload, dict) else {}
+    if not isinstance(access, dict):
+        access = {}
+    stable_subject = "|".join(
+        (
+            str(access.get("role") or "unknown"),
+            str(access.get("label") or "anonymous"),
+        )
+    )
+    return f"wb_{hashlib.sha256(stable_subject.encode('utf-8')).hexdigest()[:32]}"
+
+
+def ai_agent_openai_response_text(payload: Any) -> tuple[str, str]:
+    if not isinstance(payload, dict):
+        return "", "response payload was not an object"
+    text_parts: list[str] = []
+    refusals: list[str] = []
+    direct_text = payload.get("output_text")
+    if isinstance(direct_text, str) and direct_text.strip():
+        text_parts.append(direct_text)
+    output = payload.get("output")
+    for item in output if isinstance(output, list) else []:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        for part in content if isinstance(content, list) else []:
+            if not isinstance(part, dict):
+                continue
+            if str(part.get("type") or "") == "output_text" and isinstance(part.get("text"), str):
+                text_parts.append(str(part.get("text")))
+            elif str(part.get("type") or "") == "refusal":
+                refusals.append(ai_agent_compact_text(part.get("refusal") or "model refusal", 160))
+    text = "".join(text_parts).strip()
+    status = ai_agent_compact_text(payload.get("status") or "unknown", 40)
+    incomplete = payload.get("incomplete_details")
+    reason = ai_agent_compact_text(incomplete.get("reason"), 100) if isinstance(incomplete, dict) else ""
+    detail = f"status={status}, output_text_chars={len(text)}"
+    if reason:
+        detail += f", incomplete_reason={reason}"
+    if refusals:
+        detail += f", refusal={refusals[0]}"
+    return text, detail
+
+
 def ai_agent_llm_endpoint() -> str:
     if AI_AGENT_LLM_PROVIDER == "local_planner":
         return ""
     if AI_AGENT_LLM_PROVIDER == "openai":
-        return "https://api.openai.com/v1/chat/completions"
+        return "https://api.openai.com/v1/responses"
     if not AI_AGENT_LLM_BASE_URL:
         return ""
     if AI_AGENT_LLM_BASE_URL.endswith("/chat/completions"):
@@ -28976,20 +29343,39 @@ def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tupl
         if AI_AGENT_LLM_PROVIDER == "openai":
             return False, {}, "OpenAI-compatible provider selected but no API key is configured"
         return False, {}, "Model backend base URL is not configured"
-    request_body = {
-        "model": AI_AGENT_MODEL,
-        "messages": [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, default=str)},
-        ],
-        "temperature": 0.2,
-        "max_tokens": AI_AGENT_LLM_MAX_TOKENS,
-        "response_format": {"type": "json_object"},
-    }
+    is_openai_responses = AI_AGENT_LLM_PROVIDER == "openai"
+    if is_openai_responses:
+        request_body = {
+            "model": AI_AGENT_MODEL,
+            "instructions": system_message,
+            "input": json.dumps(user_payload, ensure_ascii=False, default=str),
+            "max_output_tokens": AI_AGENT_LLM_MAX_TOKENS,
+            "safety_identifier": ai_agent_safety_identifier(user_payload),
+            "store": False,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "wandering_dayz_agent_response",
+                    "strict": True,
+                    "schema": AI_AGENT_LLM_RESPONSE_SCHEMA,
+                }
+            },
+        }
+    else:
+        request_body = {
+            "model": AI_AGENT_MODEL,
+            "messages": [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, default=str)},
+            ],
+            "temperature": 0.2,
+            "max_tokens": AI_AGENT_LLM_MAX_TOKENS,
+            "response_format": {"type": "json_object"},
+        }
     headers = {"Content-Type": "application/json"}
     if AI_AGENT_LLM_API_KEY:
         headers["Authorization"] = f"Bearer {AI_AGENT_LLM_API_KEY}"
-    for attempt in range(2):
+    for attempt in range(1 if is_openai_responses else 2):
         try:
             response = requests.post(
                 endpoint,
@@ -29001,12 +29387,19 @@ def ai_agent_llm_json(system_message: str, user_payload: dict[str, Any]) -> tupl
             return False, {}, f"Model backend request failed: {error}"
         if response.status_code >= 400:
             error_text = ai_agent_redact_log(response.text)[:500]
-            if attempt == 0 and "response_format" in error_text:
+            if not is_openai_responses and attempt == 0 and "response_format" in error_text:
                 request_body.pop("response_format", None)
                 continue
             return False, {}, f"Model backend returned HTTP {response.status_code}: {error_text}"
         try:
             payload = response.json()
+            if is_openai_responses:
+                content, diagnostic = ai_agent_openai_response_text(payload)
+                parsed = ai_agent_extract_json_object(content)
+                if parsed:
+                    return True, parsed, ""
+                detail = diagnostic or f"status=unknown, output_text_chars={len(content)}"
+                return False, {}, f"OpenAI response did not contain valid structured JSON ({detail})"
             choice = payload.get("choices", [{}])[0]
             message = choice.get("message", {}) if isinstance(choice, dict) else {}
             content = str(message.get("content") or "") if isinstance(message, dict) else ""
@@ -29263,9 +29656,9 @@ def ai_agent_llm_reply_for_task(
         "to queue the Inspect Project sandbox command, then continue after the job output is available. "
         "Respect approval gates: production deploys, database migrations, secrets, file deletion, repository deletion, "
         "force pushes, and permission changes need owner approval unless context explicitly says they are approved. "
-        "Use the supplied memory as durable project context. Add learning only for stable facts, owner decisions, "
+        "Use the supplied memory as durable owner-approved project context. Propose learning only for stable facts, owner decisions, "
         "incidents, approved patterns or blocked patterns that will help future work; never store passwords, API keys, "
-        "tokens, secrets or private customer data. "
+        "tokens, secrets or private customer data. Proposed learning is reviewed by the Primary Owner and must never be treated as saved memory. "
         "When dayz_file_context is supplied, act as a careful DayZ server-file specialist for users who may be new to development. "
         "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
         "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
@@ -29343,9 +29736,6 @@ def ai_agent_llm_reply_for_task(
     task["llm_provider"] = AI_AGENT_LLM_PROVIDER
     task["llm_model"] = AI_AGENT_MODEL
     task["updated_at"] = datetime.now(UTC).isoformat()
-    learned_items = ai_agent_store_llm_learning(state, data, task, access.get("label") or dashboard_audit_actor(auth))
-    if learned_items:
-        task["learning"] = learned_items
     task["steps"] = ai_agent_normalize_llm_steps(data.get("steps"), task.get("steps") if isinstance(task.get("steps"), list) else [])
     normalized_drafts, dayz_draft_error = ai_agent_normalize_dayz_draft_package(data, task.get("dayz_context"))
     if is_dayz_edit_request and not normalized_drafts:
@@ -29407,6 +29797,14 @@ def ai_agent_llm_reply_for_task(
             )
     elif dayz_draft_error:
         task["dayz_draft_error"] = dayz_draft_error
+    ai_agent_stage_llm_learning(
+        state,
+        data,
+        task,
+        access.get("label") or dashboard_audit_actor(auth),
+        eligible=not is_dayz_edit_request or bool(normalized_drafts),
+        validation_error=dayz_draft_error,
+    )
     llm_suggestions = ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
     merged_suggestions = ai_agent_merge_suggested_commands(task, [*base_suggestions, *llm_suggestions])
     next_action = ai_agent_compact_text(data.get("next_action"), 220)
@@ -38666,6 +39064,7 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_permission_keys=AI_AGENT_PERMISSION_KEYS,
         ai_agent_memory=ai_agent_memory_snapshot(ai_agent_state, 12),
         ai_agent_memory_labels=AI_AGENT_MEMORY_LABELS,
+        ai_agent_learning_proposals=ai_agent_learning_proposals(ai_agent_state, limit=30) if auth.get("kind") == "owner" else [],
         ai_agent_credit_packs=agent_credit_packs() if auth.get("kind") in {"owner", "agent_account", "guild"} else [],
         ai_agent_credit_ledger=agent_credit_ledger_for_account(agent_credit_account_id_for_auth(auth), 12) if auth.get("kind") in {"agent_account", "guild"} else [],
         ai_agent_credits=ai_agent_credits,
@@ -43944,7 +44343,7 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
         sandbox_payload.pop("worker_token_configured", None)
         sandbox_payload.pop("workspace_root_configured", None)
         sandbox_payload.pop("workspace_root_ready", None)
-    return {
+    payload = {
         "ok": True,
         "access": access,
         "god_mode_enabled": bool(state.get("god_mode_enabled")),
@@ -43982,6 +44381,9 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
         "credit_ledger": agent_credit_ledger_for_account(agent_credit_account_id_for_auth(auth), 12) if auth.get("kind") in {"agent_account", "guild"} else [],
         "server_time": datetime.now(UTC).isoformat(),
     }
+    if auth.get("kind") == "owner":
+        payload["learning_proposals"] = ai_agent_learning_proposals(state, limit=40)
+    return payload
 
 
 @APP.get("/api/ai-agent/state")
@@ -44629,6 +45031,42 @@ def api_owner_ai_agent_memory():
     state = load_ai_agent_state()
     actor = dashboard_audit_actor(current_auth())
     action = str(payload.get("action") or "add").strip().lower()
+    if action in {"approve_learning", "dismiss_learning"}:
+        task_id = str(payload.get("task_id") or "").strip()
+        proposal_id = str(payload.get("proposal_id") or "").strip()
+        if not task_id or not proposal_id:
+            return jsonify({"ok": False, "error": "task_id and proposal_id are required"}), 400
+        proposal, review_error = ai_agent_review_learning_proposal(
+            state,
+            task_id,
+            proposal_id,
+            action,
+            actor,
+        )
+        if not proposal:
+            status = 409 if "already" in review_error.lower() or "blocked" in review_error.lower() else 404
+            return jsonify({"ok": False, "error": review_error}), status
+        save_ai_agent_state(state)
+        g.dashboard_audit_payload = dict(
+            raw_payload,
+            guild_id="global",
+            action=action,
+            task_id=task_id,
+            proposal_id=proposal_id,
+        )
+        note = "Approved lesson and saved it to durable memory." if action == "approve_learning" else "Dismissed proposed lesson."
+        return dashboard_api_response(
+            raw_payload,
+            {
+                "ok": True,
+                "proposal": proposal,
+                "memory": ai_agent_memory_snapshot(state, 12),
+                "learning_proposals": ai_agent_learning_proposals(state, limit=40),
+                "note": note,
+            },
+            "ai-agent",
+            "#ai-agent-memory",
+        )
     memory = ai_agent_normalize_memory(state.get("memory"))
     if action in {"remove", "delete", "forget"}:
         memory_id = str(payload.get("memory_id") or payload.get("id") or "").strip()
