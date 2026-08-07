@@ -1009,6 +1009,9 @@ SERVER_PROFILE_SEPARATOR = ":"
 SERVER_PROFILE_INHERITED_KEYS = (
     "nitrado_token",
     "nitrado_ftp_host",
+    "rcon_host",
+    "rcon_port",
+    "rcon_password",
     "server_platform",
     "platform",
     "server_mode",
@@ -8039,6 +8042,9 @@ def new_guild_config(guild):
         "ftp_user": "",
         "ftp_password": "",
         "ftp_host": "",
+        "rcon_host": "",
+        "rcon_port": "",
+        "rcon_password": "",
         "server_platform": "xbox",
         "roasts_enabled": False,
         "channels": {}
@@ -17537,6 +17543,9 @@ async def on_guild_join(guild):
         "ftp_user": "",
         "ftp_password": "",
         "ftp_host": "",
+        "rcon_host": "",
+        "rcon_port": "",
+        "rcon_password": "",
         "channels": {
             "killfeed": killfeed.id,
             "raids": raids.id,
@@ -17684,6 +17693,9 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     nitrado_user="Example: ni12248929_2. Optional after the first setup.",
     ftp_user="Your Nitrado FTP username. Optional after the first setup.",
     ftp_password="Your Nitrado FTP password. Optional after the first setup.",
+    rcon_host="PC only: BattlEye RCon host/IP. Leave blank if not enabled.",
+    rcon_port="PC only: BattlEye RCon port from BEServer_x64.cfg.",
+    rcon_password="PC only: BattlEye RCon password from BEServer_x64.cfg.",
     server_platform="Console/host platform: Xbox, PlayStation, or PC. Leave blank to keep current.",
     server_map="Server map: Chernarus, Livonia, or Sakhal. Leave blank to keep current.",
     server_mode="Server style: PVP only, PVE only, or Hybrid. Leave blank to keep current.",
@@ -17714,6 +17726,9 @@ async def setup_command(
     nitrado_user: str = "",
     ftp_user: str = "",
     ftp_password: str = "",
+    rcon_host: str = "",
+    rcon_port: str = "",
+    rcon_password: str = "",
     server_platform: str = "",
     server_map: str = "",
     server_mode: str = "",
@@ -17738,6 +17753,15 @@ async def setup_command(
     raw_nitrado_user = str(nitrado_user or "").strip() or str(existing_config.get("nitrado_user") or "").strip()
     raw_ftp_user = str(ftp_user or "").strip() or str(existing_config.get("ftp_user") or "").strip()
     raw_ftp_password = str(ftp_password or "") or str(existing_config.get("ftp_password") or "")
+    raw_rcon_host = str(rcon_host or "").strip() or str(existing_config.get("rcon_host") or "").strip()
+    raw_rcon_port = str(rcon_port or "").strip() or str(existing_config.get("rcon_port") or "").strip()
+    raw_rcon_password = str(rcon_password or "") or str(existing_config.get("rcon_password") or "")
+    selected_server_platform, selected_server_map, selected_server_mode = resolve_setup_server_settings(
+        existing_config,
+        server_platform=server_platform,
+        server_map=server_map,
+        server_mode=server_mode,
+    )
     missing_setup = []
     if not raw_nitrado_token:
         missing_setup.append("nitrado_token")
@@ -17784,6 +17808,47 @@ async def setup_command(
             return
         clean_credentials[label] = clean_value
 
+    # BattlEye RCon is an optional PC-only live-control path. It must never
+    # replace the Nitrado/API/FTP credentials used for files and power actions.
+    clean_rcon = {}
+    explicit_rcon = any(str(value or "").strip() for value in (rcon_host, rcon_port, rcon_password))
+    if raw_rcon_host or raw_rcon_port or raw_rcon_password:
+        if selected_server_platform != "pc" and not explicit_rcon:
+            raw_rcon_host = raw_rcon_port = raw_rcon_password = ""
+        elif selected_server_platform != "pc":
+            await interaction.followup.send(
+                "BattlEye RCon is only used for PC servers. Pick `server_platform: PC` before saving these RCon details.",
+                ephemeral=True,
+            )
+            return
+    if raw_rcon_host or raw_rcon_port or raw_rcon_password:
+        if not raw_rcon_host or not raw_rcon_port or not raw_rcon_password:
+            await interaction.followup.send(
+                "PC BattlEye RCon setup needs all three values: rcon_host, rcon_port and rcon_password. Leave all three blank to keep RCon disabled.",
+                ephemeral=True,
+            )
+            return
+        ok, clean_rcon_host, rcon_error = validate_rcon_host(raw_rcon_host)
+        if not ok:
+            await interaction.followup.send(rcon_error, ephemeral=True)
+            return
+        if not re.fullmatch(r"[0-9]{1,5}", raw_rcon_port) or not 1 <= int(raw_rcon_port) <= 65535:
+            await interaction.followup.send("rcon_port must be a number between 1 and 65535.", ephemeral=True)
+            return
+        ok, clean_rcon_password, rcon_error = validate_nitrado_ascii_credential(
+            raw_rcon_password,
+            "BattlEye RCon password",
+            allow_spaces=False,
+        )
+        if not ok:
+            await interaction.followup.send(rcon_error, ephemeral=True)
+            return
+        clean_rcon = {
+            "rcon_host": clean_rcon_host,
+            "rcon_port": str(int(raw_rcon_port)),
+            "rcon_password": clean_rcon_password,
+        }
+
     if guild_id not in guild_configs:
 
         guild_configs[guild_id] = {
@@ -17793,12 +17858,6 @@ async def setup_command(
             "channels": {}
         }
 
-    selected_server_platform, selected_server_map, selected_server_mode = resolve_setup_server_settings(
-        existing_config,
-        server_platform=server_platform,
-        server_map=server_map,
-        server_mode=server_mode,
-    )
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
@@ -18026,6 +18085,8 @@ async def setup_command(
     guild_configs[guild_id]["nitrado_user"] = clean_credentials["Nitrado FTP username"]
     guild_configs[guild_id]["ftp_user"] = clean_credentials["FTP login username"]
     guild_configs[guild_id]["ftp_password"] = clean_credentials["FTP password"]
+    if clean_rcon:
+        guild_configs[guild_id].update(clean_rcon)
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
@@ -26267,6 +26328,74 @@ def validate_nitrado_ascii_credential(value, label, *, allow_blank=False, allow_
     return True, clean, ""
 
 
+def validate_rcon_host(value):
+    """Validate a BattlEye RCon host without resolving or contacting it."""
+    host = str(value or "").strip()
+    if not host:
+        return False, "", "BattlEye RCon host/IP is blank."
+    if len(host) > 255 or any(char.isspace() for char in host) or any(char in host for char in "/\\"):
+        return False, host, "BattlEye RCon host must be a hostname or IP address, with no spaces or slashes."
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return False, host, "BattlEye RCon host must not include a port; enter the port separately."
+    return True, host, ""
+
+
+def battleye_rcon_settings(config):
+    """Return validated PC BattlEye RCon settings, or None when disabled."""
+    if normalize_server_platform((config or {}).get("server_platform") or (config or {}).get("platform")) != "pc":
+        return None
+    host = str((config or {}).get("rcon_host") or "").strip()
+    port = str((config or {}).get("rcon_port") or "").strip()
+    password = str((config or {}).get("rcon_password") or "")
+    if not host and not port and not password:
+        return None
+    ok, clean_host, _error = validate_rcon_host(host)
+    if not ok or not re.fullmatch(r"[0-9]{1,5}", port or ""):
+        return None
+    port_number = int(port)
+    if not 1 <= port_number <= 65535 or not password:
+        return None
+    return {"host": clean_host, "port": port_number, "password": password}
+
+
+def dayz_connection_preference(config):
+    """Describe the live connection path without changing file/power routing."""
+    if normalize_server_platform((config or {}).get("server_platform") or (config or {}).get("platform")) == "pc":
+        if battleye_rcon_settings(config):
+            return "battlEye_rcon_then_nitrado"
+        return "nitrado_api_ftp (RCon not configured)"
+    return "nitrado_api_ftp"
+
+
+async def battleye_rcon_command(config, command, *, timeout_seconds=12):
+    """Run a read/control BattlEye RCon command when configured for a PC server."""
+    settings = battleye_rcon_settings(config)
+    if not settings:
+        return False, "PC BattlEye RCon is not configured."
+    try:
+        import berconpy
+    except ImportError:
+        return False, "The berconpy BattlEye RCon dependency is not installed."
+    client = berconpy.RCONClient()
+    try:
+        async def send_with_client():
+            async with client.connect(settings["host"], settings["port"], settings["password"]):
+                return await client.send_command(str(command or "").strip())
+
+        response = await asyncio.wait_for(send_with_client(), timeout=max(2, min(30, int(timeout_seconds))))
+        return True, str(response or "").strip()
+    except Exception as error:
+        return False, f"BattlEye RCon failed: {error}"
+
+
+def battleye_rcon_command_sync(config, command, *, timeout_seconds=12):
+    """Synchronous bridge used by existing worker threads and status polling."""
+    try:
+        return asyncio.run(battleye_rcon_command(config, command, timeout_seconds=timeout_seconds))
+    except Exception as error:
+        return False, f"BattlEye RCon failed: {error}"
+
+
 def nitrado_api_headers_or_error(config):
     token = config.get("nitrado_token")
     if not token:
@@ -26351,9 +26480,18 @@ def _flatten_status_values(value):
 
 
 def nitrado_gameserver_status(config):
+    # PC servers can expose BattlEye RCon even when the host's status API is
+    # slow or unavailable. Prefer that live path, then retain Nitrado as the
+    # fallback for hosts that still use the API for status.
+    rcon_attempted = normalize_server_platform((config or {}).get("server_platform") or (config or {}).get("platform")) == "pc" and bool(battleye_rcon_settings(config))
+    if rcon_attempted:
+        rcon_ok, rcon_message = battleye_rcon_command_sync(config, "players")
+        if rcon_ok:
+            return True, "BattlEye RCon online: " + (rcon_message or "no players reported")
+
     service_id = config.get("service_id")
     if not service_id:
-        return False, "Missing nitrado_token / service_id."
+        return False, "PC BattlEye RCon failed and Nitrado service_id is missing." if rcon_attempted else "Missing nitrado_token / service_id."
     headers, header_error = nitrado_api_headers_or_error(config)
     if header_error:
         return False, header_error

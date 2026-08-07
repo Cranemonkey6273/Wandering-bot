@@ -128,6 +128,48 @@ class RestartTimezoneTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("U+0435", message)
 
+    def test_pc_connection_prefers_battleye_rcon_when_complete(self):
+        config = {
+            "server_platform": "pc",
+            "rcon_host": "203.0.113.10",
+            "rcon_port": "2312",
+            "rcon_password": "secret",
+        }
+
+        self.assertEqual("battlEye_rcon_then_nitrado", self.bot.dayz_connection_preference(config))
+        self.assertEqual(
+            {"host": "203.0.113.10", "port": 2312, "password": "secret"},
+            self.bot.battleye_rcon_settings(config),
+        )
+
+    def test_rcon_is_not_selected_for_console_servers(self):
+        config = {
+            "server_platform": "xbox",
+            "rcon_host": "203.0.113.10",
+            "rcon_port": "2312",
+            "rcon_password": "secret",
+        }
+
+        self.assertIsNone(self.bot.battleye_rcon_settings(config))
+        self.assertEqual("nitrado_api_ftp", self.bot.dayz_connection_preference(config))
+
+    def test_pc_status_uses_rcon_before_nitrado_api(self):
+        config = {
+            "server_platform": "pc",
+            "rcon_host": "203.0.113.10",
+            "rcon_port": "2312",
+            "rcon_password": "secret",
+            "nitrado_token": "bad-token-not-used",
+            "service_id": "1234567",
+        }
+
+        with patch.object(self.bot, "battleye_rcon_command_sync", return_value=(True, "Players on server: 0")):
+            with patch.object(self.bot.requests, "get", side_effect=AssertionError("Nitrado should not be queried after RCon succeeds")):
+                ok, message = self.bot.nitrado_gameserver_status(config)
+
+        self.assertTrue(ok)
+        self.assertIn("BattlEye RCon online", message)
+
     def test_apply_server_timezone_links_restart_and_adm_time(self):
         config = {}
 

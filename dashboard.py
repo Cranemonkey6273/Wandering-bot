@@ -1287,8 +1287,11 @@ SECRET_KEYS = {
     "nitrado_token",
     "nitrado_user",
     "service_id",
+    "rcon_password",
+    "rcon_host",
+    "rcon_port",
 }
-REMOVED_GUILD_RESTORE_SECRET_KEYS = ("nitrado_token", "service_id", "ftp_host", "ftp_user", "ftp_password")
+REMOVED_GUILD_RESTORE_SECRET_KEYS = ("nitrado_token", "service_id", "ftp_host", "ftp_user", "ftp_password", "rcon_host", "rcon_port", "rcon_password")
 OWNER_DESTRUCTIVE_GUILD_ACTIONS = {"leave_and_remove", "remove_data"}
 
 FILES = {
@@ -1513,6 +1516,9 @@ SERVER_PROFILE_SEPARATOR = ":"
 DASHBOARD_SERVER_PROFILE_INHERITED_KEYS = (
     "nitrado_token",
     "nitrado_ftp_host",
+    "rcon_host",
+    "rcon_port",
+    "rcon_password",
     "server_platform",
     "platform",
     "server_mode",
@@ -12749,7 +12755,7 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="return_to" value="/admin?section=access&guild_id={{ server.guild_id if server else '' }}#nitrado-connection">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Connection status
-              <input value="API token: {{ 'saved' if server and server.config.nitrado_token else 'missing' }} | Service ID: {{ 'saved' if server and server.config.service_id else 'missing' }} | FTP: {{ 'saved' if server and server.config.ftp_user and server.config.ftp_password else 'missing' }}" readonly>
+              <input value="API token: {{ 'saved' if server and server.config.nitrado_token else 'missing' }} | Service ID: {{ 'saved' if server and server.config.service_id else 'missing' }} | FTP: {{ 'saved' if server and server.config.ftp_user and server.config.ftp_password else 'missing' }} | PC RCon: {{ 'saved' if server and server.config.rcon_host and server.config.rcon_port and server.config.rcon_password else 'not configured' }}" readonly>
               <small class="field-help">If a restart log mentions a hidden character such as U+0435, paste a fresh Nitrado API token here.</small>
             </label>
             <label>Nitrado API token
@@ -12775,6 +12781,19 @@ PAGE_TEMPLATE = """
             <label>FTP host override
               <input name="nitrado_ftp_host" placeholder="optional, usually leave blank">
               <small class="field-help">Only use this if Nitrado gave a specific FTP host. The bot can usually discover it.</small>
+            </label>
+            <div class="full connection-divider"><strong>PC BattlEye RCon (optional)</strong><small class="field-help">Only for PC servers. RCon is used for live status/commands; Nitrado API/FTP remains required for file uploads and restart power actions.</small></div>
+            <label>RCon host/IP
+              <input name="rcon_host" autocomplete="off" placeholder="PC host or IP, e.g. 203.0.113.10">
+              <small class="field-help">Use the host/IP shown by your PC provider. Do not include the port here.</small>
+            </label>
+            <label>RCon port
+              <input name="rcon_port" inputmode="numeric" placeholder="e.g. 2312">
+              <small class="field-help">The <code>RConPort</code> from <code>BEServer_x64.cfg</code>.</small>
+            </label>
+            <label>RCon password
+              <input name="rcon_password" type="password" autocomplete="new-password" placeholder="leave blank to keep current">
+              <small class="field-help">The <code>RConPassword</code> from your BattlEye server config.</small>
             </label>
             <div class="full"><button type="submit">Save Nitrado Connection</button> <span class="result muted"></span></div>
           </form>
@@ -12829,16 +12848,21 @@ PAGE_TEMPLATE = """
             <label>FTP password <input name="ftp_password" type="password" autocomplete="new-password" placeholder="leave blank to keep current"></label>
             <label>API token override <input name="nitrado_token" type="password" autocomplete="new-password" placeholder="blank uses shared token above"></label>
             <label>FTP host override <input name="nitrado_ftp_host" placeholder="optional hostname only"></label>
+            <div class="full connection-divider"><strong>PC BattlEye RCon (optional)</strong><small class="field-help">Shown for every profile so PC servers can use RCon for live status. Leave blank for console servers. Keep Nitrado/API/FTP for files and restart power actions.</small></div>
+            <label>RCon host/IP <input name="rcon_host" autocomplete="off" placeholder="PC host or IP"></label>
+            <label>RCon port <input name="rcon_port" inputmode="numeric" placeholder="e.g. 2312"></label>
+            <label>RCon password <input name="rcon_password" type="password" autocomplete="new-password" placeholder="leave blank to keep current"></label>
             <div class="full"><button type="submit">Save DayZ Profile</button> <span class="result muted"></span></div>
           </form>
           <table class="table">
-            <thead><tr><th>Profile</th><th>Map</th><th>Nitrado</th><th>Token</th><th>Feeds</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Profile</th><th>Map</th><th>Nitrado</th><th>RCon</th><th>Token</th><th>Feeds</th><th>Actions</th></tr></thead>
             <tbody>
               {% for profile in (server.dayz_profiles if server else []) %}
               <tr>
                 <td><strong>{{ profile.name }}</strong><br><small class="muted"><code>{{ profile.id }}</code> / <code>{{ profile.runtime_id }}</code></small></td>
                 <td>{{ profile.map_key }}<br><small class="muted">{{ profile.platform_label }} / {{ profile.server_mode }}</small></td>
                 <td>Service: {{ 'saved' if profile.service_id else 'missing' }}<br><small class="muted">FTP: {{ profile.ftp_status }}</small></td>
+                <td>{{ profile.rcon_status }}</td>
                 <td>{{ profile.token_status }}</td>
                 <td>{{ profile.configured_channel_count }} routed feed(s)<br><small class="muted">{{ profile.available_channel_count }} available Discord channel(s)</small></td>
                 <td>
@@ -12873,7 +12897,7 @@ PAGE_TEMPLATE = """
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="6">No DayZ server profiles yet. Add a short ID such as <code>cherno</code>, <code>livonia</code> or <code>sakhal</code> for each DayZ server.</td></tr>
+              <tr><td colspan="7">No DayZ server profiles yet. Add a short ID such as <code>cherno</code>, <code>livonia</code> or <code>sakhal</code> for each DayZ server.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -32421,6 +32445,37 @@ def validate_dashboard_ascii_credential(
     return True, clean, ""
 
 
+def validate_dashboard_rcon_host(value: Any) -> tuple[bool, str, str]:
+    host = str(value or "").strip()
+    if not host:
+        return True, "", ""
+    if len(host) > 255 or any(char.isspace() for char in host) or any(char in host for char in "/\\"):
+        return False, host, "BattlEye RCon host must be a hostname or IP address, with no spaces or slashes."
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return False, host, "BattlEye RCon host must not include a port; enter the port separately."
+    return True, host, ""
+
+
+def validate_dashboard_rcon_fields(payload: dict[str, Any], *, existing: dict[str, Any] | None = None) -> tuple[bool, dict[str, str], str]:
+    existing = existing if isinstance(existing, dict) else {}
+    host = str(payload.get("rcon_host") or "").strip() or str(existing.get("rcon_host") or "").strip()
+    port = str(payload.get("rcon_port") or "").strip() or str(existing.get("rcon_port") or "").strip()
+    password = str(payload.get("rcon_password") or "") or str(existing.get("rcon_password") or "")
+    if not host and not port and not password:
+        return True, {}, ""
+    if not host or not port or not password:
+        return False, {}, "PC BattlEye RCon needs all three values: host/IP, port and password. Leave all three blank to disable it."
+    ok, host, error = validate_dashboard_rcon_host(host)
+    if not ok:
+        return False, {}, error
+    if not re.fullmatch(r"[0-9]{1,5}", port) or not 1 <= int(port) <= 65535:
+        return False, {}, "BattlEye RCon port must be a number between 1 and 65535."
+    ok, password, error = validate_dashboard_ascii_credential(password, "BattlEye RCon password")
+    if not ok:
+        return False, {}, error
+    return True, {"rcon_host": host, "rcon_port": str(int(port)), "rcon_password": password}, ""
+
+
 def faction_wallet_id(value: Any) -> str:
     key = re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
     return f"faction:{key or 'unknown'}"
@@ -36535,6 +36590,7 @@ def dashboard_base_server_profile_row(
         "nitrado_user": str(config.get("nitrado_user") or ""),
         "token_status": "shared" if config.get("nitrado_token") else "missing",
         "ftp_status": "saved" if config.get("ftp_user") and config.get("ftp_password") else "missing",
+        "rcon_status": "saved" if config.get("rcon_host") and config.get("rcon_port") and config.get("rcon_password") else "not configured",
         "channels": channels,
         "available_channel_count": len(channels),
         "configured_channel_count": configured_channel_count,
@@ -36625,6 +36681,7 @@ def dashboard_server_profile_rows(
                 "nitrado_user": str(profile.get("nitrado_user") or ""),
                 "token_status": "override" if profile.get("nitrado_token") else ("shared" if config.get("nitrado_token") else "missing"),
                 "ftp_status": "saved" if profile.get("ftp_user") and profile.get("ftp_password") else "missing",
+                "rcon_status": "saved" if runtime_config.get("rcon_host") and runtime_config.get("rcon_port") and runtime_config.get("rcon_password") else "not configured",
                 "channels": profile_channels,
                 "available_channel_count": len(profile_channels),
                 "configured_channel_count": configured_channel_count,
@@ -44325,6 +44382,15 @@ def api_dayz_server_profile():
             return jsonify({"ok": False, "error": "FTP host should be a hostname only, with no slashes or spaces."}), 400
         profile["nitrado_ftp_host"] = ftp_host
 
+    rcon_ok, rcon_fields, rcon_error = validate_dashboard_rcon_fields(raw_payload, existing=profile)
+    if not rcon_ok:
+        return jsonify({"ok": False, "error": rcon_error}), 400
+    requested_platform = normalize_dashboard_server_platform(raw_payload.get("server_platform") or profile.get("server_platform") or config.get("server_platform") or config.get("platform"))
+    if rcon_fields and requested_platform != "pc":
+        return jsonify({"ok": False, "error": "BattlEye RCon fields can only be saved for a PC server profile."}), 400
+    if rcon_fields:
+        profile.update(rcon_fields)
+
     profile["updated_at"] = datetime.now(UTC).isoformat()
     config["server_profiles_updated_at"] = profile["updated_at"]
     save_store("guild_configs", guild_configs)
@@ -44411,6 +44477,16 @@ def api_nitrado_credentials():
             return jsonify({"ok": False, "error": "FTP host should be a hostname only, with no slashes or spaces."}), 400
         config["nitrado_ftp_host"] = ftp_host
         changed_fields.append("FTP host override")
+
+    rcon_ok, rcon_fields, rcon_error = validate_dashboard_rcon_fields(payload, existing=config)
+    if not rcon_ok:
+        return jsonify({"ok": False, "error": rcon_error}), 400
+    requested_platform = normalize_dashboard_server_platform(config.get("server_platform") or config.get("platform"))
+    if rcon_fields and requested_platform != "pc":
+        return jsonify({"ok": False, "error": "BattlEye RCon fields can only be saved when the server platform is PC."}), 400
+    if rcon_fields:
+        config.update(rcon_fields)
+        changed_fields.append("BattlEye RCon")
 
     if not changed_fields:
         return dashboard_api_response(
