@@ -5769,6 +5769,18 @@ PAGE_TEMPLATE = """
     .mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .mini-card { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
     .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; }
+    .scenario-location-list { display: grid; grid-template-columns: 1fr; gap: .6rem; }
+    .scenario-location-card { min-width: 0; border: 1px solid var(--line); border-radius: .55rem; padding: .72rem; background: color-mix(in srgb, var(--panel-3) 86%, #0e3037); }
+    .scenario-location-card-head { display: flex; align-items: center; justify-content: space-between; gap: .65rem; margin-bottom: .6rem; }
+    .scenario-location-card-head strong { color: var(--gold); font-size: .82rem; }
+    .scenario-location-card-head button { width: auto; margin: 0; padding: .36rem .65rem; }
+    .scenario-location-fields { display: grid; grid-template-columns: minmax(9rem, 1.45fr) repeat(3, minmax(6rem, 1fr)); gap: .55rem; }
+    .scenario-location-fields label { min-width: 0; margin: 0; color: var(--muted); font-size: .72rem; }
+    .scenario-location-fields input { width: 100%; min-width: 0; margin-top: .25rem; }
+    @media (max-width: 48rem) {
+      .scenario-location-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .scenario-location-fields label:first-child { grid-column: 1 / -1; }
+    }
     .schedule-status-box { margin-bottom: 1rem; }
     .schedule-status-list { display: grid; gap: .6rem; }
     .schedule-status-row { display: grid; grid-template-columns: minmax(9rem, .75fr) minmax(0, 1.45fr) minmax(0, 1.1fr); gap: .7rem; align-items: start; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: .45rem; padding: .75rem; background: rgba(2, 8, 10, .64); }
@@ -9693,7 +9705,7 @@ PAGE_TEMPLATE = """
             <label class="full" data-scenario-location-pool-row>
               <span>Random airdrop locations</span>
               <input type="hidden" name="location_pool" data-scenario-location-pool value="{% for location in edit_event.location_pool %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
-              <div class="mini-grid" data-scenario-location-pool-rows></div>
+              <div class="scenario-location-list" data-scenario-location-pool-rows></div>
               <button type="button" data-add-scenario-location>Add location</button>
               <small class="field-help">🗺️ Each card is one possible location: give it an optional name, X, Z and heading. Add at least two different locations.</small>
             </label>
@@ -18538,14 +18550,14 @@ PAGE_TEMPLATE = """
       }
       function addCard(location = {}) {
         const card = document.createElement("article");
-        card.className = "admin-panel";
+        card.className = "scenario-location-card";
         card.dataset.scenarioLocationCard = "true";
         card.innerHTML = `
-          <div class="section-head"><strong>Possible drop location</strong><button type="button" class="danger" data-remove-scenario-location>Remove</button></div>
-          <div class="mini-grid">
-            <label>Name <input type="text" maxlength="80" data-scenario-location-name placeholder="NWAF"></label>
-            <label>X coordinate <input type="number" min="0" max="30000" data-scenario-location-x placeholder="4481"></label>
-            <label>Z coordinate <input type="number" min="0" max="30000" data-scenario-location-z placeholder="10355"></label>
+          <div class="scenario-location-card-head"><strong>Possible drop location</strong><button type="button" class="danger" data-remove-scenario-location>Remove</button></div>
+          <div class="scenario-location-fields">
+            <label>Place name <input type="text" maxlength="80" data-scenario-location-name placeholder="NWAF"></label>
+            <label>X <input type="number" min="0" max="30000" data-scenario-location-x placeholder="4481"></label>
+            <label>Z <input type="number" min="0" max="30000" data-scenario-location-z placeholder="10355"></label>
             <label>Heading <input type="number" min="0" max="359" data-scenario-location-angle value="0"></label>
           </div>`;
         field(card, "name").value = location.name || "";
