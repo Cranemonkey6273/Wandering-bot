@@ -1646,17 +1646,26 @@ PUBLIC_FEED_PREVIEW_ITEMS = [
     {"image": "connected.png", "title": "Survivor connected", "category": "Player activity", "summary": "Show who has just spawned in and how many survivors are online."},
     {"image": "disconnected.png", "title": "Survivor disconnected", "category": "Player activity", "summary": "Keep staff aware when players leave and where they were last seen."},
     {"image": "new-survivor.png", "title": "New survivor detected", "category": "Onboarding", "summary": "Welcome first-time players and point them toward linking and help commands."},
+    {"image": "welcome.png", "title": "Server welcome", "category": "Onboarding", "summary": "Confirm that a member has received the correct server access and next steps."},
     {"image": "building.png", "title": "Building activity", "category": "Base intelligence", "summary": "Track structures, tools and map links for base-building events."},
     {"image": "flag-raised.png", "title": "Flag raised", "category": "Territory", "summary": "Surface territory flag activity with base area and player context."},
+    {"image": "flag-lowered.png", "title": "Flag lowered", "category": "Territory", "summary": "Warn staff when a territory becomes vulnerable and its persistence timer starts."},
     {"image": "item-placed.png", "title": "Item placed", "category": "Placed items", "summary": "Watch crates, containers and key placement events without digging through ADM logs."},
     {"image": "radar-zone.png", "title": "Radar zone triggered", "category": "Radar", "summary": "Notify staff when a survivor enters a configured zone or base radius."},
-    {"image": "damage.png", "title": "Survivor damage", "category": "Combat", "summary": "Highlight damage events with map links for quick admin review."},
-    {"image": "unconscious.png", "title": "Unconscious survivor", "category": "Combat", "summary": "Catch knockdowns and risky encounters as they happen."},
+    {"image": "bleed-out.png", "title": "Survivor bled out", "category": "Combat", "summary": "Highlight player emergencies with an optional map link for quick staff review."},
+    {"image": "player-eliminated.png", "title": "Player eliminated", "category": "Killfeed", "summary": "Share a clear combat story with weapon, location, payback and squad context."},
+    {"image": "first-blood.png", "title": "First blood", "category": "Killfeed", "summary": "Call out the first PvP elimination of the day without manual posting."},
+    {"image": "achievement.png", "title": "Achievement unlocked", "category": "Progression", "summary": "Celebrate player milestones and server moments automatically."},
     {"image": "infected.png", "title": "Killed by infected", "category": "Deaths", "summary": "Separate infected deaths from player combat and raid activity."},
-    {"image": "suicide.png", "title": "Suicide event", "category": "Deaths", "summary": "Log self-inflicted deaths with survivor and location context."},
-    {"image": "milestone.png", "title": "Survival milestone", "category": "Progression", "summary": "Celebrate long survivor streaks and community moments automatically."},
-    {"image": "member-left.png", "title": "Member audit", "category": "Discord staff", "summary": "Private staff audit embeds for joins, leaves, roles and linked gamertags."},
+    {"image": "leaderboards.png", "title": "Live leaderboards", "category": "Community", "summary": "Refresh server and global leaderboards on a predictable schedule."},
+    {"image": "survivor-board.png", "title": "Live survivor board", "category": "Server status", "summary": "Give your community an at-a-glance view of who is online and active."},
+    {"image": "gamertag-link.png", "title": "Verified gamertag link", "category": "Member tools", "summary": "Confirm linked identities so eligible players can use economy and community features."},
+    {"image": "member-left.png", "title": "Member audit", "category": "Discord staff", "summary": "Keep a clean private record of account and gamertag lifecycle changes."},
+    {"image": "dashboard-change.png", "title": "Dashboard change confirmed", "category": "Server ops", "summary": "Record important server-control changes for owner and staff visibility."},
     {"image": "restart-log.png", "title": "Restart evidence", "category": "Server ops", "summary": "Show restart detection and RPT evidence in a clear staff-facing format."},
+    {"image": "stack-watch.png", "title": "Stack watch", "category": "Moderation", "summary": "Give moderators evidence when placed objects meet a configured stack-watch rule."},
+    {"image": "nitrado-ban.png", "title": "Nitrado ban audit", "category": "Moderation", "summary": "Keep an auditable feed of ban-list actions and their server response."},
+    {"image": "wage-payout.png", "title": "Wage payout", "category": "Economy", "summary": "Post scheduled economy payouts with recipient and cadence information."},
 ]
 STRIPE_BUY_BUTTON_RE = re.compile(r"\b(buy_btn_[A-Za-z0-9_]+)\b")
 STRIPE_PUBLISHABLE_KEY_RE = re.compile(r"\b(pk_(?:test|live)_[A-Za-z0-9_]+)\b")
@@ -2264,6 +2273,10 @@ PUBLIC_LANDING_TEMPLATE = """
     .feed-preview-meta strong { color: var(--text); overflow-wrap: anywhere; }
     .feed-preview-meta span { color: var(--amber); font-size: .78rem; font-weight: 950; text-transform: uppercase; }
     .feed-preview-card p { margin: 0; }
+    .feed-preview-more { align-content: center; min-height: 15rem; border-color: rgba(236, 161, 64, .48); background: linear-gradient(145deg, rgba(236, 161, 64, .15), rgba(10, 18, 16, .9)); }
+    .feed-preview-more-mark { display: grid; place-items: center; width: 3rem; height: 3rem; border: 1px solid rgba(236, 161, 64, .6); border-radius: 50%; color: var(--amber); font-size: 1.65rem; font-weight: 950; }
+    .feed-preview-more h3 { margin: 0; color: var(--text); font-size: 1.2rem; }
+    .feed-preview-more .button { justify-self: start; }
     .translation-section { margin-top: 1rem; padding: 1rem; border: 1px solid rgba(103, 245, 231, .3); border-radius: .5rem; background: linear-gradient(135deg, rgba(53, 212, 194, .09), rgba(10, 18, 16, .9)); box-shadow: 0 1.2rem 3rem rgba(0,0,0,.28); }
     .translation-section .feed-preview-frame { background: #f7f7f8; }
     .translation-note { margin: .85rem 0 0; color: #d7e4dc; }
@@ -2497,12 +2510,12 @@ PUBLIC_LANDING_TEMPLATE = """
         <div>
           <p class="eyebrow">Live Feed Previews</p>
           <h2>See how Wandering Bot posts into Discord</h2>
-          <p>Real embed examples from the feeds Wandering Bot can route into your server channels, from player joins and damage to base activity, radar pings and staff audits.</p>
+          <p>Privacy-safe examples of the feeds Wandering Bot can route into your server channels, from player joins and killfeeds to base activity, radar pings, economy and staff audits.</p>
         </div>
         <a class="button ghost" href="#pricing">View plans</a>
       </div>
       <div class="proof-strip" aria-label="Wandering Bot proof points">
-        <div class="proof-tile"><strong>{{ public_feed_previews|length }}</strong><span>feed examples shown from real bot embeds</span></div>
+        <div class="proof-tile"><strong>{{ public_feed_previews|length }}</strong><span>privacy-safe examples from real bot embeds</span></div>
         <div class="proof-tile"><strong>PC/PS/Xbox</strong><span>built around DayZ server owner workflows</span></div>
         <div class="proof-tile"><strong>ADM + Discord</strong><span>turn logs into readable staff and community feeds</span></div>
       </div>
@@ -2514,6 +2527,12 @@ PUBLIC_LANDING_TEMPLATE = """
           <p>{{ feed.summary }}</p>
         </article>
         {% endfor %}
+        <article class="feed-preview-card feed-preview-more">
+          <div class="feed-preview-more-mark" aria-hidden="true">+</div>
+          <h3>And more...</h3>
+          <p>Choose the feeds that suit your community. New feed types and owner-controlled routing are continually being added.</p>
+          <a class="button ghost" href="#pricing">Compare feed access</a>
+        </article>
       </div>
     </section>
     {% endif %}
