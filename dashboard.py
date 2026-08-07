@@ -51,6 +51,10 @@ BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "w
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
 PUBLIC_FEED_PREVIEW_FOLDER = os.path.join(APP_ROOT, "public_feed_previews")
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
+DAYZ_CRAFTING_LIBRARY_FILE = os.getenv(
+    "WANDERING_DAYZ_CRAFTING_LIBRARY_FILE",
+    os.path.join(APP_ROOT, "dayz_crafting_library.json"),
+)
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 DAYZ_REFERENCE_LIBRARY_FOLDER = os.getenv(
     "WANDERING_DAYZ_REFERENCE_LIBRARY_DIR",
@@ -1849,6 +1853,7 @@ APP_WELCOME_TEMPLATE = """
       <p class="intro-copy">Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.</p>
       <a class="primary" href="{{ bot_invite_url }}" target="_blank" rel="external noopener">Add Wandering Bot to Discord</a>
       <a class="secondary" href="/setup-guide">Read the full setup guide</a>
+      <a class="secondary" href="{{ crafting_library_url }}">Browse free Crafting &amp; Survival library</a>
     </section>
 
     <section class="steps" aria-labelledby="setup-heading">
@@ -1896,6 +1901,136 @@ APP_WELCOME_TEMPLATE = """
       });
     });
   </script>
+</body>
+</html>
+"""
+
+CRAFTING_LIBRARY_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>DayZ Crafting &amp; Survival Library | Wandering Bot</title>
+  <meta name="description" content="Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.">
+  <meta name="theme-color" content="#eef3ef">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
+  <style>
+    :root { color-scheme: light; --page:#eef3ef; --panel:#fff; --panel-alt:#f7faf8; --ink:#17211d; --muted:#607067; --line:#c9d8d0; --forest:#245b35; --green:#327b42; --teal:#167b7c; --orange:#d86f21; --orange-soft:#fff1e4; --danger:#9d3342; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    * { box-sizing:border-box; }
+    html { min-height:100%; background:var(--page); }
+    body { margin:0; min-height:100svh; color:var(--ink); background:linear-gradient(180deg,#f7faf8 0,var(--page) 22rem); padding:env(safe-area-inset-top) 0 calc(1rem + env(safe-area-inset-bottom)); }
+    a { color:inherit; }
+    .shell { width:min(66rem,calc(100% - 1rem)); margin:0 auto; display:grid; gap:.8rem; }
+    .topbar { position:sticky; top:0; z-index:5; display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:0 -.5rem; padding:.65rem .5rem; background:rgba(238,243,239,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(12px); }
+    .brand { display:flex; min-width:0; align-items:center; gap:.55rem; text-decoration:none; font-weight:900; color:var(--forest); }
+    .brand img { width:2.25rem; height:2.25rem; border:1px solid var(--line); border-radius:.5rem; object-fit:cover; }
+    .brand span { overflow-wrap:anywhere; }
+    .app-link { flex:0 0 auto; padding:.55rem .7rem; border:1px solid #b9d9bf; border-radius:.5rem; background:#edf8ef; color:var(--forest); text-decoration:none; font-size:.78rem; font-weight:900; }
+    .hero,.filter-card,.recipe-card,.empty { border:1px solid var(--line); border-radius:.75rem; background:var(--panel); box-shadow:0 .35rem 1.2rem rgba(29,58,44,.07); }
+    .hero { display:grid; gap:.8rem; padding:1rem; border-top:.32rem solid var(--orange); }
+    .eyebrow { margin:0; color:var(--orange); font-size:.72rem; font-weight:950; letter-spacing:.05em; text-transform:uppercase; }
+    h1 { margin:0; color:var(--forest); font-size:clamp(1.55rem,7vw,2.55rem); letter-spacing:-.035em; line-height:1; }
+    .lead { margin:0; color:var(--muted); font-size:.94rem; line-height:1.5; }
+    .release-row,.tag-row { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+    .release,.tag { display:inline-flex; align-items:center; min-height:1.8rem; padding:.32rem .52rem; border:1px solid var(--line); border-radius:999px; background:var(--panel-alt); color:var(--forest); font-size:.72rem; font-weight:850; }
+    .release { border-color:#dfb67a; background:var(--orange-soft); color:#875018; }
+    .coverage { margin:0; padding:.7rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#edf8f7; color:#285b5c; font-size:.82rem; line-height:1.45; }
+    .filter-card { display:grid; gap:.65rem; padding:.8rem; }
+    .filter-card h2 { margin:0; color:var(--forest); font-size:1rem; }
+    .filters { display:grid; gap:.55rem; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    label { display:grid; gap:.25rem; color:var(--muted); font-size:.72rem; font-weight:850; }
+    label.search { grid-column:1 / -1; }
+    input,select,button { width:100%; min-width:0; font:inherit; }
+    input,select { min-height:2.55rem; border:1px solid var(--line); border-radius:.45rem; padding:.52rem; color:var(--ink); background:#fff; }
+    .filter-actions { display:flex; gap:.45rem; align-items:end; }
+    button,.clear { min-height:2.55rem; border:1px solid var(--orange); border-radius:.45rem; background:var(--orange); color:#fff; padding:.55rem .7rem; font-weight:900; cursor:pointer; text-align:center; text-decoration:none; }
+    .clear { display:inline-flex; align-items:center; justify-content:center; border-color:var(--line); background:#fff; color:var(--forest); font-size:.8rem; }
+    .library-head { display:flex; justify-content:space-between; gap:.7rem; align-items:baseline; }
+    .library-head h2 { margin:0; color:var(--forest); font-size:1.06rem; }
+    .library-head span { color:var(--muted); font-size:.76rem; text-align:right; }
+    .recipe-grid { display:grid; gap:.65rem; }
+    .recipe-card { overflow:hidden; }
+    .recipe-card > summary { list-style:none; display:grid; grid-template-columns:4.35rem minmax(0,1fr) auto; align-items:center; gap:.65rem; padding:.72rem; cursor:pointer; }
+    .recipe-card > summary::-webkit-details-marker { display:none; }
+    .craft-art { width:4.35rem; height:4.35rem; border:1px solid var(--line); border-radius:.55rem; object-fit:cover; background:var(--panel-alt); }
+    .recipe-title { display:grid; gap:.18rem; min-width:0; }
+    .recipe-title strong { color:var(--forest); font-size:.98rem; overflow-wrap:anywhere; }
+    .recipe-title span { color:var(--muted); font-size:.77rem; line-height:1.35; }
+    .chevron { color:var(--orange); font-weight:950; font-size:1.25rem; }
+    details[open] .chevron { transform:rotate(90deg); }
+    .recipe-body { display:grid; gap:.72rem; padding:.1rem .72rem .85rem; border-top:1px solid var(--line); }
+    .recipe-body h3 { margin:0; color:var(--forest); font-size:.82rem; text-transform:uppercase; letter-spacing:.03em; }
+    .parts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.42rem; }
+    .part { display:grid; grid-template-columns:2rem minmax(0,1fr); align-items:center; gap:.42rem; min-height:3rem; padding:.4rem; border:1px solid var(--line); border-radius:.45rem; background:var(--panel-alt); }
+    .part img { width:2rem; height:2rem; border:1px solid var(--line); border-radius:.35rem; background:#fff; }
+    .part strong { display:block; color:var(--ink); font-size:.76rem; line-height:1.25; overflow-wrap:anywhere; }
+    .part span { color:var(--orange); font-size:.69rem; font-weight:850; }
+    .steps { margin:0; padding-left:1.25rem; color:var(--muted); font-size:.84rem; line-height:1.45; }
+    .steps li + li { margin-top:.35rem; }
+    .alternative { display:grid; gap:.35rem; padding:.6rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#eef8f7; }
+    .alternative b { color:#285b5c; font-size:.78rem; }
+    .note { margin:0; padding:.6rem; border-left:.25rem solid var(--orange); border-radius:.35rem; background:var(--orange-soft); color:#76421d; font-size:.8rem; line-height:1.45; }
+    .empty { padding:1rem; color:var(--muted); line-height:1.5; }
+    .footer-note { margin:0; color:var(--muted); font-size:.75rem; line-height:1.45; text-align:center; }
+    @media (min-width:650px) { .shell { width:min(66rem,calc(100% - 2rem)); } .hero { grid-template-columns:minmax(0,1fr) auto; align-items:end; } .hero > .coverage { grid-column:1 / -1; } .filters { grid-template-columns:repeat(4,minmax(0,1fr)); } label.search { grid-column:span 2; } .filter-actions { grid-column:span 2; } .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } .recipe-card { height:max-content; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><img src="/brand-image" alt="Wandering Bot"><span>Wandering Bot</span></a>
+    <a class="app-link" href="{{ app_url }}">Open app</a>
+  </header>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Free player library</p>
+        <h1>DayZ Crafting &amp; Survival</h1>
+        <p class="lead">Clear vanilla recipes, building stages and the tools needed to make them — designed for a phone in the middle of a DayZ session.</p>
+      </div>
+      <div class="release-row"><span class="release">Reviewed for DayZ {{ library.release }}</span>{% if library.reviewed_at %}<span class="tag">Reviewed {{ library.reviewed_at }}</span>{% endif %}</div>
+      <p class="coverage"><strong>Vanilla first.</strong> {{ library.coverage_note }}</p>
+    </section>
+
+    <section class="filter-card" aria-labelledby="crafting-filters-title">
+      <div class="library-head"><h2 id="crafting-filters-title">Find a recipe</h2><span>{{ library.total_recipes }} reviewed recipes</span></div>
+      <form class="filters" method="get" action="/crafting">
+        {% if app_source %}<input type="hidden" name="source" value="{{ app_source }}">{% endif %}
+        <label class="search">Search recipe or ingredient<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. flag, rope, splint, fence"></label>
+        <label>Platform<select name="platform"><option value="all" {% if library.filters.platform == 'all' %}selected{% endif %}>Console + PC</option><option value="console" {% if library.filters.platform == 'console' %}selected{% endif %}>Console (Xbox / PlayStation)</option><option value="pc" {% if library.filters.platform == 'pc' %}selected{% endif %}>PC vanilla</option></select></label>
+        <label>Map<select name="map"><option value="all" {% if library.filters.map == 'all' %}selected{% endif %}>All official maps</option>{% for key, label in map_options %}<option value="{{ key }}" {% if library.filters.map == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Category<select name="category"><option value="all">All categories</option>{% for item in library.categories %}<option value="{{ item }}" {% if library.filters.category == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+        <div class="filter-actions"><button type="submit">Apply</button><a class="clear" href="/crafting{% if app_source %}?source={{ app_source|urlencode }}{% endif %}">Clear</a></div>
+      </form>
+    </section>
+
+    <div class="library-head"><h2>{% if library.filters.query or library.filters.platform != 'all' or library.filters.map != 'all' or library.filters.category != 'all' %}Matching recipes{% else %}Crafting library{% endif %}</h2><span>{{ library.recipes|length }} shown</span></div>
+    {% if library.recipes %}
+    <section class="recipe-grid" aria-label="DayZ crafting recipes">
+      {% for recipe in library.recipes %}
+      <details class="recipe-card" {% if loop.index <= 2 and not library.filters.query %}open{% endif %}>
+        <summary>
+          <img class="craft-art" src="{{ recipe.image_url }}" alt="Illustration of {{ recipe.result }}">
+          <span class="recipe-title"><strong>{{ recipe.name }}</strong><span>Makes: {{ recipe.result }}</span><span>{{ recipe.category }}</span></span>
+          <span class="chevron" aria-hidden="true">›</span>
+        </summary>
+        <div class="recipe-body">
+          <div class="tag-row"><span class="tag">{% if recipe.platforms|length == 2 %}Console + PC vanilla{% elif recipe.platforms[0] == 'console' %}Console vanilla{% else %}PC vanilla{% endif %}</span><span class="tag">{{ recipe.maps|map('title')|join(' · ') }}</span></div>
+          <div><h3>Ingredients</h3><div class="parts">{% for part in recipe.ingredients %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong>{% if part.quantity %}<span>× {{ part.quantity }}</span>{% endif %}</span></div>{% endfor %}</div></div>
+          {% if recipe.tools %}<div><h3>Tools</h3><div class="parts">{% for part in recipe.tools %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong></span></div>{% endfor %}</div></div>{% endif %}
+          {% for alternative in recipe.alternatives %}<div class="alternative"><b>{{ alternative.label }}</b><div class="parts">{% for part in alternative.ingredients %}<div class="part"><img src="{{ part.image_url }}" alt=""><span><strong>{{ part.name }}</strong>{% if part.quantity %}<span>× {{ part.quantity }}</span>{% endif %}</span></div>{% endfor %}</div></div>{% endfor %}
+          {% if recipe.steps %}<div><h3>How to make it</h3><ol class="steps">{% for step in recipe.steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
+          {% if recipe.notes %}<p class="note"><strong>Good to know:</strong> {{ recipe.notes }}</p>{% endif %}
+        </div>
+      </details>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty"><strong>No recipe matches those filters.</strong><br>Try a broader search, another map, or clear the filters. If you are looking for a modded recipe, its exact mod source must be reviewed before it is added.</section>
+    {% endif %}
+    <p class="footer-note">Recipes are shown as reviewed vanilla guidance for the displayed DayZ release. Community servers can change availability, lifetimes and recipes with mods or custom configuration.</p>
+  </main>
 </body>
 </html>
 """
@@ -2178,6 +2313,7 @@ PUBLIC_LANDING_TEMPLATE = """
         <div class="actions">
           <a class="button primary" href="{{ bot_invite_url }}" target="_blank" rel="noopener">Add Wandering Bot</a>
           <a class="button" href="/setup-guide">Read the setup guide</a>
+          <a class="button" href="/crafting">Browse DayZ crafting</a>
           <a class="button" href="/login">Open existing dashboard</a>
           {% if support_url %}<a class="button" href="{{ support_url }}" target="_blank" rel="noopener">Join support Discord</a>{% endif %}
           {% if support_email %}<a class="button" href="mailto:{{ support_email }}">Email support</a>{% endif %}
@@ -3258,7 +3394,7 @@ APP_DASHBOARD_TEMPLATE = """
       right: 0;
       bottom: 0;
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(7, minmax(0, 1fr));
       gap: .2rem;
       padding: .42rem .5rem calc(.42rem + env(safe-area-inset-bottom));
       background: rgba(255, 255, 255, .98);
@@ -3358,6 +3494,7 @@ APP_DASHBOARD_TEMPLATE = """
         <a class="tool-row" href="{{ app_urls.economy }}"><b>Economy</b><strong>Shop control</strong><span>Search items and change prices, limits or availability.</span></a>
         <a class="tool-row" href="{{ app_urls.control }}"><b>Operations</b><strong>Server control</strong><span>Manage restarts, raid damage and vehicle resets.</span></a>
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
+        <a class="tool-row" href="{{ crafting_library_url }}"><b>Survival</b><strong>Crafting library</strong><span>Free vanilla recipes, base-building stages and ingredient visuals for players.</span></a>
       </div>
     </section>
     <section class="section">
@@ -3702,6 +3839,7 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
     <a class="{{ 'active' if app_view == 'economy' else '' }}" href="{{ app_urls.economy }}">Economy</a>
     <a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>
     <a class="{{ 'active' if app_view == 'help' else '' }}" href="{{ app_urls.help }}">Guides</a>
+    <a href="{{ crafting_library_url }}">Crafting</a>
   </nav>
   <script>
     (() => {
@@ -31447,6 +31585,7 @@ def mobile_app_welcome(error: str = ""):
         support_email=PUBLIC_SUPPORT_EMAIL,
         app_source=source,
         return_to=return_to,
+        crafting_library_url=f"/crafting?{query}" if query else "/crafting",
     )
 
 
@@ -37622,6 +37761,190 @@ def read_shop_catalog_seed_file(path: Any) -> list[dict[str, str]]:
     return rows
 
 
+def _crafting_clean_text(value: Any, limit: int = 120) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip())[:limit].strip()
+
+
+def _crafting_safe_id(value: Any) -> str:
+    return re.sub(r"[^a-z0-9-]", "", str(value or "").strip().lower())[:80]
+
+
+def _crafting_parts(raw_parts: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_parts, list):
+        return []
+    parts: list[dict[str, Any]] = []
+    for raw_part in raw_parts:
+        if isinstance(raw_part, str):
+            name = _crafting_clean_text(raw_part)
+            quantity: int | None = None
+        elif isinstance(raw_part, dict):
+            name = _crafting_clean_text(raw_part.get("name"))
+            raw_quantity = raw_part.get("quantity")
+            quantity = safe_int(raw_quantity, 0) if raw_quantity is not None else None
+            if quantity is not None and quantity < 1:
+                quantity = None
+        else:
+            continue
+        if not name:
+            continue
+        parts.append({"name": name, "quantity": quantity})
+    return parts[:16]
+
+
+def _crafting_platforms(raw_platforms: Any) -> list[str]:
+    allowed = {"console", "pc"}
+    values = raw_platforms if isinstance(raw_platforms, list) else []
+    platforms = [str(value).strip().lower() for value in values if str(value).strip().lower() in allowed]
+    return list(dict.fromkeys(platforms)) or ["console", "pc"]
+
+
+def _crafting_maps(raw_maps: Any) -> list[str]:
+    allowed = {"chernarus", "livonia", "sakhal"}
+    values = raw_maps if isinstance(raw_maps, list) else []
+    maps = [map_key_for(value) for value in values if map_key_for(value) in allowed]
+    return list(dict.fromkeys(maps)) or ["chernarus", "livonia", "sakhal"]
+
+
+def load_dayz_crafting_library() -> dict[str, Any]:
+    """Load the small, reviewable vanilla crafting catalogue.
+
+    This intentionally reads from a standalone JSON file rather than hard-coding
+    recipes in a template. A DayZ update can therefore be reviewed and applied
+    as data, while the public page and native app shell stay unchanged.
+    """
+    fallback = {
+        "schema_version": 1,
+        "active_release": DAYZ_CE_FILE_VERSION,
+        "reviewed_at": "",
+        "coverage_note": "The crafting library is being prepared for this DayZ release.",
+        "recipes": [],
+    }
+    try:
+        with open(DAYZ_CRAFTING_LIBRARY_FILE, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    if not isinstance(raw, dict):
+        return fallback
+    library = dict(fallback)
+    library["schema_version"] = safe_int(raw.get("schema_version"), 1) or 1
+    library["active_release"] = _crafting_clean_text(raw.get("active_release"), 40) or DAYZ_CE_FILE_VERSION
+    library["reviewed_at"] = _crafting_clean_text(raw.get("reviewed_at"), 40)
+    library["coverage_note"] = _crafting_clean_text(raw.get("coverage_note"), 500) or fallback["coverage_note"]
+    recipes: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for raw_recipe in raw.get("recipes") if isinstance(raw.get("recipes"), list) else []:
+        if not isinstance(raw_recipe, dict):
+            continue
+        recipe_id = _crafting_safe_id(raw_recipe.get("id"))
+        name = _crafting_clean_text(raw_recipe.get("name"))
+        result = _crafting_clean_text(raw_recipe.get("result"))
+        ingredients = _crafting_parts(raw_recipe.get("ingredients"))
+        if not recipe_id or recipe_id in seen_ids or not name or not result or not ingredients:
+            continue
+        seen_ids.add(recipe_id)
+        alternatives: list[dict[str, Any]] = []
+        for raw_alternative in raw_recipe.get("alternatives") if isinstance(raw_recipe.get("alternatives"), list) else []:
+            if not isinstance(raw_alternative, dict):
+                continue
+            alternative_parts = _crafting_parts(raw_alternative.get("ingredients"))
+            if alternative_parts:
+                alternatives.append({
+                    "label": _crafting_clean_text(raw_alternative.get("label"), 80) or "Alternative",
+                    "ingredients": alternative_parts,
+                })
+        visual = _crafting_safe_id(raw_recipe.get("visual"))
+        if visual not in {"rope", "medical", "fishing", "trap", "materials", "storage", "gear", "fire", "fence", "tower", "shelter", "flag", "weapon"}:
+            visual = "materials"
+        recipe = {
+            "id": recipe_id,
+            "name": name,
+            "result": result,
+            "category": _crafting_clean_text(raw_recipe.get("category"), 60) or "Survival basics",
+            "visual": visual,
+            "ingredients": ingredients,
+            "alternatives": alternatives[:4],
+            "tools": _crafting_parts(raw_recipe.get("tools")),
+            "steps": [
+                _crafting_clean_text(step, 250)
+                for step in (raw_recipe.get("steps") if isinstance(raw_recipe.get("steps"), list) else [])
+                if _crafting_clean_text(step, 250)
+            ][:8],
+            "platforms": _crafting_platforms(raw_recipe.get("platforms")),
+            "maps": _crafting_maps(raw_recipe.get("maps")),
+            "notes": _crafting_clean_text(raw_recipe.get("notes"), 400),
+        }
+        recipe["image_url"] = f"/crafting-image/{urllib.parse.quote(recipe_id)}"
+        for part in recipe["ingredients"] + recipe["tools"]:
+            part["image_url"] = (
+                f"/crafting-image/{urllib.parse.quote(recipe_id)}?"
+                f"label={urllib.parse.quote(str(part['name']))}&ingredient=1"
+            )
+        for alternative in recipe["alternatives"]:
+            for part in alternative["ingredients"]:
+                part["image_url"] = (
+                    f"/crafting-image/{urllib.parse.quote(recipe_id)}?"
+                    f"label={urllib.parse.quote(str(part['name']))}&ingredient=1"
+                )
+        recipes.append(recipe)
+    library["recipes"] = recipes
+    return library
+
+
+def dayz_crafting_library_view(
+    platform: Any = "all",
+    map_name: Any = "all",
+    category: Any = "all",
+    query: Any = "",
+) -> dict[str, Any]:
+    library = load_dayz_crafting_library()
+    requested_platform = str(platform or "all").strip().lower()
+    if requested_platform not in {"all", "console", "pc"}:
+        requested_platform = "all"
+    requested_map = map_key_for(map_name) if str(map_name or "").strip().lower() not in {"", "all"} else "all"
+    if requested_map not in {"all", "chernarus", "livonia", "sakhal"}:
+        requested_map = "all"
+    requested_category = _crafting_clean_text(category, 60)
+    category_keys = {str(recipe.get("category") or "") for recipe in library["recipes"]}
+    if requested_category.lower() == "all" or requested_category not in category_keys:
+        requested_category = "all"
+    requested_query = _crafting_clean_text(query, 100)
+    query_terms = requested_query.lower()
+
+    visible: list[dict[str, Any]] = []
+    for recipe in library["recipes"]:
+        if requested_platform != "all" and requested_platform not in recipe["platforms"]:
+            continue
+        if requested_map != "all" and requested_map not in recipe["maps"]:
+            continue
+        if requested_category != "all" and requested_category != recipe["category"]:
+            continue
+        if query_terms:
+            haystack = " ".join([
+                recipe["name"], recipe["result"], recipe["category"], recipe["notes"],
+                *[str(part.get("name") or "") for part in recipe["ingredients"]],
+                *[str(part.get("name") or "") for part in recipe["tools"]],
+            ]).lower()
+            if query_terms not in haystack:
+                continue
+        visible.append(recipe)
+    categories = sorted(category_keys, key=str.lower)
+    return {
+        "release": library["active_release"],
+        "reviewed_at": library["reviewed_at"],
+        "coverage_note": library["coverage_note"],
+        "total_recipes": len(library["recipes"]),
+        "recipes": visible,
+        "categories": categories,
+        "filters": {
+            "platform": requested_platform,
+            "map": requested_map,
+            "category": requested_category,
+            "query": requested_query,
+        },
+    }
+
+
 def shop_catalog_seed_items() -> list[dict[str, str]]:
     global _SHOP_CATALOG_SEED_CACHE
     if _SHOP_CATALOG_SEED_CACHE is not None:
@@ -39944,6 +40267,11 @@ def pwa_manifest():
                 "short_name": "Plans",
                 "url": "/#pricing",
             },
+            {
+                "name": "DayZ Crafting",
+                "short_name": "Crafting",
+                "url": "/crafting",
+            },
         ],
     }
     response = jsonify(manifest)
@@ -40023,6 +40351,98 @@ def item_thumb(category: str):
 <text x="48" y="43" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#071008">{initial}</text>
 </svg>"""
     return APP.response_class(svg, mimetype="image/svg+xml")
+
+
+def crafting_recipe_for_image(recipe_id: Any) -> dict[str, Any]:
+    wanted_id = _crafting_safe_id(recipe_id)
+    if not wanted_id:
+        return {}
+    for recipe in load_dayz_crafting_library().get("recipes", []):
+        if isinstance(recipe, dict) and recipe.get("id") == wanted_id:
+            return recipe
+    return {}
+
+
+@APP.get("/crafting-image/<recipe_id>")
+def crafting_image(recipe_id: str):
+    """Return a compact, locally generated item illustration for the library.
+
+    We use these on purpose instead of pulling arbitrary third-party images into
+    the player app. It keeps the library fast, works offline after caching and
+    does not misrepresent mod assets as vanilla DayZ art.
+    """
+    recipe = crafting_recipe_for_image(recipe_id)
+    if not recipe:
+        return ("", 404)
+    label = _crafting_clean_text(request.args.get("label") or recipe.get("result"), 34) or "DayZ item"
+    visual = str(recipe.get("visual") or "materials")
+    colours = {
+        "rope": ("#d6b47a", "#5f4424"), "medical": ("#ff9db0", "#8d2941"),
+        "fishing": ("#86c9e9", "#1f6385"), "trap": ("#d9bc82", "#6b4e2d"),
+        "materials": ("#b4c99a", "#3f653d"), "storage": ("#ddb06a", "#795022"),
+        "gear": ("#b9a4dd", "#554172"), "fire": ("#f6b467", "#a93d24"),
+        "fence": ("#d6a774", "#704421"), "tower": ("#a9b5bf", "#425967"),
+        "shelter": ("#98c487", "#3e6d41"), "flag": ("#7bc6b0", "#166457"),
+        "weapon": ("#bbc5d2", "#465364"),
+    }
+    fill, stroke = colours.get(visual, colours["materials"])
+    art = {
+        "rope": '<path d="M34 38c24-19 55 2 30 21-25 19 9 32 30 13" fill="none" stroke="{stroke}" stroke-width="9" stroke-linecap="round"/>',
+        "medical": '<rect x="43" y="24" width="18" height="56" rx="6" fill="{stroke}"/><rect x="24" y="43" width="56" height="18" rx="6" fill="{stroke}"/>',
+        "fishing": '<path d="M27 25c31 6 42 31 35 52" fill="none" stroke="{stroke}" stroke-width="6" stroke-linecap="round"/><path d="M64 64c16 8 2 25-8 15" fill="none" stroke="{stroke}" stroke-width="5" stroke-linecap="round"/>',
+        "trap": '<path d="M26 35h44v37H26zM35 26v55M61 26v55M22 45h52M22 62h52" fill="none" stroke="{stroke}" stroke-width="4"/>',
+        "materials": '<path d="M25 68 45 26l26 17-18 39z" fill="{stroke}" opacity=".92"/><path d="M34 69 54 31" stroke="#fff" opacity=".48" stroke-width="4"/>',
+        "storage": '<rect x="24" y="32" width="48" height="42" rx="4" fill="none" stroke="{stroke}" stroke-width="6"/><path d="M24 46h48M48 32v42" stroke="{stroke}" stroke-width="5"/>',
+        "gear": '<path d="M31 77V39c0-12 9-18 17-18s17 6 17 18v38z" fill="none" stroke="{stroke}" stroke-width="6"/><path d="M35 44h26M40 31h16" stroke="{stroke}" stroke-width="5" stroke-linecap="round"/>',
+        "fire": '<path d="M48 18c17 19 24 30 15 47-5 10-18 15-29 10-13-6-17-20-8-34 5-8 13-14 12-23 4 2 7 5 10 8z" fill="{stroke}"/><path d="M47 48c8 9 7 20-3 25-9-4-10-13-4-20z" fill="#fff0c4"/>',
+        "fence": '<path d="M30 22v59M66 22v59M25 39h46M25 60h46" stroke="{stroke}" stroke-width="7" stroke-linecap="round"/>',
+        "tower": '<path d="M31 77 43 22h10l13 55M27 53h42M33 38h30" fill="none" stroke="{stroke}" stroke-width="6" stroke-linejoin="round"/>',
+        "shelter": '<path d="M20 72 47 24l29 48z" fill="none" stroke="{stroke}" stroke-width="7" stroke-linejoin="round"/><path d="M38 72V55h18v17" fill="{stroke}"/>',
+        "flag": '<path d="M35 79V20M37 25c15-8 22 9 35 0v26c-13 9-20-8-35 0" fill="none" stroke="{stroke}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>',
+        "weapon": '<path d="M21 65 72 32M28 70l-7-5 6-7M62 39l9-7-1 11" fill="none" stroke="{stroke}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>',
+    }.get(visual, '')
+    art = art.format(stroke=stroke)
+    safe_label = html.escape(label, quote=True)
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 96 96" role="img" aria-label="{safe_label}">
+<rect width="96" height="96" rx="14" fill="{fill}"/>
+<rect x="7" y="7" width="82" height="82" rx="10" fill="#ffffff" opacity=".18"/>
+{art}
+<text x="48" y="90" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" font-weight="700" fill="#17211d">{html.escape(label[:24])}</text>
+</svg>'''
+    response = APP.response_class(svg, mimetype="image/svg+xml")
+    if hasattr(response, "headers"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+@APP.get("/api/crafting")
+def crafting_library_api():
+    library = dayz_crafting_library_view(
+        request.args.get("platform"),
+        request.args.get("map"),
+        request.args.get("category"),
+        request.args.get("q"),
+    )
+    return jsonify({"ok": True, "library": library})
+
+
+@APP.get("/crafting")
+def crafting_library_page():
+    library = dayz_crafting_library_view(
+        request.args.get("platform"),
+        request.args.get("map"),
+        request.args.get("category"),
+        request.args.get("q"),
+    )
+    source = native_app_source()
+    app_url = f"/app?source={urllib.parse.quote(source)}" if source else "/app"
+    return render_template_string(
+        CRAFTING_LIBRARY_TEMPLATE,
+        library=library,
+        app_source=source,
+        app_url=app_url,
+        map_options=[("chernarus", "Chernarus"), ("livonia", "Livonia"), ("sakhal", "Sakhal")],
+    )
 
 
 def zone_draft_from_image_click(mode: str):
@@ -40610,6 +41030,10 @@ def sitemap_xml():
         entries.append(
             f"  <url><loc>{loc}</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>"
         )
+    crafting_loc = html.escape(public_page_url("/crafting"), quote=True)
+    entries.append(
+        f"  <url><loc>{crafting_loc}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>"
+    )
     body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     body += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
     body += "\n".join(entries)
@@ -40694,6 +41118,7 @@ def mobile_app():
         app_view=payload["app_view"],
         app_urls=payload["app_urls"],
         app_source=native_app_source(),
+        crafting_library_url=(f"/crafting?source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting"),
         app_qs=payload["app_qs"],
         restart_status=restart_status,
         schedule_status=schedule_status,

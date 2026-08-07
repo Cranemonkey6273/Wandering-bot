@@ -705,6 +705,56 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("help", dashboard.normalize_mobile_app_view("help"))
         self.assertEqual("home", dashboard.normalize_mobile_app_view("xml-workshop"))
 
+    def test_crafting_library_is_versioned_and_filters_without_guessing_mod_recipes(self):
+        library = dashboard.dayz_crafting_library_view("console", "chernarus", "Base building", "flag")
+
+        self.assertEqual("1.29.163451", library["release"])
+        self.assertGreaterEqual(library["total_recipes"], 20)
+        self.assertEqual("console", library["filters"]["platform"])
+        self.assertEqual("chernarus", library["filters"]["map"])
+        self.assertEqual("Base building", library["filters"]["category"])
+        self.assertTrue(library["recipes"])
+        self.assertTrue(all("console" in recipe["platforms"] for recipe in library["recipes"]))
+        self.assertTrue(all("chernarus" in recipe["maps"] for recipe in library["recipes"]))
+        self.assertTrue(all("flag" in (recipe["name"] + " " + recipe["result"]).lower() for recipe in library["recipes"]))
+        self.assertIn("mod", library["coverage_note"].lower())
+
+    def test_crafting_library_has_linked_base_building_stages(self):
+        library = dashboard.dayz_crafting_library_view()
+        recipes = {recipe["id"]: recipe for recipe in library["recipes"]}
+
+        self.assertEqual("Flag Pole Kit", recipes["flag-pole-kit"]["result"])
+        self.assertIn("Placed Flag Pole Kit", [part["name"] for part in recipes["flag-pole"]["ingredients"]])
+        self.assertIn("Placed Fence Kit", [part["name"] for part in recipes["fence-base"]["ingredients"]])
+        self.assertIn("Placed Shelter Kit", [part["name"] for part in recipes["tarp-shelter"]["ingredients"]])
+        self.assertEqual(60, next(part["quantity"] for part in recipes["flag-pole"]["ingredients"] if part["name"] == "Nails"))
+
+    def test_public_crafting_page_and_image_are_available_without_login(self):
+        page_request = types.SimpleNamespace(args={"platform": "pc", "map": "sakhal", "q": "splint"})
+        with patch.object(dashboard, "request", page_request), patch.object(
+            dashboard,
+            "render_template_string",
+            side_effect=lambda _template, **context: context,
+        ):
+            context = dashboard.crafting_library_page()
+
+        self.assertEqual("pc", context["library"]["filters"]["platform"])
+        self.assertEqual("sakhal", context["library"]["filters"]["map"])
+        self.assertEqual("splint", context["library"]["recipes"][0]["name"].lower())
+        self.assertEqual("/app", context["app_url"])
+
+        image_request = types.SimpleNamespace(args={})
+        with patch.object(dashboard, "request", image_request):
+            response = dashboard.crafting_image("splint")
+        self.assertEqual("image/svg+xml", response[1]["mimetype"])
+
+    def test_mobile_app_templates_link_to_free_crafting_library(self):
+        self.assertIn("Browse free Crafting &amp; Survival library", dashboard.APP_WELCOME_TEMPLATE)
+        self.assertIn(">Crafting</a>", dashboard.APP_DASHBOARD_TEMPLATE)
+        self.assertIn("Crafting library", dashboard.APP_DASHBOARD_TEMPLATE)
+        self.assertIn("Vanilla first.", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("Community servers can change", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+
     def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
         template = dashboard.APP_DASHBOARD_TEMPLATE
 
