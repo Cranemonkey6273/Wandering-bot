@@ -5801,43 +5801,23 @@ async def announce_verified_gamer_link(guild, config, member, gamertag, account_
     if not channel:
         return
 
-    embed = discord.Embed(
-        title="VERIFIED GAMERTAG LINKED",
-        description=f"{member.mention} is now verified as `{gamertag}`.",
-        color=0x2ECC71
+    # This is the one authoritative server-side record for a successful link.
+    # Player confirmation remains in the channel where /linkgamer was used;
+    # Linked Players gets the audit, while the role-picker and link_audit feed
+    # deliberately receive nothing so a link never creates duplicate posts.
+    audit = discord.Embed(
+        title="GAMERTAG LINK AUDIT",
+        description="A Discord account has linked to an ADM verified survivor name.",
+        color=0x3498DB
     )
-    embed.add_field(name="Discord", value=str(member), inline=True)
-    embed.add_field(name="Account", value=account_label, inline=True)
-    embed.add_field(name="ADM Verified Gamertag", value=gamertag, inline=True)
-    embed.add_field(name="Recognition", value="Identity confirmed from ADM history and ready for economy rewards.", inline=False)
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Verified Identity")
-    await channel.send(embed=style_embed(embed))
-
-    if config.get("_is_server_profile_runtime"):
-        audit_channel = resolve_feed_channel(runtime_id, config, "link_audit")
-    else:
-        audit_channel = await get_or_create_feed_channel(
-            guild,
-            config,
-            "link_audit",
-            DEFAULT_CHANNEL_NAMES["link_audit"],
-            private=True
-        )
-    if audit_channel:
-        audit = discord.Embed(
-            title="GAMERTAG LINK AUDIT",
-            description="A Discord account has linked to an ADM verified survivor name.",
-            color=0x3498DB
-        )
-        audit.add_field(name="Discord", value=f"{member.mention}\n`{member}`", inline=False)
-        audit.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
-        audit.add_field(name="Account", value=account_label, inline=True)
-        audit.add_field(name="Gamertag", value=f"`{gamertag}`", inline=True)
-        audit.add_field(name="Guild", value=f"{guild.name}\n`{guild.id}`", inline=False)
-        audit.set_thumbnail(url=BOT_IMAGE)
-        audit.set_footer(text="Wandering Bot Alpha - Private Identity Audit")
-        await audit_channel.send(embed=style_embed(audit))
+    audit.add_field(name="Discord", value=f"{member.mention}\n`{member}`", inline=False)
+    audit.add_field(name="Discord ID", value=f"`{member.id}`", inline=True)
+    audit.add_field(name="Account", value=account_label, inline=True)
+    audit.add_field(name="Gamertag", value=f"`{gamertag}`", inline=True)
+    audit.add_field(name="Guild", value=f"{guild.name}\n`{guild.id}`", inline=False)
+    audit.set_thumbnail(url=BOT_IMAGE)
+    audit.set_footer(text="Wandering Bot - Linked Players Audit")
+    await channel.send(embed=style_embed(audit))
 
 
 def build_linkgamer_confirmation_embed(member, gamertag, account_label="Primary gamertag"):

@@ -640,6 +640,25 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.member_has_role_id(member, "104"))
         self.assertEqual([], choice_channel.sent)
 
+    def test_verified_link_posts_one_audit_to_linked_players_only(self):
+        member = FakeMember([], member_id=555)
+        linked_players_channel = FakeSendChannel()
+        guild = FakeOnboardingGuild([], member=member)
+        guild.name = "Test community"
+        member.guild = guild
+
+        async def linked_players_only(*args, **kwargs):
+            self.assertEqual("linked_players", args[2])
+            self.assertFalse(kwargs.get("private", False))
+            return linked_players_channel
+
+        with mock.patch.object(bot, "get_or_create_feed_channel", side_effect=linked_players_only) as route:
+            asyncio.run(bot.announce_verified_gamer_link(guild, {}, member, "TestSurvivor"))
+
+        route.assert_called_once()
+        self.assertEqual(1, len(linked_players_channel.sent))
+        self.assertIn("embed", linked_players_channel.sent[0])
+
     def test_onboarding_choice_add_reports_role_hierarchy_failure_without_welcome(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)
