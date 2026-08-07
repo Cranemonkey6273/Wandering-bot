@@ -9313,15 +9313,16 @@ PAGE_TEMPLATE = """
             <label class="full">Ignored gamertags <input name="ignored_gamertags" value="{{ edit_zone.ignored_gamertags }}" placeholder="comma-separated names that should not ping radar"></label>
             <input class="hidden-field" name="boundary_points" data-boundary-points value="{{ edit_zone.boundary_points|forceescape }}">
             <div class="full embed-preview">
-              <strong>Map controls</strong>
-              <span>Circle mode sets the center and radius. For a polygon/freehand zone, choose Draw boundary, then click multiple points around the area and save when the outline covers it.</span>
+              <strong>Map controls · <span data-zone-coverage-label>Checking coverage…</span></strong>
+              <span data-zone-coverage-help>Circle mode sets the centre and radius. Use Cover entire map to centre the circle and set the exact radius required to reach every map corner. For a polygon/freehand zone, choose Draw boundary, then click multiple points around the area and save when the outline covers it.</span>
             </div>
             <div class="full zone-tools">
               <div class="mini-card"><strong data-zone-radius-label>{{ edit_zone.radius }}m</strong><span class="muted">Circle radius</span></div>
               <div class="mini-card"><strong data-zone-shape-label>{{ 'Boundary' if edit_zone.shape == 'boundary' else 'Circle' }}</strong><span class="muted">Drawing mode</span></div>
               <div class="mini-card"><strong data-boundary-count>{{ draft_point_count if edit_zone.shape == 'boundary' else 0 }}</strong><span class="muted">Boundary points</span></div>
-              <div class="zone-tool-actions">
-                <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" name="boundary_action" value="clear" data-zone-map-hit data-clear-boundary>Clear Boundary</button>
+            <div class="zone-tool-actions">
+              <button type="button" data-zone-cover-map>Cover entire map</button>
+              <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" name="boundary_action" value="clear" data-zone-map-hit data-clear-boundary>Clear Boundary</button>
                 <button type="submit" formaction="/{{ 'owner' if mode == 'owner' else 'admin' }}/zone-draft" formmethod="get" name="boundary_action" value="undo" data-zone-map-hit data-undo-boundary>Undo Point</button>
               </div>
             </div>
@@ -18670,6 +18671,8 @@ PAGE_TEMPLATE = """
       const radiusSlider = form.querySelector("[data-zone-radius-slider]");
       const shapeSelect = form.querySelector("[data-zone-shape]");
       const radiusLabel = form.querySelector("[data-zone-radius-label]");
+      const coverageLabel = form.querySelector("[data-zone-coverage-label]");
+      const coverageHelp = form.querySelector("[data-zone-coverage-help]");
       const shapeLabel = form.querySelector("[data-zone-shape-label]");
       const boundaryCount = form.querySelector("[data-boundary-count]");
       const boundaryField = form.querySelector("[data-boundary-points]");
@@ -18939,6 +18942,50 @@ PAGE_TEMPLATE = """
         if (radiusSlider) radiusSlider.value = Math.min(Number(radiusSlider.max || radius), radius);
         if (radiusLabel) radiusLabel.textContent = `${radius}m`;
         renderCirclePreview();
+        updateCoverageStatus();
+      }
+
+      function fullMapRadiusAt(x, z) {
+        return Math.ceil(Math.max(
+          Math.hypot(x, z),
+          Math.hypot(size - x, z),
+          Math.hypot(x, size - z),
+          Math.hypot(size - x, size - z),
+        ));
+      }
+
+      function updateCoverageStatus() {
+        if (!coverageLabel || !radiusInput || !zoneFields.x || !zoneFields.y) return;
+        if (shapeSelect && shapeSelect.value === "boundary") {
+          coverageLabel.textContent = "Boundary drawing";
+          if (coverageHelp) coverageHelp.textContent = "Add points around the area you want to cover, then save the boundary.";
+          return;
+        }
+        const x = Math.max(0, Math.min(size, Number(zoneFields.x.value || 0)));
+        const z = Math.max(0, Math.min(size, Number(zoneFields.y.value || 0)));
+        const radius = Math.max(10, Number(radiusInput.value || 250));
+        const required = fullMapRadiusAt(x, z);
+        if (radius >= required) {
+          coverageLabel.textContent = "Covers entire map";
+          if (coverageHelp) coverageHelp.textContent = `This ${radius}m circle reaches every map corner. The preview is intentionally filled to its edges.`;
+        } else {
+          coverageLabel.textContent = "Part of map";
+          if (coverageHelp) coverageHelp.textContent = `This ${radius}m circle does not reach every corner from its current centre. It needs ${required}m, or use Cover entire map to centre it and set the correct radius automatically.`;
+        }
+      }
+
+      function coverEntireMap() {
+        const centre = Math.round(size / 2);
+        if (zoneFields.x) zoneFields.x.value = centre;
+        if (zoneFields.y) zoneFields.y.value = centre;
+        if (shapeSelect) {
+          shapeSelect.value = "circle";
+          if (shapeLabel) shapeLabel.textContent = "Circle";
+        }
+        syncRadius(fullMapRadiusAt(centre, centre));
+        placeCursorFromForm();
+        const readout = form.querySelector("[data-map-readout]");
+        if (readout) readout.textContent = `Whole-map circle selected at X ${centre}, Z ${centre}. It reaches every corner; save to apply it.`;
       }
 
       function renderCirclePreview() {
@@ -19016,6 +19063,7 @@ PAGE_TEMPLATE = """
         cursor.style.left = `${(x / size) * 100}%`;
         cursor.style.top = `${100 - ((y / size) * 100)}%`;
         renderCirclePreview();
+        updateCoverageStatus();
       }
 
       if (colourInput) colourInput.addEventListener("input", () => {
@@ -19034,11 +19082,13 @@ PAGE_TEMPLATE = """
 
       if (radiusInput) radiusInput.addEventListener("input", () => syncRadius(radiusInput.value));
       if (radiusSlider) radiusSlider.addEventListener("input", () => syncRadius(radiusSlider.value));
+      form.querySelector("[data-zone-cover-map]")?.addEventListener("click", coverEntireMap);
       if (shapeSelect) {
         shapeSelect.addEventListener("change", () => {
           if (shapeLabel) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
           renderCirclePreview();
           renderBoundary();
+          updateCoverageStatus();
         });
       }
       if (viewport) {
@@ -19193,6 +19243,7 @@ PAGE_TEMPLATE = """
         cursor.style.left = `${(Number(zoneFields.x ? zoneFields.x.value : 0) / size) * 100}%`;
         cursor.style.top = `${100 - ((Number(zoneFields.y ? zoneFields.y.value : 0) / size) * 100)}%`;
         renderCirclePreview();
+        updateCoverageStatus();
         if (shapeLabel && shapeSelect) shapeLabel.textContent = shapeSelect.value === "boundary" ? "Boundary" : "Circle";
         const readout = form.querySelector("[data-map-readout]");
         if (readout) readout.textContent = `Editing ${zone.name || "zone"} - save to update this radar/zone.`;
@@ -38467,7 +38518,11 @@ def normalized_zones(config: dict[str, Any], server_map: str, factions: dict[str
                 "enabled": bool(zone.get("enabled", True)),
                 "x_percent": round((x / map_size) * 100, 2) if map_size else 0,
                 "y_percent": round(100 - ((y / map_size) * 100), 2) if map_size else 0,
-                "radius_percent": round(max(1.2, min(75.0, ((radius * 2) / map_size) * 100)), 3) if map_size else 3,
+                # Do not clamp this to the visible map width.  A large zone
+                # must be allowed to render beyond the preview edges, otherwise
+                # a customer can select the map-sized maximum but see a smaller
+                # misleading circle.
+                "radius_percent": round(max(1.2, ((radius * 2) / map_size) * 100), 3) if map_size else 3,
                 "dot_size": max(34, min(72, int((radius / map_size) * 420))),
             }
         )

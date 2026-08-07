@@ -772,6 +772,13 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(12800, dashboard.zone_radius_limit_for_map("livonia"))
         self.assertEqual(15360, dashboard.zone_radius_limit_for_map("sakhal"))
 
+    def test_map_sized_zone_preview_is_not_visually_capped(self):
+        zones = dashboard.normalized_zones(
+            {"zones": [{"name": "Map wide", "x": 7680, "z": 7680, "radius": 15360}]},
+            "chernarus",
+        )
+        self.assertEqual(200.0, zones[0]["radius_percent"])
+
     def test_builder_truck_preset_adds_supplies_only_to_covered_trucks(self):
         result = dashboard.build_dayz_preset_file("chernarus", "spawnabletypes_builder_trucks")
         root = ET.fromstring(result["content"])
