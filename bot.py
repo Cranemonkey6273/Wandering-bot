@@ -1058,6 +1058,7 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "pve_heatmap_message_id",
     "restart_channel_id",
     "restart_channel_key",
+    "restart_countdown_message",
     "restart_history",
     "restart_interval_hours",
     "restart_last_trigger_marker",
@@ -16478,6 +16479,74 @@ last_pve_heatmap_message_ids = {}
 last_restart_message_ids = {}
 last_restart_countdown_message_ids = {}
 
+
+def restart_countdown_message_reference(guild_id, config):
+    """Return the last pre-restart warning reference, including after a bot deploy."""
+    saved = config.get("restart_countdown_message") if isinstance(config, dict) else None
+    if isinstance(saved, dict):
+        message_id = str(saved.get("message_id") or "").strip()
+        channel_id = str(saved.get("channel_id") or "").strip()
+        if message_id and channel_id:
+            return {"message_id": message_id, "channel_id": channel_id}
+
+    message_id = last_restart_countdown_message_ids.get(str(guild_id))
+    if message_id:
+        return {"message_id": str(message_id), "channel_id": ""}
+    return {}
+
+
+def remember_restart_countdown_message(guild_id, config, channel_id, message_id):
+    """Persist a warning reference so it can be deleted after a bot redeploy."""
+    if not isinstance(config, dict) or not channel_id or not message_id:
+        return
+    runtime_id = str(guild_id)
+    last_restart_countdown_message_ids[runtime_id] = int(message_id)
+    config["restart_countdown_message"] = {
+        "channel_id": str(channel_id),
+        "message_id": str(message_id),
+        "sent_at": datetime.now(UTC).isoformat(),
+    }
+    save_guild_configs_for_runtime(config)
+
+
+def clear_restart_countdown_message(guild_id, config):
+    last_restart_countdown_message_ids.pop(str(guild_id), None)
+    if isinstance(config, dict):
+        config.pop("restart_countdown_message", None)
+        save_guild_configs_for_runtime(config)
+
+
+async def delete_pending_restart_countdown(guild_id, config, fallback_channel=None):
+    """Remove the current restart warning from the channel where it was posted."""
+    reference = restart_countdown_message_reference(guild_id, config)
+    message_id = reference.get("message_id")
+    if not message_id:
+        return True
+
+    channel = fallback_channel
+    channel_id = reference.get("channel_id")
+    if channel_id:
+        try:
+            channel = bot.get_channel(int(channel_id))
+        except Exception:
+            channel = None
+    if not channel:
+        print(f"[RESTART CLEANUP] {guild_id}: cannot find warning channel for message {message_id}.")
+        return False
+
+    try:
+        message = await channel.fetch_message(int(message_id))
+        await message.delete()
+    except discord.NotFound:
+        # It was manually removed already, so there is nothing left to clean.
+        pass
+    except Exception as error:
+        print(f"[RESTART CLEANUP] {guild_id}: could not delete warning {message_id}: {error}")
+        return False
+
+    clear_restart_countdown_message(guild_id, config)
+    return True
+
 CUSTOM_FEED_TYPES = [
     "text",
     "restart",
@@ -28656,16 +28725,10 @@ async def scheduled_restart_loop():
             embed.set_footer(text="Wandering Bot Alpha — Pre-Restart Warning")
             embed.timestamp = now
 
-            previous_id = last_restart_countdown_message_ids.get(guild_id)
-            if previous_id:
-                try:
-                    previous_msg = await chat_channel.fetch_message(previous_id)
-                    await previous_msg.delete()
-                except Exception:
-                    pass
+            await delete_pending_restart_countdown(guild_id, config, chat_channel)
 
             sent = await chat_channel.send(embed=style_embed(embed))
-            last_restart_countdown_message_ids[guild_id] = sent.id
+            remember_restart_countdown_message(guild_id, config, chat_channel.id, sent.id)
 
         except Exception as countdown_error:
             print(f"RESTART COUNTDOWN ERROR {guild_id}: {countdown_error}")
@@ -28706,6 +28769,11 @@ async def scheduled_restart_loop():
         try:
 
             channels = config.get("channels", {})
+
+            # The stored reference retains the original channel, so changing a
+            # dashboard selection cannot leave the preceding public warning
+            # behind when this scheduled restart begins.
+            await delete_pending_restart_countdown(guild_id, config)
 
             announce_channel_id = (
                 config.get("restart_channel_id")

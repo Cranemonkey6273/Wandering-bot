@@ -81,6 +81,13 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_restart_schedule_notify_channel_keeps_the_saved_selection(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn("channel.value == restart_status.warning_channel_key", template)
+        self.assertIn("channel.id == restart_status.warning_channel_id", template)
+        self.assertNotIn("channel.key == 'restart' or channel.key == 'admin_logs'", template)
+
     def test_dayz_profile_id_rename_preserves_profile_and_rewrites_references(self):
         configs = {
             "guild-1": {

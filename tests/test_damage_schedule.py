@@ -61,6 +61,42 @@ class RestartTimezoneTests(unittest.TestCase):
         self.assertEqual("requested", config["restart_history"][0]["status"])
         self.assertIn("without a Discord announcement channel", config["restart_history"][0]["details"])
 
+    def test_restart_warning_is_persisted_and_removed_from_its_original_channel(self):
+        class Message:
+            deleted = False
+
+            async def delete(self):
+                self.deleted = True
+
+        class Channel:
+            id = 321
+
+            def __init__(self, message):
+                self.message = message
+                self.requested_ids = []
+
+            async def fetch_message(self, message_id):
+                self.requested_ids.append(message_id)
+                return self.message
+
+        config = {"_is_server_profile_runtime": False}
+        message = Message()
+        channel = Channel(message)
+        self.bot.last_restart_countdown_message_ids.clear()
+
+        with patch.object(self.bot, "save_guild_configs_for_runtime") as save_config, \
+             patch.object(self.bot.bot, "get_channel", return_value=channel):
+            self.bot.remember_restart_countdown_message("guild-1", config, channel.id, 987)
+            removed = asyncio.run(self.bot.delete_pending_restart_countdown("guild-1", config))
+
+        self.assertTrue(removed)
+        self.assertEqual([987], channel.requested_ids)
+        self.assertTrue(message.deleted)
+        self.assertNotIn("restart_countdown_message", config)
+        self.assertNotIn("guild-1", self.bot.last_restart_countdown_message_ids)
+        self.assertGreaterEqual(save_config.call_count, 2)
+        self.assertIn("restart_countdown_message", self.bot.SERVER_PROFILE_PERSIST_KEYS)
+
     def test_nitrado_token_reports_hidden_lookalike_character(self):
         ok, _token, message = self.bot.validate_nitrado_api_token("\u0435abc123")
 

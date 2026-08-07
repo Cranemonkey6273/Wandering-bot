@@ -12172,13 +12172,13 @@ PAGE_TEMPLATE = """
             <label>Warning minutes <input name="restart_warning_minutes" value="{{ restart_warnings|replace(' ', '') }}"></label>
             <label>Notify channel
               <select name="restart_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == 'restart' or channel.key == 'admin_logs' %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == restart_status.warning_channel_key or channel.id == restart_status.warning_channel_id or channel.key == restart_status.warning_channel_key %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
               <small class="field-help">Where pre-restart warning messages go.</small>
             </label>
             <label>Restart log channel
               <select name="restart_log_channel_key">
-                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.key == restart_status.log_channel_key or channel.id == restart_status.log_channel_id %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == restart_status.log_channel_key or channel.id == restart_status.log_channel_id or channel.key == restart_status.log_channel_key %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
               <small class="field-help">Where the bot posts restart audit logs: scheduled, command, dashboard, vehicle reset and RPT-detected restarts.</small>
             </label>
