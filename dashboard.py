@@ -9223,7 +9223,7 @@ PAGE_TEMPLATE = """
       {% set edit_zone.boundary_points = request.args.get('draft_points', '[]') %}
     {% endif %}
     {% set draft_map_size = server.map_size if server else 15360 %}
-    {% set zone_radius_limit = server.zone_radius_limit if server else 12000 %}
+    {% set zone_radius_limit = server.zone_radius_limit if server else 15360 %}
     {% set draft_x_percent = ((edit_zone.x|float / draft_map_size) * 100) if draft_zone_active else 0 %}
     {% set draft_y_percent = (100 - ((edit_zone.y|float / draft_map_size) * 100)) if draft_zone_active else 0 %}
     {% set draft_radius_percent = (((edit_zone.radius|float * 2) / draft_map_size) * 100) if draft_zone_active else 0 %}
@@ -9281,7 +9281,7 @@ PAGE_TEMPLATE = """
               <select name="shape" data-zone-shape><option value="circle" {% if edit_zone.shape == 'circle' %}selected{% endif %}>Circle</option><option value="boundary" {% if edit_zone.shape == 'boundary' %}selected{% endif %}>Draw boundary</option></select>
             </label>
             <label>Radius meters <input name="radius" type="number" min="10" max="{{ zone_radius_limit }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius></label>
-            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="{{ zone_radius_limit }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius-slider><small class="field-help">Full-map-safe limit for this map: {{ zone_radius_limit }}m.</small></label>
+            <label class="full">Radius slider <input name="radius_slider" type="range" min="10" max="{{ zone_radius_limit }}" step="10" value="{{ edit_zone.radius }}" data-zone-radius-slider><small class="field-help">Maximum for the selected map: {{ zone_radius_limit }}m.</small></label>
             <label>Ping / report channel
               <select name="channel_key">
                 <option value="" {% if not edit_zone.channel_key %}selected{% endif %}>No ping / report channel</option>
@@ -38169,19 +38169,14 @@ def map_size_for(server_map: str) -> int:
 
 
 def zone_radius_limit_for_map(server_map: str) -> int:
-    """Largest circle that safely covers a complete selected DayZ map.
+    """Return the selected map's full coordinate width as the zone cap.
 
-    These are deliberately lower than the raw square-map widths: a circle
-    centred on the map needs roughly half the diagonal to cover its corners.
-    They give the dashboard a useful full-map zone without an arbitrary
-    3,000m ceiling.
+    Zone drawings use the same metre scale as the DayZ map coordinates, so
+    the radius control must never exceed the selected map's own size.  This
+    deliberately avoids a generic 3,000m (or 30,000m) limit and keeps a
+    Chernarus, Livonia or Sakhal selection self-contained.
     """
-    key = map_key_for(server_map)
-    return {
-        "chernarus": 12000,
-        "livonia": 10000,
-        "sakhal": 12000,
-    }.get(key, 12000)
+    return map_size_for(server_map)
 
 
 def map_key_for(server_map: str) -> str:
