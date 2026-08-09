@@ -1292,7 +1292,7 @@
 		</attachments>
 	</type>
 	<!--START OF ZOMBIES  -->
-	<!-- -----------------------------MUMMY------------------------------->
+	<!-- MUMMY -->
 	<type name="ZmbM_Mummy">
 		<cargo preset="ContaminatedCargo" />
 		<cargo chance="0.05">
@@ -1317,7 +1317,7 @@
 			<item name="VitaminBottle" chance="0.25" />
 		</cargo>
 	</type>
-	<!-- -----------------------------NBC------------------------------ -->
+	<!-- NBC -->
 	<type name="ZmbM_NBC_Grey">
 		<cargo preset="ContaminatedCargo" />
 		<cargo chance="0.03">

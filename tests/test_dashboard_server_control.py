@@ -994,6 +994,40 @@ class DashboardServerControlTests(unittest.TestCase):
         mod_safety = next(item["safety"] for item in mod_capabilities if item["id"] == "mod_integrations")
         self.assertIn("exact mod", mod_safety)
 
+    def test_dayz_scope_uses_user_permission_but_blocks_live_work(self):
+        self.assertTrue(dashboard.ai_agent_dayz_scope_for_text("create and validate types.xml", "dayz_files"))
+        self.assertFalse(dashboard.ai_agent_dayz_scope_for_text("upload the new types.xml to Nitrado", "dayz_files"))
+
+        self.assertEqual(
+            (True, ""),
+            dashboard.ai_agent_command_is_allowed("python -m json.tool db/types.json", scope="dayz"),
+        )
+        allowed, reason = dashboard.ai_agent_command_is_allowed(
+            "python -m py_compile dashboard.py", scope="dayz"
+        )
+        self.assertFalse(allowed)
+        self.assertIn("DayZ", reason)
+
+        rules = dict(dashboard.AI_AGENT_DEFAULT_APPROVAL_RULES)
+        rules["sandbox_commands"] = True
+        state = {"god_mode_enabled": False, "approval_rules": rules}
+        needs_approval, reasons = dashboard.ai_agent_requires_owner_approval(
+            state,
+            "command",
+            "python -m json.tool db/types.json",
+            dayz_scoped=True,
+        )
+        self.assertFalse(needs_approval)
+        self.assertEqual([], reasons)
+
+        needs_approval, reasons = dashboard.ai_agent_requires_owner_approval(
+            state,
+            "command",
+            "python -m json.tool db/types.json",
+        )
+        self.assertTrue(needs_approval)
+        self.assertTrue(any("worker" in item.lower() or "command" in item.lower() for item in reasons))
+
         self.assertEqual("init.c", dashboard.ai_agent_dayz_target_path("init.c"))
         self.assertEqual("custom/objectspawner.json", dashboard.ai_agent_dayz_target_path("objectspawner.json"))
         self.assertEqual("custom/NoLogoutArea.json", dashboard.ai_agent_dayz_target_path("./custom/NoLogoutArea.json"))
@@ -1062,6 +1096,43 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("run-two", workspace["selected_run"]["id"])
         self.assertEqual(["task-two"], [item["id"] for item in workspace["tasks"]])
         self.assertEqual(["message-two"], [item["id"] for item in workspace["chat_messages"]])
+
+    def test_new_ai_conversation_does_not_hydrate_previous_active_run(self):
+        auth = {"kind": "guild", "guild_id": "guild-qa"}
+        access = {"label": "QA owner", "subject_key": "guild:guild-qa"}
+        state = dashboard.ai_agent_default_state()
+        old_run = {
+            "id": "run-old",
+            "subject_key": "guild:guild-qa",
+            "status": "planning",
+            "task_ids": ["task-old"],
+            "job_ids": [],
+            "approval_ids": [],
+            "message_ids": ["message-old"],
+        }
+        state["runs"] = [old_run]
+        state["active_runs"] = {"guild:guild-qa": "run-old"}
+        state["tasks"] = [{"id": "task-old", "run_id": "run-old"}]
+        state["chat_messages"] = [{"id": "message-old", "run_id": "run-old"}]
+
+        payload = dashboard.ai_agent_state_payload(auth, access, state, new_conversation=True)
+
+        self.assertIsNone(payload["active_run"])
+        self.assertIsNone(payload["selected_run"])
+        self.assertEqual([], payload["tasks"])
+        self.assertEqual([], payload["chat_messages"])
+        self.assertEqual(["run-old"], [run["id"] for run in payload["runs"]])
+
+    def test_ai_chat_template_marks_new_conversation_for_client_isolation(self):
+        self.assertIn('data-ai-new-conversation="{{ \'true\' if new_conversation else \'false\' }}"', dashboard.PAGE_TEMPLATE)
+        self.assertIn('target.searchParams.set("new_conversation", "1")', dashboard.PAGE_TEMPLATE)
+        self.assertIn('form.dataset.aiNewConversation = "false"', dashboard.PAGE_TEMPLATE)
+
+    def test_ai_chat_message_tone_is_shared_by_initial_and_live_messages(self):
+        self.assertEqual("warning", dashboard.ai_agent_message_tone("Warning: do not upload this draft yet."))
+        self.assertEqual("", dashboard.ai_agent_message_tone("Looks good.", "user"))
+        self.assertIn("ai_agent_message_tone(message.content", dashboard.PAGE_TEMPLATE)
+        self.assertIn("article.dataset.tone = tone", dashboard.PAGE_TEMPLATE)
 
     def test_credit_checkout_url_adds_only_a_nonsecret_reference(self):
         url = dashboard.agent_credit_checkout_url(
@@ -4727,6 +4798,30 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Automatic Discord translation in the same channel or a dedicated translation channel", public_plans["dashboard_ai"]["public_features"])
         self.assertEqual("Translation included", public_plans["dashboard_ai"]["public_badge"])
         self.assertEqual(2, len(dashboard.public_translation_preview_items()))
+
+    def test_dashboard_feed_pack_rows_show_opt_in_state(self):
+        rows = dashboard.dashboard_feed_pack_rows({
+            "channel_setup_initialized": True,
+            "channel_setup_keys": ["killfeed", "building"],
+            "disabled_channels": [],
+            "channels": {"killfeed": "1", "building": "2"},
+        })
+        live = next(item for item in rows if item["key"] == "live")
+        self.assertEqual(2, live["enabled_count"])
+        self.assertTrue(live["partial"])
+        self.assertFalse(live["enabled"])
+
+    def test_legacy_dashboard_feed_pack_rows_keep_existing_routes_visible(self):
+        rows = dashboard.dashboard_feed_pack_rows({
+            "channels": {"killfeed": "1", "building": "2"},
+        })
+        live = next(item for item in rows if item["key"] == "live")
+        self.assertGreaterEqual(live["enabled_count"], 2)
+
+    def test_dashboard_feed_pack_catalog_has_full_opt_in(self):
+        self.assertIn("full", dashboard.DASHBOARD_FEED_PACKS)
+        self.assertIn("pve_quests", dashboard.DASHBOARD_FEED_PACKS["full"]["keys"])
+        self.assertIn("/api/admin/feed-pack", dashboard.PAGE_TEMPLATE)
 
 
 if __name__ == "__main__":

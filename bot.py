@@ -3562,6 +3562,8 @@ def ensure_player_stats_record(guild_id, player_name):
     stats.setdefault("longest_streak_days", 0)
     stats.setdefault("streak_start_date", "")
     stats.setdefault("last_alive_date", "")
+    stats.setdefault("last_death_at", "")
+    stats.setdefault("last_death_date", "")
     stats.setdefault("deaths", 0)
     stats.setdefault("zombie_deaths", 0)
     stats.setdefault("suicides", 0)
@@ -8047,7 +8049,14 @@ def new_guild_config(guild):
         "rcon_password": "",
         "server_platform": "xbox",
         "roasts_enabled": False,
-        "channels": {}
+        "channels": {},
+        # A new guild is intentionally channel-light until its owner chooses
+        # a pack in /setup. Existing configs without this flag are treated as
+        # legacy/full and are never silently reduced.
+        "channel_setup_initialized": False,
+        "channel_setup_keys": [],
+        "channel_setup_restore_queue": [],
+        "setup_channel_id": None,
     }
 
 
@@ -8238,6 +8247,127 @@ CHANNEL_RESTORE_PACKS["all"] = [
     key for key in DEFAULT_CHANNEL_NAMES.keys()
     if key not in GUILD_LOCAL_CHANNEL_KEYS
 ]
+
+# Channel packs used during a first-time /setup.  Joining a guild no longer
+# creates every feed automatically: owners can start with a small essentials
+# pack and add other packs later.  Existing guilds without an explicit setup
+# selection continue to use their saved routes unchanged.
+CHANNEL_SETUP_PACKS = {
+    "essentials": [
+        "welcome",
+        "general_chat",
+        "killfeed",
+        "online",
+        "help_channel",
+    ],
+    "live": list(CHANNEL_RESTORE_PACKS["live"]),
+    "info": list(CHANNEL_RESTORE_PACKS["info"]),
+    "community": list(CHANNEL_RESTORE_PACKS["community"]),
+    "staff": list(CHANNEL_RESTORE_PACKS["staff"]),
+    "economy": list(CHANNEL_RESTORE_PACKS["economy"]),
+    "factions": list(CHANNEL_RESTORE_PACKS["factions"]),
+    "pve": list(CHANNEL_RESTORE_PACKS["pve"]),
+    "full": list(CHANNEL_RESTORE_PACKS["all"]),
+    "none": [],
+}
+
+CHANNEL_SETUP_PACK_ALIASES = {
+    "minimum": "essentials",
+    "minimal": "essentials",
+    "essential": "essentials",
+    "all": "full",
+    "everything": "full",
+    "custom": "custom",
+}
+
+CHANNEL_TIER_PACKS = {
+    # Free access stays useful without creating a wall of feeds.
+    "free_bot": ("essentials",),
+    "free": ("essentials",),
+    # Basic gets the core live/status experience. Extra feeds remain
+    # opt-in from dashboard feed routing.
+    "dashboard": ("essentials", "live", "info"),
+    "basic": ("essentials", "live", "info"),
+    # Pro adds community and economy-oriented feeds.
+    "dashboard_ai": ("essentials", "live", "info", "community", "economy"),
+    "pro": ("essentials", "live", "info", "community", "economy"),
+    # Ultimate and the owner can use the full channel catalogue.
+    "dashboard_ultimate": ("full",),
+    "ultimate": ("full",),
+    "owner": ("full",),
+}
+
+
+def channel_setup_tier_keys(config):
+    """Return the channel keys included in the plan's automatic setup pack."""
+    access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    tier = str(access.get("tier") or "free_bot").strip().lower()
+    packs = CHANNEL_TIER_PACKS.get(tier, ("essentials",))
+    keys = []
+    for pack in packs:
+        for key in CHANNEL_SETUP_PACKS.get(pack, []):
+            if key not in keys:
+                keys.append(key)
+    return keys
+
+
+def resolve_channel_setup_selection(bundle="", selection=""):
+    """Resolve a /setup channel pack and optional comma-separated keys.
+
+    Returns ``(keys, error)``.  ``keys`` is ``None`` only when no choice was
+    supplied, which lets legacy guilds retain their existing channel routes.
+    """
+    raw_bundle = str(bundle or "").strip().lower().replace(" ", "_")
+    raw_selection = str(selection or "").strip()
+    if not raw_bundle and not raw_selection:
+        return None, ""
+
+    pack = CHANNEL_SETUP_PACK_ALIASES.get(raw_bundle, raw_bundle)
+    if pack == "none" and not raw_selection:
+        return [], ""
+    if raw_selection:
+        tokens = [token.strip() for token in re.split(r"[,;\n]+", raw_selection) if token.strip()]
+        if pack and pack not in {"custom", "essentials"} and pack in CHANNEL_SETUP_PACKS:
+            tokens = [pack, *tokens]
+    else:
+        if pack == "custom":
+            return None, "Choose `channel_selection` when using the Custom channel pack."
+        if pack not in CHANNEL_SETUP_PACKS:
+            valid = ", ".join(sorted(CHANNEL_SETUP_PACKS.keys()))
+            return None, f"Unknown channel pack `{bundle}`. Choose one of: {valid}."
+        tokens = list(CHANNEL_SETUP_PACKS[pack])
+
+    keys = []
+    invalid = []
+    for token in tokens:
+        token_pack = CHANNEL_SETUP_PACK_ALIASES.get(token.lower().replace(" ", "_"), token.lower().replace(" ", "_"))
+        if token_pack in CHANNEL_SETUP_PACKS and token_pack != "custom":
+            candidates = CHANNEL_SETUP_PACKS[token_pack]
+        else:
+            resolved = resolve_channel_key(token)
+            candidates = [resolved] if resolved else []
+        if not candidates:
+            invalid.append(token)
+            continue
+        for key in candidates:
+            if key and key in DEFAULT_CHANNEL_NAMES and key not in keys:
+                keys.append(key)
+
+    if invalid:
+        return None, "I do not recognise these channel keys: " + ", ".join(f"`{item}`" for item in invalid) + "."
+    if not keys:
+        return None, "The selected channel pack contains no channels. Choose `none` only when you want setup with no feeds."
+    return keys, ""
+
+
+def channel_setup_key_selected(config, key):
+    """Whether a feed is enabled by the owner's selected setup pack."""
+    if not isinstance(config, dict) or not config.get("channel_setup_initialized"):
+        return True
+    selected = config.get("channel_setup_keys")
+    if not isinstance(selected, list):
+        return True
+    return str(key) in {str(item) for item in selected}
 
 CATEGORY_REPAIR_SPECS = [
     ("wandering_hq", "🟩🟩🟩┃WANDERING HQ┃🟩🟩🟩", ["wanderinghq", "wanderingbot", "wanderingbotalpha"]),
@@ -9115,9 +9245,66 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
     return restored, None
 
 
-async def ensure_pve_channels(guild, config, force=False, create_missing=False):
+async def process_channel_setup_restore_queue_for_active_guilds():
+    """Create dashboard-opted-in channels once, without rebuilding a server."""
+    pve_keys = {
+        "pve_quests", "pve_hunting", "pve_collection", "pve_fishing",
+        "pve_crafting", "pve_expeditions", "pve_info", "pve_help",
+        "pve_heatmap", "pve_rewards_public", "pve_rewards_private", "quest_workshop",
+    }
+    changed = False
+    for guild_id, config in active_guild_config_items():
+        queue = config.get("channel_setup_restore_queue")
+        if not isinstance(queue, list) or not queue:
+            continue
+        guild = discord_guild_for_runtime_id(guild_id)
+        if not guild:
+            continue
+        selected = {
+            str(key) for key in (config.get("channel_setup_keys") or [])
+            if str(key).strip()
+        }
+        pending = [str(key) for key in queue if str(key) in selected and str(key) in DEFAULT_CHANNEL_NAMES]
+        if not pending:
+            config["channel_setup_restore_queue"] = []
+            changed = True
+            continue
+
+        standard = [key for key in pending if key not in pve_keys]
+        remaining = []
+        try:
+            if standard:
+                await restore_disabled_bot_channels(guild, config, channel_keys=standard)
+            if any(key in pve_keys for key in pending) and server_allows_pve(config):
+                await ensure_pve_channels(
+                    guild,
+                    config,
+                    force=True,
+                    create_missing=True,
+                    allowed_keys=[key for key in pending if key in pve_keys],
+                )
+            # A successful restore clears the queue. A Discord/API exception
+            # leaves it in place so the next pass can retry safely.
+            config["channel_setup_restore_queue"] = remaining
+            changed = True
+        except Exception as error:
+            print(f"CHANNEL PACK RESTORE ERROR {guild_id}: {error}")
+
+    if changed:
+        save_guild_configs()
+
+
+@tasks.loop(minutes=1)
+async def channel_setup_restore_loop():
+    await process_channel_setup_restore_queue_for_active_guilds()
+
+
+async def ensure_pve_channels(guild, config, force=False, create_missing=False, allowed_keys=None):
     if not server_allows_pve(config):
         return {}
+
+    if allowed_keys is None and config.get("channel_setup_initialized"):
+        allowed_keys = config.get("channel_setup_keys")
 
     channels = config.setdefault("channels", {})
     pve_channel_keys = [
@@ -9134,6 +9321,11 @@ async def ensure_pve_channels(guild, config, force=False, create_missing=False):
         "pve_rewards_private",
         "quest_workshop"
     ]
+    if isinstance(allowed_keys, (list, tuple, set)):
+        allowed_keys = {str(key) for key in allowed_keys}
+        pve_channel_keys = [key for key in pve_channel_keys if key in allowed_keys]
+    if not pve_channel_keys:
+        return {}
 
     if not force and all(is_channel_key_disabled(config, key) for key in pve_channel_keys):
         return {}
@@ -9686,7 +9878,16 @@ async def ensure_pve_channels_for_active_guilds():
             config = guild_configs.setdefault(guild_id, new_guild_config(guild))
             if not server_allows_pve(config):
                 continue
-            await ensure_pve_channels(guild, config)
+            if config.get("channel_setup_initialized"):
+                allowed_keys = config.get("channel_setup_keys")
+            else:
+                # A newly joined guild has only the five starter feeds until
+                # /setup (or dashboard Feed Routing) opts into PVE channels.
+                allowed_keys = [
+                    key for key in CHANNEL_SETUP_PACKS["essentials"]
+                    if key in PVE_ONLY_CHANNEL_KEYS
+                ]
+            await ensure_pve_channels(guild, config, allowed_keys=allowed_keys)
         except Exception as error:
             print(f"PVE SETUP ERROR {guild.id}: {error}")
 
@@ -10899,11 +11100,26 @@ def note_player_alive(guild_id, player_name, event_time=None):
         "longest_days": 1,
         "current_days": 1,
     })
-    last_alive = entry.get("last_alive_date") or today
+    # A death clears ``last_alive_date`` and ``current_days``.  Treat that
+    # state as a brand-new streak rather than calculating a zero-day gap
+    # against today's date.  The old behaviour left the counter at zero
+    # after a respawn, which also allowed stale streak data to be carried
+    # into a later milestone announcement.
+    if not entry.get("last_alive_date") or int(entry.get("current_days", 0) or 0) <= 0:
+        entry["streak_start_date"] = today
+        entry["current_days"] = 1
+        entry["last_progress_date"] = today
+        entry["last_alive_date"] = today
+        last_alive = today
+        gap = 0
+    else:
+        last_alive = entry.get("last_alive_date") or today
+        gap = None
     try:
-        last_date = datetime.strptime(last_alive, "%Y-%m-%d").date()
-        today_date = datetime.strptime(today, "%Y-%m-%d").date()
-        gap = (today_date - last_date).days
+        if gap is None:
+            last_date = datetime.strptime(last_alive, "%Y-%m-%d").date()
+            today_date = datetime.strptime(today, "%Y-%m-%d").date()
+            gap = (today_date - last_date).days
     except Exception:
         gap = 0
     if gap == 0:
@@ -10944,12 +11160,47 @@ def reset_player_streak(guild_id, player_name, event_time=None):
     entry["current_days"] = 0
     entry["streak_start_date"] = ""
     entry["last_alive_date"] = ""
+    death_at = event_time if isinstance(event_time, datetime) else datetime.now(UTC)
+    death_at_text = death_at.isoformat()
+    entry["last_death_at"] = death_at_text
+    entry["last_death_date"] = _today_key(event_time)
     stats = ensure_player_stats_record(guild_id, player_name)
     if stats:
         stats["current_streak_days"] = 0
         stats["streak_start_date"] = ""
+        stats["last_death_at"] = death_at_text
+        stats["last_death_date"] = _today_key(event_time)
     save_survival_streaks()
+    # ``parse_adm`` saves the general stats before processing feed-specific
+    # branches. Persist the reset itself as well so a restart cannot resurrect
+    # the pre-death streak from disk.
+    save_player_stats()
     return broken_days
+
+
+def adm_death_player_name(event_type, line):
+    """Return the player who died in a non-PvP ADM event, if unambiguous.
+
+    ``animal_kill`` is also used for normal hunting, so it must only reset a
+    streak when the ADM line explicitly marks the player dead and names an
+    animal as the killer. Likewise, ordinary damage/cut lines are not deaths
+    unless they carry a death marker or the ``killed by`` wording.
+    """
+    if event_type in {"zombie_kill", "suicide", "bleedout", "respawn"}:
+        return extract_player_name(line)
+
+    lower = str(line or "").lower()
+    death_marked = "(dead)" in lower or "[hp: 0]" in lower
+    if event_type == "animal_kill":
+        animal_terms = (
+            "animal_", "wolf", "bear", "cow", "pig", "goat", "sheep",
+            "chicken", "deer", "boar", "rooster", "hen",
+        )
+        if death_marked and "killed by" in lower and any(term in lower for term in animal_terms):
+            return extract_player_name(line)
+    elif event_type == "cut" and (death_marked or "killed by" in lower):
+        return extract_player_name(line)
+    return ""
 
 
 def get_streak_milestone(days):
@@ -17434,6 +17685,67 @@ async def on_guild_join(guild):
         await announce_slash_sync_status(guild, synced_commands)
         return
 
+    # Do not flood a newly-added server with every optional feed.  The owner
+    # chooses a channel pack during /setup; until then keep the setup location
+    # plus a small five-channel starter set so the bot is useful immediately.
+    join_config = new_guild_config(guild)
+    setup_category = await ensure_bot_category(guild, "wandering_hq")
+    setup_channel = None
+    for existing in getattr(guild, "text_channels", []) or []:
+        if normalize_discord_name(getattr(existing, "name", "")) in {"botsetup", "wanderingbotsetup"}:
+            setup_channel = existing
+            break
+    if setup_channel is None:
+        setup_channel = await guild.create_text_channel("wandering-bot-setup", category=setup_category)
+    # Keep the first impression useful but quiet: five main feeds are enough
+    # for a new owner to see the bot working before choosing a larger pack.
+    for starter_key in CHANNEL_SETUP_PACKS["essentials"]:
+        if not channel_key_allowed_for_server_mode(starter_key, join_config):
+            continue
+        desired_name = default_channel_name_for_config(starter_key, join_config)
+        existing = preferred_existing_feed_channel(guild, starter_key)
+        if existing is None:
+            try:
+                existing = await guild.create_text_channel(desired_name, category=setup_category)
+            except Exception as starter_error:
+                print(f"STARTER CHANNEL CREATE ERROR {guild_id} {starter_key}: {starter_error}")
+                continue
+        join_config.setdefault("channels", {})[starter_key] = existing.id
+    join_config["setup_channel_id"] = setup_channel.id
+    guild_configs[guild_id] = join_config
+    save_guild_configs()
+
+    setup_embed = discord.Embed(
+        title="Wandering Bot is ready — choose your channels",
+        description=(
+            "Five starter feeds are ready now: welcome, general chat, killfeed, online, and help. "
+            "The bot will not create the full channel tree automatically. Run `/setup` "
+            "when you are ready, then choose **Essentials**, **Live feeds**, **Community**, "
+            "**Staff**, **PVE**, **Full**, or **Custom**.\n\n"
+            "For Custom, enter channel keys such as `killfeed,online,radar`. "
+            "You can add more packs later without deleting your existing channels."
+        ),
+        color=0xF39C12,
+    )
+    setup_embed.set_thumbnail(url=BOT_IMAGE)
+    setup_embed.set_footer(text="Wandering Bot • channel setup")
+    try:
+        await setup_channel.send(embed=style_embed(setup_embed))
+    except Exception as setup_error:
+        print(f"SETUP CHANNEL INTRO ERROR {guild_id}: {setup_error}")
+
+    try:
+        await send_owner_notification(
+            "➕ Bot Added to New Server",
+            f"Server: **{guild.name}** (`{guild.id}`)\nOwner: **{guild.owner}**",
+        )
+    except Exception:
+        pass
+
+    synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
+    await announce_slash_sync_status(guild, synced_commands)
+    return
+
     join_config = {"guild_name": guild.name, "server_map": "chernarus"}
 
     def clean_name(key):
@@ -17699,6 +18011,8 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     server_platform="Console/host platform: Xbox, PlayStation, or PC. Leave blank to keep current.",
     server_map="Server map: Chernarus, Livonia, or Sakhal. Leave blank to keep current.",
     server_mode="Server style: PVP only, PVE only, or Hybrid. Leave blank to keep current.",
+    channel_bundle="Which group of bot channels to create/enable. Leave blank to keep existing routes.",
+    channel_selection="Custom comma-separated channel keys, for example killfeed,online,radar.",
     restore_deleted_channels="Recreate bot channels that server owners deleted",
     ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
 )
@@ -17717,6 +18031,17 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
         app_commands.Choice(name="Hybrid - PVP and PVE", value="hybrid"),
         app_commands.Choice(name="PVP only", value="pvp"),
         app_commands.Choice(name="PVE only", value="pve"),
+    ],
+    channel_bundle=[
+        app_commands.Choice(name="Essentials (recommended)", value="essentials"),
+        app_commands.Choice(name="Live feeds", value="live"),
+        app_commands.Choice(name="Community", value="community"),
+        app_commands.Choice(name="Staff", value="staff"),
+        app_commands.Choice(name="Economy", value="economy"),
+        app_commands.Choice(name="Factions", value="factions"),
+        app_commands.Choice(name="PVE", value="pve"),
+        app_commands.Choice(name="Full (all channels)", value="full"),
+        app_commands.Choice(name="Custom list", value="custom"),
     ]
 )
 async def setup_command(
@@ -17732,6 +18057,8 @@ async def setup_command(
     server_platform: str = "",
     server_map: str = "",
     server_mode: str = "",
+    channel_bundle: str = "",
+    channel_selection: str = "",
     restore_deleted_channels: bool = False,
     ftp_host: str = ""
 ):
@@ -17762,6 +18089,38 @@ async def setup_command(
         server_map=server_map,
         server_mode=server_mode,
     )
+    explicit_channel_selection = bool(str(channel_bundle or "").strip() or str(channel_selection or "").strip())
+    if explicit_channel_selection:
+        selected_channel_keys, channel_selection_error = resolve_channel_setup_selection(
+            channel_bundle,
+            channel_selection,
+        )
+        if channel_selection_error:
+            await interaction.followup.send(channel_selection_error, ephemeral=True)
+            return
+    elif "channel_setup_initialized" not in existing_config:
+        # Older guild records never had a channel selection flag. Preserve
+        # their existing routes until the owner explicitly chooses a pack.
+        selected_channel_keys = None
+    elif not existing_config.get("channel_setup_initialized"):
+        selected_channel_keys = channel_setup_tier_keys(existing_config)
+    elif isinstance(existing_config.get("channel_setup_keys"), list):
+        selected_channel_keys = list(existing_config.get("channel_setup_keys") or [])
+    else:
+        # Legacy guild: no setup selection was ever saved, so preserve all
+        # existing behaviour until the owner explicitly chooses a pack.
+        selected_channel_keys = None
+    if selected_channel_keys is not None:
+        tier_keys = set(channel_setup_tier_keys(existing_config))
+        outside_tier = [key for key in selected_channel_keys if key not in tier_keys]
+        if outside_tier:
+            await interaction.followup.send(
+                "Those channels are not included in this subscription's automatic Discord pack: "
+                + ", ".join(f"`{key}`" for key in outside_tier)
+                + ". Use the dashboard Feed Routing page to opt into an available feed, or upgrade the plan.",
+                ephemeral=True,
+            )
+            return
     missing_setup = []
     if not raw_nitrado_token:
         missing_setup.append("nitrado_token")
@@ -17861,6 +18220,14 @@ async def setup_command(
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
+    if selected_channel_keys is not None:
+        selected_channel_keys = list(dict.fromkeys(selected_channel_keys))
+        guild_configs[guild_id]["channel_setup_keys"] = selected_channel_keys
+        guild_configs[guild_id]["channel_setup_initialized"] = True
+        disabled = set(disabled_channel_keys(guild_configs[guild_id]))
+        disabled.update(key for key in DEFAULT_CHANNEL_NAMES if key not in set(selected_channel_keys))
+        disabled.difference_update(selected_channel_keys)
+        guild_configs[guild_id]["disabled_channels"] = sorted(disabled)
 
     def clean_name(key):
         return default_channel_name_for_config(key, guild_configs[guild_id])
@@ -17899,18 +18266,23 @@ async def setup_command(
 
         return await interaction.guild.create_category(name)
 
-    category = await ensure_bot_category(interaction.guild, "wandering_hq")
-    live_category = await ensure_bot_category(interaction.guild, "live_feeds")
-    info_category = await ensure_bot_category(interaction.guild, "server_info")
-    community_category = await ensure_bot_category(interaction.guild, "survivor_comms")
-    staff_category = await ensure_bot_category(interaction.guild, "staff_ops")
-    economy_category = await ensure_bot_category(interaction.guild, "economy")
-    faction_category = await ensure_bot_category(interaction.guild, "factions")
-    support_category = await ensure_bot_category(interaction.guild, "support")
-    bot_updates_category = await ensure_bot_category(interaction.guild, "bot_updates")
-    radar_category = await ensure_bot_category(interaction.guild, "radar_pings")
+    def wants_any(*keys):
+        if selected_channel_keys is None:
+            return True
+        return any(key in set(selected_channel_keys) for key in keys)
+
+    category = await ensure_bot_category(interaction.guild, "wandering_hq") if wants_any("help_channel") else None
+    live_category = await ensure_bot_category(interaction.guild, "live_feeds") if wants_any(*CHANNEL_RESTORE_PACKS["live"]) else None
+    info_category = await ensure_bot_category(interaction.guild, "server_info") if wants_any(*CHANNEL_RESTORE_PACKS["info"]) else None
+    community_category = await ensure_bot_category(interaction.guild, "survivor_comms") if wants_any(*CHANNEL_RESTORE_PACKS["community"]) else None
+    staff_category = await ensure_bot_category(interaction.guild, "staff_ops") if wants_any(*CHANNEL_RESTORE_PACKS["staff"]) else None
+    economy_category = await ensure_bot_category(interaction.guild, "economy") if wants_any(*CHANNEL_RESTORE_PACKS["economy"]) else None
+    faction_category = await ensure_bot_category(interaction.guild, "factions") if wants_any(*CHANNEL_RESTORE_PACKS["factions"]) else None
+    support_category = await ensure_bot_category(interaction.guild, "support") if wants_any("help_channel") else None
+    bot_updates_category = await ensure_bot_category(interaction.guild, "bot_updates") if wants_any("bot_updates") else None
+    radar_category = await ensure_bot_category(interaction.guild, "radar_pings") if wants_any("radar") else None
     pve_category = None
-    if server_allows_pve(guild_configs[guild_id]):
+    if server_allows_pve(guild_configs[guild_id]) and wants_any(*CHANNEL_RESTORE_PACKS["pve"]):
         pve_category = await ensure_bot_category(interaction.guild, "pve")
 
     channel_aliases = {
@@ -17970,6 +18342,8 @@ async def setup_command(
         return normalized in aliases
 
     async def ensure_channel(key, name, *, cat=None, private=False):
+        if selected_channel_keys is not None and key not in set(selected_channel_keys):
+            return None
         if not channel_key_allowed_for_server_mode(key, guild_configs[guild_id]):
             return None
 
@@ -18077,7 +18451,8 @@ async def setup_command(
             interaction.guild,
             guild_configs[guild_id],
             force=restore_deleted_channels,
-            create_missing=True
+            create_missing=True,
+            allowed_keys=selected_channel_keys,
         )
 
     guild_configs[guild_id]["nitrado_token"] = clean_nitrado_token
@@ -20635,6 +21010,16 @@ async def parse_adm(guild_id, config):
             player_audit_changed = True
         update_player_stats_from_adm(guild_id, event_type, line)
         save_player_stats()
+        # Keep the consecutive-days streak tied to the actual survivor
+        # lifecycle.  PvP and vehicle deaths are reset in their specialised
+        # feed branches below; these ADM event types cover infected, animal,
+        # suicide, bleed-out, respawn, and non-vehicle environmental deaths.
+        death_player = adm_death_player_name(event_type, line)
+        if death_player and death_player != "Unknown":
+            try:
+                reset_player_streak(guild_id, death_player, event_time=event_time)
+            except Exception as streak_error:
+                print(f"[STREAK] death reset failed for {death_player}: {streak_error}")
         if record_dashboard_live_feed(guild_id, event_type, line, event_time=event_time):
             dashboard_live_feed_changed = True
 
@@ -32396,6 +32781,9 @@ async def start_background_tasks():
 
         if not pve_pvp_advice_loop.is_running():
             pve_pvp_advice_loop.start()
+
+        if not channel_setup_restore_loop.is_running():
+            channel_setup_restore_loop.start()
 
         if not custom_feed_loop.is_running():
             custom_feed_loop.start()
@@ -56455,6 +56843,7 @@ async def on_ready():
     bootstrap_runtime_from_connected_guilds()
     await restore_legacy_styled_channel_names_for_active_guilds()
     await repair_display_names_for_active_guilds()
+    await process_channel_setup_restore_queue_for_active_guilds()
     await ensure_pve_channels_for_active_guilds()
     load_player_stats()
     load_heatmap()

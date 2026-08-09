@@ -1,0 +1,8 @@
+{
+  "PlayerData": {
+    "spawnGearPresetFiles": [
+      "./custom/QA_Red_NVG_Assault.json",
+      "./custom/QA_Orange_NVG_Assault.json"
+    ]
+  }
+}

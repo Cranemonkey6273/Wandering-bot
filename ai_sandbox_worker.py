@@ -45,6 +45,10 @@ BLOCKED_COMMAND_TERMS = (
     "init 0",
     "init 6",
 )
+DAYZ_SCOPE_RISK_MARKERS = (
+    "nitrado", "live server", "production", "upload", "deploy", "restart",
+    "discord", "railway", "stripe", "ftp", "push", "delete", "remove",
+)
 JOB_LOCK = threading.Lock()
 
 
@@ -151,13 +155,36 @@ def require_worker_auth():
     return None
 
 
-def command_is_allowed(command: str) -> tuple[bool, str]:
+def dayz_command_is_allowed(command: str) -> tuple[bool, str]:
     text = str(command or "").strip()
     lower = text.lower()
     if not text:
         return False, "command is required"
     if len(text) > 4000:
         return False, "command is too long"
+    if any(term in lower for term in BLOCKED_COMMAND_TERMS) or any(marker in lower for marker in DAYZ_SCOPE_RISK_MARKERS):
+        return False, "live-server or unsafe work is outside the DayZ worker scope"
+    if any(token in text for token in (";", "&&", "||", "|", ">", "<", "`", "$(", "\n", "\r")):
+        return False, "DayZ automatic scope only permits one read-only validator command"
+    allowed = (
+        re.fullmatch(r"python(?:3)?\s+-m\s+json\.tool(?:\s+[A-Za-z0-9_./-]+)?", text, re.IGNORECASE),
+        re.fullmatch(r"python(?:3)?\s+tools/validate_ce_xml\.py(?:\s+[A-Za-z0-9_./-]+)?", text, re.IGNORECASE),
+        re.fullmatch(r"(?:find|ls|pwd|cat|head|tail|grep|rg)(?:\s+[A-Za-z0-9_./*? -]+)?", text, re.IGNORECASE),
+    )
+    if not any(allowed):
+        return False, "command is outside the protected DayZ validation allow-list"
+    return True, ""
+
+
+def command_is_allowed(command: str, scope: str = "") -> tuple[bool, str]:
+    text = str(command or "").strip()
+    lower = text.lower()
+    if not text:
+        return False, "command is required"
+    if len(text) > 4000:
+        return False, "command is too long"
+    if str(scope or "").strip().lower() == "dayz":
+        return dayz_command_is_allowed(text)
     for term in BLOCKED_COMMAND_TERMS:
         if term in lower:
             return False, f"blocked unsafe command term: {term.strip()}"
@@ -180,7 +207,7 @@ def run_job(job_id: str) -> None:
     if not job:
         return
     command = str(job.get("command") or "")
-    allowed, reason = command_is_allowed(command)
+    allowed, reason = command_is_allowed(command, str(job.get("scope") or ""))
     if not allowed:
         update_job(job_id, {"status": "blocked", "stderr": reason, "finished_at": utc_now(), "exit_code": None})
         return
@@ -267,7 +294,8 @@ def list_jobs():
 def create_job():
     payload = request.get_json(silent=True) or {}
     command = str(payload.get("command") or "").strip()
-    allowed, reason = command_is_allowed(command)
+    scope = str(payload.get("scope") or "general")
+    allowed, reason = command_is_allowed(command, scope)
     if not allowed:
         return json_error(reason)
     job_id = str(payload.get("job_id") or f"worker-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}")
@@ -282,6 +310,7 @@ def create_job():
         "requested_by": str(payload.get("requested_by") or ""),
         "timeout_seconds": int(payload.get("timeout_seconds") or DEFAULT_TIMEOUT_SECONDS),
         "docker_image": str(payload.get("docker_image") or DEFAULT_DOCKER_IMAGE),
+        "scope": str(payload.get("scope") or "general"),
         "status": "queued",
         "created_at": utc_now(),
         "started_at": "",

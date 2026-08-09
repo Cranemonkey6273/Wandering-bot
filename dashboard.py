@@ -1499,6 +1499,23 @@ FEED_ROUTE_PRIVATE_KEYS = {
 }
 FEED_ROUTE_DEFAULT_NAMES = {key: label.lower().replace(" / ", "-").replace(" ", "-") for key, label in FEED_ROUTE_LABELS.items()}
 FEED_ROUTE_KEYS = tuple(dict.fromkeys(key for group in FEED_ROUTE_GROUPS.values() for key in group["keys"]))
+# Channel packs shown in the dashboard.  `/setup` applies the subscription
+# tier automatically; this catalogue is the explicit opt-in control for an
+# owner who wants one extra group without recreating the whole Discord tree.
+DASHBOARD_FEED_PACKS = {
+    "live": {"label": "Live feeds", "description": "Kills, joins, disconnects, building, radar and activity alerts.", "keys": list(FEED_ROUTE_GROUPS["live"]["keys"])},
+    "info": {"label": "Info & status", "description": "Online board, leaderboards, heatmap, longshots and restart notices.", "keys": list(FEED_ROUTE_GROUPS["info"]["keys"])},
+    "community": {"label": "Community", "description": "Welcome, linked players, help, chat and member updates.", "keys": list(FEED_ROUTE_GROUPS["community"]["keys"])},
+    "staff": {"label": "Staff & audit", "description": "Private admin, moderation, ban, RPT and dashboard audit feeds.", "keys": list(FEED_ROUTE_GROUPS["staff"]["keys"])},
+    "economy": {"label": "Economy", "description": "Shop, money, purchase and vehicle-rental feeds.", "keys": list(FEED_ROUTE_GROUPS["economy"]["keys"])},
+    "factions": {"label": "Factions", "description": "Faction chat, roster, tickets and staff feeds.", "keys": list(FEED_ROUTE_GROUPS["factions"]["keys"])},
+    "pve": {"label": "PVE", "description": "PVE quests, crafting, expeditions, rewards and the private workshop.", "keys": list(FEED_ROUTE_GROUPS["pve"]["keys"])},
+}
+DASHBOARD_FEED_PACKS["full"] = {
+    "label": "Full catalogue",
+    "description": "Enable every dashboard-routable feed. Existing channels are never deleted.",
+    "keys": list(FEED_ROUTE_KEYS),
+}
 CUSTOM_FEED_TYPES = ("text", "restart", "basedamage", "serverstatus", "heatmap")
 DASHBOARD_LIVE_FEED_DEFAULT_KEYS = (
     "raids",
@@ -4652,6 +4669,7 @@ PAGE_TEMPLATE = """
     .ai-conversation-history summary { cursor: pointer; color: #fff3d8; font-size: .8rem; font-weight: 850; }
     .ai-conversation-history[open] summary { margin-bottom: .5rem; }
     .ai-conversation-link { display: grid; gap: .22rem; border: 1px solid rgba(103,245,231,.12); border-radius: .55rem; padding: .58rem .62rem; color: var(--muted); text-decoration: none; background: rgba(2,9,12,.68); overflow: hidden; }
+    .ai-conversation-index { width: max-content; padding: .12rem .32rem; border: 1px solid rgba(236,161,64,.3); border-radius: 999px; color: #fff3d8 !important; background: rgba(236,161,64,.1); font-size: .62rem !important; letter-spacing: .06em; text-transform: uppercase; }
     .ai-conversation-link:hover, .ai-conversation-link.active { border-color: rgba(103,245,231,.48); background: rgba(103,245,231,.11); color: #effcff; }
     .ai-conversation-link strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .84rem; }
     .ai-conversation-link span { font-size: .72rem; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4675,18 +4693,48 @@ PAGE_TEMPLATE = """
     .ai-credit-pack span { color: var(--muted); font-size: .79rem; }
     .ai-credit-ledger-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .45rem; align-items: start; border-top: 1px solid rgba(103,245,231,.10); padding-top: .45rem; color: var(--muted); font-size: .77rem; }
     .ai-credit-ledger-row strong { color: #bff7c9; }
-    .ai-codex-chat { min-height: min(74vh, 52rem); display: grid; grid-template-rows: auto minmax(24rem, 1fr) auto; gap: .75rem; background:
+    .ai-codex-chat { min-height: min(78vh, 58rem); display: grid; grid-template-rows: auto auto minmax(24rem, 1fr) auto; gap: .75rem; background:
       radial-gradient(circle at top left, rgba(103,245,231,.12), transparent 34%),
       linear-gradient(180deg, rgba(6, 20, 25, .92), rgba(2, 8, 11, .88)); }
     .ai-codex-title { display: flex; justify-content: space-between; gap: .8rem; align-items: flex-start; flex-wrap: wrap; padding-bottom: .65rem; border-bottom: 1px solid rgba(103,245,231,.13); }
     .ai-codex-title h3 { margin: 0; color: var(--text); letter-spacing: .02em; }
+    .ai-codex-title > div:first-child { min-width: 0; flex: 1 1 18rem; }
+    .ai-codex-title .pills { display: flex; gap: .35rem; flex-wrap: wrap; justify-content: flex-end; }
+    .ai-codex-livebar { display: flex; align-items: center; justify-content: space-between; gap: .65rem; min-height: 2.55rem; padding: .5rem .7rem; border: 1px solid rgba(103,245,231,.18); border-radius: .7rem; background: linear-gradient(90deg, rgba(103,245,231,.10), rgba(2,9,12,.72)); box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
+    .ai-codex-live-wrap { display: grid; gap: .45rem; min-width: 0; }
+    .ai-codex-livebar-main { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+    .ai-codex-livebar-main strong { color: #effcff; font-size: .82rem; white-space: nowrap; }
+    .ai-codex-livebar-main span { color: var(--muted); font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai-live-pulse { width: .6rem; height: .6rem; flex: 0 0 auto; border-radius: 999px; background: #75d89a; box-shadow: 0 0 0 .22rem rgba(117,216,154,.11), 0 0 .9rem rgba(117,216,154,.45); animation: aiLivePulse 1.8s infinite ease-in-out; }
+    .ai-live-pulse[data-tone="warn"] { background: #f2c14e; box-shadow: 0 0 0 .22rem rgba(242,193,78,.11), 0 0 .9rem rgba(242,193,78,.35); }
+    .ai-live-pulse[data-tone="bad"] { background: #ff7070; box-shadow: 0 0 0 .22rem rgba(255,112,112,.11), 0 0 .9rem rgba(255,112,112,.35); }
+    .ai-codex-livebar time { color: var(--dim); font-size: .7rem; white-space: nowrap; }
+    .ai-live-feed { display: grid; gap: .4rem; max-height: 10rem; overflow: auto; padding: .45rem .55rem; border: 1px solid rgba(103,245,231,.12); border-radius: .65rem; background: rgba(0,0,0,.18); scroll-behavior: smooth; }
+    .ai-live-feed:empty { display: none; }
+    .ai-live-feed-item { display: grid; grid-template-columns: 1.55rem minmax(0, 1fr) auto; gap: .45rem; align-items: center; max-width: 92%; animation: aiLiveMessageIn .24s ease-out both; }
+    .ai-live-feed-item:nth-child(even) { margin-left: 1.5rem; }
+    .ai-live-feed-avatar { width: 1.55rem; height: 1.55rem; display: grid; place-items: center; border-radius: .45rem; color: var(--accent); background: rgba(103,245,231,.12); border: 1px solid rgba(103,245,231,.22); font-size: .76rem; font-weight: 900; }
+    .ai-live-feed-bubble { min-width: 0; padding: .38rem .55rem; border-radius: .65rem; background: rgba(6,25,30,.84); border: 1px solid rgba(103,245,231,.14); }
+    .ai-live-feed-bubble strong { display: block; color: #effcff; font-size: .74rem; }
+    .ai-live-feed-bubble span { display: block; color: var(--muted); font-size: .72rem; line-height: 1.28; overflow-wrap: anywhere; }
+    .ai-live-feed-item[data-status*="approval"], .ai-live-feed-item[data-status*="pending"] .ai-live-feed-bubble { border-color: rgba(242,193,78,.28); }
+    .ai-live-feed-item[data-status*="fail"], .ai-live-feed-item[data-status*="error"] .ai-live-feed-bubble { border-color: rgba(255,112,112,.32); }
+    .ai-live-feed-item[data-status*="complete"], .ai-live-feed-item[data-status*="done"] .ai-live-feed-bubble { border-color: rgba(117,216,154,.3); }
+    .ai-live-feed-status { align-self: start; padding: .16rem .38rem; border-radius: 999px; border: 1px solid rgba(103,245,231,.18); color: var(--muted); font-size: .64rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+    .ai-codex-livebar.is-updating { animation: aiLiveBarUpdate .35s ease-out; }
+    @keyframes aiLivePulse { 0%, 100% { opacity: .65; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.08); } }
+    @keyframes aiLiveMessageIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes aiLiveBarUpdate { from { transform: translateY(-2px); opacity: .72; } to { transform: translateY(0); opacity: 1; } }
     .ai-codex-thread { display: grid; align-content: start; gap: .85rem; overflow: auto; padding: .25rem .35rem .25rem 0; scroll-behavior: smooth; }
-    .ai-codex-message { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .65rem; max-width: min(58rem, 96%); }
+    .ai-codex-message { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: .65rem; max-width: min(58rem, 88%); animation: aiLiveMessageIn .22s ease-out both; }
     .ai-codex-message.user { margin-left: auto; grid-template-columns: minmax(0, 1fr) 2.25rem; }
     .ai-codex-avatar { width: 2.25rem; height: 2.25rem; border-radius: .5rem; display: grid; place-items: center; border: 1px solid rgba(103,245,231,.18); background: rgba(3, 11, 14, .9); color: var(--accent); font-weight: 900; }
     .ai-codex-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: .45rem; }
-    .ai-codex-bubble { border: 1px solid rgba(103,245,231,.15); border-radius: .75rem; padding: .75rem .85rem; background: rgba(1, 7, 10, .84); box-shadow: 0 10px 26px rgba(0,0,0,.16); }
-    .ai-codex-message.user .ai-codex-bubble { order: -1; background: rgba(19, 52, 57, .82); border-color: rgba(103,245,231,.32); }
+    .ai-codex-bubble { position: relative; border: 1px solid rgba(236,161,64,.34); border-radius: .95rem .95rem .95rem .35rem; padding: .75rem .85rem; background: rgba(1, 7, 10, .84); box-shadow: inset 3px 0 0 rgba(236,161,64,.44), 0 10px 26px rgba(0,0,0,.16); }
+    .ai-codex-message.user .ai-codex-bubble { order: -1; border-radius: .95rem .95rem .35rem .95rem; background: linear-gradient(135deg, rgba(33,102,115,.92), rgba(19,52,57,.88)); border-color: rgba(236,161,64,.5); box-shadow: inset -3px 0 0 rgba(236,161,64,.56), 0 10px 26px rgba(0,0,0,.16); }
+    .ai-codex-message[data-tone="warning"] .ai-codex-bubble { border-color: rgba(255,91,91,.72); box-shadow: inset 3px 0 0 rgba(255,91,91,.9), 0 10px 26px rgba(0,0,0,.16); }
+    .ai-codex-message.user[data-tone="warning"] .ai-codex-bubble { box-shadow: inset -3px 0 0 rgba(255,91,91,.9), 0 10px 26px rgba(0,0,0,.16); }
+    .ai-codex-message[data-tone="warning"] .ai-codex-bubble strong { color: #ff8d8d; }
     .ai-codex-bubble strong { display: block; color: var(--text); margin-bottom: .25rem; }
     .ai-codex-bubble p { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
     .ai-codex-bubble time { display: block; margin-top: .45rem; color: var(--dim); font-size: .75rem; }
@@ -4694,7 +4742,7 @@ PAGE_TEMPLATE = """
     @keyframes aiTypingPulse { 0%, 100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
     .ai-codex-plan-mini { margin-top: .55rem; display: grid; gap: .35rem; }
     .ai-codex-plan-mini span { display: block; border-left: 2px solid var(--accent); padding-left: .5rem; color: var(--muted); font-size: .83rem; }
-    .ai-codex-composer { position: sticky; bottom: .75rem; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; margin: 0; padding: .75rem; border: 1px solid rgba(103,245,231,.18); border-radius: .95rem; background: linear-gradient(180deg, rgba(5, 18, 22, .97), rgba(1, 8, 10, .97)); box-shadow: 0 18px 45px rgba(0,0,0,.34); }
+    .ai-codex-composer { position: sticky; bottom: .75rem; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); gap: .55rem; margin: 0; padding: .75rem; border: 1px solid rgba(103,245,231,.24); border-radius: 1rem; background: linear-gradient(180deg, rgba(5, 18, 22, .98), rgba(1, 8, 10, .98)); box-shadow: 0 18px 45px rgba(0,0,0,.34), 0 0 0 1px rgba(236,161,64,.05); }
     .ai-codex-composer textarea { min-height: 6.5rem; resize: vertical; border-radius: .75rem; font-size: .98rem; line-height: 1.45; }
     .ai-codex-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .45rem; align-items: end; }
     .ai-codex-options label { min-width: 0; }
@@ -7733,7 +7781,7 @@ PAGE_TEMPLATE = """
       <div class="ai-sandbox-guardrails" id="ai-sandbox-rules">
         <div class="ai-sandbox-summary">
           <strong>Sandbox rule of thumb</strong>
-          <span>The sandbox can help plan, inspect, validate and prepare work, but AI can be wrong or lack your server context. Treat every suggestion as a draft: check the file, validation result and diff. Anything that changes live Discord, Nitrado, Stripe, customer access or production code must go through an explicit owner approval path.</span>
+          <span>The assistant can be broad and helpful, but AI can be wrong and automatic execution stays bounded. DayZ-file drafting, read-only validation and isolated DayZ checks run after the user's explicit execution permission; live Discord, Nitrado, Stripe, customer access, deployments, secrets, deletes and production code still require owner approval.</span>
         </div>
         <div class="ai-sandbox-rule-grid">
           <article class="ai-sandbox-rule-card" data-tone="ok">
@@ -7797,6 +7845,7 @@ PAGE_TEMPLATE = """
           <div class="ai-conversation-list" data-ai-run-recent>
             {% for run in ai_agent_runs[:8] %}
             <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ profile_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
+              <span class="ai-conversation-index">Chat {{ '%02d'|format(loop.index) }}</span>
               <strong>{{ run.title or 'Untitled conversation' }}</strong>
               <span>{{ run.status|replace('_', ' ')|title }} · {{ run.updated_at[:16]|replace('T', ' ') if run.updated_at else 'New' }}</span>
             </a>
@@ -7809,14 +7858,15 @@ PAGE_TEMPLATE = """
             <div class="ai-conversation-list" data-ai-run-older>
               {% for run in ai_agent_runs[8:30] %}
               <a class="ai-conversation-link {{ 'active' if ai_agent_active_run and run.id == ai_agent_active_run.id else '' }}" href="{{ dashboard_path }}?section=ai-agent&agent_run={{ run.id|urlencode }}{{ server_qs }}{{ profile_qs }}{{ auth_qs }}" {% if ai_agent_active_run and run.id == ai_agent_active_run.id %}aria-current="page"{% endif %}>
-                <strong>{{ run.title or 'Untitled conversation' }}</strong>
+                <span class="ai-conversation-index">Chat {{ '%02d'|format(loop.index + 8) }}</span>
+              <strong>{{ run.title or 'Untitled conversation' }}</strong>
                 <span>{{ run.status|replace('_', ' ')|title }} · {{ run.updated_at[:16]|replace('T', ' ') if run.updated_at else 'New' }}</span>
               </a>
               {% endfor %}
             </div>
           </details>
         </aside>
-        <section class="admin-panel ai-codex-chat" id="ai-agent-chat">
+        <section class="admin-panel ai-codex-chat" id="ai-agent-chat" data-ai-theme="night-ops">
           <div class="ai-codex-title">
             <div>
               <h3>{{ ai_agent_active_run.title if ai_agent_active_run else 'New conversation' }}</h3>
@@ -7826,9 +7876,21 @@ PAGE_TEMPLATE = """
             <span class="pill {{ 'ok' if sandbox_readiness.runner_ready else 'warn' }}">{{ 'Runner Ready' if sandbox_readiness.runner_ready else 'Runner Setup Required' }}</span>
             <span class="pill ok" data-ai-live-status>Live sync</span>
           </div>
+          <div class="ai-codex-live-wrap" aria-label="Live assistant activity">
+            <div class="ai-codex-livebar" data-ai-live-bar aria-live="polite">
+              <div class="ai-codex-livebar-main">
+                <i class="ai-live-pulse" data-ai-live-pulse aria-hidden="true"></i>
+                <strong data-ai-live-summary>Ready for your next request</strong>
+                <span data-ai-live-detail>Draft-only workspace · no live changes</span>
+              </div>
+              <time data-ai-live-clock>Now</time>
+            </div>
+            <div class="ai-live-feed" data-ai-live-feed aria-live="polite"></div>
+          </div>
           <div class="ai-codex-thread" aria-live="polite" data-ai-chat-thread data-agent-avatar-src="/brand-character">
             {% for message in ai_agent_chat_messages|reverse %}
-            <article class="ai-codex-message {{ message.role|default('assistant') }}" data-message-id="{{ message.id }}">
+            {% set message_tone = ai_agent_message_tone(message.content|default(''), message.role|default('assistant')) %}
+            <article class="ai-codex-message {{ message.role|default('assistant') }}" data-message-id="{{ message.id }}"{% if message_tone %} data-tone="{{ message_tone }}"{% endif %}>
               {% if message.role == 'user' %}
               <div class="ai-codex-bubble">
                 <strong>{{ message.author|default('You') }}</strong>
@@ -7859,7 +7921,7 @@ PAGE_TEMPLATE = """
             </div>
             {% endfor %}
           </div>
-          <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true">
+          <form class="admin-form ai-codex-composer" method="post" action="/api/ai-agent/chat" data-route="/api/ai-agent/chat" data-ai-chat-form="true" data-ai-new-conversation="{{ 'true' if new_conversation else 'false' }}">
             <input class="hidden-field" name="return_to" value="{{ dashboard_path }}?section=ai-agent{{ server_qs }}{{ profile_qs }}#ai-agent-chat">
             <input class="hidden-field" name="guild_id" value="global">
             <input class="hidden-field" name="run_id" data-ai-run-select value="{{ ai_agent_active_run.id if ai_agent_active_run else '' }}">
@@ -13017,12 +13079,36 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Feed Routes</h2>
-          <p class="tool-note">Choose where each bot feed posts. Custom Discord channel names are left alone; the bot only changes routes when you save them here or run an explicit restore command.</p>
+          <p class="tool-note">Your plan's starter pack is created by <code>/setup</code>. Use the optional packs below when you want more feeds; the bot never deletes existing channels, and each pack is created only after you opt in.</p>
         </div>
         <span class="pill">routes</span>
       </div>
       <div class="panel-grid">
         {% if server %}
+        {% if server.dayz_profiles and selected_dayz_profile %}
+        <article class="admin-panel full" id="feed-packs">
+          <h3>Optional Discord channel packs</h3>
+          <p class="tool-note">The starter channels stay small. Enable a pack to queue its channels for this DayZ server, or turn a pack off to stop its feeds without deleting anything from Discord.</p>
+          <div class="panel-grid">
+            {% for pack in selected_dayz_profile.feed_pack_rows %}
+            <div class="admin-panel">
+              <h4>{{ pack.label }}</h4>
+              <p class="tool-note">{{ pack.description }}</p>
+              <p><span class="pill {{ 'ok' if pack.enabled else ('warn' if pack.partial else 'off') }}">{{ pack.enabled_count }}/{{ pack.total_count }} enabled</span></p>
+              <form class="admin-form inline-action" method="post" action="/api/admin/feed-pack" data-route="/api/admin/feed-pack">
+                <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+                <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile.id }}">
+                <input class="hidden-field" name="pack" value="{{ pack.key }}">
+                <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=feeds&guild_id={{ server.guild_id }}&server_profile_id={{ selected_dayz_profile.id }}#feed-packs">
+                <button type="submit" name="action" value="enable">Enable pack</button>
+                <button type="submit" name="action" value="disable" class="secondary">Turn off</button>
+                <span class="result muted"></span>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+        {% endif %}
         {% if server.dayz_profiles %}
         <article class="admin-panel full" id="dayz-profile-picker">
           <h3>Pick DayZ Server</h3>
@@ -17077,10 +17163,17 @@ PAGE_TEMPLATE = """
       if (time) bubble.insertBefore(plan, time);
       else bubble.append(plan);
     }
+    function aiAgentMessageTone(message, role) {
+      if (String(role || "").toLowerCase() !== "assistant") return "";
+      const content = String(message?.content || "");
+      return /\\b(?:warning|important|error|failed|blocked|do not|never upload|not safe|cannot)\\b/i.test(content) ? "warning" : "";
+    }
     function aiChatMessageNode(message, options = {}) {
       const role = String(message?.role || "assistant").toLowerCase() === "user" ? "user" : "assistant";
       const article = document.createElement("article");
       article.className = `ai-codex-message ${role}${options.typing ? " typing" : ""}`;
+      const tone = aiAgentMessageTone(message, role);
+      if (tone) article.dataset.tone = tone;
       if (message?.id) article.dataset.messageId = String(message.id);
       const bubble = document.createElement("div");
       bubble.className = "ai-codex-bubble";
@@ -17279,26 +17372,32 @@ PAGE_TEMPLATE = """
     }
     function aiAgentUpdateRunSelect(state, form) {
       const runInput = form?.querySelector("[data-ai-run-select]");
-      const selected = state?.selected_run?.id || state?.active_run?.id || runInput?.value || "";
+      const startingNewConversation = form?.dataset.aiNewConversation === "true";
+      const selected = state?.selected_run?.id || (!startingNewConversation ? state?.active_run?.id : "") || runInput?.value || "";
       if (runInput) runInput.value = String(selected || "");
     }
     function aiAgentConversationUrl(runId) {
       const url = new URL(window.location.href);
       url.searchParams.set("section", "ai-agent");
-      if (runId) url.searchParams.set("agent_run", String(runId));
-      else url.searchParams.delete("agent_run");
+      if (runId) {
+        url.searchParams.set("agent_run", String(runId));
+        url.searchParams.delete("new_conversation");
+      } else {
+        url.searchParams.delete("agent_run");
+      }
       return `${url.pathname}${url.search}${url.hash}`;
     }
     function aiAgentSetConversationUrl(runId) {
       window.history.replaceState({}, "", aiAgentConversationUrl(runId));
     }
-    function aiAgentUpdateRunList(state) {
+    function aiAgentUpdateRunList(state, form) {
       const recentList = document.querySelector("[data-ai-run-recent]");
       const olderList = document.querySelector("[data-ai-run-older]");
       const history = document.querySelector("[data-ai-run-history]");
       const olderCount = document.querySelector("[data-ai-run-older-count]");
       if (!recentList || !olderList || !history || !Array.isArray(state?.runs)) return;
-      const selected = String(state?.selected_run?.id || state?.active_run?.id || "");
+      const startingNewConversation = form?.dataset.aiNewConversation === "true";
+      const selected = String(state?.selected_run?.id || (!startingNewConversation ? state?.active_run?.id : "") || "");
       recentList.replaceChildren();
       olderList.replaceChildren();
       if (!state.runs.length) {
@@ -17310,7 +17409,7 @@ PAGE_TEMPLATE = """
         if (olderCount) olderCount.textContent = "0";
         return;
       }
-      const appendRun = (list, run) => {
+      const appendRun = (list, run, index) => {
         if (!run?.id) return;
         const link = document.createElement("a");
         link.className = `ai-conversation-link${String(run.id) === selected ? " active" : ""}`;
@@ -17318,17 +17417,20 @@ PAGE_TEMPLATE = """
         if (String(run.id) === selected) link.setAttribute("aria-current", "page");
         const title = document.createElement("strong");
         title.textContent = String(run.title || "Untitled conversation");
+        const indexLabel = document.createElement("span");
+        indexLabel.className = "ai-conversation-index";
+        indexLabel.textContent = `Chat ${String(index || 1).padStart(2, "0")}`;
         const meta = document.createElement("span");
         const status = String(run.status || "new").replace(/_/g, " ");
         const updated = String(run.updated_at || "New").replace("T", " ").slice(0, 16);
         meta.textContent = `${status.charAt(0).toUpperCase()}${status.slice(1)} · ${updated}`;
-        link.append(title, meta);
+        link.append(indexLabel, title, meta);
         list.append(link);
       };
       const visibleRuns = state.runs.slice(0, 30);
-      visibleRuns.slice(0, 8).forEach((run) => appendRun(recentList, run));
+      visibleRuns.slice(0, 8).forEach((run, index) => appendRun(recentList, run, index + 1));
       const olderRuns = visibleRuns.slice(8);
-      olderRuns.forEach((run) => appendRun(olderList, run));
+      olderRuns.forEach((run, index) => appendRun(olderList, run, index + 9));
       history.hidden = olderRuns.length === 0;
       if (olderList.querySelector(".ai-conversation-link.active")) history.open = true;
       if (olderCount) olderCount.textContent = String(olderRuns.length);
@@ -17336,7 +17438,8 @@ PAGE_TEMPLATE = """
     function aiAgentUpdateCurrentRun(state, form) {
       const target = document.querySelector("[data-ai-current-run]");
       if (!target) return;
-      const run = state?.selected_run || state?.active_run;
+      const startingNewConversation = form?.dataset.aiNewConversation === "true";
+      const run = state?.selected_run || (startingNewConversation ? null : state?.active_run);
       target.replaceChildren();
       if (!run) {
         target.append(aiAgentStepNode("No active run", "Send a message to start a durable run."));
@@ -17829,14 +17932,95 @@ PAGE_TEMPLATE = """
         target.append(item);
       });
     }
+    function aiAgentLiveLabel(value, fallback = "Update") {
+      const text = String(value || fallback).replaceAll("_", " ").trim();
+      return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : fallback;
+    }
+    function aiAgentLiveFeedNode(item) {
+      const node = document.createElement("div");
+      const status = String(item?.status || "live");
+      node.className = "ai-live-feed-item";
+      node.dataset.status = status;
+      const avatar = document.createElement("i");
+      avatar.className = "ai-live-feed-avatar";
+      avatar.setAttribute("aria-hidden", "true");
+      avatar.textContent = status.includes("fail") || status.includes("error") ? "!" : status.includes("approval") || status.includes("pending") ? "…" : status.includes("complete") || status.includes("done") ? "✓" : "✦";
+      const bubble = document.createElement("div");
+      bubble.className = "ai-live-feed-bubble";
+      const title = document.createElement("strong");
+      title.textContent = String(item?.title || "Assistant update");
+      const detail = document.createElement("span");
+      detail.textContent = String(item?.detail || "");
+      bubble.append(title, detail);
+      const label = document.createElement("span");
+      label.className = "ai-live-feed-status";
+      label.textContent = aiAgentLiveLabel(status, "Live");
+      node.append(avatar, bubble, label);
+      return node;
+    }
+    function aiAgentUpdateLiveFeed(state) {
+      const feed = document.querySelector("[data-ai-live-feed]");
+      if (!feed) return;
+      const bar = document.querySelector("[data-ai-live-bar]");
+      const summary = document.querySelector("[data-ai-live-summary]");
+      const detail = document.querySelector("[data-ai-live-detail]");
+      const clock = document.querySelector("[data-ai-live-clock]");
+      const pulse = document.querySelector("[data-ai-live-pulse]");
+      const run = state?.selected_run || state?.active_run || {};
+      const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
+      const jobs = Array.isArray(state?.sandbox_jobs) ? state.sandbox_jobs : [];
+      const approvals = Array.isArray(state?.approvals) ? state.approvals : [];
+      const items = [];
+      if (run?.id) {
+        const status = String(run.status || "active");
+        items.push({key: `run:${run.id}:${status}:${run.next_action || ""}`, title: aiAgentLiveLabel(status, "Conversation active"), detail: String(run.next_action || "Keeping this conversation ready for the next step."), status});
+      }
+      const task = tasks[0];
+      if (task) {
+        const status = String(task.status || "planned");
+        const step = Array.isArray(task.steps) && task.steps.length ? task.steps[0] : null;
+        items.push({key: `task:${task.id || "latest"}:${status}:${step?.title || ""}`, title: step?.title || aiAgentLiveLabel(status, "Plan update"), detail: step?.detail || String(task.objective || "Working through the requested plan."), status});
+      }
+      jobs.slice(0, 2).forEach((job) => {
+        const status = String(job?.status || "queued");
+        const command = String(job?.reason || job?.command || "Sandbox job").replace(/\\s+/g, " ").slice(0, 160);
+        items.push({key: `job:${job?.id || command}:${status}`, title: aiAgentLiveLabel(status, "Sandbox job"), detail: command, status});
+      });
+      approvals.slice(0, 1).forEach((approval) => {
+        const status = String(approval?.status || "awaiting_owner_approval");
+        items.push({key: `approval:${approval?.id || "latest"}:${status}`, title: "Approval checkpoint", detail: String(approval?.reason || "Waiting for the owner before any external or live action."), status});
+      });
+      if (!items.length) items.push({key: "idle", title: "Ready for your next request", detail: "Draft-only workspace · no live changes are running.", status: "idle"});
+      const activityKey = items.map((item) => item.key).join("|");
+      if (feed.dataset.activityKey === activityKey) {
+        if (clock) clock.textContent = `Updated ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
+        return;
+      }
+      feed.dataset.activityKey = activityKey;
+      feed.replaceChildren(...items.slice(0, 5).map(aiAgentLiveFeedNode));
+      feed.scrollTop = feed.scrollHeight;
+      const currentStatus = String(items[0]?.status || "idle").toLowerCase();
+      const tone = currentStatus.includes("fail") || currentStatus.includes("error") ? "bad" : currentStatus.includes("approval") || currentStatus.includes("pending") || currentStatus.includes("running") || currentStatus.includes("queued") ? "warn" : "ok";
+      if (summary) summary.textContent = String(items[0]?.title || "Ready for your next request");
+      if (detail) detail.textContent = String(items[0]?.detail || "Draft-only workspace · no live changes");
+      if (pulse) pulse.dataset.tone = tone;
+      if (bar) {
+        bar.dataset.status = currentStatus;
+        bar.classList.remove("is-updating");
+        void bar.offsetWidth;
+        bar.classList.add("is-updating");
+      }
+      if (clock) clock.textContent = `Updated ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
+    }
     function aiAgentSyncState(state, form, thread) {
       if (!state || state.ok === false) return;
       aiAgentUpdateStats(state);
       aiAgentUpdateRunSelect(state, form);
-      aiAgentUpdateRunList(state);
+      aiAgentUpdateRunList(state, form);
       aiAgentUpdateCurrentRun(state, form);
       aiAgentUpdateLatestPlan(state, form, thread);
       aiAgentUpdateWorkStream(state);
+      aiAgentUpdateLiveFeed(state);
       aiAgentUpdateDayzDrafts(state);
       aiAgentUpdateDayzReferences(state);
       aiAgentUpdateDayzScenarios(state, form, thread);
@@ -17859,6 +18043,10 @@ PAGE_TEMPLATE = """
         node.classList.remove("ok", "warn", "bad");
         node.classList.add(kind);
       });
+      const detail = document.querySelector("[data-ai-live-detail]");
+      if (detail && text) detail.textContent = String(text);
+      const pulse = document.querySelector("[data-ai-live-pulse]");
+      if (pulse) pulse.dataset.tone = kind === "bad" ? "bad" : kind === "warn" ? "warn" : "ok";
     }
     function aiAgentJsonRoute(path) {
       const target = new URL(path, window.location.origin);
@@ -17870,6 +18058,7 @@ PAGE_TEMPLATE = """
       const target = new URL(path, window.location.origin);
       const runId = String(form?.querySelector("[data-ai-run-select]")?.value || "").trim();
       if (runId) target.searchParams.set("run_id", runId);
+      if (form?.dataset.aiNewConversation === "true") target.searchParams.set("new_conversation", "1");
       return aiAgentJsonRoute(`${target.pathname}${target.search}`);
     }
     let aiAgentPollTimer = null;
@@ -18082,6 +18271,7 @@ PAGE_TEMPLATE = """
           if (body.run && body.run.id) {
             const runInput = form.querySelector("[data-ai-run-select]");
             if (runInput) runInput.value = String(body.run.id);
+            form.dataset.aiNewConversation = "false";
             aiAgentSetConversationUrl(body.run.id);
             if (aiAgentEventSource) {
               aiAgentEventSource.close();
@@ -23171,6 +23361,21 @@ AI_AGENT_RISK_KEYWORDS = {
     "wget ": "Network command approval required",
     "invoke-webrequest": "Network command approval required",
 }
+# DayZ work is deliberately broad at the assistant layer, but execution is
+# limited to the isolated DayZ workspace.  A DayZ request must never silently
+# turn into a dashboard/bot/deployment command just because the model suggested
+# a generic project check.
+AI_AGENT_DAYZ_SCOPE_MARKERS = (
+    "dayz", "types.xml", "events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml",
+    "mapgroupproto.xml", "mapgrouppos.xml", "cfgweather", "cfggameplay",
+    "cfgspawnabletypes", "messages.xml", "globals.xml", "economy.xml",
+    "territories.xml", "objectspawner", "spawn gear", "loadout", "airdrop",
+    "horde", "gas zone", "contaminated area", "mapgroup", "nitrado",
+)
+AI_AGENT_DAYZ_LIVE_RISK_MARKERS = (
+    "nitrado", "live server", "production", "upload", "deploy", "restart",
+    "discord", "railway", "stripe", "ftp", "push", "delete", "remove",
+)
 AI_AGENT_DOCKER_ENABLED = os.getenv("WANDERING_AI_AGENT_DOCKER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 AI_AGENT_DOCKER_IMAGE = os.getenv("WANDERING_AI_AGENT_DOCKER_IMAGE", "python:3.12-slim").strip() or "python:3.12-slim"
 AI_AGENT_WORKSPACE_ROOT = os.getenv("WANDERING_AI_AGENT_WORKSPACE_ROOT", "").strip()
@@ -23860,7 +24065,7 @@ def ai_agent_default_state() -> dict[str, Any]:
         "memory": ai_agent_default_memory(),
         "sandbox": {
             "status": "not_connected",
-            "mode": "approval-gated",
+            "mode": "user-authorized DayZ / owner-gated external",
             "runner": "external worker" if ai_agent_worker_ready() else "local docker" if ai_agent_docker_ready() else "not configured",
             "runner_ready": ai_agent_runner_is_configured(),
             "runner_error": "" if ai_agent_runner_is_configured() else ai_agent_runner_missing_message(),
@@ -24083,6 +24288,18 @@ def ai_agent_chat_message(
     return message
 
 
+def ai_agent_message_tone(content: Any, role: Any = "assistant") -> str:
+    """Return the visual severity used by both server and live chat messages."""
+    if str(role or "").strip().lower() != "assistant":
+        return ""
+    text = str(content or "")
+    return "warning" if re.search(
+        r"\b(?:warning|important|error|failed|blocked|do not|never upload|not safe|cannot)\b",
+        text,
+        re.IGNORECASE,
+    ) else ""
+
+
 def ai_agent_new_id(prefix: str) -> str:
     return f"{prefix}-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{secrets.token_hex(3)}"
 
@@ -24303,13 +24520,65 @@ def ai_agent_redact_log(text: Any) -> str:
     return output
 
 
-def ai_agent_command_is_allowed(command: str) -> tuple[bool, str]:
+def ai_agent_dayz_scope_for_text(text: Any, project_type: Any = "") -> bool:
+    """Return whether a request is a DayZ-only sandbox operation.
+
+    This is intentionally conservative.  Natural-language DayZ explanation,
+    generation and validation are allowed; anything that mentions a live
+    server, upload, deployment, Discord, or another external system remains
+    in the owner-approval path.
+    """
+    combined = " ".join((str(text or ""), str(project_type or ""))).lower()
+    if str(project_type or "").strip().lower() == "dayz_files":
+        has_dayz = True
+    else:
+        has_dayz = any(marker in combined for marker in AI_AGENT_DAYZ_SCOPE_MARKERS)
+    if not has_dayz:
+        return False
+    return not any(marker in combined for marker in AI_AGENT_DAYZ_LIVE_RISK_MARKERS)
+
+
+def ai_agent_dayz_command_is_allowed(command: str) -> tuple[bool, str]:
+    """Allow only read-only DayZ validation commands in the worker.
+
+    Draft generation and schema validation normally happen in the dashboard's
+    protected DayZ helpers.  If a worker job is requested, it may only invoke
+    those validators or inspect files; arbitrary shell/Python execution is not
+    part of the DayZ automatic scope.
+    """
     text = str(command or "").strip()
     lower = text.lower()
     if not text:
         return False, "command is required"
     if len(text) > 4000:
         return False, "command is too long"
+    if any(term in lower for term in AI_AGENT_BLOCKED_COMMAND_TERMS):
+        return False, "blocked unsafe DayZ command"
+    if any(marker in lower for marker in AI_AGENT_DAYZ_LIVE_RISK_MARKERS):
+        return False, "live-server or external-system work requires owner approval"
+    # Do not permit shell composition, redirection, interpolation or an
+    # arbitrary Python snippet even inside the isolated container.
+    if any(token in text for token in (";", "&&", "||", "|", ">", "<", "`", "$(", "\n", "\r")):
+        return False, "DayZ automatic scope only permits one read-only validator command"
+    allowed = (
+        re.fullmatch(r"python(?:3)?\s+-m\s+json\.tool(?:\s+[A-Za-z0-9_./-]+)?", text, re.IGNORECASE),
+        re.fullmatch(r"python(?:3)?\s+tools/validate_ce_xml\.py(?:\s+[A-Za-z0-9_./-]+)?", text, re.IGNORECASE),
+        re.fullmatch(r"(?:find|ls|pwd|cat|head|tail|grep|rg)(?:\s+[A-Za-z0-9_./*? -]+)?", text, re.IGNORECASE),
+    )
+    if not any(allowed):
+        return False, "command is outside the protected DayZ validation allow-list"
+    return True, ""
+
+
+def ai_agent_command_is_allowed(command: str, *, scope: str = "") -> tuple[bool, str]:
+    text = str(command or "").strip()
+    lower = text.lower()
+    if not text:
+        return False, "command is required"
+    if len(text) > 4000:
+        return False, "command is too long"
+    if str(scope or "").strip().lower() == "dayz":
+        return ai_agent_dayz_command_is_allowed(text)
     for term in AI_AGENT_BLOCKED_COMMAND_TERMS:
         if term in lower:
             return False, f"blocked unsafe command term: {term.strip()}"
@@ -24697,6 +24966,17 @@ def ai_agent_state_for_run(visible_state: dict[str, Any], run_id: Any = "") -> d
     return scoped
 
 
+def ai_agent_empty_workspace_state(visible_state: dict[str, Any]) -> dict[str, Any]:
+    """Return a deliberately blank workspace for the New conversation view."""
+    scoped = dict(visible_state)
+    scoped["tasks"] = []
+    scoped["sandbox_jobs"] = []
+    scoped["approvals"] = []
+    scoped["chat_messages"] = []
+    scoped["selected_run"] = None
+    return scoped
+
+
 def ai_agent_create_approval(
     state: dict[str, Any],
     *,
@@ -24729,7 +25009,13 @@ def ai_agent_create_approval(
     return approval
 
 
-def ai_agent_requires_owner_approval(state: dict[str, Any], action_type: str, text: str = "") -> tuple[bool, list[str]]:
+def ai_agent_requires_owner_approval(
+    state: dict[str, Any],
+    action_type: str,
+    text: str = "",
+    *,
+    dayz_scoped: bool = False,
+) -> tuple[bool, list[str]]:
     if state.get("god_mode_enabled"):
         return False, []
     rules = state.get("approval_rules") if isinstance(state.get("approval_rules"), dict) else {}
@@ -24745,6 +25031,15 @@ def ai_agent_requires_owner_approval(state: dict[str, Any], action_type: str, te
     for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
         if keyword in lower and reason not in reasons:
             reasons.append(reason)
+    # An explicitly scoped DayZ validator has already passed the command
+    # allow-list and the user's execution permission.  It does not need a
+    # second owner click.  Keep the approval path for any live/external risk.
+    if dayz_scoped and normalized_action == "command":
+        reasons = [reason for reason in reasons if reason not in {
+            "Sandbox command approval required",
+            "External worker command approval required",
+            "High-risk sandbox command approval required",
+        }]
     if normalized_action == "command" and ai_agent_command_risk(text) == "high" and not reasons:
         reasons.append("High-risk sandbox command approval required")
     return bool(reasons), reasons
@@ -24831,7 +25126,8 @@ def ai_agent_update_job_from_worker_payload(job: dict[str, Any], data: dict[str,
 
 def ai_agent_dispatch_worker_job(state: dict[str, Any], job: dict[str, Any], actor: str) -> dict[str, Any]:
     command = str(job.get("command") or "")
-    allowed, reason = ai_agent_command_is_allowed(command)
+    scope = str(job.get("scope") or "").strip().lower()
+    allowed, reason = ai_agent_command_is_allowed(command, scope=scope)
     if not allowed:
         job.update({"status": "blocked", "runner": "worker", "exit_code": None, "stdout": "", "stderr": reason, "finished_at": datetime.now(UTC).isoformat()})
         ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {reason}", actor, job)
@@ -24849,6 +25145,7 @@ def ai_agent_dispatch_worker_job(state: dict[str, Any], job: dict[str, Any], act
         "requested_by": job.get("requested_by") or actor,
         "timeout_seconds": AI_AGENT_COMMAND_TIMEOUT_SECONDS,
         "docker_image": AI_AGENT_DOCKER_IMAGE,
+        "scope": scope or "general",
     }
     ok, data, error = ai_agent_worker_request("POST", "/api/agent/jobs", payload)
     if not ok:
@@ -25104,7 +25401,7 @@ def ai_agent_run_docker_job(state: dict[str, Any], job: dict[str, Any], actor: s
         ai_agent_update_run_from_job(state, job)
         return job
     command = str(job.get("command") or "")
-    allowed, reason = ai_agent_command_is_allowed(command)
+    allowed, reason = ai_agent_command_is_allowed(command, scope=str(job.get("scope") or ""))
     if not allowed:
         job.update({"status": "blocked", "exit_code": None, "stdout": "", "stderr": reason, "finished_at": datetime.now(UTC).isoformat()})
         ai_agent_activity(state, "Sandbox job blocked", f"{job.get('id')}: {reason}", actor, job)
@@ -29560,6 +29857,16 @@ def ai_agent_suggested_commands_for_task(task: dict[str, Any], run: dict[str, An
     project_type = str(task.get("project_type") or run.get("project_type") or "auto")
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
     lower = " ".join([objective, project_type, str(task.get("repository") or run.get("repository") or ""), project_path]).lower()
+    dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    dayz_scoped = ai_agent_dayz_scope_for_text(
+        dayz_context.get("objective") or objective,
+        project_type,
+    )
+    if dayz_scoped:
+        # DayZ drafts and linked-file checks use the protected validators in
+        # this application.  Never invent a generic repository command such
+        # as `py_compile dashboard.py ...` for a DayZ-only conversation.
+        return suggestions
     wants_inspection = any(term in lower for term in ("inspect", "investigate", "analyse", "analyze", "look through", "what can you do", "current state", "project structure"))
 
     ai_agent_add_command_suggestion(
@@ -30056,7 +30363,7 @@ def ai_agent_readiness_checks(state: dict[str, Any] | None, auth: dict[str, Any]
             "key": "approvals",
             "label": "Approval gates",
             "status": "ready" if command_approval_enabled and not god_mode_enabled else "warning",
-            "detail": "Sandbox commands stay owner-approved before execution." if command_approval_enabled and not god_mode_enabled else "Owner bypass is enabled or command approvals are relaxed.",
+            "detail": "DayZ-only validator jobs use the user's execution permission; external and live-server actions stay owner-approved." if command_approval_enabled and not god_mode_enabled else "Owner bypass is enabled or command approvals are relaxed.",
             "fix": "" if command_approval_enabled and not god_mode_enabled else "Keep god mode off and command approval rules on before selling this feature.",
         },
     ]
@@ -30079,7 +30386,7 @@ def ai_agent_readiness_checks(state: dict[str, Any] | None, auth: dict[str, Any]
         "workspace_ready": workspace_ready,
         "mode": "ready" if product_ready else "setup_required",
         "headline": "AI Sandbox Ready" if product_ready else "AI Sandbox Setup Required",
-        "summary": "Model and runner are configured. Jobs can run through the guarded approval flow." if product_ready else "This is not production-ready yet. The sandbox will draft and plan, but executable jobs are blocked until setup is complete.",
+        "summary": "Model and runner are configured. DayZ-only sandbox work can run after user permission; external and live-server actions remain owner-gated." if product_ready else "This is not production-ready yet. The sandbox will draft and plan, but executable jobs are blocked until setup is complete.",
         "checks": checks,
         "required_env": required_env,
         "runner_error": "" if runner_ready else ai_agent_runner_missing_message(),
@@ -30251,6 +30558,16 @@ def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str
             return False
         dayz_drafts = ai_agent_task_dayz_drafts(task)
         if dayz_drafts and all(str(item.get("validation") or "") == "passed" for item in dayz_drafts):
+            return False
+        context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+        if context.get("enabled") and ai_agent_dayz_scope_for_text(
+            context.get("objective") or task.get("objective") or prompt,
+            task.get("project_type") or "auto",
+        ):
+            # DayZ explanations, repairs and linked-file validation are
+            # handled by the protected DayZ workbench.  This prevents a
+            # generic repository command from being queued just because the
+            # prompt contains words such as "check" or "test".
             return False
     return bool(
         continued
@@ -30609,6 +30926,7 @@ def ai_agent_llm_reply_for_task(
 def ai_agent_plan_from_objective(objective: str, project_type: str, requested: dict[str, bool], state: dict[str, Any]) -> dict[str, Any]:
     text = str(objective or "").strip()
     lower = text.lower()
+    dayz_scoped = ai_agent_dayz_scope_for_text(text, project_type)
     steps = [
         {"agent": "Planner", "title": "Clarify objective", "detail": "Convert the natural-language request into a scoped implementation plan."},
         {"agent": "Research", "title": "Inspect project", "detail": "Read the relevant files, routes, configuration, tests, and deployment notes."},
@@ -30641,7 +30959,7 @@ def ai_agent_plan_from_objective(objective: str, project_type: str, requested: d
             approvals.append(reason)
     if requested.get("deploy") and "Deployment approval required" not in approvals:
         approvals.append("Deployment approval required")
-    if not state.get("god_mode_enabled") and (requested.get("execute") or requested.get("deploy")):
+    if not state.get("god_mode_enabled") and (requested.get("execute") or requested.get("deploy")) and not dayz_scoped:
         approvals.append("Owner bypass is disabled, so execution/deploy actions require owner approval")
     complexity = "medium"
     if len(text) > 220 or len(steps) >= 8 or approvals:
@@ -35942,6 +36260,36 @@ def dashboard_feed_route_groups(config: Any, channels: list[dict[str, str]]) -> 
     return groups
 
 
+def dashboard_feed_pack_rows(config: Any) -> list[dict[str, Any]]:
+    """Summarise opt-in channel packs for the Feed Routing page."""
+    config = config if isinstance(config, dict) else {}
+    disabled = dashboard_disabled_channel_keys(config)
+    selected_raw = config.get("channel_setup_keys")
+    selected = {str(item).strip() for item in selected_raw if str(item).strip()} if isinstance(selected_raw, list) else set()
+    channels = config.get("channels") if isinstance(config.get("channels"), dict) else {}
+    legacy_mode = "channel_setup_initialized" not in config
+    if legacy_mode:
+        # Existing guilds pre-date channel packs. Reflect their current saved
+        # routes until the owner explicitly changes a pack on this page.
+        selected = {str(key) for key, value in channels.items() if str(value or "").strip()}
+        selected.difference_update(disabled)
+
+    rows = []
+    for key, pack in DASHBOARD_FEED_PACKS.items():
+        pack_keys = [str(item) for item in pack.get("keys", []) if str(item)]
+        enabled_count = len([item for item in pack_keys if item in selected and item not in disabled])
+        rows.append({
+            "key": key,
+            "label": str(pack.get("label") or key.title()),
+            "description": str(pack.get("description") or ""),
+            "total_count": len(pack_keys),
+            "enabled_count": enabled_count,
+            "enabled": bool(pack_keys) and enabled_count == len(pack_keys),
+            "partial": bool(enabled_count and enabled_count < len(pack_keys)),
+        })
+    return rows
+
+
 def dashboard_custom_feed_rows(config: Any, channels: list[dict[str, str]]) -> list[dict[str, Any]]:
     if not isinstance(config, dict):
         return []
@@ -36595,6 +36943,7 @@ def dashboard_base_server_profile_row(
         "available_channel_count": len(channels),
         "configured_channel_count": configured_channel_count,
         "feed_route_groups": redact(dashboard_feed_route_groups(config, channels)),
+        "feed_pack_rows": redact(dashboard_feed_pack_rows(config)),
         "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
         "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(config, live_feed_store, guild_id) if needs_live_feeds else []),
         "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, guild_id)) if needs_live_feeds else 0,
@@ -36686,6 +37035,7 @@ def dashboard_server_profile_rows(
                 "available_channel_count": len(profile_channels),
                 "configured_channel_count": configured_channel_count,
                 "feed_route_groups": redact(dashboard_feed_route_groups(profile, profile_channels)),
+                "feed_pack_rows": redact(dashboard_feed_pack_rows(profile)),
                 "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(profile)),
                 "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(profile, live_feed_store, runtime_id) if needs_live_feeds else []),
                 "dashboard_live_feed_total": len(dashboard_live_feed_events_for_guild(live_feed_store, runtime_id)) if needs_live_feeds else 0,
@@ -39501,6 +39851,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "channels": channels,
                 "dayz_profiles": dayz_profiles,
                 "feed_route_groups": redact(dashboard_feed_route_groups(config, channels)),
+                "feed_pack_rows": redact(dashboard_feed_pack_rows(config)),
                 "custom_feed_rows": redact(dashboard_custom_feed_rows(config, channels)),
                 "dashboard_live_feed_filter_groups": redact(dashboard_live_feed_filter_groups(config)),
                 "dashboard_live_feed_rows": redact(dashboard_live_feed_rows(config, dashboard_live_feeds, guild_id) if needs_live_feeds else []),
@@ -39892,7 +40243,11 @@ def page(mode: str, auth: dict[str, Any]):
         ai_agent_runs = ai_agent_visible.get("runs", []) if isinstance(ai_agent_visible.get("runs"), list) else []
         new_conversation = safe_bool(request.args.get("new_conversation"), False)
         ai_agent_active_run = None if new_conversation else ai_agent_selected_run(ai_agent_visible, request.args.get("agent_run"))
-        ai_agent_workspace_state = ai_agent_state_for_run(ai_agent_visible, ai_agent_active_run.get("id") if ai_agent_active_run else "")
+        ai_agent_workspace_state = (
+            ai_agent_empty_workspace_state(ai_agent_visible)
+            if new_conversation
+            else ai_agent_state_for_run(ai_agent_visible, ai_agent_active_run.get("id") if ai_agent_active_run else "")
+        )
         if ai_agent_access.get("allowed") and auth.get("kind") in {"agent_account", "guild"}:
             credit_account = agent_credit_account_for_auth(auth, create=auth.get("kind") == "guild")
             ai_agent_credits = safe_int((credit_account or {}).get("credits"), 0)
@@ -40221,6 +40576,7 @@ def page(mode: str, auth: dict[str, Any]):
         custom_feed_types=CUSTOM_FEED_TYPES,
         agent_accounts=agent_account_rows() if auth.get("kind") == "owner" and active_section == "ai-agent" else [],
         agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
+        ai_agent_message_tone=ai_agent_message_tone,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
         owner_notifications=state.get("owner_notifications", []),
         removed_guilds=state.get("removed_guilds", []),
@@ -41881,6 +42237,77 @@ def api_dashboard_record_action():
         {"ok": True, "deleted": record_id, "section": section, "note": "Deleted dashboard record."},
         "automations",
         "#automations",
+    )
+
+
+@APP.post("/api/admin/feed-pack")
+def api_feed_pack():
+    """Queue an explicit Discord channel-pack change from Feed Routing."""
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
+    pack_key = str(raw_payload.get("pack") or "").strip().lower()
+    action = str(raw_payload.get("action") or "enable").strip().lower()
+    pack = DASHBOARD_FEED_PACKS.get(pack_key)
+    if not pack:
+        return jsonify({"ok": False, "error": "Unknown feed pack."}), 400
+    if action not in {"enable", "disable"}:
+        return jsonify({"ok": False, "error": "Pack action must be enable or disable."}), 400
+
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config, runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or config is None:
+        return jsonify({"ok": False, "error": target_error or "Server profile not found."}), 404
+
+    current = config.get("channel_setup_keys")
+    if config.get("channel_setup_initialized") and isinstance(current, list):
+        selected = {str(item).strip() for item in current if str(item).strip()}
+    else:
+        channels = config.get("channels") if isinstance(config.get("channels"), dict) else {}
+        disabled = dashboard_disabled_channel_keys(config)
+        selected = {str(key) for key, value in channels.items() if str(value or "").strip()}
+        selected.difference_update(disabled)
+
+    pack_keys = {str(item) for item in pack.get("keys", []) if str(item)}
+    disabled = config.setdefault("disabled_channels", [])
+    if not isinstance(disabled, list):
+        disabled = []
+        config["disabled_channels"] = disabled
+    restore_queue = config.setdefault("channel_setup_restore_queue", [])
+    if not isinstance(restore_queue, list):
+        restore_queue = []
+        config["channel_setup_restore_queue"] = restore_queue
+
+    if action == "enable":
+        selected.update(pack_keys)
+        disabled[:] = [key for key in disabled if str(key) not in pack_keys]
+        for key in pack_keys:
+            if key not in restore_queue:
+                restore_queue.append(key)
+        note = f"{pack['label']} queued. The bot will create or reconnect its channels shortly."
+    else:
+        selected.difference_update(pack_keys)
+        for key in pack_keys:
+            if key not in disabled:
+                disabled.append(key)
+        restore_queue[:] = [key for key in restore_queue if str(key) not in pack_keys]
+        note = f"{pack['label']} turned off. Existing Discord channels were left untouched."
+
+    config["channel_setup_keys"] = sorted(selected)
+    config["channel_setup_initialized"] = True
+    config["channel_setup_updated_at"] = datetime.now(UTC).isoformat()
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    return dashboard_api_response(
+        raw_payload,
+        {"ok": True, "pack": pack_key, "action": action, "runtime_id": runtime_id, "note": note},
+        "access",
+        "#feed-packs",
     )
 
 
@@ -45597,7 +46024,15 @@ def ai_agent_queue_sandbox_job(
     actor: str,
 ) -> tuple[dict[str, Any] | None, str, int]:
     command = str(payload.get("command") or "").strip()
-    allowed, reason = ai_agent_command_is_allowed(command)
+    task = ai_agent_find_by_id(state.get("tasks", []), payload.get("task_id")) if payload.get("task_id") else None
+    task_context = task.get("dayz_context") if isinstance(task, dict) and isinstance(task.get("dayz_context"), dict) else {}
+    dayz_scoped = bool(
+        isinstance(task_context, dict)
+        and task_context.get("enabled")
+        and ai_agent_dayz_scope_for_text(task_context.get("objective") or payload.get("reason"), task.get("project_type") if isinstance(task, dict) else payload.get("project_type"))
+    ) or ai_agent_dayz_scope_for_text(payload.get("reason") or payload.get("objective"), payload.get("project_type"))
+    command_scope = "dayz" if dayz_scoped else ""
+    allowed, reason = ai_agent_command_is_allowed(command, scope=command_scope)
     if not allowed:
         return None, reason, 400
     if "deploy" in command.lower() and not access.get("permissions", {}).get("deploy"):
@@ -45624,7 +46059,7 @@ def ai_agent_queue_sandbox_job(
     if not isinstance(jobs, list):
         jobs = []
         state["sandbox_jobs"] = jobs
-    needs_approval, reasons = ai_agent_requires_owner_approval(state, "command", command)
+    needs_approval, reasons = ai_agent_requires_owner_approval(state, "command", command, dayz_scoped=dayz_scoped)
     job = {
         "id": ai_agent_new_id("job"),
         "run_id": run_id,
@@ -45642,6 +46077,7 @@ def ai_agent_queue_sandbox_job(
         "exit_code": None,
         "stdout": "",
         "stderr": "",
+        "scope": command_scope or "general",
     }
     jobs.insert(0, job)
     del jobs[80:]
@@ -45665,11 +46101,26 @@ def ai_agent_queue_sandbox_job(
     return job, "", 200
 
 
-def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: dict[str, Any], selected_run_id: Any = "") -> dict[str, Any]:
+def ai_agent_state_payload(
+    auth: dict[str, Any],
+    access: dict[str, Any],
+    state: dict[str, Any],
+    selected_run_id: Any = "",
+    *,
+    new_conversation: bool = False,
+) -> dict[str, Any]:
     subject_key = str(access.get("subject_key") or ai_agent_subject_for_auth(auth))
     visible_state = ai_agent_visible_state(state, auth, access)
     visible_runs = visible_state.get("runs", []) if isinstance(visible_state.get("runs"), list) else []
-    workspace_state = ai_agent_state_for_run(visible_state, selected_run_id)
+    if new_conversation:
+        # A fresh conversation must not hydrate the previous active run while
+        # the composer is waiting for its first prompt.  The old behaviour
+        # returned the latest run whenever run_id was empty, which allowed the
+        # browser to put that run back into the hidden form field and append a
+        # new request to an unrelated conversation.
+        workspace_state = ai_agent_empty_workspace_state(visible_state)
+    else:
+        workspace_state = ai_agent_state_for_run(visible_state, selected_run_id)
     selected_run = workspace_state.get("selected_run") if isinstance(workspace_state.get("selected_run"), dict) else None
     sandbox_payload = dict(state.get("sandbox", {}) if isinstance(state.get("sandbox"), dict) else {})
     readiness_payload = ai_agent_readiness_checks(state, auth)
@@ -45696,7 +46147,7 @@ def ai_agent_state_payload(auth: dict[str, Any], access: dict[str, Any], state: 
         "dayz_references": ai_agent_dayz_reference_summaries(workspace_state),
         "dayz_scenarios": ai_agent_dayz_scenario_summaries(workspace_state),
         "runs": visible_runs[:30],
-        "active_run": ai_agent_latest_run_for_subject(visible_state, subject_key),
+        "active_run": None if new_conversation else ai_agent_latest_run_for_subject(visible_state, subject_key),
         "selected_run": selected_run,
         "run_counts": ai_agent_run_counts(visible_state),
         "approvals": workspace_state.get("approvals", [])[:30],
@@ -45735,7 +46186,15 @@ def api_ai_agent_state():
     actor = access.get("label") or dashboard_audit_actor(auth)
     if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
         save_ai_agent_state(state)
-    return jsonify(ai_agent_state_payload(auth, access, state, request.args.get("run_id")))
+    return jsonify(
+        ai_agent_state_payload(
+            auth,
+            access,
+            state,
+            request.args.get("run_id"),
+            new_conversation=safe_bool(request.args.get("new_conversation"), False),
+        )
+    )
 
 
 @APP.get("/api/ai-agent/dayz-draft/<draft_id>")
@@ -45869,6 +46328,7 @@ def api_ai_agent_events():
         return error
     actor = access.get("label") or dashboard_audit_actor(auth)
     selected_run_id = request.args.get("run_id")
+    new_conversation = safe_bool(request.args.get("new_conversation"), False)
     if ai_agent_maybe_sync_worker_jobs(state, actor, recover=False):
         save_ai_agent_state(state)
 
@@ -45877,13 +46337,29 @@ def api_ai_agent_events():
 
     @stream_with_context
     def generate():
-        yield sse_payload(ai_agent_state_payload(auth, access, state, selected_run_id))
+        yield sse_payload(
+            ai_agent_state_payload(
+                auth,
+                access,
+                state,
+                selected_run_id,
+                new_conversation=new_conversation,
+            )
+        )
         for _ in range(45):
             time.sleep(2)
             live_state = load_ai_agent_state()
             if ai_agent_maybe_sync_worker_jobs(live_state, actor, recover=False, min_interval_seconds=2):
                 save_ai_agent_state(live_state)
-            yield sse_payload(ai_agent_state_payload(auth, access, live_state, selected_run_id))
+            yield sse_payload(
+                ai_agent_state_payload(
+                    auth,
+                    access,
+                    live_state,
+                    selected_run_id,
+                    new_conversation=new_conversation,
+                )
+            )
         yield sse_payload({"ok": True, "message": "reconnect"}, "close")
 
     return Response(

@@ -238,6 +238,52 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual(bot.POWERED_BY_FOOTER_TEXT, embed.footer.text)
 
+    def test_death_resets_consecutive_survival_streak_before_next_milestone(self):
+        previous_streaks = bot.survival_streaks
+        previous_stats = bot.player_stats
+        try:
+            bot.survival_streaks = {}
+            bot.player_stats = {}
+            started = bot.datetime(2026, 8, 1, tzinfo=bot.UTC)
+            with mock.patch.object(bot, "save_survival_streaks"), mock.patch.object(bot, "save_player_stats"):
+                for day in range(14):
+                    entry = bot.note_player_alive(
+                        "guild-streak",
+                        "Liamchomski",
+                        event_time=started + bot.timedelta(days=day),
+                    )
+                self.assertEqual(14, entry["current_days"])
+
+                death_line = 'Player "Liamchomski" (DEAD) killed by infected'
+                self.assertEqual("Liamchomski", bot.adm_death_player_name("zombie_kill", death_line))
+                bot.reset_player_streak(
+                    "guild-streak",
+                    "Liamchomski",
+                    event_time=started + bot.timedelta(days=14),
+                )
+
+                fresh_entry = bot.note_player_alive(
+                    "guild-streak",
+                    "Liamchomski",
+                    event_time=started + bot.timedelta(days=15),
+                )
+                self.assertEqual(1, fresh_entry["current_days"])
+                self.assertIsNone(bot.get_streak_milestone(fresh_entry["current_days"]))
+                self.assertEqual(
+                    (started + bot.timedelta(days=14)).date().isoformat(),
+                    bot.player_stats["Liamchomski"]["last_death_date"],
+                )
+        finally:
+            bot.survival_streaks = previous_streaks
+            bot.player_stats = previous_stats
+
+    def test_animal_hunt_does_not_reset_streak_but_animal_death_does(self):
+        hunt_line = 'Player "Liamchomski" killed Animal_CanisLupus (pos=<1,2,3>)'
+        death_line = 'Player "Liamchomski" (DEAD) killed by Animal_CanisLupus'
+
+        self.assertEqual("", bot.adm_death_player_name("animal_kill", hunt_line))
+        self.assertEqual("Liamchomski", bot.adm_death_player_name("animal_kill", death_line))
+
     def test_last_known_location_matches_online_name_despite_adm_casing(self):
         previous_online = bot.online_players
         previous_locations = bot.player_last_coords
@@ -1560,6 +1606,42 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual("xbox", platform)
         self.assertEqual("chernarus", server_map)
         self.assertEqual("pvp", server_mode)
+
+    def test_channel_setup_essentials_pack_is_small_and_excludes_pve(self):
+        keys, error = bot.resolve_channel_setup_selection("essentials")
+
+        self.assertEqual("", error)
+        self.assertIn("killfeed", keys)
+        self.assertIn("help_channel", keys)
+        self.assertNotIn("pve_quests", keys)
+        self.assertLess(len(keys), 15)
+
+    def test_channel_setup_custom_selection_accepts_pack_and_keys(self):
+        keys, error = bot.resolve_channel_setup_selection("custom", "killfeed, online, radar")
+
+        self.assertEqual("", error)
+        self.assertEqual(["killfeed", "online", "radar"], keys)
+
+    def test_channel_setup_rejects_unknown_channel_key(self):
+        keys, error = bot.resolve_channel_setup_selection("custom", "killfeed,not_a_real_feed")
+
+        self.assertIsNone(keys)
+        self.assertIn("not_a_real_feed", error)
+
+    def test_channel_setup_default_pack_follows_subscription_tier(self):
+        free = bot.channel_setup_tier_keys({"dashboard": {"tier": "free_bot"}})
+        ultimate = bot.channel_setup_tier_keys({"dashboard": {"tier": "dashboard_ultimate"}})
+
+        self.assertIn("killfeed", free)
+        self.assertNotIn("pve_quests", free)
+        self.assertIn("pve_quests", ultimate)
+        self.assertGreater(len(ultimate), len(free))
+
+    def test_channel_setup_selected_key_gate(self):
+        config = {"channel_setup_initialized": True, "channel_setup_keys": ["killfeed"]}
+
+        self.assertTrue(bot.channel_setup_key_selected(config, "killfeed"))
+        self.assertFalse(bot.channel_setup_key_selected(config, "pve_quests"))
 
 
 if __name__ == "__main__":

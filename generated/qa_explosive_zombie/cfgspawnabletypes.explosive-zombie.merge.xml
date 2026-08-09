@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<!--
+  MERGE-ONLY PATCH — do not upload this file as a replacement for the full
+  cfgspawnabletypes.xml. Merge this <type> block into the existing
+  <spawnabletypes> file and keep one record for the classname.
+
+  Chernarus/Sakhal/Livonia 1.29 reference check:
+  ZmbM_priestPopSkinny exists in the bundled cfgspawnabletypes.xml and
+  FlashGrenade exists in db/types.xml.
+-->
+<type name="ZmbM_priestPopSkinny">
+	<cargo preset="foodHermit" />
+	<cargo chance="1.00">
+		<item name="FlashGrenade" chance="1.00" />
+	</cargo>
+</type>
