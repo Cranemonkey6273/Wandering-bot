@@ -99,6 +99,7 @@ PLAYER_AUDIT_FILE = data_path("player_audit.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
+RECORDED_PVP_DEATHS_FILE = data_path("recorded_pvp_deaths.json")
 ONLINE_PLAYERS_FILE = data_path("online_players.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
@@ -147,6 +148,7 @@ guild_configs = {}
 processed_lines = {}
 processed_adm_events = {}
 processed_kill_events = {}
+recorded_pvp_deaths = {}
 moderation_guard_recent_messages = defaultdict(lambda: deque(maxlen=30))
 # Wall-clock UTC time the bot process started. Used by the ADM age guard
 # to ONLY filter "old" events during a short cold-start window — after
@@ -185,6 +187,9 @@ _adm_history_swept = {}
 PROCESSED_ADM_CACHE_LIMIT = 5000
 PROCESSED_ADM_EVENT_CACHE_LIMIT = 10000
 PROCESSED_KILL_EVENT_CACHE_LIMIT = 10000
+RECORDED_PVP_DEATH_LIMIT_PER_GUILD = 2000
+RECORDED_PVP_DEATH_TTL_SECONDS = 12 * 60 * 60
+RECORDED_PVP_DEATH_RADIUS_METERS = 8.0
 ADM_SOURCE_FETCH_CACHE_SECONDS = 45
 ADM_PARSE_TAIL_LINES = 2500
 online_players = {}
@@ -969,6 +974,19 @@ def extract_adm_player_coords(line, player_name):
         return None
     match = re.search(
         rf'\bPlayer\s+"{re.escape(clean_name)}"(?:(?!\bPlayer\s+").)*?\bpos=<([^>]+)>',
+        str(line or ""),
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def extract_adm_player_id(line, player_name):
+    """Return the ADM identity belonging to one named player in the line."""
+    clean_name = str(player_name or "").strip()
+    if not clean_name:
+        return None
+    match = re.search(
+        rf'\bPlayer\s+"{re.escape(clean_name)}"(?:(?!\bPlayer\s+").)*?\bid=([^\s)]+)',
         str(line or ""),
         re.IGNORECASE,
     )
@@ -2137,10 +2155,16 @@ def extract_pvp_kill_details(line):
         details["coords"] = coords
     killer_coords = extract_adm_player_coords(line, details.get("killer"))
     victim_coords = extract_adm_player_coords(line, details.get("victim"))
+    killer_id = extract_adm_player_id(line, details.get("killer"))
+    victim_id = extract_adm_player_id(line, details.get("victim"))
     if killer_coords:
         details["killer_coords"] = killer_coords
     if victim_coords:
         details["victim_coords"] = victim_coords
+    if killer_id:
+        details["killer_id"] = killer_id
+    if victim_id:
+        details["victim_id"] = victim_id
 
     # Headshot detection — DayZ ADM exposes both the hit-zone
     # ("into Head(0)") and the damage type ("(Brain)"). Either is
@@ -2532,6 +2556,89 @@ def pvp_kill_event_fingerprint(guild_id, details, line=None, event_time=None):
         normalize_discord_name(details.get("ammo", "")),
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8", errors="ignore")).hexdigest()
+
+
+def pvp_victim_death_point(details):
+    coords = str((details or {}).get("victim_coords") or (details or {}).get("coords") or "").strip()
+    parts = [part.strip() for part in coords.split(",")]
+    if len(parts) < 2:
+        return None
+    try:
+        return float(parts[0]), float(parts[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def prune_recorded_pvp_deaths(guild_id, now_ts=None):
+    guild_id = str(guild_id)
+    now_ts = float(now_ts if now_ts is not None else time.time())
+    kept = []
+    for record in recorded_pvp_deaths.get(guild_id, []):
+        if not isinstance(record, dict):
+            continue
+        try:
+            recorded_ts = float(record.get("recorded_ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if recorded_ts <= 0 or now_ts - recorded_ts > RECORDED_PVP_DEATH_TTL_SECONDS:
+            continue
+        kept.append(record)
+    recorded_pvp_deaths[guild_id] = kept[-RECORDED_PVP_DEATH_LIMIT_PER_GUILD:]
+    return recorded_pvp_deaths[guild_id]
+
+
+def is_recorded_pvp_death_body(guild_id, details, now_ts=None):
+    """True when this ADM death belongs to a body already counted as dead."""
+    point = pvp_victim_death_point(details)
+    victim_name = normalize_discord_name((details or {}).get("victim", ""))
+    victim_id = str((details or {}).get("victim_id") or "").strip().casefold()
+    if not point or (not victim_name and not victim_id):
+        return False
+
+    for record in prune_recorded_pvp_deaths(guild_id, now_ts=now_ts):
+        record_id = str(record.get("victim_id") or "").strip().casefold()
+        record_name = normalize_discord_name(record.get("victim", ""))
+        if victim_id and record_id:
+            if victim_id != record_id:
+                continue
+        elif victim_name != record_name:
+            continue
+        try:
+            distance = math.hypot(point[0] - float(record["x"]), point[1] - float(record["z"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if distance <= RECORDED_PVP_DEATH_RADIUS_METERS:
+            return True
+    return False
+
+
+def remember_recorded_pvp_death(guild_id, details, now_ts=None):
+    """Remember a first lethal record so later hits on the body are harmless."""
+    point = pvp_victim_death_point(details)
+    victim = str((details or {}).get("victim") or "").strip()
+    victim_id = str((details or {}).get("victim_id") or "").strip()
+    if not point or (not victim and not victim_id):
+        return False
+    guild_id = str(guild_id)
+    now_ts = float(now_ts if now_ts is not None else time.time())
+    rows = prune_recorded_pvp_deaths(guild_id, now_ts=now_ts)
+    rows.append({
+        "victim": victim,
+        "victim_id": victim_id,
+        "x": point[0],
+        "z": point[1],
+        "recorded_ts": now_ts,
+    })
+    recorded_pvp_deaths[guild_id] = rows[-RECORDED_PVP_DEATH_LIMIT_PER_GUILD:]
+    save_recorded_pvp_deaths()
+    return True
+
+
+def clear_recorded_pvp_deaths(guild_id):
+    removed = bool(recorded_pvp_deaths.pop(str(guild_id), None))
+    if removed:
+        save_recorded_pvp_deaths()
+    return removed
 
 
 def adm_event_fingerprint(guild_id, event_type, line, event_time=None):
@@ -14683,6 +14790,27 @@ def save_processed_kill_events():
     save_json(PROCESSED_KILL_EVENTS_FILE, data)
 
 
+def load_recorded_pvp_deaths():
+    global recorded_pvp_deaths
+    data = load_json(RECORDED_PVP_DEATHS_FILE)
+    recorded_pvp_deaths = {
+        str(guild_id): list(records)
+        for guild_id, records in data.items()
+        if isinstance(records, list)
+    }
+    for guild_id in list(recorded_pvp_deaths):
+        prune_recorded_pvp_deaths(guild_id)
+
+
+def save_recorded_pvp_deaths():
+    data = {}
+    for guild_id in list(recorded_pvp_deaths):
+        rows = prune_recorded_pvp_deaths(guild_id)
+        if rows:
+            data[str(guild_id)] = rows
+    save_json(RECORDED_PVP_DEATHS_FILE, data)
+
+
 def adm_parse_tail_line_count():
     try:
         return max(250, int(os.getenv("WANDERING_ADM_PARSE_TAIL_LINES", ADM_PARSE_TAIL_LINES)))
@@ -16726,6 +16854,9 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
 
     if restart_reasons:
         saw_new_restart = True
+        # A fresh mission cycle removes old corpses, so body identities from
+        # the previous cycle must not suppress a legitimate new death.
+        clear_recorded_pvp_deaths(guild_id)
         state["restart_marker_count"] = len(restart_markers)
         state["last_restart_ts"] = now_ts
         details = f"Fresh restart evidence detected in latest RPT ({'; '.join(restart_reasons)}). Total restart markers now {len(restart_markers)}."
@@ -21002,14 +21133,40 @@ async def parse_adm(guild_id, config):
 
         ensure_guild_runtime(guild_id)
 
-        if line_hash in processed_lines[guild_id]:
-            continue
-
         if event_type and should_guard_stale_adm_events(guild_id) and is_adm_event_stale(
             event_time,
             max_age_seconds=adm_event_max_age_seconds(),
         ):
             stale_adm_skipped += 1
+            continue
+
+        # Seed and consult the persistent dead-body guard before the ordinary
+        # line/event replay caches. This lets an earlier lethal line rebuild
+        # protection after a deployment even when that line was already sent.
+        kill_details = None
+        if event_type == "kill":
+            kill_details = extract_pvp_kill_details(line)
+            if not kill_details:
+                remember_processed_line(guild_id, line_hash)
+                continue
+            if is_stale_self_kill_of_dead_player(line, kill_details):
+                remember_processed_line(guild_id, line_hash)
+                print(f"[ADM] Ignoring self-hit against an already dead character: {line[:240]}")
+                continue
+            if is_recorded_pvp_death_body(guild_id, kill_details):
+                remember_processed_line(guild_id, line_hash)
+                print(
+                    "[ADM] Ignoring a hit against an already recorded dead body: "
+                    f"victim={kill_details.get('victim')} killer={kill_details.get('killer')}"
+                )
+                continue
+            try:
+                death_recorded_ts = event_time.timestamp()
+            except Exception:
+                death_recorded_ts = time.time()
+            remember_recorded_pvp_death(guild_id, kill_details, now_ts=death_recorded_ts)
+
+        if line_hash in processed_lines[guild_id]:
             continue
 
         remember_processed_line(guild_id, line_hash)
@@ -21074,12 +21231,6 @@ async def parse_adm(guild_id, config):
                 continue
 
         if event_type == "kill":
-            kill_details = extract_pvp_kill_details(line)
-            if not kill_details:
-                continue
-            if is_stale_self_kill_of_dead_player(line, kill_details):
-                print(f"[ADM] Ignoring self-hit against an already dead character: {line[:240]}")
-                continue
             kill_fingerprint = pvp_kill_event_fingerprint(guild_id, kill_details, line=line, event_time=event_time)
             if is_processed_kill_event(guild_id, kill_fingerprint):
                 continue
@@ -26056,6 +26207,24 @@ def normalize_nitrado_banlist_name(value):
     return re.sub(r"[\r\n]+", " ", str(value or "")).strip()
 
 
+def clean_nitrado_banlist_entries(entries):
+    """Preserve exact spelling while deduplicating case-insensitively."""
+    clean_entries = []
+    seen_entries = set()
+    for entry in entries or []:
+        clean = normalize_nitrado_banlist_name(entry)
+        key = clean.casefold()
+        if clean and key not in seen_entries:
+            seen_entries.add(key)
+            clean_entries.append(clean)
+    return clean_entries
+
+
+def serialize_nitrado_web_banlist(entries):
+    """Serialise the Nitrado Base Settings Banlist as comma-separated names."""
+    return ",".join(clean_nitrado_banlist_entries(entries))
+
+
 def nitrado_banlist_entries_from_text(value):
     if isinstance(value, (list, tuple)):
         raw_text = "\n".join(str(item or "") for item in value)
@@ -26065,11 +26234,13 @@ def nitrado_banlist_entries_from_text(value):
         raw_text = str(value)
 
     lines = []
-    for raw in raw_text.splitlines():
+    # Base Settings uses commas; the ban file fallback uses one name per line.
+    # Accept both without changing ADM spelling, capitals, or internal spaces.
+    for raw in re.split(r"[\r\n,]+", raw_text):
         stripped = normalize_nitrado_banlist_name(raw)
         if stripped and not stripped.startswith("#"):
             lines.append(stripped)
-    return lines
+    return clean_nitrado_banlist_entries(lines)
 
 
 def nitrado_web_settings_url(config):
@@ -26293,15 +26464,8 @@ def push_nitrado_web_banlist(config, entries):
     if not ok:
         return False, message, False
 
-    clean_entries = []
-    seen_entries = set()
-    for entry in entries or []:
-        clean = normalize_nitrado_banlist_name(entry)
-        key = clean.casefold()
-        if clean and key not in seen_entries:
-            seen_entries.add(key)
-            clean_entries.append(clean)
-    payload = "\n".join(clean_entries) + ("\n" if clean_entries else "")
+    clean_entries = clean_nitrado_banlist_entries(entries)
+    payload = serialize_nitrado_web_banlist(clean_entries)
 
     headers = nitrado_api_headers(config) or {}
     errors = []
@@ -26463,14 +26627,7 @@ def push_nitrado_banlist(config, entries):
     skip the probe."""
     nitrado_user = str(config.get("nitrado_user") or "").strip()
 
-    clean_entries = []
-    seen_entries = set()
-    for entry in entries or []:
-        clean = normalize_nitrado_banlist_name(entry)
-        key = clean.casefold()
-        if clean and key not in seen_entries:
-            seen_entries.add(key)
-            clean_entries.append(clean)
+    clean_entries = clean_nitrado_banlist_entries(entries)
     payload = "\n".join(clean_entries) + ("\n" if clean_entries else "")
 
     web_ok, web_message, web_authoritative = push_nitrado_web_banlist(config, clean_entries)
@@ -26531,11 +26688,21 @@ def add_player_to_nitrado_banlist(config, gamertag):
     gamertag = normalize_nitrado_banlist_name(gamertag)
     if not gamertag:
         return False, "Empty gamertag."
+    if "," in gamertag:
+        return False, "Gamertag cannot contain the Nitrado comma delimiter."
     current = fetch_nitrado_banlist(config)
-    needle = gamertag
-    if any(line.lower() == needle.lower() for line in current):
-        return True, "Already banned."
-    current.append(needle)
+    current = clean_nitrado_banlist_entries(current)
+    matching_index = next(
+        (index for index, line in enumerate(current) if line.casefold() == gamertag.casefold()),
+        None,
+    )
+    if matching_index is not None:
+        if current[matching_index] == gamertag:
+            return True, "Already banned."
+        # Upgrade a differently-cased legacy entry to the exact ADM spelling.
+        current[matching_index] = gamertag
+        return push_nitrado_banlist(config, current)
+    current.append(gamertag)
     return push_nitrado_banlist(config, current)
 
 
@@ -27947,6 +28114,7 @@ async def reloadguilds(ctx):
     load_online_players()
     load_processed_adm_events()
     load_processed_kill_events()
+    load_recorded_pvp_deaths()
     bootstrap_runtime_from_connected_guilds()
     await start_background_tasks()
 
@@ -27984,6 +28152,7 @@ async def restartadm(ctx, force: str = "no", server: str = ""):
     load_processed_adm_lines()
     load_processed_adm_events()
     load_processed_kill_events()
+    load_recorded_pvp_deaths()
     load_online_players()
     bootstrap_runtime_from_connected_guilds()
 
@@ -56930,6 +57099,7 @@ async def on_ready():
     load_processed_adm_lines()
     load_processed_adm_events()
     load_processed_kill_events()
+    load_recorded_pvp_deaths()
     load_online_players()
     bootstrap_runtime_from_connected_guilds()
     await restore_legacy_styled_channel_names_for_active_guilds()

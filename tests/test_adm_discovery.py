@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from _bot_loader import import_bot_module  # noqa: E402
@@ -13,6 +14,64 @@ bot = import_bot_module()
 
 
 class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_nitrado_panel_banlist_is_comma_separated_and_case_preserving(self):
+        source = "DaddyR6294,LoganArcade,Mama Justice89,Liamchomski\nLeonDaBeast9249"
+        entries = bot.nitrado_banlist_entries_from_text(source)
+        self.assertEqual(
+            ["DaddyR6294", "LoganArcade", "Mama Justice89", "Liamchomski", "LeonDaBeast9249"],
+            entries,
+        )
+        self.assertEqual(
+            "DaddyR6294,LoganArcade,Mama Justice89,Liamchomski,LeonDaBeast9249",
+            bot.serialize_nitrado_web_banlist(entries),
+        )
+
+    def test_nitrado_ban_add_refreshes_exact_adm_casing(self):
+        config = {"service_id": "service-1"}
+        with patch.object(bot, "fetch_nitrado_banlist", return_value=["leondabeast9249"]), patch.object(
+            bot,
+            "push_nitrado_banlist",
+            return_value=(True, "updated"),
+        ) as push:
+            ok, message = bot.add_player_to_nitrado_banlist(config, "LeonDaBeast9249")
+
+        self.assertTrue(ok)
+        self.assertEqual("updated", message)
+        push.assert_called_once_with(config, ["LeonDaBeast9249"])
+
+    def test_later_shot_on_recorded_dead_body_is_not_a_second_kill(self):
+        first_death = (
+            '23:20:00 | Player "Jayo2323" (DEAD) '
+            '(id=AB7199B4A0373BFB046D29A85DA6E3EA4CF0D123 pos=<13052.2, 14034.8, 13.2>) '
+            '[HP: 0] hit by Player "OriginalKiller" '
+            '(id=1111111111111111111111111111111111111111 pos=<13050.0, 14035.0, 12.7>) '
+            'into Torso(15) for 55 damage (Bullet_9x19) with SG5-K from 3.0 meters'
+        )
+        corpse_hit = (
+            '23:23:24 | Player "Jayo2323" (DEAD) '
+            '(id=AB7199B4A0373BFB046D29A85DA6E3EA4CF0D123 pos=<13052.2, 14034.8, 13.2>) '
+            '[HP: 0] hit by Player "x OLIEJDM x" '
+            '(id=4A25401DA2F4DC7162ACEC19467D3EE809B9D3E50 pos=<13050.8, 14036.1, 12.7>) '
+            'into Head(0) for 40 damage (Bullet_9x19) with SG5-K from 2.0182 meters'
+        )
+        first_details = bot.extract_pvp_kill_details(first_death)
+        corpse_details = bot.extract_pvp_kill_details(corpse_hit)
+        self.assertEqual("AB7199B4A0373BFB046D29A85DA6E3EA4CF0D123", first_details["victim_id"])
+        self.assertEqual("x OLIEJDM x", corpse_details["killer"])
+
+        previous = bot.recorded_pvp_deaths
+        bot.recorded_pvp_deaths = {}
+        try:
+            with patch.object(bot, "save_recorded_pvp_deaths"):
+                self.assertFalse(bot.is_recorded_pvp_death_body("guild-1", first_details, now_ts=1000))
+                self.assertTrue(bot.remember_recorded_pvp_death("guild-1", first_details, now_ts=1000))
+                self.assertTrue(bot.is_recorded_pvp_death_body("guild-1", corpse_details, now_ts=1005))
+
+                moved_body = dict(corpse_details, victim_coords="13152.2, 14134.8, 13.2")
+                self.assertFalse(bot.is_recorded_pvp_death_body("guild-1", moved_body, now_ts=1005))
+        finally:
+            bot.recorded_pvp_deaths = previous
+
     def test_dead_character_self_hit_is_not_a_pvp_kill_or_safe_zone_offense(self):
         corpse_line = (
             '21:46:53 | Player "Jayo2323" (DEAD) (id=ab7199b84a0373bfb046d29a85ad6e3ea4cf0d123 '
