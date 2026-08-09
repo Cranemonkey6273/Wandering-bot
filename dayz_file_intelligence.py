@@ -9,6 +9,7 @@ guardrails.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -649,7 +650,12 @@ def validate_upload_not_dangerously_shrunken(
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def _validate_number_triplet(value: Any, label: str) -> str:
@@ -696,8 +702,24 @@ def dayz_object_spawner_ref_is_blocked(value: Any) -> bool:
 def _validate_string_path_list(value: Any, label: str, target_path: Any) -> tuple[bool, str]:
     if not isinstance(value, list):
         return False, f"Refusing to upload `{target_path}`: {label} must be an array."
-    if not all(isinstance(item, str) and item.strip() for item in value):
-        return False, f"Refusing to upload `{target_path}`: {label} must contain non-empty string paths."
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            return False, f"Refusing to upload `{target_path}`: {label}[{index}] must be a non-empty string path."
+        normalized = item.strip().replace("\\", "/")
+        if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
+            return False, f"Refusing to upload `{target_path}`: {label}[{index}] must be a mission-relative JSON path."
+        parts = normalized.split("/")
+        if parts and parts[0] == ".":
+            parts = parts[1:]
+        if (
+            not parts
+            or any(not part or part in {".", ".."} for part in parts)
+            or not parts[-1].lower().endswith(".json")
+        ):
+            return False, (
+                f"Refusing to upload `{target_path}`: {label}[{index}] must be a safe mission-relative `.json` path "
+                "without `.`/`..` traversal segments."
+            )
     return True, ""
 
 
@@ -1052,6 +1074,8 @@ def _validate_cfgweather_xml(root: ET.Element, target_path: Any) -> tuple[bool, 
                 value = float(str(raw_value))
             except (TypeError, ValueError):
                 return False, f"Refusing to upload `{target_path}`: <{section_name}><{child_name}> needs numeric `{field}`."
+            if not math.isfinite(value):
+                return False, f"Refusing to upload `{target_path}`: <{section_name}><{child_name}> `{field}` must be finite."
             if not 0.0 <= value <= 1.0:
                 return False, f"Refusing to upload `{target_path}`: <{section_name}><{child_name}> `{field}` must be between 0 and 1."
         return True, ""
@@ -1074,6 +1098,8 @@ def _validate_cfgweather_xml(root: ET.Element, target_path: Any) -> tuple[bool, 
                 value = float(str(raw_value))
             except (TypeError, ValueError):
                 return False, f"Refusing to upload `{target_path}`: <storm> needs numeric `{field}`."
+            if not math.isfinite(value):
+                return False, f"Refusing to upload `{target_path}`: <storm> `{field}` must be finite."
             if not 0.0 <= value <= 1.0:
                 return False, f"Refusing to upload `{target_path}`: <storm> `{field}` must be between 0 and 1."
     wind = root.find("wind")
@@ -1081,7 +1107,10 @@ def _validate_cfgweather_xml(root: ET.Element, target_path: Any) -> tuple[bool, 
         raw_maxspeed = child_value(wind, "maxspeed")
         if raw_maxspeed is not None:
             try:
-                if float(str(raw_maxspeed)) < 0:
+                maxspeed = float(str(raw_maxspeed))
+                if not math.isfinite(maxspeed):
+                    return False, f"Refusing to upload `{target_path}`: <wind> maxspeed must be finite."
+                if maxspeed < 0:
                     return False, f"Refusing to upload `{target_path}`: <wind> maxspeed cannot be negative."
             except (TypeError, ValueError):
                 return False, f"Refusing to upload `{target_path}`: <wind> maxspeed must be numeric."
@@ -1120,6 +1149,46 @@ def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool
                 )
         if filename == "cfgweather.xml":
             return _validate_cfgweather_xml(root, target_path)
+        if filename == "cfgeventspawns.xml":
+            for event in root.findall("event"):
+                for position_index, position in enumerate(event.findall("pos")):
+                    for key in ("x", "z", "y", "a"):
+                        raw_value = position.get(key)
+                        if raw_value is None:
+                            if key in {"x", "z"}:
+                                return False, (
+                                    f"Refusing to upload `{target_path}`: event {event.get('name')} position "
+                                    f"{position_index + 1} is missing `{key}`."
+                                )
+                            continue
+                        try:
+                            value = float(raw_value)
+                        except (TypeError, ValueError):
+                            return False, (
+                                f"Refusing to upload `{target_path}`: event {event.get('name')} position "
+                                f"{position_index + 1} `{key}` must be numeric."
+                            )
+                        if not math.isfinite(value):
+                            return False, (
+                                f"Refusing to upload `{target_path}`: event {event.get('name')} position "
+                                f"{position_index + 1} `{key}` must be finite."
+                            )
+        if filename == "messages.xml":
+            for message_index, message in enumerate(root.findall("message")):
+                for tag in ("delay", "repeat", "deadline", "onconnect", "shutdown"):
+                    child = message.find(tag)
+                    if child is None:
+                        continue
+                    try:
+                        value = float(str(child.text or "").strip())
+                    except (TypeError, ValueError):
+                        return False, f"Refusing to upload `{target_path}`: message {message_index + 1} `<{tag}>` must be numeric."
+                    if not math.isfinite(value):
+                        return False, f"Refusing to upload `{target_path}`: message {message_index + 1} `<{tag}>` must be finite."
+                    if tag in {"onconnect", "shutdown"} and value not in {0, 1}:
+                        return False, f"Refusing to upload `{target_path}`: message {message_index + 1} `<{tag}>` must be 0 or 1."
+                    if tag in {"delay", "repeat", "deadline"} and value < 0:
+                        return False, f"Refusing to upload `{target_path}`: message {message_index + 1} `<{tag}>` cannot be negative."
         return True, ""
 
     if spec and spec.kind == "json":

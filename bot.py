@@ -2134,6 +2134,51 @@ def extract_pvp_kill_details(line):
     return details
 
 
+def is_stale_self_kill_of_dead_player(line, kill_details=None):
+    """Identify an ADM corpse-hit replay, not a new PvP kill.
+
+    DayZ can log a second damage line when a player shoots the body of their
+    previous character. It has the same name as killer and victim plus a
+    DEAD marker or zero health. Such a line must never become a safe-zone
+    offense, cheat alert, killfeed entry, or stats update.
+    """
+    details = kill_details if isinstance(kill_details, dict) else extract_pvp_kill_details(line)
+    if not isinstance(details, dict):
+        return False
+    killer = str(details.get("killer") or "").strip().casefold()
+    victim = str(details.get("victim") or "").strip().casefold()
+    if not killer or not victim or killer != victim:
+        return False
+
+    lowered = str(line or "").lower()
+    if "(dead)" in lowered:
+        return True
+
+    # Some ADM variants omit the literal DEAD marker but retain HP. Only a
+    # numeric health value at or below zero is already dead; HP > 0 is live.
+    for match in re.finditer(r"\bhp\s*:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))", lowered):
+        try:
+            if float(match.group(1)) <= 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def safe_zone_event_actor_name(event_type, line):
+    """Return the player responsible for a safe-zone event.
+
+    Kill/death ADM lines mention the victim first and the killer later. Safe
+    zone actions must target the killer, never the player who was killed.
+    """
+    if event_type == "kill":
+        details = extract_pvp_kill_details(line)
+        if is_stale_self_kill_of_dead_player(line, details):
+            return ""
+        return str(details.get("killer") or "").strip() if isinstance(details, dict) else ""
+    return extract_player_name(line)
+
+
 def extract_vehicle_kill_details(line):
     """Parse vehicle kill events like:
        Player "X" (DEAD) (pos=<...>) hit by Transport_PickupTruck for 250 damage
@@ -20994,6 +21039,9 @@ async def parse_adm(guild_id, config):
             kill_details = extract_pvp_kill_details(line)
             if not kill_details:
                 continue
+            if is_stale_self_kill_of_dead_player(line, kill_details):
+                print(f"[ADM] Ignoring self-hit against an already dead character: {line[:240]}")
+                continue
             kill_fingerprint = pvp_kill_event_fingerprint(guild_id, kill_details, line=line, event_time=event_time)
             if is_processed_kill_event(guild_id, kill_fingerprint):
                 continue
@@ -27456,9 +27504,14 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
 
 
 async def check_safe_zones_for_adm(guild_id, config, event_type, line):
-    """Called by parse_adm on every event. If the event matches a trigger
-    inside (or outside) a safe zone and the player isn't whitelisted, do
-    the configured action (none/manhunt/ban). Best-effort — never raises."""
+    """Check one ADM event against configured safe-zone rules."""
+
+    # A self-hit against an already dead character is a corpse replay, not a
+    # live-player kill. Guard this boundary too so future callers cannot turn
+    # it into a safe-zone offense and Nitrado ban.
+    if event_type == "kill" and is_stale_self_kill_of_dead_player(line):
+        return
+
     zones = config.get("safe_zones") or []
     if not zones:
         return
@@ -27468,7 +27521,7 @@ async def check_safe_zones_for_adm(guild_id, config, event_type, line):
     if not point:
         return
 
-    player_name = extract_player_name(line)
+    player_name = safe_zone_event_actor_name(event_type, line)
     if not player_name:
         return
 

@@ -517,6 +517,39 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertIn('<ce folder="foldername">', economy_core_knowledge)
         self.assertIn('<file name="my_changes_to_types.xml" type="types" />', economy_core_knowledge)
 
+    def test_cfggameplay_references_reject_unsafe_paths(self):
+        unsafe_paths = [
+            "../custom/escape.json",
+            "./custom/../escape.json",
+            "/tmp/escape.json",
+            "C:/temp/escape.json",
+            "./custom/not-a-json.txt",
+        ]
+        for path in unsafe_paths:
+            gameplay = json.dumps({"WorldsData": {"objectSpawnersArr": [path]}})
+            ok, message = validate_dayz_upload_text("/mission/cfggameplay.json", gameplay)
+            self.assertFalse(ok, path)
+            self.assertIn("mission-relative", message)
+
+    def test_special_numeric_values_are_rejected(self):
+        invalid_weather = '<weather reset="0" enable="1"><rain><limits min="NaN" max="1" /></rain></weather>'
+        ok, message = validate_dayz_upload_text("/mission/cfgweather.xml", invalid_weather)
+        self.assertFalse(ok)
+        self.assertIn("finite", message)
+
+        invalid_spawns = '<eventposdef><event name="QA"><pos x="1" z="2" a="NaN" /></event></eventposdef>'
+        ok, message = validate_dayz_upload_text("/mission/cfgeventspawns.xml", invalid_spawns)
+        self.assertFalse(ok)
+        self.assertIn("finite", message)
+
+        invalid_messages = (
+            "<messages><message><delay>0</delay><repeat>0</repeat><deadline>0</deadline>"
+            "<onconnect>2</onconnect><shutdown>0</shutdown><text>QA</text></message></messages>"
+        )
+        ok, message = validate_dayz_upload_text("/mission/db/messages.xml", invalid_messages)
+        self.assertFalse(ok)
+        self.assertIn("0 or 1", message)
+
     def test_init_script_and_named_objectspawner_file_are_recognised(self):
         init_spec = dayz_file_spec_for_path("/mission/init.c")
         self.assertIsNotNone(init_spec)

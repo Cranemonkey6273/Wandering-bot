@@ -26628,9 +26628,11 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
             if child is None or child.text is None:
                 return False, f"{label} is missing <{tag}>."
             try:
-                float(child.text.strip())
+                number = float(child.text.strip())
             except (TypeError, ValueError):
                 return False, f"{label} <{tag}> must be numeric."
+            if not math.isfinite(number):
+                return False, f"{label} <{tag}> must be finite."
         return True, ""
 
     if xml_root is not None and filename == "types.xml":
@@ -26846,9 +26848,11 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
                 for optional_key in ("y", "a"):
                     if position.get(optional_key) is not None:
                         try:
-                            float(str(position.get(optional_key)))
+                            value = float(str(position.get(optional_key)))
                         except (TypeError, ValueError):
                             return False, f"cfgeventspawns.xml event {event_node.get('name')} position {position_index + 1} needs numeric {optional_key}."
+                        if not math.isfinite(value):
+                            return False, f"cfgeventspawns.xml event {event_node.get('name')} position {position_index + 1} needs finite {optional_key}."
 
     if xml_root is not None and filename == "cfgeventgroups.xml":
         group_nodes = list(xml_root.findall("group"))
@@ -27100,9 +27104,15 @@ def ai_agent_validate_dayz_draft_semantics(target_path: str, content: str, conte
                 child = message_node.find(tag)
                 if child is not None:
                     try:
-                        float(str(child.text))
+                        value = float(str(child.text))
                     except (TypeError, ValueError):
                         return False, f"messages.xml message {message_index + 1} <{tag}> must be numeric."
+                    if not math.isfinite(value):
+                        return False, f"messages.xml message {message_index + 1} <{tag}> must be finite."
+                    if tag in {"onconnect", "shutdown"} and value not in {0, 1}:
+                        return False, f"messages.xml message {message_index + 1} <{tag}> must be 0 or 1."
+                    if tag in {"delay", "repeat", "deadline"} and value < 0:
+                        return False, f"messages.xml message {message_index + 1} <{tag}> cannot be negative."
 
     if xml_root is not None and filename == "cfglimitsdefinition.xml":
         expected_sections = {

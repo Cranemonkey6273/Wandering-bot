@@ -13,6 +13,29 @@ bot = import_bot_module()
 
 
 class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    def test_dead_character_self_hit_is_not_a_pvp_kill_or_safe_zone_offense(self):
+        corpse_line = (
+            '21:46:53 | Player "Jayo2323" (DEAD) (id=ab7199b84a0373bfb046d29a85ad6e3ea4cf0d123 '
+            'pos=<11252.6, 4273.9, 313.3>) [HP: 0] hit by Player "Jayo2323" '
+            'into Head(0) for 58.0499 damage (Bullet_357) with Revolver from 1.7762 meters'
+        )
+        details = bot.extract_pvp_kill_details(corpse_line)
+        self.assertIsNotNone(details)
+        self.assertEqual("Jayo2323", details["killer"])
+        self.assertEqual("Jayo2323", details["victim"])
+        self.assertTrue(bot.is_stale_self_kill_of_dead_player(corpse_line, details))
+
+        live_self_hit = corpse_line.replace("(DEAD) ", "").replace("[HP: 0]", "[HP: 25]")
+        self.assertFalse(bot.is_stale_self_kill_of_dead_player(live_self_hit))
+
+        normal_pvp = corpse_line.replace('"Jayo2323"', '"OtherPlayer"', 1)
+        self.assertFalse(bot.is_stale_self_kill_of_dead_player(normal_pvp))
+
+        victim_first_line = corpse_line.replace('Player "Jayo2323" (DEAD)', 'Player "Jayo2323" (DEAD)', 1).replace(
+            'Player "Jayo2323" into', 'Player "LeonDaBeast9249" into'
+        )
+        self.assertEqual("LeonDaBeast9249", bot.safe_zone_event_actor_name("kill", victim_first_line))
+
     def test_suicide_fingerprint_collapses_emote_and_death_pair(self):
         event_time = datetime(2026, 7, 11, 14, 33, 42, tzinfo=timezone.utc)
         emote_line = (
