@@ -957,6 +957,24 @@ def extract_adm_coords(line):
     return match.group(1) if match else None
 
 
+def extract_adm_player_coords(line, player_name):
+    """Return coordinates belonging to one named player in an ADM line.
+
+    PvP death records normally contain the victim first and the killer after
+    ``hit by Player``. Keeping each position tied to its player prevents a
+    safe-zone action from using the victim's location for the killer.
+    """
+    clean_name = str(player_name or "").strip()
+    if not clean_name:
+        return None
+    match = re.search(
+        rf'\bPlayer\s+"{re.escape(clean_name)}"(?:(?!\bPlayer\s+").)*?\bpos=<([^>]+)>',
+        str(line or ""),
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
 def build_adm_map_link(line, guild_id=None):
     coords = extract_adm_coords(line)
     return build_izurvive_link(coords, guild_id) if coords else None
@@ -2077,7 +2095,7 @@ def extract_pvp_kill_details(line):
     direct = re.search(r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)', line)
     reverse = re.search(r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)', line)
     hit_death = re.search(
-        r'"([^"]+)"\s+\(DEAD\).*?hit by Player "([^"]+)".*?for ([0-9]+\.?[0-9]*) damage \(([^)]+)\) with ([^ ]+) from ([0-9]+\.?[0-9]*) meters?',
+        r'"([^"]+)"\s+\(DEAD\).*?hit by Player "([^"]+)".*?for ([0-9]+\.?[0-9]*) damage \(([^)]+)\) with ([^ ]+) from ([0-9]+\.?[0-9]*)\s*m(?:eters?)?',
         line,
         re.IGNORECASE
     )
@@ -2117,6 +2135,12 @@ def extract_pvp_kill_details(line):
     coords = extract_adm_coords(line)
     if coords:
         details["coords"] = coords
+    killer_coords = extract_adm_player_coords(line, details.get("killer"))
+    victim_coords = extract_adm_player_coords(line, details.get("victim"))
+    if killer_coords:
+        details["killer_coords"] = killer_coords
+    if victim_coords:
+        details["victim_coords"] = victim_coords
 
     # Headshot detection — DayZ ADM exposes both the hit-zone
     # ("into Head(0)") and the damage type ("(Brain)"). Either is
@@ -2177,6 +2201,20 @@ def safe_zone_event_actor_name(event_type, line):
             return ""
         return str(details.get("killer") or "").strip() if isinstance(details, dict) else ""
     return extract_player_name(line)
+
+
+def safe_zone_event_actor_coords(event_type, line):
+    """Return coordinates for the player responsible for a safe-zone event."""
+    if event_type == "kill":
+        details = extract_pvp_kill_details(line)
+        if is_stale_self_kill_of_dead_player(line, details):
+            return None
+        if not isinstance(details, dict):
+            return None
+        # Never fall back to the first coordinates on victim-first death
+        # records: those belong to the dead player and can produce a false ban.
+        return details.get("killer_coords")
+    return extract_adm_coords(line)
 
 
 def extract_vehicle_kill_details(line):
@@ -27516,7 +27554,7 @@ async def check_safe_zones_for_adm(guild_id, config, event_type, line):
     if not zones:
         return
 
-    coords = extract_adm_coords(line)
+    coords = safe_zone_event_actor_coords(event_type, line)
     point = parse_xy_coords(coords)
     if not point:
         return

@@ -36,6 +36,22 @@ class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual("LeonDaBeast9249", bot.safe_zone_event_actor_name("kill", victim_first_line))
 
+        screenshot_line = (
+            '22:33:24 | Player "LeonDaBeast9249" (DEAD) '
+            '(id=3B6C5BBD08E25390B241B36191315164D864055 pos=<13016.5, 14066.4, 13.3>) '
+            '[HP: 0] hit by Player "CraneMonkey6273" '
+            '(id=4880C7AC4F1774224D5ADE3CFC37FDD6D59090AF pos=<13012.4, 14063.1, 13.3>) '
+            'into Torso(15) for 40 damage (Bullet_9x19) with SG5-K from 5.28035 m'
+        )
+        screenshot_details = bot.extract_pvp_kill_details(screenshot_line)
+        self.assertIsNotNone(screenshot_details)
+        self.assertEqual("CraneMonkey6273", screenshot_details["killer"])
+        self.assertEqual("LeonDaBeast9249", screenshot_details["victim"])
+        self.assertEqual("13012.4, 14063.1, 13.3", screenshot_details["killer_coords"])
+        self.assertEqual("13016.5, 14066.4, 13.3", screenshot_details["victim_coords"])
+        self.assertEqual("CraneMonkey6273", bot.safe_zone_event_actor_name("kill", screenshot_line))
+        self.assertEqual("13012.4, 14063.1, 13.3", bot.safe_zone_event_actor_coords("kill", screenshot_line))
+
     def test_suicide_fingerprint_collapses_emote_and_death_pair(self):
         event_time = datetime(2026, 7, 11, 14, 33, 42, tzinfo=timezone.utc)
         emote_line = (
