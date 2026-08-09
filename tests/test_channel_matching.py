@@ -1393,6 +1393,12 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual("placed_feed", recorded["guild-1"][0]["feed_key"])
         self.assertIn("Crane", recorded["guild-1"][0]["summary"])
 
+    def test_stack_watch_empty_saved_selection_does_not_restore_defaults(self):
+        settings = bot.stack_watch_settings({"stack_watch": {"objects": []}})
+
+        self.assertEqual([], settings["objects"])
+        self.assertFalse(bot.stack_watch_object_matches("FenceKit", settings["objects"]))
+
     def test_server_profile_runtime_ids_keep_guilds_isolated(self):
         previous_configs = bot.guild_configs
         try:

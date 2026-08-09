@@ -81,6 +81,48 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_stack_watch_preset_selection_replaces_stale_default_objects(self):
+        payload = {
+            "stack_watch_enabled": True,
+            "stack_watch_object_presets": "GardenPlot",
+            # This reproduces the old page, which duplicated every saved
+            # preset into the custom textarea as well.
+            "stack_watch_objects": "GardenPlot\nFenceKit\nWatchtowerKit\nTerritoryFlagKit",
+        }
+
+        objects = dashboard.stack_watch_objects_from_payload(
+            payload,
+            ["GardenPlot", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
+        )
+
+        self.assertEqual(["GardenPlot"], objects)
+
+    def test_stack_watch_allows_only_genuine_custom_classes_in_custom_field(self):
+        payload = {
+            "stack_watch_enabled": True,
+            "stack_watch_objects": "MyCustomBuildingKit\nFenceKit",
+        }
+
+        self.assertEqual(
+            ["MyCustomBuildingKit"],
+            dashboard.stack_watch_objects_from_payload(payload, ["GardenPlot", "FenceKit"]),
+        )
+
+    def test_other_moderation_forms_do_not_replace_stack_watch_objects(self):
+        previous = ["GardenPlot"]
+
+        self.assertEqual(
+            previous,
+            dashboard.stack_watch_objects_from_payload({"cheat_check_enabled": True}, previous),
+        )
+
+    def test_moderation_guard_refreshes_after_save_to_show_persisted_state(self):
+        self.assertNotIn(
+            'route === "/api/admin/server-control" || route === "/api/admin/moderation-guard"',
+            dashboard.PAGE_TEMPLATE,
+        )
+        self.assertIn('"/api/admin/moderation-guard",', dashboard.PAGE_TEMPLATE)
+
     def test_restart_schedule_notify_channel_keeps_the_saved_selection(self):
         template = dashboard.PAGE_TEMPLATE
 

@@ -11854,7 +11854,9 @@ PAGE_TEMPLATE = """
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
     {% set cheat = (server.config.cheat_check if server and server.config and server.config.cheat_check else {}) %}
     {% set stack = (server.config.stack_watch if server and server.config and server.config.stack_watch else {}) %}
-    {% set stack_objects = (stack.objects or ['GardenPlot', 'Fireplace', 'FireplaceIndoor', 'OvenIndoor', 'FenceKit', 'WatchtowerKit', 'TerritoryFlagKit']) %}
+    {% set stack_defaults = ['GardenPlot', 'Fireplace', 'FireplaceIndoor', 'OvenIndoor', 'FenceKit', 'WatchtowerKit', 'TerritoryFlagKit'] %}
+    {% set stack_objects = stack.objects if stack.objects is defined else stack_defaults %}
+    {% set stack_preset_values = stack_watch_object_presets | map(attribute='value') | list %}
     <section class="section-panel" id="moderation">
       <div class="section-head">
         <div>
@@ -11962,14 +11964,14 @@ PAGE_TEMPLATE = """
             <label>Area radius metres <input type="number" min="0" max="30000" name="stack_watch_area_radius_meters" value="{{ stack.area_radius_meters or 0 }}" placeholder="0 = whole map"></label>
             <label>Minimum height <input name="stack_watch_min_height" value="{{ stack.min_height or '' }}" placeholder="optional"></label>
             <label>Maximum height <input name="stack_watch_max_height" value="{{ stack.max_height or '' }}" placeholder="optional"></label>
-            <label class="full">Quick watched object presets
+            <label class="full">Watched object presets <span class="muted">Only highlighted objects are watched. Use Ctrl-click to select or remove more than one.</span>
               <select name="stack_watch_object_presets" multiple size="10">
                 {% for preset in stack_watch_object_presets %}
                 <option value="{{ preset.value }}" {{ 'selected' if preset.value in stack_objects else '' }}>{{ preset.group }} - {{ preset.label }} ({{ preset.value }})</option>
                 {% endfor %}
               </select>
             </label>
-            <label class="full">Custom watched objects <textarea name="stack_watch_objects" placeholder="GardenPlot&#10;Fireplace&#10;FenceKit">{% for item in stack_objects %}{{ item }}{% if not loop.last %}&#10;{% endif %}{% endfor %}</textarea></label>
+            <label class="full">Extra custom class names <span class="muted">Only use this for classes not available in the preset list.</span><textarea name="stack_watch_objects" placeholder="MyCustomBuildingKit">{% for item in stack_objects if item not in stack_preset_values %}{{ item }}&#10;{% endfor %}</textarea></label>
             <label class="full">Ban/alert reason <input name="stack_watch_reason" value="{{ stack.reason or 'Possible stacking raid from repeated nearby build placements.' }}"></label>
             <div class="embed-preview full"><strong>ADM placement watch</strong><span>Detects lines like Nameless Object&lt;GardenPlot&gt;, counts nearby repeat placements, and alerts staff. Ban actions only run after the trigger count is met.</span></div>
             <div class="full"><button type="submit">Save Stack Watch</button> <span class="result muted"></span></div>
@@ -16892,7 +16894,7 @@ PAGE_TEMPLATE = """
     function shouldRefreshAfterSave(form) {
       if (!form || form.classList.contains("inline-action") || form.dataset.scenarioActionForm) return false;
       const route = String(form.dataset.route || "").split("?")[0];
-      if (route === "/api/admin/server-control" || route === "/api/admin/moderation-guard") return false;
+      if (route === "/api/admin/server-control") return false;
       return REFRESH_AFTER_SAVE_ROUTES.has(route);
     }
     function removeInlineActionItem(form) {
@@ -45300,6 +45302,50 @@ def lines_or_csv(value: Any, default: list[str] | None = None) -> list[str]:
     return list(default or [])
 
 
+STACK_WATCH_DEFAULT_OBJECTS = [
+    "GardenPlot",
+    "Fireplace",
+    "FireplaceIndoor",
+    "OvenIndoor",
+    "FenceKit",
+    "WatchtowerKit",
+    "TerritoryFlagKit",
+]
+
+
+def stack_watch_objects_from_payload(payload: dict[str, Any], previous: list[str] | None = None) -> list[str]:
+    """Return the exact watched-object selection submitted by Stack Watch.
+
+    Preset class names are controlled solely by the multi-select. The custom
+    field is reserved for classes that are not already presets, preventing an
+    old copy of FenceKit (or another preset) in that field from silently
+    re-enabling it after the owner deselects it.
+    """
+    payload = payload if isinstance(payload, dict) else {}
+    previous = previous if isinstance(previous, list) else None
+    is_stack_watch_form = any(str(key).startswith("stack_watch_") for key in payload)
+    if not is_stack_watch_form:
+        return lines_or_csv(previous, STACK_WATCH_DEFAULT_OBJECTS)
+
+    canonical_presets = {
+        str(item.get("value") or "").strip().casefold(): str(item.get("value") or "").strip()
+        for item in STACK_WATCH_OBJECT_PRESETS
+        if str(item.get("value") or "").strip()
+    }
+    selected_presets = []
+    for value in lines_or_csv(payload.get("stack_watch_object_presets"), []):
+        canonical = canonical_presets.get(value.casefold())
+        if canonical:
+            selected_presets.append(canonical)
+
+    custom_objects = [
+        value
+        for value in lines_or_csv(payload.get("stack_watch_objects"), [])
+        if value.casefold() not in canonical_presets
+    ]
+    return lines_or_csv(selected_presets + custom_objects, [])
+
+
 def moderation_action(value: Any, default: str) -> str:
     action = str(value or default).strip().lower()
     return action if action in MODERATION_ACTIONS else default
@@ -45369,16 +45415,7 @@ def api_moderation_guard():
         stack_previous = {}
     stack = dict(stack_previous)
     stack["enabled"] = safe_bool(payload.get("stack_watch_enabled"), safe_bool(stack_previous.get("enabled"), True))
-    preset_values = payload.get("stack_watch_object_presets")
-    preset_values = preset_values if isinstance(preset_values, list) else [preset_values]
-    stack_objects = lines_or_csv(
-        lines_or_csv(preset_values, []) + lines_or_csv(payload.get("stack_watch_objects"), []),
-        stack_previous.get("objects") or ["GardenPlot", "Fireplace", "FireplaceIndoor", "OvenIndoor", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
-    )
-    stack["objects"] = lines_or_csv(
-        stack_objects,
-        stack_previous.get("objects") or ["GardenPlot", "Fireplace", "FireplaceIndoor", "OvenIndoor", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
-    )
+    stack["objects"] = stack_watch_objects_from_payload(payload, stack_previous.get("objects"))
     stack["window_seconds"] = max(10, min(1800, safe_int(payload.get("stack_watch_window_seconds"), safe_int(stack_previous.get("window_seconds"), 180))))
     stack["radius_meters"] = max(1, min(100, safe_int(payload.get("stack_watch_radius_meters"), safe_int(stack_previous.get("radius_meters"), 8))))
     stack["min_count"] = max(1, min(20, safe_int(payload.get("stack_watch_min_count"), safe_int(stack_previous.get("min_count"), 2))))

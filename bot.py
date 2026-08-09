@@ -25861,7 +25861,8 @@ async def check_stack_watch_for_adm(guild_id, config, event_type, line, event_ti
         return
 
     object_name = extract_placed_object(line)
-    watch_objects = settings.get("objects") or DEFAULT_STACK_WATCH_OBJECTS
+    configured_objects = settings.get("objects")
+    watch_objects = configured_objects if isinstance(configured_objects, list) else DEFAULT_STACK_WATCH_OBJECTS
     if not stack_watch_object_matches(object_name, watch_objects):
         return
 
