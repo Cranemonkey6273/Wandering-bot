@@ -30339,6 +30339,10 @@ def ai_agent_suggested_commands_for_task(task: dict[str, Any], run: dict[str, An
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
     lower = " ".join([objective, project_type, str(task.get("repository") or run.get("repository") or ""), project_path]).lower()
     dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    if dayz_context.get("enabled"):
+        # Protected DayZ validators and guarded live-write flows are not
+        # repository jobs. Never substitute pytest/build/deploy commands.
+        return suggestions
     dayz_scoped = ai_agent_dayz_scope_for_text(
         dayz_context.get("objective") or objective,
         project_type,
@@ -31091,6 +31095,49 @@ def ai_agent_verified_dayz_missing_class_reply(context: Any, prompt: Any) -> str
     )
 
 
+def ai_agent_verified_dayz_invalid_types_values_reply(context: Any, prompt: Any) -> str:
+    """Reject explicitly requested, impossible types.xml numeric values."""
+    if not isinstance(context, dict) or not context.get("enabled"):
+        return ""
+    if dayz_filename_for_path(context.get("target_path")) != "types.xml":
+        return ""
+    text = str(prompt or "")
+    pairs = {
+        name.lower(): float(value)
+        for name, value in re.findall(
+            r"\b(nominal|min|lifetime|restock|quantmin|quantmax|cost)\b[^\-0-9]{0,16}(-?\d+(?:\.\d+)?)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    }
+    if not pairs:
+        return ""
+    problems: list[str] = []
+    for name in ("nominal", "min", "lifetime", "restock"):
+        if name in pairs and pairs[name] < 0:
+            problems.append(f"`{name}` cannot be negative")
+    for name in ("quantmin", "quantmax"):
+        if name in pairs and not (pairs[name] == -1 or 0 <= pairs[name] <= 100):
+            problems.append(f"`{name}` must be `-1` (not applicable) or from `0` to `100`")
+    if "nominal" in pairs and "min" in pairs and pairs["min"] > pairs["nominal"]:
+        problems.append("`min` cannot be greater than `nominal`")
+    if all(name in pairs for name in ("quantmin", "quantmax")):
+        quant_min, quant_max = pairs["quantmin"], pairs["quantmax"]
+        if quant_min != -1 and quant_max != -1 and quant_min > quant_max:
+            problems.append("`quantmin` cannot be greater than `quantmax`")
+    if "cost" in pairs and not (1 <= pairs["cost"] <= 100):
+        problems.append("`cost` must be from `1` to `100`")
+    if not problems:
+        return ""
+    return (
+        "I cannot create a valid `types.xml` entry using those exact values. The protected DayZ checks rejected the request before a downloadable file was saved.\n\n"
+        + "\n".join(f"- {problem}." for problem in dict.fromkeys(problems))
+        + "\n\nUse non-negative Central Economy counts/times, keep `min` at or below `nominal`, and use `-1` or `0`–`100` for quantity percentages. "
+        "Send the intended valid values—or ask me to choose a conservative valid correction—and I can prepare and validate the complete file. "
+        "Nothing was uploaded and this rejected request is not chargeable."
+    )
+
+
 def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str, continued: bool) -> bool:
     """Keep simple verified answers free from unrelated workspace jobs."""
     if isinstance(task, dict):
@@ -31100,14 +31147,11 @@ def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str
         if dayz_drafts and all(str(item.get("validation") or "") == "passed" for item in dayz_drafts):
             return False
         context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
-        if context.get("enabled") and ai_agent_dayz_scope_for_text(
-            context.get("objective") or task.get("objective") or prompt,
-            task.get("project_type") or "auto",
-        ):
+        if context.get("enabled"):
             # DayZ explanations, repairs and linked-file validation are
-            # handled by the protected DayZ workbench.  This prevents a
-            # generic repository command from being queued just because the
-            # prompt contains words such as "check" or "test".
+            # handled by the protected DayZ workbench. Live DayZ writes use
+            # their own guarded workflow; neither case should ever fall
+            # through to a generic repository command such as pytest.
             return False
     return bool(
         continued
@@ -31218,6 +31262,14 @@ def ai_agent_llm_reply_for_task(
         task["next_action"] = "Use a classname from the active vanilla reference, or provide the exact PC mod/version and its current type definitions."
         task["updated_at"] = datetime.now(UTC).isoformat()
         return missing_class_reply
+    invalid_values_reply = ai_agent_verified_dayz_invalid_types_values_reply(dayz_context, prompt)
+    if invalid_values_reply:
+        task["suggested_commands"] = []
+        task["llm_status"] = "dayz_input_required"
+        task["summary"] = "Impossible types.xml numeric values were rejected before an invalid draft could be created."
+        task["next_action"] = "Provide valid values, or ask the agent to choose a conservative valid correction."
+        task["updated_at"] = datetime.now(UTC).isoformat()
+        return invalid_values_reply
     if not scenario.get("id") and not scenario.get("error"):
         inferred_vehicle_scenario = ai_agent_infer_vehicle_scenario_from_prompt(
             prompt,

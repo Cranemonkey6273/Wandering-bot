@@ -1249,6 +1249,49 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual([], dashboard.ai_agent_task_dayz_drafts(task))
         self.assertFalse(dashboard.ai_agent_answer_is_chargeable(task))
 
+    def test_explicit_invalid_types_values_are_explained_without_draft_or_charge(self):
+        prompt = (
+            "In db/types.xml set M4A1 nominal -500, min 999999, lifetime -1, "
+            "quantmin 250 and quantmax -50. Do not upload anything."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/types.xml",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "vanilla",
+            },
+            prompt,
+        )
+        task = {"id": "qa-invalid-values", "project_type": "dayz_files", "dayz_context": context}
+
+        reply = dashboard.ai_agent_llm_reply_for_task(
+            {}, {"kind": "guild"}, {"label": "QA"}, {"id": "run-qa"}, task, None, prompt, False
+        )
+
+        self.assertIn("cannot create a valid `types.xml`", reply)
+        self.assertIn("`min` cannot be greater than `nominal`", reply)
+        self.assertIn("`quantmin` must be `-1`", reply)
+        self.assertEqual([], dashboard.ai_agent_task_dayz_drafts(task))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable(task))
+
+    def test_dayz_workbench_never_queues_generic_repository_job(self):
+        prompt = "Validate this DayZ file; never invent or upload anything."
+        context = dashboard.ai_agent_dayz_file_context(
+            {"project_type": "dayz_files", "dayz_support_mode": "edit_file", "dayz_file_target": "db/types.xml"},
+            prompt,
+        )
+        task = {
+            "project_type": "dayz_files",
+            "objective": prompt,
+            "dayz_context": context,
+            "suggested_commands": [{"label": "Run tests", "command": "pytest", "reason": "wrong surface"}],
+        }
+
+        self.assertEqual([], dashboard.ai_agent_suggested_commands_for_task(task))
+        self.assertFalse(dashboard.ai_agent_should_queue_chat_auto_job(task, prompt, continued=False))
+
     def test_verified_dayz_answer_never_starts_an_unrelated_sandbox_job(self):
         task = {"llm_status": "verified_dayz_reference"}
 
