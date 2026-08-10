@@ -30811,6 +30811,34 @@ def ai_agent_verified_dayz_event_link_reply(prompt: str) -> str:
     )
 
 
+def ai_agent_verified_dayz_tool_durability_reply(prompt: str) -> str:
+    """Return stable guidance for a commonly confused DayZ file question.
+
+    Central Economy population/cleanup values do not change an item's health,
+    maximum durability or per-action wear.  Letting a model infer this from
+    nearby words such as ``lifetime`` or ``uses`` risks producing a dangerous
+    but plausible-sounding types.xml answer.
+    """
+    text = str(prompt or "").lower()
+    mentions_tools = any(term in text for term in ("tool", "tools", "axe", "axes", "saw", "shovel", "pickaxe"))
+    asks_about_wear = any(
+        term in text
+        for term in (
+            "durability", "use count", "use counts", "last longer", "wear", "degrade", "degradation",
+        )
+    )
+    if not mentions_tools or not asks_about_wear:
+        return ""
+    return (
+        "DayZ tool durability is the item's health/condition. Actions such as chopping, sawing or digging apply wear until the item becomes ruined; it is not a Central Economy `nominal` or `lifetime` counter.\n\n"
+        "- `db/types.xml` controls how many items the Central Economy tries to keep in the world (`nominal`/`min`), respawn timing and cleanup/persistence lifetime. Those values do **not** increase a tool's uses or maximum durability.\n"
+        "- `cfgspawnabletypes.xml` and the CE loot-damage settings can control the condition in which supported items spawn. They do **not** change how quickly a tool wears during use.\n"
+        "- On a vanilla console community server there is no standard mission XML/JSON setting that increases every tool's maximum health or reduces per-use wear. You can make tools start in better condition and increase their availability, and players can use the repair item supported by that tool, but that is not the same as changing durability.\n"
+        "- PC servers can change durability behaviour only through the appropriate mod/config/script work. That requires the exact mod, version and class/config source; there is no universal XML snippet that safely applies to every PC server.\n\n"
+        "So the safe console answer is: spawn tools pristine or in better condition and provide suitable repair supplies. Do not edit `nominal`, `min` or `lifetime` expecting more uses. No file or live server setting was changed."
+    )
+
+
 def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str, continued: bool) -> bool:
     """Keep simple verified answers free from unrelated workspace jobs."""
     if isinstance(task, dict):
@@ -30909,7 +30937,10 @@ def ai_agent_llm_reply_for_task(
     # the draft generator or the configured model below.
     support_mode = str(dayz_context.get("support_mode") or "").strip().lower()
     is_dayz_edit_request = bool(str(dayz_context.get("source_text") or "").strip()) or ai_agent_dayz_request_requires_draft(dayz_context, prompt)
-    verified_dayz_reply = "" if scenario.get("id") or is_dayz_edit_request else ai_agent_verified_dayz_event_link_reply(prompt)
+    verified_dayz_reply = "" if scenario.get("id") or is_dayz_edit_request else (
+        ai_agent_verified_dayz_event_link_reply(prompt)
+        or ai_agent_verified_dayz_tool_durability_reply(prompt)
+    )
     if verified_dayz_reply:
         # Do not spend a model call (or present unrelated project commands) for
         # this stable, safety-critical CE relationship.

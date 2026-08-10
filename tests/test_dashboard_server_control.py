@@ -1165,6 +1165,17 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("case-sensitive", reply)
         self.assertNotIn("<id>", reply.lower())
 
+    def test_ai_agent_uses_verified_tool_durability_guidance(self):
+        reply = dashboard.ai_agent_verified_dayz_tool_durability_reply(
+            "Explain how DayZ console owners can make tools last longer and how tool durability works."
+        )
+
+        self.assertIn("item's health/condition", reply)
+        self.assertIn("do **not** increase a tool's uses", reply)
+        self.assertIn("no standard mission XML/JSON setting", reply)
+        self.assertIn("PC servers", reply)
+        self.assertNotIn("nominal (the base number of uses)", reply)
+
     def test_verified_dayz_answer_never_starts_an_unrelated_sandbox_job(self):
         task = {"llm_status": "verified_dayz_reference"}
 
