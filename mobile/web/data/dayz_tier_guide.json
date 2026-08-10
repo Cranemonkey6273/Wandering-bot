@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "active_release": "1.29.163451",
+  "reviewed_at": "2026-08-10",
+  "coverage_note": "The official-map tier counts are checked against the bundled vanilla mission definitions. The coloured maps are visual guides; a community server can replace its Central Economy files and change item eligibility.",
+  "maps": {
+    "chernarus": {
+      "label": "Chernarus",
+      "mission": "dayzOffline.chernarusplus",
+      "summary": "Progress normally moves from the south and east coast toward the inland west and far north-west.",
+      "image_alt": "Chernarus loot tier map showing Tier 1 on the south-east coast, Tier 2 inland, Tier 3 in the west and Tier 4 in the far north-west.",
+      "tiers": [
+        {"number": 1, "colour": "#297f37", "area": "South and east coast", "description": "Early-survival loot around the main fresh-spawn coastline and nearby settlements."},
+        {"number": 2, "colour": "#55b948", "area": "Eastern and central inland band", "description": "The first inland progression zone, with a broader mid-level loot pool."},
+        {"number": 3, "colour": "#74312a", "area": "Western and north-west inland", "description": "Higher progression territory, including many valuable inland and military locations."},
+        {"number": 4, "colour": "#a92720", "area": "Far north-west", "description": "The highest standard Chernarus tier, concentrated around the far north-west progression area."}
+      ]
+    },
+    "livonia": {
+      "label": "Livonia",
+      "mission": "dayzOffline.enoch",
+      "summary": "Progress moves from the populated north through the central transition and into the harsher southern forest.",
+      "image_alt": "Livonia loot tier map showing Tier 1 in the north, Tier 2 through the centre and Tier 3 across the south.",
+      "tiers": [
+        {"number": 1, "colour": "#a9bcb6", "area": "Northern towns and farmland", "description": "The main starting and early-survival region around Livonia's northern population centres."},
+        {"number": 2, "colour": "#3e655d", "area": "Central transition", "description": "Mid-progression loot through the central band before the deep southern forest."},
+        {"number": 3, "colour": "#494575", "area": "Southern forest and high-risk locations", "description": "Livonia's highest standard tier, covering the remote south and its valuable locations."}
+      ]
+    },
+    "sakhal": {
+      "label": "Sakhal",
+      "mission": "dayzOffline.sakhal",
+      "summary": "Progress wraps around the main island and then pushes west and south toward the highest standard tier.",
+      "image_alt": "Sakhal loot tier map showing Tier 1 on the north-east and outer islands, Tier 2 on the main island, Tier 3 in the west and Tier 4 on the southern peninsula.",
+      "tiers": [
+        {"number": 1, "colour": "#2c8e36", "area": "North-east coast and outer islands", "description": "Early-survival areas, including much of the north-east edge and several outlying islands."},
+        {"number": 2, "colour": "#b66b2c", "area": "Central and eastern main island", "description": "The broad mid-progression area across most of Sakhal's main landmass."},
+        {"number": 3, "colour": "#34359b", "area": "Western coast", "description": "Higher-tier progression around the western side of the main island."},
+        {"number": 4, "colour": "#a9231e", "area": "Southern peninsula", "description": "Sakhal's highest standard tier, concentrated on the southern peninsula."}
+      ]
+    }
+  },
+  "community_maps": [
+    {"name": "Namalsk", "status": "Exact mission reference required"},
+    {"name": "Deer Isle", "status": "Exact mission reference required"},
+    {"name": "Banov", "status": "Exact mission reference required"},
+    {"name": "Bitterroot", "status": "Exact mission reference required"},
+    {"name": "Alteria", "status": "Exact mission reference required"},
+    {"name": "Other PC community terrain", "status": "Map-author or server mission reference required"}
+  ]
+}

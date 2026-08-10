@@ -1,18 +1,19 @@
 {
   "name": "wandering-bot-mobile",
-  "version": "0.1.0",
+  "version": "1.0.2",
   "private": true,
   "description": "Native iPhone and Android shell for the Wandering Bot dashboard app.",
   "type": "module",
   "scripts": {
     "doctor": "npx cap doctor",
-    "sync": "npx cap sync",
+    "prepare:offline": "node ./scripts/sync-offline-library.mjs",
+    "sync": "npm run prepare:offline && npx cap sync",
     "add:android": "npx cap add android",
     "add:ios": "npx cap add ios",
     "open:android": "npx cap open android",
     "open:ios": "npx cap open ios",
-    "build:android:debug": "cd android && gradlew.bat assembleDebug",
-    "build:android:release": "cd android && gradlew.bat bundleRelease",
+    "build:android:debug": "npm run sync && cd android && gradlew.bat assembleDebug",
+    "build:android:release": "npm run sync && cd android && gradlew.bat bundleRelease",
     "assets": "npx capacitor-assets generate"
   },
   "dependencies": {

@@ -4,53 +4,116 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#020706">
+  <meta name="color-scheme" content="dark">
   <title>Wandering Bot</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <main class="shell">
-    <section class="hero-card" aria-labelledby="app-title">
-      <img class="app-icon" src="./icon.png" alt="Wandering Bot">
-      <p class="eyebrow">Native server owner app</p>
-      <h1 id="app-title">Wandering Bot</h1>
-      <p class="lead">Secure mobile access for DayZ feeds, shop tools, restart schedules, vehicle resets, zones, members and server controls.</p>
-
+  <div class="app-shell">
+    <header class="topbar">
+      <button class="brand" type="button" data-section="home" aria-label="Open home">
+        <img src="./icon.png" alt="">
+        <span><strong>Wandering Bot</strong><small>DayZ companion</small></span>
+      </button>
       <div class="connection" aria-live="polite">
         <span id="connection-dot" class="connection-dot" aria-hidden="true"></span>
-        <span id="connection-label">Checking connection</span>
+        <span id="connection-label">Checking</span>
       </div>
+    </header>
 
-      <div class="actions">
-        <a id="open-app" class="primary-action" href="https://dayzwanderingbot.com/app?source=native_fallback">Open dashboard</a>
-        <button id="retry-button" class="secondary-action" type="button">Retry</button>
-      </div>
-    </section>
+    <div id="offline-banner" class="offline-banner" hidden>
+      <strong>Offline mode</strong>
+      <span>Your saved DayZ guides still work. Live dashboard tools will return when you reconnect.</span>
+    </div>
 
-    <section class="feature-grid" aria-label="Mobile app features">
-      <article>
-        <span>Feeds</span>
-        <strong>Live ADM activity</strong>
-      </article>
-      <article>
-        <span>Shop</span>
-        <strong>Economy edits</strong>
-      </article>
-      <article>
-        <span>Control</span>
-        <strong>Restarts and raids</strong>
-      </article>
-      <article>
-        <span>Files</span>
-        <strong>Preset downloads</strong>
-      </article>
-    </section>
+    <main>
+      <section id="section-home" class="page active" data-page="home">
+        <div class="hero-card">
+          <p class="eyebrow">DayZ help in your pocket</p>
+          <h1>Learn offline.<br>Control online.</h1>
+          <p class="lead">Crafting, illnesses, server-file explanations and official-map loot tiers are stored inside this app. Live server controls stay protected online.</p>
+          <div class="hero-actions">
+            <button id="open-dashboard" class="primary-action" type="button">
+              <span>Open live dashboard</span><small>Internet required</small>
+            </button>
+            <button class="secondary-action" type="button" data-section="crafting">Browse offline guides</button>
+          </div>
+        </div>
 
-    <footer>
-      <a href="https://dayzwanderingbot.com/support?source=native_fallback">Support</a>
-      <a href="https://dayzwanderingbot.com/privacy?source=native_fallback">Privacy</a>
-      <a href="https://dayzwanderingbot.com/terms?source=native_fallback">Terms</a>
-    </footer>
-  </main>
+        <div class="mode-grid" aria-label="App availability">
+          <article class="mode-card offline-ready">
+            <span class="mode-label">Works offline</span>
+            <strong>DayZ reference library</strong>
+            <p>Crafting, treatments, file relationships, technical terms and tier maps.</p>
+          </article>
+          <article class="mode-card online-only">
+            <span class="mode-label">Online only</span>
+            <strong>Live server services</strong>
+            <p>Discord login, feeds, Nitrado controls, payments, file uploads and AI Sandbox.</p>
+          </article>
+        </div>
+
+        <div class="library-grid">
+          <button type="button" data-section="crafting"><span>🧰</span><strong>Crafting</strong><small>Recipes and build paths</small></button>
+          <button type="button" data-section="illnesses"><span>🩺</span><strong>Health</strong><small>Symptoms and treatments</small></button>
+          <button type="button" data-section="files"><span>🗂️</span><strong>DayZ files</strong><small>Files, links and terms</small></button>
+          <button type="button" data-section="tiers"><span>🗺️</span><strong>Loot tiers</strong><small>Chernarus, Livonia, Sakhal</small></button>
+        </div>
+      </section>
+
+      <section id="section-library" class="page" data-page="library" aria-live="polite">
+        <div class="library-heading">
+          <div>
+            <p id="library-eyebrow" class="eyebrow">Offline DayZ library</p>
+            <h2 id="library-title">Crafting</h2>
+            <p id="library-note" class="library-note"></p>
+          </div>
+          <span id="release-badge" class="release-badge">Bundled reference</span>
+        </div>
+
+        <div id="library-controls" class="library-controls">
+          <label class="search-field">
+            <span>Search</span>
+            <input id="library-search" type="search" placeholder="Search the offline library" autocomplete="off">
+          </label>
+          <label id="platform-filter-wrap">
+            <span>Platform</span>
+            <select id="platform-filter">
+              <option value="all">All platforms</option>
+              <option value="console">Console</option>
+              <option value="pc">PC</option>
+            </select>
+          </label>
+          <label id="map-filter-wrap">
+            <span>Map</span>
+            <select id="map-filter">
+              <option value="all">All maps</option>
+              <option value="chernarus">Chernarus</option>
+              <option value="livonia">Livonia</option>
+              <option value="sakhal">Sakhal</option>
+            </select>
+          </label>
+          <label id="category-filter-wrap">
+            <span>Category</span>
+            <select id="category-filter"><option value="all">All categories</option></select>
+          </label>
+        </div>
+
+        <div id="library-summary" class="library-summary"></div>
+        <div id="library-content" class="card-list">
+          <div class="loading-card">Loading the bundled guide…</div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="active" type="button" data-section="home"><span>⌂</span><small>Home</small></button>
+      <button type="button" data-section="crafting"><span>🧰</span><small>Craft</small></button>
+      <button type="button" data-section="illnesses"><span>🩺</span><small>Health</small></button>
+      <button type="button" data-section="files"><span>🗂️</span><small>Files</small></button>
+      <button type="button" data-section="tiers"><span>🗺️</span><small>Tiers</small></button>
+    </nav>
+  </div>
   <script src="./app.js"></script>
 </body>
 </html>

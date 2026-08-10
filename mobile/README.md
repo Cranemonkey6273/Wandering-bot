@@ -2,17 +2,18 @@
 
 This folder is the real iPhone/Android app project shell for Wandering Bot.
 
-It uses Capacitor so the installed app can run on Android and iOS while still loading the secure Wandering Bot backend at:
+It uses Capacitor so the installed app can run on Android and iOS. The app starts from a packaged local home and guide library, while secure live services open the Wandering Bot backend at:
 
 `https://dayzwanderingbot.com/app`
 
-That is intentional. Nitrado tokens, Stripe secrets, Discord bot credentials, restart controls, XML writes, and billing checks must stay on the server. The phone app is the native shell and the server remains the source of truth. Stripe checkout links are not exposed inside the Android Play build.
+Crafting, illness, DayZ-file and official loot-tier reference data is bundled for offline use. Nitrado tokens, Stripe secrets, Discord bot credentials, restart controls, XML writes, AI requests and billing checks must stay on the server. The server remains the source of truth for every live or account-specific action. Stripe checkout links are not exposed inside the Android Play build.
 
 ## What Links
 
-- The installed app opens `https://dayzwanderingbot.com/app`.
+- The installed app opens its packaged home and offline DayZ guide library.
+- The **Open live dashboard** button opens `https://dayzwanderingbot.com/app` when a connection is available.
 - The app allows Wandering Bot dashboard pages, Discord, and Wandering Bot subdomains. Stripe checkout stays outside the Android Play app.
-- The Android Play build opens `https://dayzwanderingbot.com/app?source=native_android` so checkout buttons stay hidden inside the native app.
+- The Android Play build uses `https://dayzwanderingbot.com/app?source=native_android` for its online dashboard so checkout buttons stay hidden inside the native app.
 - Android deep links are registered for `wanderingbot://`, `/app`, `/login`, `/admin`, and `/owner`.
 - Full verified Android App Links still need a release signing certificate and `/.well-known/assetlinks.json` on the website before Play Store release.
 
