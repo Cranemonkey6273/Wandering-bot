@@ -31,7 +31,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
-from threading import Thread
+from threading import RLock, Thread
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
@@ -1404,6 +1404,7 @@ FILES = {
     "longshot_records": "longshot_records.json",
     "removed_guilds": "removed_guilds.json",
     "ai_agent": "ai_agent.json",
+    "ai_agent_chat_requests": "ai_agent_chat_requests.json",
     "agent_accounts": "agent_accounts.json",
     "agent_credit_packs": "agent_credit_packs.json",
     "rpt_event_tracker": "rpt_event_tracker.json",
@@ -18447,6 +18448,7 @@ PAGE_TEMPLATE = """
       aiAgentFetchChanges(form, null, {force: true});
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if (form.dataset.aiChatSubmitting === "true") return;
         const promptBox = form.elements.prompt;
         const prompt = String(promptBox?.value || "").trim();
         const result = form.querySelector("[data-ai-chat-result], .result");
@@ -18458,6 +18460,7 @@ PAGE_TEMPLATE = """
           }
           return;
         }
+        form.dataset.aiChatSubmitting = "true";
         thread.querySelector(".ai-codex-empty")?.remove();
         const userMessage = aiChatMessageNode({
           role: "user",
@@ -18485,6 +18488,11 @@ PAGE_TEMPLATE = """
           button.textContent = "Thinking...";
         }
         const payload = aiChatPayload(form);
+        const retryMatches = form.dataset.aiRetryPrompt === prompt && form.dataset.aiRetryRequestId;
+        const requestId = retryMatches
+          ? form.dataset.aiRetryRequestId
+          : (window.crypto?.randomUUID?.() || `chat-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        payload.client_request_id = requestId;
         if (promptBox) promptBox.value = "";
         const token = new URLSearchParams(window.location.search).get("token");
         const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
@@ -18502,6 +18510,8 @@ PAGE_TEMPLATE = """
           const content = bubble?.querySelector("p");
           const time = bubble?.querySelector("time");
           if (!response.ok) {
+            delete form.dataset.aiRetryRequestId;
+            delete form.dataset.aiRetryPrompt;
             const message = body.error || "The agent could not answer that yet.";
             if (content) content.textContent = message;
             aiAgentSetLiveStatus("Error", "bad");
@@ -18511,6 +18521,8 @@ PAGE_TEMPLATE = """
             }
             return;
           }
+          delete form.dataset.aiRetryRequestId;
+          delete form.dataset.aiRetryPrompt;
           const assistant = body.assistant_message || {content: body.note || "Done.", plan_steps: []};
           if (body.user_message && body.user_message.id) {
             userMessage.dataset.messageId = String(body.user_message.id);
@@ -18545,9 +18557,12 @@ PAGE_TEMPLATE = """
             });
           }
         } catch (error) {
+          form.dataset.aiRetryRequestId = requestId;
+          form.dataset.aiRetryPrompt = prompt;
+          if (promptBox && !String(promptBox.value || "").trim()) promptBox.value = prompt;
           typingMessage.classList.remove("typing");
           const content = typingMessage.querySelector("p");
-          const message = `Request failed: ${error && error.message ? error.message : error}`;
+          const message = `Connection lost: ${error && error.message ? error.message : error}. Send the restored message again safely; it will reuse the same request and cannot charge twice.`;
           if (content) content.textContent = message;
           aiAgentSetLiveStatus("Error", "bad");
           if (result) {
@@ -18555,6 +18570,7 @@ PAGE_TEMPLATE = """
             result.textContent = message;
           }
         } finally {
+          delete form.dataset.aiChatSubmitting;
           if (button && button.isConnected) {
             button.disabled = false;
             button.textContent = originalButtonText;
@@ -23655,6 +23671,9 @@ except (TypeError, ValueError):
 # Clamp old Railway values up as well as new defaults so an existing 45-second
 # environment variable cannot silently preserve the production failure.
 AI_AGENT_LLM_TIMEOUT_SECONDS = max(120, min(300, AI_AGENT_LLM_TIMEOUT_SECONDS))
+AI_AGENT_CHAT_REQUEST_TTL_SECONDS = 20 * 60
+AI_AGENT_CHAT_REQUEST_LIMIT = 300
+AI_AGENT_CHAT_REQUEST_LOCK = RLock()
 try:
     AI_AGENT_LLM_MAX_TOKENS = int(float(os.getenv("WANDERING_AI_AGENT_LLM_MAX_TOKENS", "8000")))
 except (TypeError, ValueError):
@@ -25735,6 +25754,111 @@ def ai_agent_find_by_id(items: list[Any], item_id: Any) -> dict[str, Any] | None
         if isinstance(item, dict) and str(item.get("id") or "") == wanted:
             return item
     return None
+
+
+def ai_agent_chat_request_id(payload: dict[str, Any] | None) -> str:
+    value = str((payload or {}).get("client_request_id") or "").strip()
+    if not value or len(value) > 128 or not re.fullmatch(r"[A-Za-z0-9._:-]+", value):
+        return ""
+    return value
+
+
+def ai_agent_chat_request_fingerprint(payload: dict[str, Any]) -> str:
+    relevant = {
+        str(key): value
+        for key, value in payload.items()
+        if str(key) not in {"client_request_id", "return_to", "dashboard_mode"}
+    }
+    encoded = json.dumps(relevant, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def ai_agent_chat_request_reserve(auth: dict[str, Any], payload: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    """Reserve one browser message so reconnects cannot create or charge it twice."""
+    client_request_id = ai_agent_chat_request_id(payload)
+    if not client_request_id:
+        return "untracked", None
+    subject_key = ai_agent_subject_for_auth(auth)
+    record_id = hashlib.sha256(f"{subject_key}\0{client_request_id}".encode("utf-8")).hexdigest()
+    fingerprint = ai_agent_chat_request_fingerprint(payload)
+    now = time.time()
+    with AI_AGENT_CHAT_REQUEST_LOCK:
+        store = load_store("ai_agent_chat_requests", {})
+        if not isinstance(store, dict):
+            store = {}
+        rows = store.get("requests") if isinstance(store.get("requests"), list) else []
+        rows = [
+            row for row in rows
+            if isinstance(row, dict) and now - float(row.get("updated_epoch") or row.get("created_epoch") or now) < 7 * 86400
+        ]
+        existing = next((row for row in rows if str(row.get("id") or "") == record_id), None)
+        if existing:
+            if not secrets.compare_digest(str(existing.get("fingerprint") or ""), fingerprint):
+                return "conflict", dict(existing)
+            status = str(existing.get("status") or "processing")
+            age = now - float(existing.get("updated_epoch") or existing.get("created_epoch") or now)
+            if status == "processing" and age < AI_AGENT_CHAT_REQUEST_TTL_SECONDS:
+                return "processing", dict(existing)
+            if status == "completed":
+                return "completed", dict(existing)
+            if status == "failed":
+                return "failed", dict(existing)
+            existing.update({"status": "processing", "updated_epoch": now, "updated_at": datetime.now(UTC).isoformat()})
+            record = existing
+        else:
+            record = {
+                "id": record_id,
+                "client_request_id": client_request_id,
+                "subject_key": subject_key,
+                "fingerprint": fingerprint,
+                "status": "processing",
+                "created_epoch": now,
+                "updated_epoch": now,
+                "created_at": datetime.now(UTC).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+            rows.insert(0, record)
+        store["requests"] = rows[:AI_AGENT_CHAT_REQUEST_LIMIT]
+        save_store("ai_agent_chat_requests", store)
+        return "reserved", dict(record)
+
+
+def ai_agent_chat_request_finish(record: dict[str, Any] | None, status: str, **values: Any) -> None:
+    if not isinstance(record, dict) or not record.get("id"):
+        return
+    now = time.time()
+    with AI_AGENT_CHAT_REQUEST_LOCK:
+        store = load_store("ai_agent_chat_requests", {})
+        if not isinstance(store, dict):
+            store = {}
+        rows = store.get("requests") if isinstance(store.get("requests"), list) else []
+        current = next((row for row in rows if isinstance(row, dict) and str(row.get("id") or "") == str(record.get("id"))), None)
+        if current is None:
+            current = dict(record)
+            rows.insert(0, current)
+        current.update({"status": str(status), "updated_epoch": now, "updated_at": datetime.now(UTC).isoformat()})
+        for key, value in values.items():
+            if value is not None:
+                current[str(key)] = value
+        store["requests"] = rows[:AI_AGENT_CHAT_REQUEST_LIMIT]
+        save_store("ai_agent_chat_requests", store)
+
+
+def ai_agent_chat_duplicate_response(state: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    run = ai_agent_find_by_id(state.get("runs", []), record.get("run_id"))
+    task = ai_agent_find_by_id(state.get("tasks", []), record.get("task_id"))
+    user_message = ai_agent_find_by_id(state.get("chat_messages", []), record.get("user_message_id"))
+    assistant_message = ai_agent_find_by_id(state.get("chat_messages", []), record.get("assistant_message_id"))
+    return {
+        "ok": True,
+        "duplicate": True,
+        "run": run,
+        "task": ai_agent_public_task(task) if task else None,
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+        "credits_remaining": safe_int(record.get("credits_remaining"), 0),
+        "note": "This message was already completed; the original answer was reused without another charge.",
+    }
 
 
 def ai_agent_compact_text(value: Any, limit: int = 500) -> str:
@@ -47235,6 +47359,21 @@ def api_ai_agent_chat():
         balance = safe_int((account or {}).get("credits"), 0)
         if balance < AGENT_CHAT_CREDIT_COST:
             return jsonify({"ok": False, "error": f"Not enough credits. This prompt costs {AGENT_CHAT_CREDIT_COST} credit(s).", "credits_remaining": balance}), 402
+    request_status, request_record = ai_agent_chat_request_reserve(auth, payload)
+    if request_status == "conflict":
+        return jsonify({"ok": False, "error": "That message request ID was already used for different content. Please send it again."}), 409
+    if request_status == "processing":
+        return jsonify({
+            "ok": True,
+            "duplicate": True,
+            "processing": True,
+            "credits_remaining": agent_credit_balance_for_auth(auth),
+            "note": "This message is already being processed. It was not submitted or charged twice.",
+        }), 202
+    if request_status == "completed" and request_record:
+        return jsonify(ai_agent_chat_duplicate_response(state, request_record))
+    if request_status == "failed":
+        return jsonify({"ok": False, "error": "The previous attempt for this message failed. Please send it again as a new message."}), 409
     actor = access.get("label") or dashboard_audit_actor(auth)
     run, continued = ai_agent_resolve_run_for_prompt(state, auth, access, payload, prompt)
     run_id = str(run.get("id") or "")
@@ -47247,6 +47386,7 @@ def api_ai_agent_chat():
     if error_message:
         assistant_message = ai_agent_chat_message(state, role="assistant", author="Sandbox Assistant", content=f"I could not create that plan yet: {error_message}", run_id=run_id)
         save_ai_agent_state(state)
+        ai_agent_chat_request_finish(request_record, "failed", run_id=run_id, error=str(error_message)[:300])
         return jsonify({"ok": False, "error": error_message, "user_message": user_message, "assistant_message": assistant_message}), status_code
     reply = ai_agent_llm_reply_for_task(state, auth, access, run, task or {}, approval, prompt, continued)
     auto_job = None
@@ -47270,10 +47410,20 @@ def api_ai_agent_chat():
     if ai_agent_answer_is_chargeable(task):
         charged, charge_error, credits_remaining = agent_charge_for_prompt(auth, prompt)
         if not charged:
+            ai_agent_chat_request_finish(request_record, "failed", run_id=run_id, task_id=(task or {}).get("id", ""), error=str(charge_error or "Could not charge credits")[:300])
             return jsonify({"ok": False, "error": charge_error or "Could not charge credits", "credits_remaining": credits_remaining}), 402
     else:
         credits_remaining = agent_credit_balance_for_auth(auth)
     save_ai_agent_state(state)
+    ai_agent_chat_request_finish(
+        request_record,
+        "completed",
+        run_id=run_id,
+        task_id=(task or {}).get("id", ""),
+        user_message_id=user_message.get("id", ""),
+        assistant_message_id=assistant_message.get("id", ""),
+        credits_remaining=credits_remaining,
+    )
     g.dashboard_audit_payload = dict(raw_payload, guild_id="global", action="chat", task_id=(task or {}).get("id", ""), run_id=run_id)
     return dashboard_api_response(
         raw_payload,

@@ -3538,6 +3538,60 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(12, response["credits_remaining"])
 
+    def test_ai_agent_chat_request_idempotency_reuses_completed_request(self):
+        store = {"requests": []}
+        auth = {"kind": "guild", "guild_id": "guild-qa"}
+        payload = {
+            "prompt": "Repair this complete DayZ types.xml file.",
+            "client_request_id": "chat-qa-123",
+            "project_type": "dayz_files",
+        }
+        with (
+            patch.object(dashboard, "load_store", return_value=store),
+            patch.object(dashboard, "save_store"),
+        ):
+            status, record = dashboard.ai_agent_chat_request_reserve(auth, payload)
+            self.assertEqual("reserved", status)
+            dashboard.ai_agent_chat_request_finish(
+                record,
+                "completed",
+                run_id="run-qa",
+                task_id="task-qa",
+                assistant_message_id="message-qa",
+                credits_remaining=11,
+            )
+            duplicate_status, duplicate = dashboard.ai_agent_chat_request_reserve(auth, payload)
+
+        self.assertEqual("completed", duplicate_status)
+        self.assertEqual("run-qa", duplicate["run_id"])
+        self.assertEqual(11, duplicate["credits_remaining"])
+        self.assertEqual(1, len(store["requests"]))
+
+    def test_ai_agent_chat_completed_duplicate_does_not_charge_again(self):
+        auth = {"kind": "guild", "guild_id": "guild-qa"}
+        access = {"label": "QA owner", "subject_key": "guild:guild-qa"}
+        state = {"runs": [], "tasks": [], "chat_messages": []}
+        duplicate_body = {
+            "ok": True,
+            "duplicate": True,
+            "credits_remaining": 11,
+            "note": "Original answer reused.",
+        }
+        with (
+            patch.object(dashboard, "require_ai_agent_permission", return_value=(auth, access, state, None)),
+            patch.object(dashboard, "request_payload", return_value={"prompt": "Repair this complete DayZ XML file", "client_request_id": "chat-qa-123"}),
+            patch.object(dashboard, "agent_credit_account_for_auth", return_value={"credits": 11}),
+            patch.object(dashboard, "ai_agent_chat_request_reserve", return_value=("completed", {"id": "request-qa"})),
+            patch.object(dashboard, "ai_agent_chat_duplicate_response", return_value=duplicate_body),
+            patch.object(dashboard, "agent_charge_for_prompt") as charge,
+            patch.object(dashboard, "jsonify", side_effect=lambda value: value),
+        ):
+            response = dashboard.api_ai_agent_chat()
+
+        charge.assert_not_called()
+        self.assertTrue(response["duplicate"])
+        self.assertEqual(11, response["credits_remaining"])
+
     def test_dayz_new_geometry_requests_stop_before_the_model_when_coordinates_are_missing(self):
         restricted_context = dashboard.ai_agent_dayz_file_context(
             {
