@@ -898,6 +898,10 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Payment links are intentionally not placed inside the Google Play app", template)
         self.assertNotIn("buy.stripe.com", template)
         self.assertIn("DayZ field guide", template)
+        self.assertIn("{% if mobile_ai_agent_allowed %}", template)
+        self.assertIn("mobile_ai_agent_url", template)
+        self.assertIn("DayZ AI agent", template)
+        self.assertIn("restart_warning_values|join(',')", template)
         self.assertIn("Airdrop builder", template)
         self.assertIn("Live from latest RPT", template)
         self.assertIn('action="/api/admin/scenario-event"', template)
@@ -1212,6 +1216,21 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('data-ai-new-conversation="{{ \'true\' if new_conversation else \'false\' }}"', dashboard.PAGE_TEMPLATE)
         self.assertIn('target.searchParams.set("new_conversation", "1")', dashboard.PAGE_TEMPLATE)
         self.assertIn('form.dataset.aiNewConversation = "false"', dashboard.PAGE_TEMPLATE)
+        self.assertIn("new_conversation=new_conversation", dashboard.inspect.getsource(dashboard.page))
+
+    def test_restart_schedule_accepts_legacy_scalar_and_csv_minutes(self):
+        self.assertEqual([30], dashboard.dashboard_positive_int_list(30, [30, 15, 5]))
+        self.assertEqual([30, 15], dashboard.dashboard_positive_int_list("30,15,30", [5]))
+
+        config = {
+            "restart_warning_minutes": 30,
+            "schedule_reminder_minutes": "60,30,60",
+        }
+        dashboard.normalize_dashboard_server_control_schedules(config)
+
+        self.assertEqual([30], config["restart_warning_minutes"])
+        self.assertEqual([60, 30], config["schedule_reminder_minutes"])
+        self.assertEqual([30], dashboard.dashboard_restart_status(config)["warnings"])
 
     def test_ai_chat_message_tone_is_shared_by_initial_and_live_messages(self):
         self.assertEqual("warning", dashboard.ai_agent_message_tone("Warning: do not upload this draft yet."))

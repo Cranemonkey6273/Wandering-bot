@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 
 import dashboard
-from ui_localization import SUPPORTED_UI_LANGUAGES, UI_TRANSLATIONS, ui_localization_javascript
+from ui_localization import (
+    CORE_APP_UI_TRANSLATIONS,
+    SUPPORTED_UI_LANGUAGES,
+    UI_TRANSLATIONS,
+    ui_localization_javascript,
+)
 
 
 class UiLocalizationAndAppLaunchTests(unittest.TestCase):
@@ -12,6 +17,15 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         for language in ("de", "fr", "es", "pl"):
             self.assertIn("Save", UI_TRANSLATIONS[language])
             self.assertIn("Wandering Bot is now live on Google Play", UI_TRANSLATIONS[language])
+
+    def test_core_mobile_and_onboarding_copy_is_complete_in_every_language(self):
+        expected_phrases = set(CORE_APP_UI_TRANSLATIONS["de"])
+        self.assertGreaterEqual(len(expected_phrases), 20)
+        for language in ("de", "fr", "es", "pl"):
+            self.assertEqual(expected_phrases, set(CORE_APP_UI_TRANSLATIONS[language]))
+            for english in expected_phrases:
+                self.assertIn(english, UI_TRANSLATIONS[language])
+                self.assertNotEqual(english, UI_TRANSLATIONS[language][english])
 
     def test_localizer_is_offline_and_protects_dayz_technical_surfaces(self):
         script = ui_localization_javascript()

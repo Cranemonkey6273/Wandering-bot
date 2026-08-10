@@ -3766,6 +3766,7 @@ APP_DASHBOARD_TEMPLATE = """
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
         <a class="tool-row" href="{{ crafting_library_url }}"><b>Survival</b><strong>Crafting library</strong><span>Free vanilla recipes, base-building stages and ingredient visuals for players.</span></a>
         <a class="tool-row" href="{{ files_library_url }}"><b>Files</b><strong>DayZ files explained</strong><span>See what every core file controls, which files link together and what common XML terms mean.</span></a>
+        {% if mobile_ai_agent_allowed %}<a class="tool-row" href="{{ mobile_ai_agent_url }}"><b>Ultimate AI</b><strong>DayZ AI agent</strong><span>Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.</span></a>{% endif %}
       </div>
     </section>
     <section class="section">
@@ -3954,7 +3955,7 @@ APP_DASHBOARD_TEMPLATE = """
             <label>Every hours<input name="restart_interval_hours" type="number" min="1" max="24" value="{{ selected_config.get('restart_interval_hours', 4) }}"></label>
             <label>Start hour local<input name="restart_start_hour" type="number" min="0" max="23" value="{{ selected_config.get('restart_start_hour', 0) }}"></label>
             <label>Timezone<input name="server_timezone" value="{{ selected_config.get('restart_timezone') or selected_config.get('server_timezone') or 'Europe/Dublin' }}"></label>
-            <label class="full">Warning minutes<input name="restart_warning_minutes" value="{{ selected_config.get('restart_warning_minutes', [30,15,10,5,1])|join(',') }}"><small>Comma separated, for example 30,15,5,1.</small></label>
+            <label class="full">Warning minutes<input name="restart_warning_minutes" value="{{ restart_warning_values|join(',') }}"><small>Comma separated, for example 30,15,5,1.</small></label>
             <button class="full" type="submit">Save restart schedule</button>
           </form>
         </div>
@@ -33006,6 +33007,23 @@ def safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def dashboard_positive_int_list(value: Any, default: Iterable[int]) -> list[int]:
+    """Normalize legacy scalar or CSV schedule values into positive integers."""
+    default_values = [safe_int(item, 0) for item in default if safe_int(item, 0) > 0]
+    if isinstance(value, (list, tuple, set)):
+        raw_values = list(value)
+    elif value in (None, ""):
+        raw_values = default_values
+    else:
+        raw_values = re.split(r"[,\s]+", str(value).strip())
+    result: list[int] = []
+    for item in raw_values:
+        number = safe_int(item, 0)
+        if number > 0 and number not in result:
+            result.append(number)
+    return result or default_values
+
+
 def dashboard_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
@@ -33112,18 +33130,10 @@ def normalize_dashboard_server_control_schedules(config: dict[str, Any]) -> bool
         "restart_start_hour",
         max(0, min(23, safe_int(config.get("restart_start_hour"), 0))),
     )
-    warnings: list[int] = []
-    for item in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
-        minute = safe_int(item, 0)
-        if minute > 0 and minute not in warnings:
-            warnings.append(minute)
-    changed |= set_dashboard_config_if_changed(config, "restart_warning_minutes", warnings or [30, 15, 10, 5, 1])
-    reminder_minutes: list[int] = []
-    for item in config.get("schedule_reminder_minutes") or [30]:
-        minute = safe_int(item, 0)
-        if minute > 0 and minute not in reminder_minutes:
-            reminder_minutes.append(minute)
-    changed |= set_dashboard_config_if_changed(config, "schedule_reminder_minutes", reminder_minutes or [30])
+    warnings = dashboard_positive_int_list(config.get("restart_warning_minutes"), [30, 15, 10, 5, 1])
+    changed |= set_dashboard_config_if_changed(config, "restart_warning_minutes", warnings)
+    reminder_minutes = dashboard_positive_int_list(config.get("schedule_reminder_minutes"), [30])
+    changed |= set_dashboard_config_if_changed(config, "schedule_reminder_minutes", reminder_minutes)
     changed |= set_dashboard_config_if_changed(config, "schedule_reminders_enabled", dashboard_bool(config.get("schedule_reminders_enabled"), False))
     timezone_name = dashboard_server_timezone_name(config)
     restart_timezone = dashboard_restart_timezone_name(config)
@@ -35647,11 +35657,7 @@ def dashboard_restart_status(config: dict[str, Any]) -> dict[str, Any]:
     start_hour = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
     timezone_name = dashboard_restart_timezone_name(config)
     local_tz = dashboard_restart_timezone(config)
-    warnings = []
-    for item in config.get("restart_warning_minutes") or [30, 15, 10, 5, 1]:
-        minute = safe_int(item, 0)
-        if minute > 0 and minute not in warnings:
-            warnings.append(minute)
+    warnings = dashboard_positive_int_list(config.get("restart_warning_minutes"), [30, 15, 10, 5, 1])
     channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
     history = config.get("restart_history") if isinstance(config.get("restart_history"), list) else []
     now_utc = datetime.now(UTC)
@@ -40547,6 +40553,7 @@ def page(mode: str, auth: dict[str, Any]):
     ai_agent_active_run: dict[str, Any] | None = None
     ai_agent_workspace_state: dict[str, Any] = {}
     ai_agent_credits = 0
+    new_conversation = False
     if active_section == "ai-agent" or auth.get("kind") == "agent_account":
         ai_agent_state = load_ai_agent_state()
         ai_agent_access = ai_agent_access_for_auth(auth, ai_agent_state)
@@ -40889,6 +40896,7 @@ def page(mode: str, auth: dict[str, Any]):
         agent_accounts=agent_account_rows() if auth.get("kind") == "owner" and active_section == "ai-agent" else [],
         agent_chat_credit_cost=AGENT_CHAT_CREDIT_COST,
         ai_agent_message_tone=ai_agent_message_tone,
+        new_conversation=new_conversation,
         owner_dashboard_id=OWNER_DASHBOARD_ID or "owner",
         owner_notifications=state.get("owner_notifications", []),
         removed_guilds=state.get("removed_guilds", []),
@@ -42075,6 +42083,17 @@ def mobile_app():
     selected_profile = payload["selected_dayz_profile"]
     selected_profile_id = payload["selected_dayz_profile_id"]
     selected_guild_id = str(server.get("guild_id") or "") if isinstance(server, dict) else ""
+    mobile_ai_agent_access = ai_agent_access_for_auth(auth, {})
+    mobile_ai_agent_allowed = bool(
+        mobile_ai_agent_access.get("allowed")
+        and mobile_ai_agent_access.get("permissions", {}).get("read")
+    )
+    mobile_ai_agent_query = {"section": "ai-agent"}
+    if selected_guild_id:
+        mobile_ai_agent_query["guild_id"] = selected_guild_id
+    if selected_profile_id:
+        mobile_ai_agent_query["server_profile_id"] = selected_profile_id
+    mobile_ai_agent_url = f"/admin?{urllib.parse.urlencode(mobile_ai_agent_query)}"
     profile_runtime_id = str(selected_profile.get("runtime_id") or "") if isinstance(selected_profile, dict) else ""
     if not profile_runtime_id:
         profile_runtime_id = (
@@ -42129,7 +42148,13 @@ def mobile_app():
         files_library_url=(f"/crafting?tab=files&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=files"),
         app_qs=payload["app_qs"],
         restart_status=restart_status,
+        restart_warning_values=dashboard_positive_int_list(
+            selected_config.get("restart_warning_minutes"),
+            [30, 15, 10, 5, 1],
+        ),
         schedule_status=schedule_status,
+        mobile_ai_agent_allowed=mobile_ai_agent_allowed,
+        mobile_ai_agent_url=mobile_ai_agent_url,
         native_app_mode=native_app_mode,
         app_shop_items=shop_rows[:60],
         shop_items_total=shop_items_total,

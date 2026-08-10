@@ -264,6 +264,113 @@ UI_TRANSLATIONS = {
 }
 
 
+# High-visibility app and onboarding copy must be complete in every supported
+# non-English language.  Keeping this as a small reviewed overlay makes it much
+# harder for a newly added mobile tool to appear half-translated while leaving
+# DayZ filenames, classnames and editor content untouched.
+CORE_APP_UI_TRANSLATIONS = {
+    "de": {
+        "Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.": "Füge Wandering Bot vor der Anmeldung zu deinem Discord hinzu. Der Bot erstellt einen privaten Dashboard-Zugang, nachdem ein Administrator die Einrichtung abgeschlossen hat.",
+        "Read the full setup guide": "Vollständige Einrichtungsanleitung lesen",
+        "Understand DayZ server files": "DayZ-Serverdateien verstehen",
+        "Get started": "Loslegen",
+        "Command centre": "Kommandozentrale",
+        "A focused mobile overview. Full desktop-only builders stay out of the app.": "Eine übersichtliche mobile Ansicht. Umfangreiche Werkzeuge nur für den Desktop bleiben außerhalb der App.",
+        "Mobile tools": "Mobile Werkzeuge",
+        "Server feeds": "Server-Feeds",
+        "Airdrop builder": "Airdrop-Builder",
+        "Shop control": "Shop-Steuerung",
+        "Server control": "Serversteuerung",
+        "DayZ field guide": "DayZ-Handbuch",
+        "Crafting library": "Herstellungsbibliothek",
+        "DayZ files explained": "DayZ-Dateien erklärt",
+        "DayZ AI agent": "DayZ-KI-Agent",
+        "Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.": "Stelle Fragen, behebe Fehler und erstelle geprüfte DayZ-Dateientwürfe in getrennten Unterhaltungen.",
+        "Tour": "Rundgang",
+        "Log out": "Abmelden",
+        "Choose the correct server": "Den richtigen Server auswählen",
+        "Watch feeds and events": "Feeds und Events beobachten",
+        "Control with confirmation": "Steuerung mit Bestätigung",
+        "Use Guides before file changes": "Vor Dateiänderungen die Anleitungen nutzen",
+    },
+    "fr": {
+        "Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.": "Ajoutez Wandering Bot à votre Discord avant de vous connecter. Le bot créera un accès privé au tableau de bord après la configuration par un administrateur.",
+        "Read the full setup guide": "Lire le guide d’installation complet",
+        "Understand DayZ server files": "Comprendre les fichiers serveur DayZ",
+        "Get started": "Commencer",
+        "Command centre": "Centre de commande",
+        "A focused mobile overview. Full desktop-only builders stay out of the app.": "Une vue mobile claire. Les outils complets réservés à l’ordinateur restent hors de l’application.",
+        "Mobile tools": "Outils mobiles",
+        "Server feeds": "Flux du serveur",
+        "Airdrop builder": "Créateur de largages",
+        "Shop control": "Gestion de la boutique",
+        "Server control": "Contrôle du serveur",
+        "DayZ field guide": "Guide pratique DayZ",
+        "Crafting library": "Bibliothèque d’artisanat",
+        "DayZ files explained": "Fichiers DayZ expliqués",
+        "DayZ AI agent": "Agent IA DayZ",
+        "Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.": "Posez des questions, corrigez les erreurs et préparez des fichiers DayZ validés dans des conversations séparées.",
+        "Tour": "Visite",
+        "Log out": "Se déconnecter",
+        "Choose the correct server": "Choisir le bon serveur",
+        "Watch feeds and events": "Surveiller les flux et événements",
+        "Control with confirmation": "Contrôler avec confirmation",
+        "Use Guides before file changes": "Consulter les guides avant de modifier les fichiers",
+    },
+    "es": {
+        "Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.": "Añade Wandering Bot a tu Discord antes de iniciar sesión. El bot creará un acceso privado al panel cuando un administrador termine la configuración.",
+        "Read the full setup guide": "Leer la guía de configuración completa",
+        "Understand DayZ server files": "Entender los archivos del servidor DayZ",
+        "Get started": "Empezar",
+        "Command centre": "Centro de control",
+        "A focused mobile overview. Full desktop-only builders stay out of the app.": "Una vista móvil clara. Las herramientas completas para ordenador se mantienen fuera de la aplicación.",
+        "Mobile tools": "Herramientas móviles",
+        "Server feeds": "Canales del servidor",
+        "Airdrop builder": "Creador de airdrops",
+        "Shop control": "Control de la tienda",
+        "Server control": "Control del servidor",
+        "DayZ field guide": "Guía práctica de DayZ",
+        "Crafting library": "Biblioteca de fabricación",
+        "DayZ files explained": "Archivos de DayZ explicados",
+        "DayZ AI agent": "Agente de IA de DayZ",
+        "Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.": "Haz preguntas, corrige errores y prepara borradores validados de archivos DayZ en conversaciones separadas.",
+        "Tour": "Recorrido",
+        "Log out": "Cerrar sesión",
+        "Choose the correct server": "Elegir el servidor correcto",
+        "Watch feeds and events": "Ver canales y eventos",
+        "Control with confirmation": "Controlar con confirmación",
+        "Use Guides before file changes": "Usar las guías antes de cambiar archivos",
+    },
+    "pl": {
+        "Add Wandering Bot to your Discord before signing in. The bot will create a private dashboard login after an administrator completes setup.": "Dodaj Wandering Bot do swojego Discorda przed zalogowaniem. Bot utworzy prywatny dostęp do panelu po zakończeniu konfiguracji przez administratora.",
+        "Read the full setup guide": "Przeczytaj pełną instrukcję konfiguracji",
+        "Understand DayZ server files": "Poznaj pliki serwera DayZ",
+        "Get started": "Rozpocznij",
+        "Command centre": "Centrum dowodzenia",
+        "A focused mobile overview. Full desktop-only builders stay out of the app.": "Przejrzysty widok mobilny. Rozbudowane narzędzia komputerowe pozostają poza aplikacją.",
+        "Mobile tools": "Narzędzia mobilne",
+        "Server feeds": "Kanały serwera",
+        "Airdrop builder": "Kreator zrzutów",
+        "Shop control": "Sterowanie sklepem",
+        "Server control": "Sterowanie serwerem",
+        "DayZ field guide": "Przewodnik DayZ",
+        "Crafting library": "Biblioteka rzemiosła",
+        "DayZ files explained": "Objaśnienia plików DayZ",
+        "DayZ AI agent": "Agent AI DayZ",
+        "Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.": "Zadawaj pytania, naprawiaj błędy i przygotowuj zweryfikowane pliki DayZ w osobnych rozmowach.",
+        "Tour": "Prezentacja",
+        "Log out": "Wyloguj",
+        "Choose the correct server": "Wybierz właściwy serwer",
+        "Watch feeds and events": "Obserwuj kanały i wydarzenia",
+        "Control with confirmation": "Steruj z potwierdzeniem",
+        "Use Guides before file changes": "Przed zmianami plików skorzystaj z poradników",
+    },
+}
+
+for _language, _phrases in CORE_APP_UI_TRANSLATIONS.items():
+    UI_TRANSLATIONS[_language].update(_phrases)
+
+
 UI_LOCALIZATION_CSS = r"""
 .ui-language-control{display:inline-flex;align-items:center;gap:.42rem;padding:.36rem .5rem;border:1px solid rgba(53,212,194,.34);border-radius:10px;background:rgba(4,15,14,.9);color:#d9efeb;font:600 12px/1.2 system-ui,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.22)}
 .ui-language-control label{white-space:nowrap;color:#a9c5c0}.ui-language-control select{max-width:132px;border:1px solid rgba(255,155,48,.55);border-radius:7px;background:#071311;color:#f5faf9;padding:.36rem .55rem;font:inherit;cursor:pointer}
