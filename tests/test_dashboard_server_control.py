@@ -3369,6 +3369,85 @@ class DashboardServerControlTests(unittest.TestCase):
         )
         self.assertTrue(dashboard.ai_agent_dayz_request_requires_draft(draft_context, draft_objective))
 
+    def test_tool_durability_explanation_is_not_mistaken_for_make_a_file_request(self):
+        objective = (
+            "QA explanation only. Explain how DayZ server owners can make tools last longer where supported, "
+            "what is not configurable on console, and how PC mods differ. Do not invent a configuration file."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "ask",
+                "dayz_reference_mode": "none",
+            },
+            objective,
+        )
+
+        self.assertFalse(dashboard.ai_agent_dayz_request_requires_draft(context, objective))
+        self.assertFalse(dashboard.ai_agent_should_queue_chat_auto_job(
+            {"project_type": "dayz_files", "dayz_context": context}, objective, continued=False
+        ))
+
+    def test_file_draft_detection_requires_a_linked_positive_file_action(self):
+        cases = (
+            ("Create a complete validated cfgweather.xml file for Sakhal.", True),
+            ("Can you make me a custom weather XML file?", True),
+            ("Add four spawn points to cfgeventspawns.xml.", True),
+            ("Explain this XML error, but do not fix or return a file.", False),
+            ("Explain how to make tool durability last longer. Do not invent JSON.", False),
+        )
+        for objective, expected in cases:
+            with self.subTest(objective=objective):
+                context = dashboard.ai_agent_dayz_file_context(
+                    {
+                        "project_type": "dayz_files",
+                        "dayz_support_mode": "ask",
+                        "dayz_reference_mode": "none",
+                    },
+                    objective,
+                )
+                self.assertEqual(expected, dashboard.ai_agent_dayz_request_requires_draft(context, objective))
+
+    def test_dayz_reply_clears_stale_repository_command_suggestions(self):
+        prompt = "Explain what nominal and min control in DayZ types.xml. Do not create a file."
+        context = dashboard.ai_agent_dayz_file_context(
+            {"project_type": "dayz_files", "dayz_support_mode": "ask"}, prompt
+        )
+        task = {
+            "id": "qa-dayz-explain",
+            "project_type": "dayz_files",
+            "dayz_context": context,
+            "suggested_commands": [
+                {"label": "Run tests", "command": "pytest", "reason": "stale generic suggestion"}
+            ],
+            "steps": [],
+        }
+        with (
+            patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True),
+            patch.object(dashboard, "ai_agent_llm_json", return_value=(
+                True,
+                {
+                    "reply": "In types.xml, nominal is the target population and min is the replenishment threshold.",
+                    "steps": [],
+                    "suggested_commands": [{"label": "Run tests", "command": "pytest", "reason": "not needed"}],
+                    "next_action": "Use the explanation only.",
+                    "summary": "Read-only DayZ explanation.",
+                    "risk_notes": [],
+                    "dayz_draft": None,
+                    "dayz_drafts": None,
+                    "learning": [],
+                },
+                "",
+            )),
+        ):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {"kind": "owner"}, {"label": "QA"}, {"id": "run-qa"}, task, None, prompt, False
+            )
+
+        self.assertIn("nominal", reply)
+        self.assertNotIn("pytest", reply)
+        self.assertEqual([], task["suggested_commands"])
+
     def test_draft_only_nitrado_wording_does_not_request_live_action_approval(self):
         objective = "Draft only; do not upload or change Nitrado. Create a validated cfgEffectArea.json file."
         plan = dashboard.ai_agent_plan_from_objective(objective, "auto", {"execute": False, "deploy": False}, {})

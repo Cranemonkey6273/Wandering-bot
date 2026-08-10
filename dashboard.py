@@ -30851,14 +30851,32 @@ def ai_agent_dayz_request_requires_draft(context: Any, prompt: Any = "") -> bool
     # the negated clause, then look for a separate positive file action.
     positive_text = re.sub(
         r"\b(?:do\s+not|don't|never|without)\s+"
-        r"(?:create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write|upload)\b"
+        r"(?:create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write|upload|invent)\b"
         r"[^.!?;]*",
         " ",
         text,
     )
-    action = re.search(r"\b(create|draft|produce|generate|make|return|repair|fix|edit|alter|add|write)\b", positive_text)
-    output = re.search(r"\b(file|xml|json|package|snippet|draft|loadout)\b", positive_text)
-    return bool(context.get("enabled") and action and output)
+    output = (
+        r"(?:file|xml|json|package|snippet|draft|loadout|"
+        r"[a-z0-9_.-]+\.(?:xml|json)|types|events|cfgeventspawns|"
+        r"cfgeventgroups|mapgroupproto|mapgrouppos|cfgweather|"
+        r"cfggameplay|cfgspawnabletypes|messages)"
+    )
+    # The action and requested artefact must belong to the same positive
+    # clause.  A loose action-anywhere + file-anywhere test misclassified
+    # questions such as "how do I make tools last longer; do not invent a
+    # configuration file" as a file-generation job.
+    linked_file_action = re.search(
+        rf"\b(?:create|draft|produce|generate|return|repair|fix|edit|alter|add|write)\b"
+        rf"[^.!?;\n]{{0,120}}\b{output}\b",
+        positive_text,
+    )
+    natural_make_request = re.search(
+        rf"\bmake\s+(?:(?:me|us)\s+|(?:a|an|the|this|that|new|complete|full|valid|validated|custom)\s+){{1,4}}"
+        rf"[^.!?;\n]{{0,80}}\b{output}\b",
+        positive_text,
+    )
+    return bool(context.get("enabled") and (linked_file_action or natural_make_request))
 
 
 def ai_agent_llm_reply_for_task(
@@ -30875,9 +30893,15 @@ def ai_agent_llm_reply_for_task(
         return "I could not create a task for that request yet."
     run_context = ai_agent_run_context_summary(state, run)
     project_path = str(task.get("project_path") or run.get("project_path") or "").strip()
-    base_suggestions = ai_agent_suggested_commands_for_task(task, run)
-    task["suggested_commands"] = ai_agent_merge_suggested_commands(task, base_suggestions)
     dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+    base_suggestions = [] if dayz_context.get("enabled") else ai_agent_suggested_commands_for_task(task, run)
+    # DayZ questions and protected file work use schema/classname validators,
+    # not repository commands.  Clear any stale suggestions carried over from
+    # an earlier generic plan so an explanation cannot queue pytest/git work.
+    if dayz_context.get("enabled"):
+        task["suggested_commands"] = []
+    else:
+        task["suggested_commands"] = ai_agent_merge_suggested_commands(task, base_suggestions)
     scenario = dayz_context.get("scenario") if isinstance(dayz_context.get("scenario"), dict) else {}
     # The short event-name answer is useful for a plain question, but it must
     # never swallow a configured scenario or a real file-edit request.  Those
@@ -31133,7 +31157,11 @@ def ai_agent_llm_reply_for_task(
         eligible=not is_dayz_edit_request or bool(normalized_drafts),
         validation_error=dayz_draft_error,
     )
-    llm_suggestions = ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
+    llm_suggestions = (
+        []
+        if dayz_context.get("enabled")
+        else ai_agent_normalize_llm_suggestions(data.get("suggested_commands"), project_path)
+    )
     merged_suggestions = ai_agent_merge_suggested_commands(task, [*base_suggestions, *llm_suggestions])
     next_action = ai_agent_compact_text(data.get("next_action"), 220)
     summary = ai_agent_compact_text(data.get("summary"), 420)
