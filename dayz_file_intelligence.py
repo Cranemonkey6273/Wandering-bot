@@ -344,7 +344,10 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
     ambient_terms = ("ambient spawner", "ambient animal", "ambient hen", "ambient fox", "ambient wildlife")
     map_group_terms = ("mapgrouppos", "mapgroupproto", "map group", "mapgroup", "loot point", "lootpoint")
     object_spawner_terms = ("objectspawner", "object spawner", "spawnobject", "spawn object")
-    spawn_gear_terms = ("spawn gear", "starting gear", "starter gear", "spawngear", "loadout json")
+    spawn_gear_terms = (
+        "spawn gear", "starting gear", "starter gear", "spawngear", "loadout json",
+        "fresh-spawn", "fresh spawn", "player loadout", "full loadout",
+    )
     restricted_terms = ("restricted area", "player restricted", "safe position", "safepositions3d")
     category_terms = ("custom category", "custom usage", "custom tag", "cfglimitsdefinition")
     event_terms = ("custom event", "vehicle event", "static event", "loot event", "infected event", "animal event", "event spawn")

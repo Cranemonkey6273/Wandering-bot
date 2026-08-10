@@ -24821,6 +24821,12 @@ def ai_agent_dayz_scope_for_text(text: Any, project_type: Any = "") -> bool:
         "don't change nitrado",
         "do not upload",
         "don't upload",
+        "do not request nitrado upload",
+        "don't request nitrado upload",
+        "do not request an upload",
+        "don't request an upload",
+        "do not request upload",
+        "don't request upload",
         "never upload",
         "without uploading",
         "no live changes",
@@ -26822,6 +26828,22 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "custom/cfgundergroundtriggers.json": "underground",
     }
     custom_json_schema = custom_json_schema_hints.get(selected_target_path, "")
+    if not custom_json_schema and dayz_is_supported_custom_json_path(target_path):
+        # The visible target dropdown keeps a harmless default while the
+        # customer types a named custom/ JSON path. Infer the recognised
+        # vanilla schema from the request instead of requiring them to also
+        # discover and change the hidden canonical template choice.
+        schema_text = " ".join((str(objective or ""), str(requested_target or ""))).lower()
+        if any(term in schema_text for term in ("loadout", "spawn gear", "spawngear", "fresh-spawn", "fresh spawn")):
+            custom_json_schema = "spawning_gear"
+        elif any(term in schema_text for term in ("objectspawner", "object spawner", "spawnobject")):
+            custom_json_schema = "objectspawner"
+        elif any(term in schema_text for term in ("restricted area", "player restricted", "prabox", "safe position")):
+            custom_json_schema = "restricted_area"
+        elif any(term in schema_text for term in ("effect area", "contaminated area", "gas zone", "cfgeffectarea")):
+            custom_json_schema = "effect_area"
+        elif any(term in schema_text for term in ("underground trigger", "underground area", "breadcrumb")):
+            custom_json_schema = "underground"
 
     return {
         "enabled": True,

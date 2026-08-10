@@ -1124,6 +1124,12 @@ class DashboardServerControlTests(unittest.TestCase):
                 "dayz_files",
             )
         )
+        self.assertTrue(
+            dashboard.ai_agent_dayz_scope_for_text(
+                "Create and validate a loadout; do not request Nitrado upload",
+                "dayz_files",
+            )
+        )
         self.assertFalse(dashboard.ai_agent_dayz_scope_for_text("upload the new types.xml to Nitrado", "dayz_files"))
 
         self.assertEqual(
@@ -3137,6 +3143,36 @@ class DashboardServerControlTests(unittest.TestCase):
         )
         self.assertEqual("", error)
         self.assertEqual(2, len(normalized))
+
+    def test_named_custom_loadout_path_infers_spawn_gear_schema_from_workbench_request(self):
+        objective = (
+            "QA test only. Create a complete full fresh-spawn loadout in "
+            "./custom/QA_Black_Assault_Loadout.json, validate it, and do not request Nitrado upload."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                # The browser dropdown can still hold its default while the
+                # custom path overrides the actual target.
+                "dayz_file_target": "db/types.xml",
+                "dayz_custom_target_path": "./custom/QA_Black_Assault_Loadout.json",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "none",
+            },
+            objective,
+        )
+
+        self.assertEqual("custom/QA_Black_Assault_Loadout.json", context["target_path"])
+        self.assertEqual("spawning_gear", context["custom_json_schema"])
+        self.assertEqual("spawn_gear", context["dependency_plan"]["workflow"])
+        drafts = dashboard.ai_agent_builtin_spawn_gear_package_drafts(
+            {"dayz_context": context, "objective": objective}, objective
+        )
+        self.assertEqual(
+            ["custom/QA_Black_Assault_Loadout.json", "cfggameplay.json"],
+            [item["target_path"] for item in drafts],
+        )
 
     def test_explicit_objectspawner_json_stays_primary_when_cfggameplay_reference_is_mentioned(self):
         objective = (
