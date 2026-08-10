@@ -39,6 +39,7 @@ import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
 from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from ui_localization import UI_LOCALIZATION_CSS, ui_localization_javascript
 
 DATA_ROOT = (
     os.getenv("WANDERING_DATA_DIR")
@@ -579,14 +580,15 @@ DISCORD_GUILD_COUNT_CACHE: dict[str, tuple[datetime, int]] = {}
 PUBLIC_SEO_PAGES = {
     "home": {
         "path": "/",
-        "title": "Wandering Bot - DayZ Kill Feed Bot and Server Dashboard",
-        "description": "DayZ kill feed bot and Discord dashboard for PC, Xbox and PlayStation, with Nitrado tools, live feeds, events, economy, XML help and translation.",
-        "keywords": ["DayZ bot", "DayZ Discord bot", "DayZ kill feed bot", "DayZ killfeed bot", "DayZ PC bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools", "Discord translation bot"],
+        "title": "Wandering Bot - DayZ App, Kill Feed Bot and Server Dashboard",
+        "description": "DayZ Android app, kill feed bot and Discord dashboard for PC, Xbox and PlayStation, with mobile server control, Nitrado tools, events, XML help and translation.",
+        "keywords": ["DayZ app", "DayZ Android app", "DayZ server app", "DayZ bot", "DayZ Discord bot", "DayZ kill feed bot", "DayZ killfeed bot", "DayZ PC bot", "DayZ console bot", "DayZ server dashboard", "DayZ Nitrado tools", "Discord translation bot"],
         "eyebrow": "DayZ server control",
         "headline": "Add Wandering Bot to your DayZ server",
-        "lead": "Bring Wandering Bot into your Discord, connect Nitrado, and unlock a guided dashboard for ADM feeds, live maps, airdrops, animal drops, zombie hordes, scheduled server restarts, vehicle resets, XML tools, economy, trader systems, bans, zones, and server setup.",
+        "lead": "Install the Wandering Bot Android app or add the bot to Discord, connect Nitrado, and unlock mobile server control plus a guided dashboard for ADM feeds, live maps, events, restarts, XML tools, economy, bans, zones, and server setup.",
         "focus": "DayZ PC, PlayStation and Xbox killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.",
         "features": [
+            ("DayZ Android app", "Install Wandering Bot from Google Play for mobile DayZ server control, live feeds, guides, events, economy and dashboard access."),
             ("DayZ kill feed and ADM feeds", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs."),
             ("Airdrops, animals and hordes", "Queue airdrops, animal drops, zombie hordes, gas zones, crash scenes, convoy-style events, and live event uploads from the dashboard."),
             ("Server dashboard", "Create temporary or permanent admin logins for trusted staff, then choose which live events, XML tools, schedules, shops, economy, zones, and moderation tools they can use."),
@@ -599,9 +601,11 @@ PUBLIC_SEO_PAGES = {
             ("Does Wandering Bot work with PC, Xbox and PlayStation DayZ servers?", "Yes. Wandering Bot is built for DayZ communities across PC, Xbox and PlayStation, including servers using Nitrado and ADM-style logs."),
             ("Can owners create dashboard logins for admins?", "Yes. Server owners can create temporary or permanent dashboard logins for trusted admins, then limit those admins to the tools and server pages they are allowed to use."),
             ("Can Wandering Bot translate Discord messages?", "Yes. Pro and Ultimate include automatic multi-language Discord translation. Admins can keep translations beside the original message or forward them into a chosen channel."),
+            ("Is there a Wandering Bot DayZ app?", "Yes. The Wandering Bot Android app is live on Google Play for mobile access to supported DayZ server controls, feeds, guides and dashboard tools. The iPhone version is coming soon."),
         ],
         "search_intro": "Wandering Bot is built as a DayZ bot for Discord communities that need kill feed messages, killfeeds, Nitrado tools, dashboards, server feeds, event drops, zombie hordes, scheduled restarts, vehicle resets, and admin workflows for PC, PlayStation and Xbox servers.",
         "search_terms": [
+            ("DayZ app", "An Android app for mobile DayZ server control, live feeds, guides, events and dashboard access."),
             ("DayZ bot", "A Discord bot and web dashboard for running DayZ PC, PlayStation and Xbox communities."),
             ("DayZ kill feed bot", "Kill, death, longshot, online player, restart, and ADM log feeds for Discord."),
             ("DayZ server dashboard", "Private owner and admin pages for events, economy, XML tools, feeds, and schedules."),
@@ -609,6 +613,36 @@ PUBLIC_SEO_PAGES = {
             ("DayZ event drops", "Airdrops, animal drops, zombie hordes, gas zones, crash scenes, and live event uploads."),
             ("DayZ scheduled restarts", "Scheduled server restarts, raid weekend reminders, and vehicle reset workflows from the dashboard."),
         ],
+    },
+    "dayz-server-app": {
+        "path": "/dayz-server-app",
+        "title": "DayZ Server App for Android | Wandering Bot",
+        "description": "Download the Wandering Bot DayZ Android app for mobile server controls, live feeds, Nitrado-connected tools, events, economy, crafting and survival guides.",
+        "keywords": ["DayZ app", "DayZ Android app", "DayZ server app", "DayZ mobile app", "DayZ Nitrado app", "DayZ server manager app", "DayZ crafting app", "DayZ admin app"],
+        "eyebrow": "DayZ Android app — live on Google Play",
+        "headline": "Control your DayZ server from the Wandering Bot app",
+        "lead": "Wandering Bot is now live on Google Play. Sign in with your existing Wandering Bot dashboard account to check feeds, manage supported server tools, prepare events and use DayZ crafting, illness and survival guides from your phone.",
+        "focus": "An Android DayZ server app for owners and staff who need secure mobile dashboard access, server feeds, events, economy, guides and Nitrado-connected controls.",
+        "features": [
+            ("Mobile server control", "Use permission-checked restart schedules, status, feeds, events and supported server controls from Android."),
+            ("DayZ guides in your pocket", "Browse the crafting, illness, treatment and survival libraries without needing a dashboard subscription."),
+            ("Same secure account", "The app uses your Wandering Bot dashboard permissions and does not put Nitrado, FTP or Discord secrets inside the app."),
+            ("Built for server communities", "Move between authorised DayZ server profiles and keep Cherno, Livonia, Sakhal and customer servers separated."),
+        ],
+        "faqs": [
+            ("Where can I download the Wandering Bot app?", "The Android app is available now on Google Play. Use the Google Play button on this page to open the official listing."),
+            ("Does the DayZ app work without Wandering Bot?", "The free public crafting and survival guides are available to browse. Server controls and private feeds require an authorised Wandering Bot dashboard account."),
+            ("Is the DayZ app available for iPhone?", "The Android app is live now. The iPhone companion app is coming soon."),
+            ("Does the app change DayZ files automatically?", "File and server actions keep the same access checks, validation, warnings and confirmation rules used by the dashboard."),
+        ],
+        "search_intro": "Wandering Bot is a DayZ Android app and mobile server dashboard for PC, Xbox and PlayStation communities using Discord, Nitrado, feeds, events and server-owner tools.",
+        "search_terms": [
+            ("DayZ Android app", "Official Wandering Bot mobile access for DayZ server owners and staff."),
+            ("DayZ server app", "Server feeds, events, controls, economy and guides from a phone."),
+            ("DayZ Nitrado app", "Permission-checked access to supported Nitrado-connected DayZ workflows."),
+            ("DayZ crafting app", "Mobile crafting, illness, treatment and survival reference guides."),
+        ],
+        "related": ["dayz-server-dashboard", "dayz-bot", "dayz-nitrado-server-tools", "dayz-guides"],
     },
     "dayz-guides": {
         "path": "/dayz-bot-guides",
@@ -1272,9 +1306,46 @@ def add_security_headers(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
     try:
+        content_type = str(response.headers.get("Content-Type") or "").lower()
+        if (
+            response.status_code < 400
+            and "text/html" in content_type
+            and not response.direct_passthrough
+        ):
+            body = response.get_data(as_text=True)
+            if "/ui-localization.css" not in body and "</head>" in body:
+                body = body.replace(
+                    "</head>",
+                    '<link rel="stylesheet" href="/ui-localization.css?v=1">\n</head>',
+                    1,
+                )
+            if "/ui-localization.js" not in body and "</body>" in body:
+                body = body.replace(
+                    "</body>",
+                    '<script src="/ui-localization.js?v=1" defer></script>\n</body>',
+                    1,
+                )
+            response.set_data(body)
+    except Exception as error:
+        print(f"[UI LOCALIZATION] asset injection failed: {error}")
+    try:
         enqueue_dashboard_audit_event(response)
     except Exception as error:
         print(f"[DASHBOARD AUDIT] queue failed: {error}")
+    return response
+
+
+@APP.get("/ui-localization.js")
+def ui_localization_script():
+    response = Response(ui_localization_javascript(), mimetype="application/javascript")
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
+@APP.get("/ui-localization.css")
+def ui_localization_styles():
+    response = Response(UI_LOCALIZATION_CSS, mimetype="text/css")
+    response.headers["Cache-Control"] = "public, max-age=300"
     return response
 
 SECRET_KEYS = {
@@ -1880,6 +1951,13 @@ APP_WELCOME_TEMPLATE = """
 </head>
 <body>
   <main class="shell">
+    {% if android_play_store_url %}
+    <aside class="google-play-launch" aria-label="Wandering Bot Android app">
+      <span class="google-play-launch__badge">Android app live</span>
+      <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
+      <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
+    </aside>
+    {% endif %}
     <section class="intro">
       <div class="brand">
         <img src="/brand-image" alt="Wandering Bot">
@@ -2395,6 +2473,13 @@ PUBLIC_LANDING_TEMPLATE = """
       <a href="{{ item.path }}" class="{{ 'active' if item.path == page.path else '' }}">{{ item.nav_label }}</a>
     {% endfor %}
   </nav>
+  {% if android_play_store_url %}
+  <aside class="google-play-launch" aria-label="Wandering Bot Android app">
+    <span class="google-play-launch__badge">Android app live</span>
+    <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
+    <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
+  </aside>
+  {% endif %}
   <main>
     <section class="hero">
       <div class="hero-copy">
@@ -2464,16 +2549,16 @@ PUBLIC_LANDING_TEMPLATE = """
     {% if page.app_pitch %}
     <section class="app-section" id="mobile-app" aria-label="Wandering Bot mobile dashboard">
       <header>
-        <p class="eyebrow">Android + iPhone App — Coming Soon</p>
+        <p class="eyebrow">Android app live on Google Play — iPhone coming soon</p>
         <h2>Activate, monitor and control your server from your phone</h2>
-        <p>The Wandering Bot companion app is coming to Android and iPhone. It will bring the same permission-checked controls to a touch screen: activate your server tools, check live feeds and status, run authorised actions, and prepare DayZ file or gameplay changes while you are away from your desktop.</p>
+        <p>The Wandering Bot Android app is live on Google Play now, with the iPhone version coming soon. Use the same permission-checked controls on a touch screen: activate server tools, check live feeds and status, run authorised actions, and prepare DayZ file or gameplay changes away from your desktop.</p>
       </header>
       <div class="app-grid">
         <article class="app-card"><strong>Server control on touch</strong><span>Use your phone to check feeds and server status, manage supported dashboard controls, and keep your DayZ community moving without needing a desktop.</span></article>
         <article class="app-card"><strong>DayZ files and gameplay</strong><span>Prepare and review XML or JSON file changes, adjust supported gameplay settings, and keep every live upload behind the same clear review and approval step.</span></article>
         <article class="app-card"><strong>Protected mobile access</strong><span>The Android and iPhone app uses the same permission-checked backend as the dashboard, so credentials, billing, file uploads, restarts and staff roles stay protected.</span></article>
       </div>
-      <div class="app-note"><strong>Included with Ultimate</strong><span>The Android and iPhone companion app will be included with Wandering Bot Ultimate when it launches, for owners and trusted staff who want to control supported server tools, gameplay settings and DayZ file work from their phone.</span></div>
+      <div class="app-note"><strong>Included with Ultimate</strong><span>The Android app is live now and uses the same account access as Wandering Bot. The iPhone companion is coming soon for owners and trusted staff who want supported server tools, gameplay settings and DayZ file work from their phone.</span></div>
     </section>
     {% endif %}
     {% if page.guide_hub %}
@@ -3549,6 +3634,13 @@ APP_DASHBOARD_TEMPLATE = """
   </div>
 
   <main class="app-shell">
+    {% if android_play_store_url %}
+    <aside class="google-play-launch" aria-label="Wandering Bot Android app">
+      <span class="google-play-launch__badge">Android app live</span>
+      <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
+      <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
+    </aside>
+    {% endif %}
     <section class="server-context">
       {% if server %}
       <div class="server-heading">
@@ -6779,6 +6871,13 @@ PAGE_TEMPLATE = """
   </aside>
   <img class="command-logo-watermark" src="/brand-image" alt="Wandering Bot logo" width="64" height="64" loading="lazy" decoding="async">
   <main>
+    {% if android_play_store_url %}
+    <aside class="google-play-launch" aria-label="Wandering Bot Android app">
+      <span class="google-play-launch__badge">Android app live</span>
+      <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
+      <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
+    </aside>
+    {% endif %}
     <section class="hero">
       <div>
         <p class="command-title-mark">Wandering Bot</p>
@@ -22249,7 +22348,7 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
             "Private DayZ AI agent with separate project conversations",
             "Explain XML/JSON errors, prepare events and draft reviewed DayZ files",
             f"{AGENT_ULTIMATE_INCLUDED_CREDITS} included AI credits, with secure top-ups when needed",
-            "Android and Apple companion application — coming soon",
+            "Android app live on Google Play; Apple companion application coming soon",
             "Activate and control supported server tools, gameplay and DayZ file work from your phone",
         ],
     }
@@ -22275,7 +22374,7 @@ def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
         public_plan["public_badge"] = (
             "Popular" if public_plan["public_featured"]
             else "Translation included" if plan_id == "dashboard_ai"
-            else "App coming soon" if plan_id == "dashboard_ultimate"
+            else "Android app live" if plan_id == "dashboard_ultimate"
             else ""
         )
         public_plan["public_price_text"] = (
@@ -32020,6 +32119,7 @@ def mobile_app_welcome(error: str = ""):
         app_source=source,
         return_to=return_to,
         crafting_library_url=f"/crafting?{query}" if query else "/crafting",
+        android_play_store_url=ANDROID_PLAY_STORE_URL,
     )
 
 
@@ -32140,6 +32240,7 @@ def public_seo_nav_pages() -> list[dict[str, str]]:
         "dayz-economy-trader-bot": "Trader Economy",
         "dayz-raid-alerts-heatmaps": "Raid Alerts",
         "dayz-server-dashboard": "Dashboard",
+        "dayz-server-app": "Android App",
         "dayz-console-airdrop-events": "Airdrops",
         "dayz-xbox-playstation-killfeed": "Console Killfeed",
         "reviews": "Reviews",
@@ -32250,13 +32351,15 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
         "@id": f"{page['canonical_url']}#software",
         "name": "Wandering Bot",
         "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Web, Discord, PC, Xbox, PlayStation",
+        "operatingSystem": "Android, Web, Discord, PC, Xbox, PlayStation",
         "url": page["canonical_url"],
         "image": page["image_url"],
         "description": page["description"],
         "keywords": ", ".join(page["keywords"]),
         "publisher": {"@id": public_page_url("/#organization")},
         "offers": {"@type": "Offer", "availability": "https://schema.org/InStock"},
+        "downloadUrl": ANDROID_PLAY_STORE_URL,
+        "installUrl": ANDROID_PLAY_STORE_URL,
     }
     if summary["count"]:
         software_node["aggregateRating"] = {
@@ -32382,6 +32485,7 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
         support_url=SUPPORT_DISCORD_URL,
         support_email=PUBLIC_SUPPORT_EMAIL,
         pwa_theme_color=PWA_THEME_COLOR,
+        android_play_store_url=ANDROID_PLAY_STORE_URL,
     )
 
 
@@ -40488,6 +40592,7 @@ def page(mode: str, auth: dict[str, Any]):
         dayz_reference_library=dayz_reference_library_rows() if auth.get("kind") == "owner" else [],
         pwa_theme_color=PWA_THEME_COLOR,
         public_origin=dashboard_public_origin(),
+        android_play_store_url=ANDROID_PLAY_STORE_URL,
         section_allowed=section_allowed,
         channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
@@ -41499,6 +41604,11 @@ def public_dayz_raid_alerts_heatmaps():
 @APP.get("/dayz-server-dashboard")
 def public_dayz_server_dashboard():
     return public_landing_page("dayz-server-dashboard")
+
+
+@APP.get("/dayz-server-app")
+def public_dayz_server_app():
+    return public_landing_page("dayz-server-app")
 
 
 @APP.get("/dayz-console-airdrop-events")
