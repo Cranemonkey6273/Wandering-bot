@@ -64,6 +64,14 @@ DAYZ_FILE_GUIDE_LIBRARY_FILE = os.getenv(
     "WANDERING_DAYZ_FILE_GUIDE_LIBRARY_FILE",
     os.path.join(APP_ROOT, "dayz_file_guide_library.json"),
 )
+DAYZ_TIER_GUIDE_LIBRARY_FILE = os.getenv(
+    "WANDERING_DAYZ_TIER_GUIDE_LIBRARY_FILE",
+    os.path.join(APP_ROOT, "dayz_tier_guide.json"),
+)
+DAYZ_TIER_MAP_FOLDER = os.getenv(
+    "WANDERING_DAYZ_TIER_MAP_FOLDER",
+    os.path.join(APP_ROOT, "tier_maps"),
+)
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 DAYZ_REFERENCE_LIBRARY_FOLDER = os.getenv(
     "WANDERING_DAYZ_REFERENCE_LIBRARY_DIR",
@@ -1970,6 +1978,7 @@ APP_WELCOME_TEMPLATE = """
       <a class="secondary" href="/setup-guide">Read the full setup guide</a>
       <a class="secondary" href="{{ crafting_library_url }}">Browse free Crafting &amp; Survival library</a>
       <a class="secondary" href="{{ files_library_url }}">Understand DayZ server files</a>
+      <a class="secondary" href="{{ tiers_library_url }}">View DayZ loot tier maps</a>
     </section>
 
     <section class="steps" aria-labelledby="setup-heading">
@@ -2029,8 +2038,8 @@ CRAFTING_LIBRARY_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{% if library_mode == 'illnesses' %}DayZ Illness &amp; Treatment Guide{% elif library_mode == 'files' %}DayZ Server Files Explained{% else %}DayZ Crafting &amp; Survival Library{% endif %} | Wandering Bot</title>
-  <meta name="description" content="{% if library_mode == 'illnesses' %}Versioned vanilla DayZ illness symptoms, causes, treatment and prevention guidance for console and PC players.{% elif library_mode == 'files' %}Plain-English explanations of DayZ XML, JSON and server files, their linked dependencies, and common Central Economy terms.{% else %}Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.{% endif %}">
+  <title>{% if library_mode == 'tiers' %}DayZ Loot Tiers &amp; Maps{% elif library_mode == 'illnesses' %}DayZ Illness &amp; Treatment Guide{% elif library_mode == 'files' %}DayZ Server Files Explained{% else %}DayZ Crafting &amp; Survival Library{% endif %} | Wandering Bot</title>
+  <meta name="description" content="{% if library_mode == 'tiers' %}Visual DayZ loot tier maps and clear Central Economy tier explanations for Chernarus, Livonia, Sakhal and PC community terrains.{% elif library_mode == 'illnesses' %}Versioned vanilla DayZ illness symptoms, causes, treatment and prevention guidance for console and PC players.{% elif library_mode == 'files' %}Plain-English explanations of DayZ XML, JSON and server files, their linked dependencies, and common Central Economy terms.{% else %}Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.{% endif %}">
   <meta name="theme-color" content="#eef3ef">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/brand-image">
@@ -2055,7 +2064,7 @@ CRAFTING_LIBRARY_TEMPLATE = """
     .release,.tag { display:inline-flex; align-items:center; min-height:1.8rem; padding:.32rem .52rem; border:1px solid var(--line); border-radius:999px; background:var(--panel-alt); color:var(--forest); font-size:.72rem; font-weight:850; }
     .release { border-color:#dfb67a; background:var(--orange-soft); color:#875018; }
     .coverage { margin:0; padding:.7rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#edf8f7; color:#285b5c; font-size:.82rem; line-height:1.45; }
-    .library-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.45rem; }
+    .library-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
     .library-tabs a { display:grid; place-items:center; min-height:2.65rem; padding:.55rem; border:1px solid var(--line); border-radius:.5rem; background:var(--panel); color:var(--forest); font-size:.82rem; font-weight:900; text-align:center; text-decoration:none; }
     .library-tabs a.active { border-color:var(--teal); background:#eaf8f6; color:#115f60; }
     .filter-card { display:grid; gap:.65rem; padding:.8rem; }
@@ -2066,6 +2075,7 @@ CRAFTING_LIBRARY_TEMPLATE = """
     input,select,button { width:100%; min-width:0; font:inherit; }
     input,select { min-height:2.55rem; border:1px solid var(--line); border-radius:.45rem; padding:.52rem; color:var(--ink); background:#fff; }
     .filter-actions { display:flex; gap:.45rem; align-items:end; }
+    .tier-filter-actions { grid-column:1 / -1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
     button,.clear { min-height:2.55rem; border:1px solid var(--orange); border-radius:.45rem; background:var(--orange); color:#fff; padding:.55rem .7rem; font-weight:900; cursor:pointer; text-align:center; text-decoration:none; }
     .clear { display:inline-flex; align-items:center; justify-content:center; border-color:var(--line); background:#fff; color:var(--forest); font-size:.8rem; }
     .library-head { display:flex; justify-content:space-between; gap:.7rem; align-items:baseline; }
@@ -2106,9 +2116,23 @@ CRAFTING_LIBRARY_TEMPLATE = """
     .term-card { display:grid; gap:.35rem; padding:.7rem; border:1px solid var(--line); border-radius:.55rem; background:var(--panel); }
     .term-card strong { color:var(--forest); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
     .term-card p { margin:0; color:var(--muted); font-size:.8rem; line-height:1.45; }
+    .tier-map-frame { overflow:hidden; border:1px solid var(--line); border-radius:.75rem; background:#07100d; box-shadow:0 .35rem 1.2rem rgba(29,58,44,.12); }
+    .tier-map-frame img { display:block; width:100%; height:auto; }
+    .tier-map-caption { display:grid; gap:.25rem; padding:.75rem; border-top:1px solid #315044; background:#12231d; color:#edf8ef; }
+    .tier-map-caption strong { color:#ffad57; }
+    .tier-map-caption span { color:#bfd1c8; font-size:.78rem; line-height:1.4; }
+    .tier-grid,.community-grid { display:grid; gap:.55rem; }
+    .tier-card,.community-card { display:grid; gap:.35rem; padding:.7rem; border:1px solid var(--line); border-radius:.55rem; background:var(--panel); }
+    .tier-heading { display:flex; align-items:center; gap:.5rem; }
+    .tier-swatch { display:grid; place-items:center; flex:0 0 2rem; width:2rem; height:2rem; border:2px solid rgba(255,255,255,.75); border-radius:999px; color:#fff; font-weight:950; text-shadow:0 1px 2px #000; box-shadow:0 0 0 1px var(--line); }
+    .tier-card strong,.community-card strong { color:var(--forest); }
+    .tier-card p,.community-card p { margin:0; color:var(--muted); font-size:.8rem; line-height:1.45; }
+    .tier-rules { display:grid; gap:.55rem; padding:.8rem; border:1px solid #dfb67a; border-radius:.65rem; background:var(--orange-soft); }
+    .tier-rules h2,.tier-rules h3 { margin:0; color:#76421d; }
+    .tier-rules p { margin:0; color:#76421d; font-size:.82rem; line-height:1.5; }
     .empty { padding:1rem; color:var(--muted); line-height:1.5; }
     .footer-note { margin:0; color:var(--muted); font-size:.75rem; line-height:1.45; text-align:center; }
-    @media (min-width:650px) { .shell { width:min(66rem,calc(100% - 2rem)); } .hero { grid-template-columns:minmax(0,1fr) auto; align-items:end; } .hero > .coverage { grid-column:1 / -1; } .filters { grid-template-columns:repeat(4,minmax(0,1fr)); } label.search { grid-column:span 2; } .filter-actions { grid-column:span 2; } .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } .recipe-card { height:max-content; } .term-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    @media (min-width:650px) { .shell { width:min(66rem,calc(100% - 2rem)); } .hero { grid-template-columns:minmax(0,1fr) auto; align-items:end; } .hero > .coverage { grid-column:1 / -1; } .library-tabs { grid-template-columns:repeat(4,minmax(0,1fr)); } .filters { grid-template-columns:repeat(4,minmax(0,1fr)); } label.search { grid-column:span 2; } .filter-actions { grid-column:span 2; } .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } .recipe-card { height:max-content; } .term-grid,.tier-grid,.community-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
   </style>
 </head>
 <body>
@@ -2120,7 +2144,10 @@ CRAFTING_LIBRARY_TEMPLATE = """
     <section class="hero">
       <div>
         <p class="eyebrow">Free player library</p>
-        {% if library_mode == 'illnesses' %}
+        {% if library_mode == 'tiers' %}
+        <h1>DayZ Loot Tiers</h1>
+        <p class="lead">See where each official-map loot tier applies, what the numbers mean, and how <code>types.xml</code> works with the map's Central Economy zones.</p>
+        {% elif library_mode == 'illnesses' %}
         <h1>DayZ Illness &amp; Treatment</h1>
         <p class="lead">Use symptoms and what just happened to narrow down the likely vanilla illness, then see the treatment, prevention and urgency in one clear card.</p>
         {% elif library_mode == 'files' %}
@@ -2139,8 +2166,20 @@ CRAFTING_LIBRARY_TEMPLATE = """
       <a class="{{ 'active' if library_mode == 'crafting' else '' }}" href="{{ crafting_url }}">Crafting &amp; survival</a>
       <a class="{{ 'active' if library_mode == 'illnesses' else '' }}" href="{{ illness_url }}">Illnesses &amp; treatment</a>
       <a class="{{ 'active' if library_mode == 'files' else '' }}" href="{{ files_url }}">Files explained</a>
+      <a class="{{ 'active' if library_mode == 'tiers' else '' }}" href="{{ tiers_url }}">Loot tiers &amp; maps</a>
     </nav>
 
+    {% if library_mode == 'tiers' %}
+    <section class="filter-card" aria-labelledby="tier-map-title">
+      <div class="library-head"><h2 id="tier-map-title">Choose an official map</h2><span>{{ library.selected_map.tier_count }} vanilla tiers</span></div>
+      <form class="filters" method="get" action="/crafting">
+        <input type="hidden" name="tab" value="tiers">
+        {% if app_source %}<input type="hidden" name="source" value="{{ app_source }}">{% endif %}
+        <label style="grid-column:1 / -1">Map<select name="map">{% for key, label in map_options %}<option value="{{ key }}" {% if library.filters.map == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <div class="tier-filter-actions"><button type="submit">Show tier map</button><a class="clear" href="{{ clear_url }}">Chernarus</a></div>
+      </form>
+    </section>
+    {% else %}
     <section class="filter-card" aria-labelledby="crafting-filters-title">
       <div class="library-head"><h2 id="crafting-filters-title">{% if library_mode == 'illnesses' %}Check symptoms{% elif library_mode == 'files' %}Find a file or term{% else %}Find a recipe{% endif %}</h2><span>{% if library_mode == 'illnesses' %}{{ library.total_illnesses }} reviewed conditions{% elif library_mode == 'files' %}{{ library.total_files }} files &middot; {{ library.total_terms }} terms{% else %}{{ library.total_recipes }} reviewed recipes{% endif %}</span></div>
       <form class="filters" method="get" action="/crafting">
@@ -2158,8 +2197,33 @@ CRAFTING_LIBRARY_TEMPLATE = """
         <div class="filter-actions"><button type="submit">Apply</button><a class="clear" href="{{ clear_url }}">Clear</a></div>
       </form>
     </section>
+    {% endif %}
 
-    {% if library_mode == 'files' %}
+    {% if library_mode == 'tiers' %}
+    {% set tier_map = library.selected_map %}
+    <section class="tier-map-frame" aria-labelledby="selected-tier-map-title">
+      <img src="{{ tier_map.image_url }}" alt="{{ tier_map.image_alt }}">
+      <div class="tier-map-caption"><strong id="selected-tier-map-title">{{ tier_map.label }} &middot; {{ tier_map.tier_count }} tiers</strong><span>{{ tier_map.summary }}</span><span>Mission reference: {{ tier_map.mission }}</span></div>
+    </section>
+    <div class="library-head"><h2>{{ tier_map.label }} tier guide</h2><span>Tier 1 to Tier {{ tier_map.tier_count }}</span></div>
+    <section class="tier-grid" aria-label="{{ tier_map.label }} loot tier explanations">
+      {% for tier in tier_map.tiers %}
+      <article class="tier-card"><div class="tier-heading"><span class="tier-swatch" style="background:{{ tier.colour }}">{{ tier.number }}</span><div><strong>Tier {{ tier.number }}</strong><p>{{ tier.area }}</p></div></div><p>{{ tier.description }}</p></article>
+      {% endfor %}
+    </section>
+    <section class="tier-rules">
+      <h2>How DayZ loot tiers actually work</h2>
+      <p><strong>A tier is an eligibility zone, not a guaranteed rarity score.</strong> In <code>db/types.xml</code>, an item's <code>&lt;value name="TierN"/&gt;</code> says which tier zones may spawn it. The building still needs matching usage/category rules and a valid loot point.</p>
+      <p>An item can list more than one tier. Its <code>nominal</code> and <code>min</code> are population targets for the economy; they do not mean “this many per tier”. Special values and areas, including contaminated or underground locations, can add different restrictions.</p>
+      <p>Server owners can override mission files, so use the selected server's active files when diagnosing a custom economy. Classnames and tier value names must remain exact.</p>
+    </section>
+    <div class="library-head"><h2>PC community maps</h2><span>Map-author controlled</span></div>
+    <p class="relationship"><strong>Why there is no guessed overlay:</strong> Bohemia's custom-terrain system lets each PC map author define its own Central Economy tiers. The same map can also ship different mission variants. Wandering Bot will only publish an exact overlay after the matching map/mission reference or an author-provided tier map is reviewed.</p>
+    <section class="community-grid" aria-label="PC community map tier support">
+      {% for item in library.community_maps %}<article class="community-card"><strong>{{ item.name }}</strong><p>{{ item.status }}</p><span class="tag">PC community map</span></article>{% endfor %}
+    </section>
+    <p class="footer-note">Tier counts are verified against the bundled DayZ {{ library.release }} vanilla <code>cfglimitsdefinition.xml</code> files. Visual boundaries are reference maps and may change in a future release.</p>
+    {% elif library_mode == 'files' %}
     <p class="symptom-check"><strong>Read the relationship, not only the filename.</strong> A valid individual file can still fail when an event name, classname, preset name or referenced JSON path does not match its linked file exactly.</p>
     <div class="library-head"><h2>{% if library.filters.query or library.filters.category != 'all' %}Matching files{% else %}Core DayZ files{% endif %}</h2><span>{{ library.files|length }} shown</span></div>
     {% if library.files %}
@@ -3766,6 +3830,7 @@ APP_DASHBOARD_TEMPLATE = """
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
         <a class="tool-row" href="{{ crafting_library_url }}"><b>Survival</b><strong>Crafting library</strong><span>Free vanilla recipes, base-building stages and ingredient visuals for players.</span></a>
         <a class="tool-row" href="{{ files_library_url }}"><b>Files</b><strong>DayZ files explained</strong><span>See what every core file controls, which files link together and what common XML terms mean.</span></a>
+        <a class="tool-row" href="{{ tiers_library_url }}"><b>Maps</b><strong>Loot tiers explained</strong><span>Switch between Chernarus, Livonia and Sakhal tier maps and learn how tier values control loot eligibility.</span></a>
         {% if mobile_ai_agent_allowed %}<a class="tool-row" href="{{ mobile_ai_agent_url }}"><b>Ultimate AI</b><strong>DayZ AI agent</strong><span>Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.</span></a>{% endif %}
       </div>
     </section>
@@ -32205,6 +32270,7 @@ def mobile_app_welcome(error: str = ""):
         return_to=return_to,
         crafting_library_url=f"/crafting?{query}" if query else "/crafting",
         files_library_url=f"/crafting?tab=files&{query}" if query else "/crafting?tab=files",
+        tiers_library_url=f"/crafting?tab=tiers&{query}" if query else "/crafting?tab=tiers",
     )
 
 
@@ -38751,6 +38817,121 @@ def dayz_illness_library_view(
     }
 
 
+def _defined_loot_tiers_for_map(map_name: Any) -> list[int]:
+    """Read vanilla value flags instead of trusting a hand-written tier count."""
+    map_key = map_key_for(map_name)
+    mission_folder = DAYZ_REFERENCE_MAP_FOLDERS.get(map_key)
+    if not mission_folder:
+        return []
+    definitions_file = os.path.join(DAYZ_REFERENCE_FOLDER, mission_folder, "cfglimitsdefinition.xml")
+    try:
+        root = ET.parse(definitions_file).getroot()
+    except (OSError, ET.ParseError):
+        return []
+    tiers: set[int] = set()
+    for value_node in root.findall("./valueflags/value"):
+        match = re.fullmatch(r"Tier([1-9][0-9]*)", str(value_node.attrib.get("name") or ""), flags=re.IGNORECASE)
+        if match:
+            tiers.add(int(match.group(1)))
+    return sorted(tiers)
+
+
+def load_dayz_tier_guide() -> dict[str, Any]:
+    """Load the official-map tier guide and verify it against bundled CE definitions."""
+    fallback = {
+        "schema_version": 1,
+        "active_release": DAYZ_CE_FILE_VERSION,
+        "reviewed_at": "",
+        "coverage_note": "The loot tier guide is being prepared for this DayZ release.",
+        "maps": {},
+        "community_maps": [],
+    }
+    try:
+        with open(DAYZ_TIER_GUIDE_LIBRARY_FILE, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    if not isinstance(raw, dict):
+        return fallback
+
+    library = dict(fallback)
+    library["schema_version"] = safe_int(raw.get("schema_version"), 1) or 1
+    library["active_release"] = _crafting_clean_text(raw.get("active_release"), 40) or DAYZ_CE_FILE_VERSION
+    library["reviewed_at"] = _crafting_clean_text(raw.get("reviewed_at"), 40)
+    library["coverage_note"] = _crafting_clean_text(raw.get("coverage_note"), 500) or fallback["coverage_note"]
+
+    maps: dict[str, dict[str, Any]] = {}
+    raw_maps = raw.get("maps") if isinstance(raw.get("maps"), dict) else {}
+    for map_key in ("chernarus", "livonia", "sakhal"):
+        raw_map = raw_maps.get(map_key)
+        if not isinstance(raw_map, dict):
+            continue
+        defined_tiers = _defined_loot_tiers_for_map(map_key)
+        raw_tiers = raw_map.get("tiers") if isinstance(raw_map.get("tiers"), list) else []
+        tiers: list[dict[str, Any]] = []
+        seen_tiers: set[int] = set()
+        for raw_tier in raw_tiers:
+            if not isinstance(raw_tier, dict):
+                continue
+            number = safe_int(raw_tier.get("number"), 0)
+            if number < 1 or number in seen_tiers or (defined_tiers and number not in defined_tiers):
+                continue
+            seen_tiers.add(number)
+            colour = str(raw_tier.get("colour") or "").strip()
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", colour):
+                colour = "#d86f21"
+            tiers.append({
+                "number": number,
+                "colour": colour,
+                "area": _crafting_clean_text(raw_tier.get("area"), 100),
+                "description": _crafting_clean_text(raw_tier.get("description"), 300),
+            })
+        tiers.sort(key=lambda item: item["number"])
+        if defined_tiers and [item["number"] for item in tiers] != defined_tiers:
+            continue
+        maps[map_key] = {
+            "key": map_key,
+            "label": _crafting_clean_text(raw_map.get("label"), 60) or map_key.title(),
+            "mission": _crafting_clean_text(raw_map.get("mission"), 100),
+            "summary": _crafting_clean_text(raw_map.get("summary"), 300),
+            "image_alt": _crafting_clean_text(raw_map.get("image_alt"), 300),
+            "image_url": f"/tier-map/{urllib.parse.quote(map_key)}",
+            "tier_count": len(tiers),
+            "tiers": tiers,
+            "defined_tiers": defined_tiers,
+        }
+    library["maps"] = maps
+
+    community_maps: list[dict[str, str]] = []
+    raw_community_maps = raw.get("community_maps") if isinstance(raw.get("community_maps"), list) else []
+    for raw_map in raw_community_maps:
+        if not isinstance(raw_map, dict):
+            continue
+        name = _crafting_clean_text(raw_map.get("name"), 80)
+        status = _crafting_clean_text(raw_map.get("status"), 140)
+        if name:
+            community_maps.append({"name": name, "status": status or "Exact mission reference required"})
+    library["community_maps"] = community_maps[:20]
+    return library
+
+
+def dayz_tier_guide_view(map_name: Any = "chernarus") -> dict[str, Any]:
+    library = load_dayz_tier_guide()
+    requested_map = map_key_for(map_name)
+    if requested_map not in library["maps"]:
+        requested_map = "chernarus" if "chernarus" in library["maps"] else next(iter(library["maps"]), "")
+    return {
+        "release": library["active_release"],
+        "reviewed_at": library["reviewed_at"],
+        "coverage_note": library["coverage_note"],
+        "maps": list(library["maps"].values()),
+        "selected_map": library["maps"].get(requested_map, {}),
+        "community_maps": library["community_maps"],
+        "categories": [],
+        "filters": {"map": requested_map},
+    }
+
+
 def load_dayz_file_guide_library() -> dict[str, Any]:
     """Load the reviewed, human-readable DayZ file relationship guide."""
     fallback = {
@@ -41354,11 +41535,27 @@ def crafting_image(recipe_id: str):
     return response
 
 
+@APP.get("/tier-map/<map_key>")
+def tier_map_image(map_key: str):
+    normalized_map = map_key_for(map_key)
+    if normalized_map not in {"chernarus", "livonia", "sakhal"}:
+        return ("Unknown tier map.", 404)
+    image_file = os.path.join(DAYZ_TIER_MAP_FOLDER, f"{normalized_map}.webp")
+    if not os.path.isfile(image_file):
+        return ("Tier map image is not available.", 404)
+    response = send_file(image_file, mimetype="image/webp", conditional=True)
+    if hasattr(response, "headers"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
 @APP.get("/api/crafting")
 def crafting_library_api():
     requested_mode = str(request.args.get("tab") or "").strip().lower()
-    mode = "illnesses" if requested_mode in {"illness", "illnesses", "medical"} else "files" if requested_mode in {"file", "files", "xml", "json"} else "crafting"
-    if mode == "illnesses":
+    mode = "tiers" if requested_mode in {"tier", "tiers", "loot-tiers", "map-tiers"} else "illnesses" if requested_mode in {"illness", "illnesses", "medical"} else "files" if requested_mode in {"file", "files", "xml", "json"} else "crafting"
+    if mode == "tiers":
+        library = dayz_tier_guide_view(request.args.get("map"))
+    elif mode == "illnesses":
         library = dayz_illness_library_view(
             request.args.get("map"),
             request.args.get("category"),
@@ -41382,8 +41579,10 @@ def crafting_library_api():
 @APP.get("/crafting")
 def crafting_library_page():
     requested_mode = str(request.args.get("tab") or "").strip().lower()
-    mode = "illnesses" if requested_mode in {"illness", "illnesses", "medical"} else "files" if requested_mode in {"file", "files", "xml", "json"} else "crafting"
-    if mode == "illnesses":
+    mode = "tiers" if requested_mode in {"tier", "tiers", "loot-tiers", "map-tiers"} else "illnesses" if requested_mode in {"illness", "illnesses", "medical"} else "files" if requested_mode in {"file", "files", "xml", "json"} else "crafting"
+    if mode == "tiers":
+        library = dayz_tier_guide_view(request.args.get("map"))
+    elif mode == "illnesses":
         library = dayz_illness_library_view(
             request.args.get("map"),
             request.args.get("category"),
@@ -41411,8 +41610,12 @@ def crafting_library_page():
     illness_url = f"/crafting?{urllib.parse.urlencode(illness_query)}"
     files_query = {**source_query, "tab": "files"}
     files_url = f"/crafting?{urllib.parse.urlencode(files_query)}"
+    tiers_query = {**source_query, "tab": "tiers"}
+    tiers_url = f"/crafting?{urllib.parse.urlencode(tiers_query)}"
     clear_query = dict(source_query)
-    if mode == "illnesses":
+    if mode == "tiers":
+        clear_query["tab"] = "tiers"
+    elif mode == "illnesses":
         clear_query["tab"] = "illnesses"
     elif mode == "files":
         clear_query["tab"] = "files"
@@ -41428,6 +41631,7 @@ def crafting_library_page():
         crafting_url=crafting_url,
         illness_url=illness_url,
         files_url=files_url,
+        tiers_url=tiers_url,
         clear_url=clear_url,
         map_options=[("chernarus", "Chernarus"), ("livonia", "Livonia"), ("sakhal", "Sakhal")],
     )
@@ -42146,6 +42350,7 @@ def mobile_app():
         server_slot_entitlement=server_slot_entitlement,
         crafting_library_url=(f"/crafting?source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting"),
         files_library_url=(f"/crafting?tab=files&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=files"),
+        tiers_library_url=(f"/crafting?tab=tiers&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=tiers"),
         app_qs=payload["app_qs"],
         restart_status=restart_status,
         restart_warning_values=dashboard_positive_int_list(

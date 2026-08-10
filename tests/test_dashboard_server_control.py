@@ -805,6 +805,36 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertGreaterEqual(len(vomiting["illnesses"]), 3)
         self.assertTrue(any(item["id"] == "cholera" for item in vomiting["illnesses"]))
 
+    def test_loot_tier_guide_matches_bundled_vanilla_value_flags(self):
+        library = dashboard.load_dayz_tier_guide()
+
+        self.assertEqual("1.29.163451", library["active_release"])
+        self.assertEqual({"chernarus", "livonia", "sakhal"}, set(library["maps"]))
+        self.assertEqual([1, 2, 3, 4], library["maps"]["chernarus"]["defined_tiers"])
+        self.assertEqual([1, 2, 3], library["maps"]["livonia"]["defined_tiers"])
+        self.assertEqual([1, 2, 3, 4], library["maps"]["sakhal"]["defined_tiers"])
+        self.assertEqual(3, library["maps"]["livonia"]["tier_count"])
+        self.assertTrue(all(item["image_url"].startswith("/tier-map/") for item in library["maps"].values()))
+        self.assertTrue(any(item["name"] == "Namalsk" for item in library["community_maps"]))
+        self.assertTrue(all("required" in item["status"].lower() for item in library["community_maps"]))
+
+    def test_public_loot_tier_page_uses_map_switcher_without_guessing_pc_overlays(self):
+        page_request = types.SimpleNamespace(args={"tab": "tiers", "map": "sakhal"})
+        with patch.object(dashboard, "request", page_request), patch.object(
+            dashboard,
+            "render_template_string",
+            side_effect=lambda _template, **context: context,
+        ):
+            context = dashboard.crafting_library_page()
+
+        self.assertEqual("tiers", context["library_mode"])
+        self.assertEqual("sakhal", context["library"]["filters"]["map"])
+        self.assertEqual(4, context["library"]["selected_map"]["tier_count"])
+        self.assertEqual("/crafting?tab=tiers", context["tiers_url"])
+        self.assertEqual("/crafting?tab=tiers", context["clear_url"])
+        self.assertIn("Why there is no guessed overlay", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("A tier is an eligibility zone", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+
     def test_public_crafting_page_and_image_are_available_without_login(self):
         page_request = types.SimpleNamespace(args={"platform": "pc", "map": "sakhal", "q": "splint"})
         with patch.object(dashboard, "request", page_request), patch.object(
@@ -877,6 +907,9 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn(">Crafting</a>", dashboard.APP_DASHBOARD_TEMPLATE)
         self.assertIn("Crafting library", dashboard.APP_DASHBOARD_TEMPLATE)
         self.assertIn("DayZ files explained", dashboard.APP_DASHBOARD_TEMPLATE)
+        self.assertIn("View DayZ loot tier maps", dashboard.APP_WELCOME_TEMPLATE)
+        self.assertIn("Loot tiers explained", dashboard.APP_DASHBOARD_TEMPLATE)
+        self.assertIn("Loot tiers &amp; maps", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("Vanilla first.", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("Community servers can change", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("Illnesses &amp; treatment", dashboard.CRAFTING_LIBRARY_TEMPLATE)
