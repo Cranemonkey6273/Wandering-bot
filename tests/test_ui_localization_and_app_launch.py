@@ -37,22 +37,23 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         app_html = app_response.get_data(as_text=True)
         self.assertIn('/ui-localization.css?v=1', app_html)
         self.assertIn('/ui-localization.js?v=1', app_html)
-        self.assertIn("Wandering Bot is now live on Google Play", app_html)
+        self.assertNotIn("Wandering Bot is now live on Google Play", app_html)
         self.assertEqual(200, script_response.status_code)
         self.assertIn("application/javascript", script_response.content_type)
         self.assertNotIn('/ui-localization.js?v=1', script_response.get_data(as_text=True))
         self.assertEqual(200, css_response.status_code)
         self.assertIn("text/css", css_response.content_type)
 
-    def test_google_play_launch_is_present_across_public_dashboard_and_app_templates(self):
+    def test_google_play_launch_is_public_but_does_not_advertise_app_inside_itself(self):
         for template in (
             dashboard.PUBLIC_LANDING_TEMPLATE,
             dashboard.PAGE_TEMPLATE,
-            dashboard.APP_WELCOME_TEMPLATE,
-            dashboard.APP_DASHBOARD_TEMPLATE,
         ):
             self.assertIn("Wandering Bot is now live on Google Play", template)
             self.assertIn("android_play_store_url", template)
+        for template in (dashboard.APP_WELCOME_TEMPLATE, dashboard.APP_DASHBOARD_TEMPLATE):
+            self.assertNotIn("Wandering Bot is now live on Google Play", template)
+            self.assertNotIn("Get it on Google Play", template)
 
     def test_dayz_app_has_a_public_search_page_and_google_play_schema(self):
         page = dashboard.PUBLIC_SEO_PAGES["dayz-server-app"]

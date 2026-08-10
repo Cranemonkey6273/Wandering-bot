@@ -840,15 +840,47 @@ class DashboardServerControlTests(unittest.TestCase):
             response = dashboard.crafting_image("cholera")
         self.assertEqual("image/svg+xml", response[1]["mimetype"])
 
+    def test_public_file_guide_explains_dependencies_and_terms(self):
+        guide = dashboard.dayz_file_guide_view(query="event name")
+
+        self.assertEqual("1.29.163451", guide["release"])
+        self.assertGreaterEqual(guide["total_files"], 20)
+        self.assertGreaterEqual(guide["total_terms"], 30)
+        self.assertTrue(any(item["name"] == "events.xml" for item in guide["files"]))
+        events = next(item for item in guide["files"] if item["name"] == "events.xml")
+        self.assertIn("cfgeventspawns.xml", events["works_with"])
+        self.assertIn("match", events["relationship"].lower())
+
+        glossary = dashboard.dayz_file_guide_view(query="lootmin")
+        self.assertEqual(["lootmin / lootmax"], [item["term"] for item in glossary["terms"]])
+
+        page_request = types.SimpleNamespace(args={"tab": "files", "q": "nominal"})
+        with patch.object(dashboard, "request", page_request), patch.object(
+            dashboard,
+            "render_template_string",
+            side_effect=lambda _template, **context: context,
+        ):
+            context = dashboard.crafting_library_page()
+
+        self.assertEqual("files", context["library_mode"])
+        self.assertEqual("/crafting?tab=files", context["files_url"])
+        self.assertEqual("/crafting?tab=files", context["clear_url"])
+        self.assertTrue(context["library"]["terms"])
+
     def test_mobile_app_templates_link_to_free_crafting_library(self):
         self.assertIn("Browse free Crafting &amp; Survival library", dashboard.APP_WELCOME_TEMPLATE)
+        self.assertIn("Understand DayZ server files", dashboard.APP_WELCOME_TEMPLATE)
         self.assertIn(">Crafting</a>", dashboard.APP_DASHBOARD_TEMPLATE)
         self.assertIn("Crafting library", dashboard.APP_DASHBOARD_TEMPLATE)
+        self.assertIn("DayZ files explained", dashboard.APP_DASHBOARD_TEMPLATE)
         self.assertIn("Vanilla first.", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("Community servers can change", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("Illnesses &amp; treatment", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("What to take / do", dashboard.CRAFTING_LIBRARY_TEMPLATE)
         self.assertIn("sickness icon does not tell you the diagnosis", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("Files explained", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("Terms and short names explained", dashboard.CRAFTING_LIBRARY_TEMPLATE)
+        self.assertIn("Files it works with", dashboard.CRAFTING_LIBRARY_TEMPLATE)
 
     def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
         template = dashboard.APP_DASHBOARD_TEMPLATE
@@ -885,7 +917,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('data-app-tour', template)
         self.assertIn('data-app-review-form', template)
         self.assertIn('action="/api/reviews"', template)
-        self.assertIn("Rate on Google Play", template)
+        self.assertNotIn("Wandering Bot is now live on Google Play", template)
+        self.assertNotIn("Rate on Google Play", template)
         self.assertIn("How the app protects server access", template)
         self.assertIn("Nitrado tokens, Discord credentials, billing secrets", template)
         self.assertNotIn('href="{{ dashboard_path }}', template)

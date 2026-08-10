@@ -60,6 +60,10 @@ DAYZ_ILLNESS_LIBRARY_FILE = os.getenv(
     "WANDERING_DAYZ_ILLNESS_LIBRARY_FILE",
     os.path.join(APP_ROOT, "dayz_illness_library.json"),
 )
+DAYZ_FILE_GUIDE_LIBRARY_FILE = os.getenv(
+    "WANDERING_DAYZ_FILE_GUIDE_LIBRARY_FILE",
+    os.path.join(APP_ROOT, "dayz_file_guide_library.json"),
+)
 DAYZ_REFERENCE_FOLDER = os.getenv("DAYZ_REFERENCE_DIR", os.path.join(APP_ROOT, "dayz_reference"))
 DAYZ_REFERENCE_LIBRARY_FOLDER = os.getenv(
     "WANDERING_DAYZ_REFERENCE_LIBRARY_DIR",
@@ -1951,13 +1955,6 @@ APP_WELCOME_TEMPLATE = """
 </head>
 <body>
   <main class="shell">
-    {% if android_play_store_url %}
-    <aside class="google-play-launch" aria-label="Wandering Bot Android app">
-      <span class="google-play-launch__badge">Android app live</span>
-      <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
-      <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
-    </aside>
-    {% endif %}
     <section class="intro">
       <div class="brand">
         <img src="/brand-image" alt="Wandering Bot">
@@ -1968,6 +1965,7 @@ APP_WELCOME_TEMPLATE = """
       <a class="primary" href="{{ bot_invite_url }}" target="_blank" rel="external noopener">Add Wandering Bot to Discord</a>
       <a class="secondary" href="/setup-guide">Read the full setup guide</a>
       <a class="secondary" href="{{ crafting_library_url }}">Browse free Crafting &amp; Survival library</a>
+      <a class="secondary" href="{{ files_library_url }}">Understand DayZ server files</a>
     </section>
 
     <section class="steps" aria-labelledby="setup-heading">
@@ -2025,8 +2023,8 @@ CRAFTING_LIBRARY_TEMPLATE = """
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>{% if library_mode == 'illnesses' %}DayZ Illness &amp; Treatment Guide{% else %}DayZ Crafting &amp; Survival Library{% endif %} | Wandering Bot</title>
-  <meta name="description" content="{% if library_mode == 'illnesses' %}Versioned vanilla DayZ illness symptoms, causes, treatment and prevention guidance for console and PC players.{% else %}Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.{% endif %}">
+  <title>{% if library_mode == 'illnesses' %}DayZ Illness &amp; Treatment Guide{% elif library_mode == 'files' %}DayZ Server Files Explained{% else %}DayZ Crafting &amp; Survival Library{% endif %} | Wandering Bot</title>
+  <meta name="description" content="{% if library_mode == 'illnesses' %}Versioned vanilla DayZ illness symptoms, causes, treatment and prevention guidance for console and PC players.{% elif library_mode == 'files' %}Plain-English explanations of DayZ XML, JSON and server files, their linked dependencies, and common Central Economy terms.{% else %}Versioned vanilla DayZ crafting recipes and base-building paths for console and PC players.{% endif %}">
   <meta name="theme-color" content="#eef3ef">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/brand-image">
@@ -2051,7 +2049,7 @@ CRAFTING_LIBRARY_TEMPLATE = """
     .release,.tag { display:inline-flex; align-items:center; min-height:1.8rem; padding:.32rem .52rem; border:1px solid var(--line); border-radius:999px; background:var(--panel-alt); color:var(--forest); font-size:.72rem; font-weight:850; }
     .release { border-color:#dfb67a; background:var(--orange-soft); color:#875018; }
     .coverage { margin:0; padding:.7rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#edf8f7; color:#285b5c; font-size:.82rem; line-height:1.45; }
-    .library-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
+    .library-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.45rem; }
     .library-tabs a { display:grid; place-items:center; min-height:2.65rem; padding:.55rem; border:1px solid var(--line); border-radius:.5rem; background:var(--panel); color:var(--forest); font-size:.82rem; font-weight:900; text-align:center; text-decoration:none; }
     .library-tabs a.active { border-color:var(--teal); background:#eaf8f6; color:#115f60; }
     .filter-card { display:grid; gap:.65rem; padding:.8rem; }
@@ -2095,9 +2093,16 @@ CRAFTING_LIBRARY_TEMPLATE = """
     .priority.standard { border-color:#b9d9bf; background:#edf8ef; color:#285b34; }
     .priority.permanent { border-color:#c6bdd9; background:#f4f0ff; color:#574076; }
     .symptom-check { margin:0; padding:.7rem; border-left:.25rem solid var(--orange); border-radius:.35rem; background:var(--orange-soft); color:#76421d; font-size:.82rem; line-height:1.45; }
+    .file-symbol { display:grid; place-items:center; width:4.35rem; height:4.35rem; border:1px solid #dfb67a; border-radius:.55rem; background:var(--orange-soft); color:#875018; font-size:.72rem; font-weight:950; letter-spacing:.04em; }
+    .relationship { margin:0; padding:.65rem; border-left:.25rem solid var(--teal); border-radius:.35rem; background:#eef8f7; color:#285b5c; font-size:.8rem; line-height:1.45; }
+    .file-path { margin:0; color:var(--muted); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.76rem; overflow-wrap:anywhere; }
+    .term-grid { display:grid; gap:.55rem; }
+    .term-card { display:grid; gap:.35rem; padding:.7rem; border:1px solid var(--line); border-radius:.55rem; background:var(--panel); }
+    .term-card strong { color:var(--forest); font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .term-card p { margin:0; color:var(--muted); font-size:.8rem; line-height:1.45; }
     .empty { padding:1rem; color:var(--muted); line-height:1.5; }
     .footer-note { margin:0; color:var(--muted); font-size:.75rem; line-height:1.45; text-align:center; }
-    @media (min-width:650px) { .shell { width:min(66rem,calc(100% - 2rem)); } .hero { grid-template-columns:minmax(0,1fr) auto; align-items:end; } .hero > .coverage { grid-column:1 / -1; } .filters { grid-template-columns:repeat(4,minmax(0,1fr)); } label.search { grid-column:span 2; } .filter-actions { grid-column:span 2; } .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } .recipe-card { height:max-content; } }
+    @media (min-width:650px) { .shell { width:min(66rem,calc(100% - 2rem)); } .hero { grid-template-columns:minmax(0,1fr) auto; align-items:end; } .hero > .coverage { grid-column:1 / -1; } .filters { grid-template-columns:repeat(4,minmax(0,1fr)); } label.search { grid-column:span 2; } .filter-actions { grid-column:span 2; } .recipe-grid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; } .recipe-card { height:max-content; } .term-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
   </style>
 </head>
 <body>
@@ -2112,6 +2117,9 @@ CRAFTING_LIBRARY_TEMPLATE = """
         {% if library_mode == 'illnesses' %}
         <h1>DayZ Illness &amp; Treatment</h1>
         <p class="lead">Use symptoms and what just happened to narrow down the likely vanilla illness, then see the treatment, prevention and urgency in one clear card.</p>
+        {% elif library_mode == 'files' %}
+        <h1>DayZ Files Explained</h1>
+        <p class="lead">Understand what each core XML, JSON and server file controls, which other files it must link to, and what the short Central Economy terms actually mean.</p>
         {% else %}
         <h1>DayZ Crafting &amp; Survival</h1>
         <p class="lead">Clear vanilla recipes, building stages and the tools needed to make them — designed for a phone in the middle of a DayZ session.</p>
@@ -2124,24 +2132,63 @@ CRAFTING_LIBRARY_TEMPLATE = """
     <nav class="library-tabs" aria-label="Player library sections">
       <a class="{{ 'active' if library_mode == 'crafting' else '' }}" href="{{ crafting_url }}">Crafting &amp; survival</a>
       <a class="{{ 'active' if library_mode == 'illnesses' else '' }}" href="{{ illness_url }}">Illnesses &amp; treatment</a>
+      <a class="{{ 'active' if library_mode == 'files' else '' }}" href="{{ files_url }}">Files explained</a>
     </nav>
 
     <section class="filter-card" aria-labelledby="crafting-filters-title">
-      <div class="library-head"><h2 id="crafting-filters-title">{% if library_mode == 'illnesses' %}Check symptoms{% else %}Find a recipe{% endif %}</h2><span>{% if library_mode == 'illnesses' %}{{ library.total_illnesses }} reviewed conditions{% else %}{{ library.total_recipes }} reviewed recipes{% endif %}</span></div>
+      <div class="library-head"><h2 id="crafting-filters-title">{% if library_mode == 'illnesses' %}Check symptoms{% elif library_mode == 'files' %}Find a file or term{% else %}Find a recipe{% endif %}</h2><span>{% if library_mode == 'illnesses' %}{{ library.total_illnesses }} reviewed conditions{% elif library_mode == 'files' %}{{ library.total_files }} files &middot; {{ library.total_terms }} terms{% else %}{{ library.total_recipes }} reviewed recipes{% endif %}</span></div>
       <form class="filters" method="get" action="/crafting">
         {% if library_mode == 'illnesses' %}<input type="hidden" name="tab" value="illnesses">{% endif %}
+        {% if library_mode == 'files' %}<input type="hidden" name="tab" value="files">{% endif %}
         {% if app_source %}<input type="hidden" name="source" value="{{ app_source }}">{% endif %}
-        <label class="search">{% if library_mode == 'illnesses' %}Search symptom, cause or medicine<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. vomiting, cough, charcoal, dirty water">{% else %}Search recipe or ingredient<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. flag, rope, splint, fence">{% endif %}</label>
-        {% if library_mode != 'illnesses' %}
+        <label class="search">{% if library_mode == 'illnesses' %}Search symptom, cause or medicine<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. vomiting, cough, charcoal, dirty water">{% elif library_mode == 'files' %}Search file, setting or term<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. types.xml, nominal, lootmax, event names">{% else %}Search recipe or ingredient<input name="q" value="{{ library.filters.query }}" maxlength="100" placeholder="e.g. flag, rope, splint, fence">{% endif %}</label>
+        {% if library_mode == 'crafting' %}
         <label>Platform<select name="platform"><option value="all" {% if library.filters.platform == 'all' %}selected{% endif %}>Console + PC</option><option value="console" {% if library.filters.platform == 'console' %}selected{% endif %}>Console (Xbox / PlayStation)</option><option value="pc" {% if library.filters.platform == 'pc' %}selected{% endif %}>PC vanilla</option></select></label>
         {% endif %}
+        {% if library_mode != 'files' %}
         <label>Map<select name="map"><option value="all" {% if library.filters.map == 'all' %}selected{% endif %}>All official maps</option>{% for key, label in map_options %}<option value="{{ key }}" {% if library.filters.map == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        {% endif %}
         <label>Category<select name="category"><option value="all">All categories</option>{% for item in library.categories %}<option value="{{ item }}" {% if library.filters.category == item %}selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
         <div class="filter-actions"><button type="submit">Apply</button><a class="clear" href="{{ clear_url }}">Clear</a></div>
       </form>
     </section>
 
-    {% if library_mode == 'illnesses' %}
+    {% if library_mode == 'files' %}
+    <p class="symptom-check"><strong>Read the relationship, not only the filename.</strong> A valid individual file can still fail when an event name, classname, preset name or referenced JSON path does not match its linked file exactly.</p>
+    <div class="library-head"><h2>{% if library.filters.query or library.filters.category != 'all' %}Matching files{% else %}Core DayZ files{% endif %}</h2><span>{{ library.files|length }} shown</span></div>
+    {% if library.files %}
+    <section class="recipe-grid" aria-label="DayZ files explained">
+      {% for file in library.files %}
+      <details class="recipe-card" {% if loop.index <= 2 and not library.filters.query %}open{% endif %}>
+        <summary>
+          <span class="file-symbol" aria-hidden="true">{{ file.format }}</span>
+          <span class="recipe-title"><strong>{{ file.name }}</strong><span>{{ file.purpose }}</span><span>{{ file.category }}</span></span>
+          <span class="chevron" aria-hidden="true">&rsaquo;</span>
+        </summary>
+        <div class="recipe-body">
+          <div class="tag-row"><span class="tag">{{ file.category }}</span><span class="tag">{{ file.format }}</span><span class="tag">{{ file.restart }}</span></div>
+          <div><h3>Where it lives</h3><p class="file-path">{{ file.location }}</p></div>
+          <div><h3>What it controls</h3><p class="lead">{{ file.purpose }}</p></div>
+          <div><h3>Files it works with</h3><div class="tag-row">{% for linked in file.works_with %}<span class="tag">{{ linked }}</span>{% endfor %}</div></div>
+          <p class="relationship"><strong>How the link works:</strong> {{ file.relationship }}</p>
+          <p class="note"><strong>Watch out:</strong> {{ file.warning }}</p>
+        </div>
+      </details>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty"><strong>No file matches those filters.</strong><br>Try a filename such as types.xml, a setting such as nominal, or clear the filters.</section>
+    {% endif %}
+    <div class="library-head"><h2>Terms and short names explained</h2><span>{{ library.terms|length }} shown</span></div>
+    {% if library.terms %}
+    <section class="term-grid" aria-label="DayZ file terms glossary">
+      {% for item in library.terms %}<article class="term-card"><div class="tag-row"><strong>{{ item.term }}</strong><span class="tag">{{ item.category }}</span></div><p>{{ item.meaning }}</p><p class="relationship"><strong>Rule:</strong> {{ item.rule }}</p></article>{% endfor %}
+    </section>
+    {% else %}
+    <section class="empty"><strong>No glossary term matches.</strong><br>Clear the filter or search for min, max, lifetime, lootmin, radius, chance or damage.</section>
+    {% endif %}
+    <p class="footer-note">This guide describes reviewed vanilla DayZ mission files for the displayed release. Always use the active file for the selected map. PC mod files require the exact mod source and can use different schemas.</p>
+    {% elif library_mode == 'illnesses' %}
     <p class="symptom-check"><strong>Important:</strong> DayZ's sickness icon does not tell you the diagnosis. Match the symptoms with the recent cause. Vomiting can be cholera, salmonellosis, food poisoning or gas poisoning; simply eating or drinking too much can also make a healthy survivor vomit.</p>
     <div class="library-head"><h2>{% if library.filters.query or library.filters.map != 'all' or library.filters.category != 'all' %}Matching conditions{% else %}Illnesses &amp; treatment{% endif %}</h2><span>{{ library.illnesses|length }} shown</span></div>
     {% if library.illnesses %}
@@ -3634,13 +3681,6 @@ APP_DASHBOARD_TEMPLATE = """
   </div>
 
   <main class="app-shell">
-    {% if android_play_store_url %}
-    <aside class="google-play-launch" aria-label="Wandering Bot Android app">
-      <span class="google-play-launch__badge">Android app live</span>
-      <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
-      <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
-    </aside>
-    {% endif %}
     <section class="server-context">
       {% if server %}
       <div class="server-heading">
@@ -3684,6 +3724,7 @@ APP_DASHBOARD_TEMPLATE = """
         <a class="tool-row" href="{{ app_urls.control }}"><b>Operations</b><strong>Server control</strong><span>Manage restarts, raid damage and vehicle resets.</span></a>
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
         <a class="tool-row" href="{{ crafting_library_url }}"><b>Survival</b><strong>Crafting library</strong><span>Free vanilla recipes, base-building stages and ingredient visuals for players.</span></a>
+        <a class="tool-row" href="{{ files_library_url }}"><b>Files</b><strong>DayZ files explained</strong><span>See what every core file controls, which files link together and what common XML terms mean.</span></a>
       </div>
     </section>
     <section class="section">
@@ -3920,6 +3961,7 @@ APP_DASHBOARD_TEMPLATE = """
 
     {% elif server and app_view == 'help' %}
     <section class="page-intro"><h2>DayZ field guide</h2><p>Practical explanations for new server owners, written around safe file handling.</p></section>
+    <section class="notice safe-notice"><strong>Need a file-by-file reference?</strong> <a href="{{ files_library_url }}">Open DayZ Files Explained</a> for linked-file maps and the complete terms glossary.</section>
     <section class="notice safe-notice"><strong>Golden rule:</strong> download the current live file first, edit a copy, validate the complete file, and only then upload it to the exact mission path.</section>
     <section class="section">
       <div class="section-head"><h2>How the files work together</h2><details class="info"><summary aria-label="About linked DayZ files">i</summary><div>A DayZ change is often a small package of linked files rather than one isolated snippet. Follow the links below before uploading.</div></details></div>
@@ -3995,7 +4037,6 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
         <div class="full"><button type="submit">Send dashboard review</button> <span class="muted" data-app-review-result aria-live="polite"></span></div>
       </form>
       <div class="review-actions">
-        {% if android_play_store_url %}<a class="button secondary" href="{{ android_play_store_url }}" target="_blank" rel="noopener">Rate on Google Play</a>{% endif %}
         {% if support_url %}<a class="button secondary" href="{{ support_url }}" target="_blank" rel="noopener">Support Discord</a>{% endif %}
         <a class="button secondary" href="mailto:{{ support_email }}">Email support</a>
       </div>
@@ -32119,7 +32160,7 @@ def mobile_app_welcome(error: str = ""):
         app_source=source,
         return_to=return_to,
         crafting_library_url=f"/crafting?{query}" if query else "/crafting",
-        android_play_store_url=ANDROID_PLAY_STORE_URL,
+        files_library_url=f"/crafting?tab=files&{query}" if query else "/crafting?tab=files",
     )
 
 
@@ -38661,6 +38702,117 @@ def dayz_illness_library_view(
     }
 
 
+def load_dayz_file_guide_library() -> dict[str, Any]:
+    """Load the reviewed, human-readable DayZ file relationship guide."""
+    fallback = {
+        "active_release": DAYZ_CE_FILE_VERSION,
+        "reviewed_at": "",
+        "coverage_note": "The DayZ file guide is being prepared for this release.",
+        "files": [],
+        "terms": [],
+    }
+    try:
+        with open(DAYZ_FILE_GUIDE_LIBRARY_FILE, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    if not isinstance(raw, dict):
+        return fallback
+    library = dict(fallback)
+    library["active_release"] = _crafting_clean_text(raw.get("active_release"), 40) or DAYZ_CE_FILE_VERSION
+    library["reviewed_at"] = _crafting_clean_text(raw.get("reviewed_at"), 40)
+    library["coverage_note"] = _crafting_clean_text(raw.get("coverage_note"), 700) or fallback["coverage_note"]
+    files: list[dict[str, Any]] = []
+    for raw_file in raw.get("files", []) if isinstance(raw.get("files"), list) else []:
+        if not isinstance(raw_file, dict):
+            continue
+        name = _crafting_clean_text(raw_file.get("name"), 100)
+        purpose = _crafting_clean_text(raw_file.get("purpose"), 700)
+        if not name or not purpose:
+            continue
+        linked = raw_file.get("works_with") if isinstance(raw_file.get("works_with"), list) else []
+        files.append({
+            "category": _crafting_clean_text(raw_file.get("category"), 80) or "Other files",
+            "name": name,
+            "location": _crafting_clean_text(raw_file.get("location"), 220),
+            "format": _crafting_clean_text(raw_file.get("format"), 30) or "File",
+            "purpose": purpose,
+            "works_with": [
+                value for value in (_crafting_clean_text(item, 100) for item in linked) if value
+            ][:10],
+            "relationship": _crafting_clean_text(raw_file.get("relationship"), 800),
+            "restart": _crafting_clean_text(raw_file.get("restart"), 160) or "Check the feature's restart requirement.",
+            "warning": _crafting_clean_text(raw_file.get("warning"), 700),
+        })
+    terms: list[dict[str, str]] = []
+    for raw_term in raw.get("terms", []) if isinstance(raw.get("terms"), list) else []:
+        if not isinstance(raw_term, dict):
+            continue
+        term = _crafting_clean_text(raw_term.get("term"), 100)
+        meaning = _crafting_clean_text(raw_term.get("meaning"), 600)
+        if not term or not meaning:
+            continue
+        terms.append({
+            "category": _crafting_clean_text(raw_term.get("category"), 80) or "Other terms",
+            "term": term,
+            "meaning": meaning,
+            "rule": _crafting_clean_text(raw_term.get("rule"), 600),
+        })
+    library["files"] = files
+    library["terms"] = terms
+    return library
+
+
+def dayz_file_guide_view(category: Any = "all", query: Any = "") -> dict[str, Any]:
+    library = load_dayz_file_guide_library()
+    category_keys = {
+        str(item.get("category") or "")
+        for item in [*library["files"], *library["terms"]]
+        if str(item.get("category") or "")
+    }
+    requested_category = _crafting_clean_text(category, 80)
+    if requested_category.lower() == "all" or requested_category not in category_keys:
+        requested_category = "all"
+    requested_query = _crafting_clean_text(query, 100)
+    query_term = requested_query.lower()
+
+    def matches(item: dict[str, Any], fields: list[str], list_fields: list[str] | None = None) -> bool:
+        if requested_category != "all" and str(item.get("category") or "") != requested_category:
+            return False
+        if not query_term:
+            return True
+        values = [str(item.get(field) or "") for field in fields]
+        for field in list_fields or []:
+            raw_values = item.get(field)
+            if isinstance(raw_values, list):
+                values.extend(str(value or "") for value in raw_values)
+        return query_term in " ".join(values).lower()
+
+    visible_files = [
+        item for item in library["files"]
+        if matches(
+            item,
+            ["name", "location", "format", "purpose", "category", "relationship", "restart", "warning"],
+            ["works_with"],
+        )
+    ]
+    visible_terms = [
+        item for item in library["terms"]
+        if matches(item, ["term", "meaning", "rule", "category"])
+    ]
+    return {
+        "release": library["active_release"],
+        "reviewed_at": library["reviewed_at"],
+        "coverage_note": library["coverage_note"],
+        "total_files": len(library["files"]),
+        "total_terms": len(library["terms"]),
+        "files": visible_files,
+        "terms": visible_terms,
+        "categories": sorted(category_keys, key=str.lower),
+        "filters": {"category": requested_category, "query": requested_query},
+    }
+
+
 def shop_catalog_seed_items() -> list[dict[str, str]]:
     global _SHOP_CATALOG_SEED_CACHE
     if _SHOP_CATALOG_SEED_CACHE is not None:
@@ -41152,10 +41304,16 @@ def crafting_image(recipe_id: str):
 
 @APP.get("/api/crafting")
 def crafting_library_api():
-    mode = "illnesses" if str(request.args.get("tab") or "").strip().lower() in {"illness", "illnesses", "medical"} else "crafting"
+    requested_mode = str(request.args.get("tab") or "").strip().lower()
+    mode = "illnesses" if requested_mode in {"illness", "illnesses", "medical"} else "files" if requested_mode in {"file", "files", "xml", "json"} else "crafting"
     if mode == "illnesses":
         library = dayz_illness_library_view(
             request.args.get("map"),
+            request.args.get("category"),
+            request.args.get("q"),
+        )
+    elif mode == "files":
+        library = dayz_file_guide_view(
             request.args.get("category"),
             request.args.get("q"),
         )
@@ -41171,10 +41329,16 @@ def crafting_library_api():
 
 @APP.get("/crafting")
 def crafting_library_page():
-    mode = "illnesses" if str(request.args.get("tab") or "").strip().lower() in {"illness", "illnesses", "medical"} else "crafting"
+    requested_mode = str(request.args.get("tab") or "").strip().lower()
+    mode = "illnesses" if requested_mode in {"illness", "illnesses", "medical"} else "files" if requested_mode in {"file", "files", "xml", "json"} else "crafting"
     if mode == "illnesses":
         library = dayz_illness_library_view(
             request.args.get("map"),
+            request.args.get("category"),
+            request.args.get("q"),
+        )
+    elif mode == "files":
+        library = dayz_file_guide_view(
             request.args.get("category"),
             request.args.get("q"),
         )
@@ -41193,9 +41357,13 @@ def crafting_library_page():
         crafting_url = f"/crafting?{urllib.parse.urlencode(source_query)}"
     illness_query = {**source_query, "tab": "illnesses"}
     illness_url = f"/crafting?{urllib.parse.urlencode(illness_query)}"
+    files_query = {**source_query, "tab": "files"}
+    files_url = f"/crafting?{urllib.parse.urlencode(files_query)}"
     clear_query = dict(source_query)
     if mode == "illnesses":
         clear_query["tab"] = "illnesses"
+    elif mode == "files":
+        clear_query["tab"] = "files"
     clear_url = "/crafting"
     if clear_query:
         clear_url = f"/crafting?{urllib.parse.urlencode(clear_query)}"
@@ -41207,6 +41375,7 @@ def crafting_library_page():
         app_url=app_url,
         crafting_url=crafting_url,
         illness_url=illness_url,
+        files_url=files_url,
         clear_url=clear_url,
         map_options=[("chernarus", "Chernarus"), ("livonia", "Livonia"), ("sakhal", "Sakhal")],
     )
@@ -41891,6 +42060,7 @@ def mobile_app():
         app_urls=payload["app_urls"],
         app_source=native_app_source(),
         crafting_library_url=(f"/crafting?source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting"),
+        files_library_url=(f"/crafting?tab=files&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=files"),
         app_qs=payload["app_qs"],
         restart_status=restart_status,
         schedule_status=schedule_status,
@@ -41910,7 +42080,6 @@ def mobile_app():
         app_live_events=mobile_scenario_tracker_rows(tracker_store, profile_runtime_id),
         event_access_allowed=event_access_allowed,
         dashboard_review_summary=review_summary(),
-        android_play_store_url=ANDROID_PLAY_STORE_URL,
         support_url=SUPPORT_DISCORD_URL,
         support_email=PUBLIC_SUPPORT_EMAIL,
         generated_clock=local_dashboard_clock(),
