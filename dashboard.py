@@ -6282,6 +6282,11 @@ PAGE_TEMPLATE = """
     .check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
     .check { display: flex; align-items: center; gap: .5rem; color: var(--muted); border: 1px solid var(--line); border-radius: .45rem; padding: .55rem; background: #070b08; }
     .check input { width: auto; accent-color: var(--olive); }
+    .stack-watch-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; margin-top: .5rem; }
+    .stack-watch-preset-grid .check { cursor: pointer; color: var(--text); }
+    .stack-watch-preset-grid .check:has(input:checked) { border-color: var(--gold); background: rgba(236, 161, 64, .12); }
+    .stack-watch-preset-grid .check span { display: grid; gap: .1rem; }
+    .stack-watch-preset-grid .check small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     .mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
     .mini-card { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
     .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; }
@@ -12210,13 +12215,19 @@ PAGE_TEMPLATE = """
             <label>Area radius metres <input type="number" min="0" max="30000" name="stack_watch_area_radius_meters" value="{{ stack.area_radius_meters or 0 }}" placeholder="0 = whole map"></label>
             <label>Minimum height <input name="stack_watch_min_height" value="{{ stack.min_height or '' }}" placeholder="optional"></label>
             <label>Maximum height <input name="stack_watch_max_height" value="{{ stack.max_height or '' }}" placeholder="optional"></label>
-            <label class="full">Watched object presets <span class="muted">Only highlighted objects are watched. Use Ctrl-click to select or remove more than one.</span>
-              <select name="stack_watch_object_presets" multiple size="10">
+            <div class="full">
+              <strong>Watched object presets</strong>
+              <span class="muted">Ticked means watched. Unticked means ignored. Your exact selection is saved.</span>
+              <input type="hidden" name="stack_watch_objects_present" value="true">
+              <div class="stack-watch-preset-grid">
                 {% for preset in stack_watch_object_presets %}
-                <option value="{{ preset.value }}" {{ 'selected' if preset.value in stack_objects else '' }}>{{ preset.group }} - {{ preset.label }} ({{ preset.value }})</option>
+                <label class="check">
+                  <input type="checkbox" name="stack_watch_object_presets" value="{{ preset.value }}" {{ 'checked' if preset.value in stack_objects else '' }}>
+                  <span>{{ preset.group }} - {{ preset.label }}<small>{{ preset.value }}</small></span>
+                </label>
                 {% endfor %}
-              </select>
-            </label>
+              </div>
+            </div>
             <label class="full">Extra custom class names <span class="muted">Only use this for classes not available in the preset list.</span><textarea name="stack_watch_objects" placeholder="MyCustomBuildingKit">{% for item in stack_objects if item not in stack_preset_values %}{{ item }}&#10;{% endfor %}</textarea></label>
             <label class="full">Ban/alert reason <input name="stack_watch_reason" value="{{ stack.reason or 'Possible stacking raid from repeated nearby build placements.' }}"></label>
             <div class="embed-preview full"><strong>ADM placement watch</strong><span>Detects lines like Nameless Object&lt;GardenPlot&gt;, counts nearby repeat placements, and alerts staff. Ban actions only run after the trigger count is met.</span></div>
@@ -46248,7 +46259,7 @@ STACK_WATCH_DEFAULT_OBJECTS = [
 def stack_watch_objects_from_payload(payload: dict[str, Any], previous: list[str] | None = None) -> list[str]:
     """Return the exact watched-object selection submitted by Stack Watch.
 
-    Preset class names are controlled solely by the multi-select. The custom
+    Preset class names are controlled solely by the preset checkboxes. The custom
     field is reserved for classes that are not already presets, preventing an
     old copy of FenceKit (or another preset) in that field from silently
     re-enabling it after the owner deselects it.

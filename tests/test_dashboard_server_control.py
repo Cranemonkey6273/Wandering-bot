@@ -97,6 +97,46 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual(["GardenPlot"], objects)
 
+    def test_stack_watch_uses_unambiguous_preset_checkboxes(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn('type="hidden" name="stack_watch_objects_present" value="true"', template)
+        self.assertIn('type="checkbox" name="stack_watch_object_presets"', template)
+        self.assertNotIn('name="stack_watch_object_presets" multiple', template)
+        self.assertIn("Ticked means watched. Unticked means ignored.", template)
+
+    def test_stack_watch_route_persists_only_garden_plot(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "stack_watch": {
+                    "enabled": True,
+                    "objects": ["GardenPlot", "FenceKit", "WatchtowerKit", "TerritoryFlagKit"],
+                },
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "stack_watch_objects_present": True,
+            "stack_watch_enabled": True,
+            "stack_watch_object_presets": "GardenPlot",
+            "stack_watch_objects": "",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store") as save_store,
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, data, *_args: data),
+        ):
+            response = dashboard.api_moderation_guard()
+
+        self.assertEqual(["GardenPlot"], response["stack_watch"]["objects"])
+        self.assertEqual(["GardenPlot"], configs["guild-1"]["stack_watch"]["objects"])
+        saved_configs = save_store.call_args.args[1]
+        self.assertEqual(["GardenPlot"], saved_configs["guild-1"]["stack_watch"]["objects"])
+
     def test_stack_watch_allows_only_genuine_custom_classes_in_custom_field(self):
         payload = {
             "stack_watch_enabled": True,
