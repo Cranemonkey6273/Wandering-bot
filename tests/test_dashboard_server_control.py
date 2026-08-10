@@ -1222,6 +1222,33 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("PC servers", reply)
         self.assertNotIn("nominal (the base number of uses)", reply)
 
+    def test_explicit_nonexistent_console_class_is_refused_without_draft_or_charge(self):
+        prompt = (
+            "On an unmodded console server add LaserDragonRifle_X99 to db/types.xml. "
+            "This classname does not exist in vanilla. Do not request Nitrado upload."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "edit_file",
+                "dayz_file_target": "db/types.xml",
+                "dayz_map": "chernarus",
+                "dayz_reference_mode": "vanilla",
+            },
+            prompt,
+        )
+        task = {"id": "qa-missing-class", "project_type": "dayz_files", "dayz_context": context}
+
+        reply = dashboard.ai_agent_llm_reply_for_task(
+            {}, {"kind": "guild"}, {"label": "QA"}, {"id": "run-qa"}, task, None, prompt, False
+        )
+
+        self.assertIn("cannot create a valid DayZ file", reply)
+        self.assertIn("console", reply)
+        self.assertEqual("dayz_input_required", task["llm_status"])
+        self.assertEqual([], dashboard.ai_agent_task_dayz_drafts(task))
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable(task))
+
     def test_verified_dayz_answer_never_starts_an_unrelated_sandbox_job(self):
         task = {"llm_status": "verified_dayz_reference"}
 

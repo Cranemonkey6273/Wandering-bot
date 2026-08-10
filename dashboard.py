@@ -31060,6 +31060,37 @@ def ai_agent_verified_dayz_tool_durability_reply(prompt: str) -> str:
     )
 
 
+def ai_agent_verified_dayz_missing_class_reply(context: Any, prompt: Any) -> str:
+    """Refuse an explicitly nonexistent vanilla classname without fake XML."""
+    if not isinstance(context, dict) or not context.get("enabled"):
+        return ""
+    text = str(prompt or "")
+    lower = text.lower()
+    explicitly_missing = any(
+        phrase in lower
+        for phrase in (
+            "does not exist in vanilla", "doesn't exist in vanilla",
+            "does not exist in dayz", "doesn't exist in dayz",
+            "nonexistent classname", "non-existent classname",
+            "not a vanilla classname", "missing mod classname",
+        )
+    )
+    if not explicitly_missing:
+        return ""
+    target_path = str(context.get("target_path") or "")
+    if dayz_filename_for_path(target_path) not in {"types.xml", "cfgspawnabletypes.xml"} and str(context.get("custom_json_schema") or "") != "spawning_gear":
+        return ""
+    class_match = re.search(r"\b([A-Za-z][A-Za-z0-9_]*_[A-Za-z0-9_]+)\b", text)
+    class_label = f"`{class_match.group(1)}`" if class_match else "that classname"
+    return (
+        f"I cannot create a valid DayZ file that makes {class_label} exist on an unmodded console server. "
+        "`types.xml` only configures Central Economy behaviour for classes already shipped in the game; adding a made-up record does not install a weapon or item.\n\n"
+        "- On console, a missing/non-vanilla classname cannot be added through mission XML or JSON.\n"
+        "- On PC, the exact mod name, version and current type/config definitions are required before its classname can be referenced safely.\n"
+        "- I did not invent a class, create a fake draft or request a live upload. No completed file was produced, so this refusal is not chargeable."
+    )
+
+
 def ai_agent_should_queue_chat_auto_job(task: dict[str, Any] | None, prompt: str, continued: bool) -> bool:
     """Keep simple verified answers free from unrelated workspace jobs."""
     if isinstance(task, dict):
@@ -31179,6 +31210,14 @@ def ai_agent_llm_reply_for_task(
         task["next_action"] = "Provide the requested exact classnames, coordinates, dimensions and orientations."
         task["updated_at"] = datetime.now(UTC).isoformat()
         return missing_custom_input
+    missing_class_reply = ai_agent_verified_dayz_missing_class_reply(dayz_context, prompt)
+    if missing_class_reply:
+        task["suggested_commands"] = []
+        task["llm_status"] = "dayz_input_required"
+        task["summary"] = "A nonexistent vanilla classname was refused without creating an invalid DayZ draft."
+        task["next_action"] = "Use a classname from the active vanilla reference, or provide the exact PC mod/version and its current type definitions."
+        task["updated_at"] = datetime.now(UTC).isoformat()
+        return missing_class_reply
     if not scenario.get("id") and not scenario.get("error"):
         inferred_vehicle_scenario = ai_agent_infer_vehicle_scenario_from_prompt(
             prompt,
