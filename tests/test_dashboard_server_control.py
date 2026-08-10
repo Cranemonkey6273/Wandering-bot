@@ -1118,6 +1118,12 @@ class DashboardServerControlTests(unittest.TestCase):
 
     def test_dayz_scope_uses_user_permission_but_blocks_live_work(self):
         self.assertTrue(dashboard.ai_agent_dayz_scope_for_text("create and validate types.xml", "dayz_files"))
+        self.assertTrue(
+            dashboard.ai_agent_dayz_scope_for_text(
+                "Repair cfggameplay.json but do not upload or change any live server",
+                "dayz_files",
+            )
+        )
         self.assertFalse(dashboard.ai_agent_dayz_scope_for_text("upload the new types.xml to Nitrado", "dayz_files"))
 
         self.assertEqual(
@@ -1154,6 +1160,40 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("custom/objectspawner.json", dashboard.ai_agent_dayz_target_path("objectspawner.json"))
         self.assertEqual("custom/NoLogoutArea.json", dashboard.ai_agent_dayz_target_path("./custom/NoLogoutArea.json"))
         self.assertEqual("", dashboard.ai_agent_dayz_target_path("../custom/NoLogoutArea.json"))
+
+    def test_dayz_file_workbench_extracts_explicit_inline_malformed_json(self):
+        source = '{"version":129,"WorldsData":{"lightingConfig":1,"objectSpawnersArr":["./custom/base.json",],},}'
+        objective = (
+            "QA TEST ONLY - do not upload or change any live server. Repair this malformed "
+            f"cfggameplay.json. Input: {source}"
+        )
+
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "cfggameplay.json",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "complete",
+                "dayz_reference_mode": "none",
+            },
+            objective,
+        )
+        plan = dashboard.ai_agent_plan_from_objective(
+            objective,
+            "dayz_files",
+            {"read": True, "edit": True, "execute": False, "deploy": False},
+            {"god_mode_enabled": False},
+        )
+
+        self.assertEqual(source, context["source_text"])
+        self.assertFalse(context["source_validation"]["ok"])
+        self.assertEqual([], plan["approvals"])
+        self.assertEqual([], dashboard.ai_agent_suggested_commands_for_task({
+            "objective": objective,
+            "project_type": "dayz_files",
+            "dayz_context": context,
+        }))
 
     def test_ai_agent_uses_verified_event_name_guidance_for_linked_ce_files(self):
         reply = dashboard.ai_agent_verified_dayz_event_link_reply(

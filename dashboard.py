@@ -24782,7 +24782,35 @@ def ai_agent_dayz_scope_for_text(text: Any, project_type: Any = "") -> bool:
         has_dayz = any(marker in combined for marker in AI_AGENT_DAYZ_SCOPE_MARKERS)
     if not has_dayz:
         return False
-    return not any(marker in combined for marker in AI_AGENT_DAYZ_LIVE_RISK_MARKERS)
+    # A customer explicitly saying "do not upload" or "no live changes" is a
+    # safety boundary, not a request to perform the live action.  Strip only
+    # these narrow, well-known negations before looking for live-risk markers;
+    # an affirmative upload/deploy/restart request still stays owner-gated.
+    risk_text = combined
+    for phrase in (
+        "do not upload or change nitrado",
+        "don't upload or change nitrado",
+        "do not upload or change any live server",
+        "don't upload or change any live server",
+        "do not upload or change the live server",
+        "don't upload or change the live server",
+        "do not change any live server",
+        "don't change any live server",
+        "do not change the live server",
+        "don't change the live server",
+        "do not change nitrado",
+        "don't change nitrado",
+        "do not upload",
+        "don't upload",
+        "never upload",
+        "without uploading",
+        "no live changes",
+        "no live change",
+        "offline review",
+        "draft only",
+    ):
+        risk_text = risk_text.replace(phrase, " ")
+    return not any(marker in risk_text for marker in AI_AGENT_DAYZ_LIVE_RISK_MARKERS)
 
 
 def ai_agent_dayz_command_is_allowed(command: str) -> tuple[bool, str]:
@@ -26550,6 +26578,54 @@ def ai_agent_infer_vehicle_scenario_from_prompt(prompt: Any, map_key: Any) -> di
     return ai_agent_dayz_scenario_from_payload(payload, map_key)
 
 
+def ai_agent_dayz_source_from_objective(objective: Any, target_path: Any) -> str:
+    """Extract an explicitly pasted DayZ file/block from a natural-language request.
+
+    The workbench has a dedicated source field, but customers reasonably paste
+    a broken file straight into the conversation.  This deliberately accepts
+    only fenced blocks or content following an explicit Input/File marker and
+    never treats ordinary prose as a replacement file.
+    """
+    text = str(objective or "")
+    if not text.strip():
+        return ""
+    clean_target = ai_agent_dayz_target_path(target_path)
+    spec = dayz_file_spec_for_path(clean_target) if clean_target else None
+    if not spec:
+        return ""
+
+    fenced = re.findall(r"```(?:xml|json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    for block in fenced:
+        candidate = str(block or "").strip()
+        if not candidate:
+            continue
+        if spec.kind == "json" and candidate[:1] in {"{", "["}:
+            return candidate
+        if spec.kind == "xml" and candidate.startswith("<"):
+            return candidate
+
+    marker = re.search(
+        r"(?:^|[\r\n.!?])\s*(?:input|current\s+file|file\s+content|source)\s*:\s*",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not marker:
+        return ""
+    remainder = text[marker.end():].strip()
+    if spec.kind == "json":
+        starts = [index for index in (remainder.find("{"), remainder.find("[")) if index >= 0]
+        if not starts:
+            return ""
+        start = min(starts)
+        end = max(remainder.rfind("}"), remainder.rfind("]"))
+        return remainder[start:end + 1].strip() if end >= start else ""
+    if spec.kind == "xml":
+        start = remainder.find("<")
+        end = remainder.rfind(">")
+        return remainder[start:end + 1].strip() if start >= 0 and end >= start else ""
+    return ""
+
+
 def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = "") -> dict[str, Any]:
     payload = payload if isinstance(payload, dict) else {}
     project_type = str(payload.get("project_type") or "auto").strip().lower()
@@ -26573,6 +26649,8 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         return {}
 
     source_text = str(payload.get("dayz_file_source") or payload.get("source_text") or "")
+    if not source_text.strip() and str(payload.get("dayz_support_mode") or "").strip().lower() in {"fix_error", "line_explain"}:
+        source_text = ai_agent_dayz_source_from_objective(objective, target_path)
     source_mode = str(payload.get("dayz_source_mode") or ("complete" if source_text.strip() else "none")).strip().lower()
     if source_mode not in {"complete", "fragment", "none"}:
         source_mode = "complete" if source_text.strip() else "none"
@@ -31265,8 +31343,20 @@ def ai_agent_plan_from_objective(objective: str, project_type: str, requested: d
         steps.append({"agent": "Deployment", "title": "Stage deployment", "detail": "Build, verify health checks, and wait for owner approval before production deploy."})
     approvals = []
     draft_only_no_live_write = bool(
-        ("draft only" in lower or "offline review" in lower)
-        and any(phrase in lower for phrase in ("do not upload", "don't upload", "do not change nitrado", "without uploading"))
+        dayz_scoped
+        and any(
+            phrase in lower
+            for phrase in (
+                "do not upload",
+                "don't upload",
+                "never upload",
+                "without uploading",
+                "do not change nitrado",
+                "do not change any live server",
+                "don't change any live server",
+                "no live changes",
+            )
+        )
     )
     for keyword, reason in AI_AGENT_RISK_KEYWORDS.items():
         if draft_only_no_live_write and keyword in {"deploy", "production", "push", "nitrado", "ftp"}:
