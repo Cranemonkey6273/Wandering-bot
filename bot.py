@@ -103,8 +103,6 @@ RECORDED_PVP_DEATHS_FILE = data_path("recorded_pvp_deaths.json")
 ONLINE_PLAYERS_FILE = data_path("online_players.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
 HEATMAP_FILE = data_path("heatmap.json")
-SWEAR_JAR_FILE = data_path("swear_jar.json")
-SWEAR_JAR_ENABLED = False
 LINKED_PLAYERS_FILE = data_path("linked_players.json")
 LINKED_PLAYER_CLAIMS_FILE = data_path("linked_player_claims.json")
 LONGSHOT_RECORDS_FILE = data_path("longshot_records.json")
@@ -246,8 +244,6 @@ except ValueError:
     DASHBOARD_LIVE_FEED_LIMIT = 500
 PLAYER_AUDIT_RETENTION_HOURS = 24
 PLAYER_AUDIT_RECORD_LIMIT = 10000
-swear_jar = {}
-player_chat_tracker = {}
 linked_players = {}
 linked_player_claims = {}
 last_funny_message_time = {}
@@ -426,7 +422,6 @@ DEFAULT_CHANNEL_NAMES = {
     "help_channel": "❓📘・help-desk・📘❓",
     "economy": "💰🛒・black-market・🛒💰",
     "money_feed": "💰🧾・money-feed・🧾💰",
-    "swear_jar_feed": "🤬🫙・swear-jar・🫙🤬",
     "admin_logs": "🛡️📕・admin-logs・📕🛡️",
     "nitrado_ban_logs": "🔴🔴・nitrado-ban・🔴🔴",
     "dashboard_audit": "🛡️🧾・dashboard-audit・🧾🛡️",
@@ -553,7 +548,6 @@ DEFAULT_CHANNEL_NAMES.update({
     "help_channel": f"{styled_channel_name('HeLP-DeSK')}❔",
     "economy": f"{styled_channel_name('BLAcK-MARKeT')}💰",
     "money_feed": f"{styled_channel_name('MoNeY-FeeD')}💰",
-    "swear_jar_feed": f"{styled_channel_name('SWeAR-JAR')}🤬",
     "admin_logs": f"{styled_channel_name('ADMiN-LoGs')}📋",
     "nitrado_ban_logs": f"{styled_channel_name('NiTRADo-BANs')}🔴",
     "dashboard_audit": f"{styled_channel_name('DASHBoARD-AUDiT')}🧾",
@@ -630,7 +624,6 @@ CHANNEL_ALIASES = {
     "clips_channel": ["dayzclips", "clips", "media"],
     "economy": ["blackmarket", "economy", "shop", "market"],
     "money_feed": ["moneyfeed", "moneylogs", "financefeed", "penniesfeed", "incomefeed"],
-    "swear_jar_feed": ["swearjar", "swearjarfeed", "swearjarlogs", "badwords", "languagejar"],
     "ai_chat": ["survivorai", "aichat", "ai"],
     "admin_logs": ["adminlogs", "stafflogs"],
     "nitrado_ban_logs": ["nitradoban", "nitradobanfeed", "nitradobanlist", "nitradobanlistfeed", "nitradobanlogs", "banfeed", "banfeeds", "banlist", "banlistfeed", "gamebanlogs", "banlistpushes"],
@@ -794,20 +787,6 @@ BOT_UPDATE_NOTES = [
         "commands": "(automatic, no commands needed)",
         "audience": "Everyone",
     },
-]
-
-SWEAR_REWARD_MIN = 300
-SWEAR_REWARD_MAX = 800
-SWEAR_REDEMPTION_MESSAGES_REQUIRED = 15
-SWEAR_REDEMPTION_THRESHOLD = 20
-
-SWEAR_WORDS = [
-    "fuck",
-    "shit",
-    "bitch",
-    "cunt",
-    "bollocks",
-    "wanker"
 ]
 
 # =========================================================
@@ -3495,39 +3474,6 @@ async def send_special_adm_feed(guild_id, config, event_type, line, event_time=N
     embed.set_footer(text="Wandering Bot Alpha - Private ADM Feed")
     embed.timestamp = event_time
     await send_feed_embed(guild_id, key, channel, embed, style=True, context=event_type)
-
-
-async def send_swear_jar_feed(message, found_words, fine, pennies_total):
-    guild_id = str(message.guild.id)
-    config = guild_configs.setdefault(guild_id, {"guild_name": message.guild.name, "channels": {}})
-    channel = await get_or_create_feed_channel(
-        message.guild,
-        config,
-        "swear_jar_feed",
-        DEFAULT_CHANNEL_NAMES["swear_jar_feed"],
-    )
-    if not channel:
-        return
-
-    lines = [
-        "Language crime detected. The swear jar has been fed.",
-        "Another beautiful donation to the bad words retirement fund.",
-        "The bot heard that. The bot judged it. The bot invoiced it.",
-        "Fine issued with unnecessary confidence.",
-    ]
-
-    embed = discord.Embed(
-        title="SWEAR JAR INCIDENT",
-        description=random.choice(lines),
-        color=0xE67E22
-    )
-    embed.add_field(name="Offender", value=message.author.mention, inline=True)
-    embed.add_field(name="Evidence", value=", ".join(f"`{word}`" for word in sorted(set(found_words))), inline=True)
-    embed.add_field(name="Fine", value=f"{fine} pennies", inline=True)
-    embed.add_field(name="Total Debt", value=f"{pennies_total} pennies", inline=True)
-    embed.set_thumbnail(url=BOT_IMAGE)
-    embed.set_footer(text="Wandering Bot Alpha - Public Shame Department")
-    await channel.send(embed=style_embed(embed))
 
 
 async def maybe_reply_to_bot_mention(message, lower):
@@ -6243,7 +6189,7 @@ SHOWCASE_FEATURE_SPOTLIGHTS = [
     ("🔥 FEATURE: LIVE KILLFEED", "Wandering Bot tracks every PvP kill in real time from your server's ADM logs and posts them to a dedicated killfeed channel — killer, victim, weapon, distance, and map coordinates."),
     ("🗺️ FEATURE: HEATMAPS", "The bot generates live heatmap images showing where PvP, zombie kills, base building, and raids are happening most on your map. Updated automatically."),
     ("🏆 FEATURE: LEADERBOARDS", "Automatic kill leaderboards, longshot records, and player stat tracking — all pulled from ADM logs with zero manual input required."),
-    ("💰 FEATURE: ECONOMY SYSTEM", "A full in-game economy: pennies, a shop, item deliveries, vehicle rentals, recurring wages, and a swear jar. All Discord-native."),
+    ("💰 FEATURE: ECONOMY SYSTEM", "A full in-game economy: pennies, a shop, item deliveries, vehicle rentals, recurring wages, and configurable rewards. All Discord-native."),
     ("🏴 FEATURE: FACTION SYSTEM", "Players can create, join, and manage factions directly in Discord. Faction roles, member lists, and dedicated channels — all bot-managed."),
     ("🧭 FEATURE: PVE QUEST BOARD", "Automated PVE quest channels with hunting, fishing, crafting, collection, and expedition missions. Quests rotate automatically when completed."),
     ("🌍 FEATURE: AUTO TRANSLATION", "The bot can automatically translate messages in any channel to a target language, making international communities seamless."),
@@ -6950,15 +6896,7 @@ WANDERING_EMOJI_SHOWCASE_LINES = [
     "Official Wandering Bot emoji sighting. Please clap, or at least pretend this is normal.",
     "Custom bot emoji flex detected. Tiny picture, massive attitude.",
     "This emoji is mine. I licked it first. Digitally. Probably.",
-    "Wandering Bot branding department says this emoji is important as hell."
-]
-
-WANDERING_SWEAR_LINES = [
-    "Bloody hell, this server has more drama than a badly parked Ada.",
-    "I leave you lot alone for five minutes and somehow the apocalypse gets stupider.",
-    "That was some Grade-A DayZ nonsense. Beautiful, honestly.",
-    "I swear this radio is powered by panic and questionable decisions.",
-    "Someone tell Chernarus to calm the hell down."
+    "Wandering Bot branding department says this emoji is very important."
 ]
 
 AI_IMAGE_CAPTIONS = [
@@ -7124,7 +7062,9 @@ def owner_voice_config(guild_id):
     settings = config.setdefault("owner_voice", {})
     settings.setdefault("tone", "default")
     settings.setdefault("directness", "normal")
-    settings.setdefault("swearing", "normal")
+    # Older configurations may contain the retired `swearing` preference.
+    # Drop it so it can no longer influence bot-written messages.
+    settings.pop("swearing", None)
     return settings
 
 
@@ -7132,8 +7072,7 @@ def describe_owner_voice(guild_id):
     settings = owner_voice_config(guild_id)
     return (
         f"tone `{settings.get('tone', 'default')}`, "
-        f"detail `{settings.get('directness', 'normal')}`, "
-        f"swearing `{settings.get('swearing', 'normal')}`"
+        f"detail `{settings.get('directness', 'normal')}`"
     )
 
 
@@ -7345,20 +7284,23 @@ def apply_owner_voice_to_text(guild_id, text):
     settings = owner_voice_config(guild_id)
     tone = settings.get("tone", "default")
     directness = settings.get("directness", "normal")
-    swearing = settings.get("swearing", "normal")
     result = str(text)
 
-    if swearing == "low":
-        replacements = {
-            "bollocks": "nonsense",
-            "wankers": "muppets",
-            "wanker": "muppet",
-            "hell": "heck",
-            "damn": "darn",
-            "shit": "mess",
-        }
-        for bad, clean in replacements.items():
-            result = re.sub(rf"\b{re.escape(bad)}\b", clean, result, flags=re.IGNORECASE)
+    # Bot-authored output is always clean-language. This also sanitises legacy
+    # saved phrases without reintroducing a user-facing profanity setting.
+    replacements = {
+        "bollocks": "nonsense",
+        "wankers": "muppets",
+        "wanker": "muppet",
+        "hell": "heck",
+        "damn": "darn",
+        "shit": "mess",
+        "bitch": "complainer",
+        "cunt": "muppet",
+        "fuck": "fuss",
+    }
+    for bad, clean in replacements.items():
+        result = re.sub(rf"\b{re.escape(bad)}\b", clean, result, flags=re.IGNORECASE)
 
     if directness == "concise" and len(result) > 220:
         sentences = re.split(r"(?<=[.!?])\s+", result.strip())
@@ -7391,7 +7333,6 @@ def set_owner_voice_from_message(guild_id, lower):
     if "reset" in lower and talks_about_voice:
         settings["tone"] = "default"
         settings["directness"] = "normal"
-        settings["swearing"] = "normal"
 
     if any(phrase in lower for phrase in ["professional", "serious", "polite", "less banter"]):
         settings["tone"] = "professional"
@@ -7408,11 +7349,6 @@ def set_owner_voice_from_message(guild_id, lower):
         settings["directness"] = "concise"
     elif any(phrase in lower for phrase in ["more detail", "detailed", "explain more", "longer"]):
         settings["directness"] = "detailed"
-
-    if any(phrase in lower for phrase in ["no swearing", "less swearing", "stop swearing", "clean language"]):
-        settings["swearing"] = "low"
-    elif any(phrase in lower for phrase in ["normal swearing", "swear normally", "swearing normal"]):
-        settings["swearing"] = "normal"
 
     changed = before != dict(settings)
     if changed:
@@ -7736,13 +7672,6 @@ async def maybe_send_wandering_personality(message, now_ts):
             f"{random_wandering_emoji()} {random.choice(WANDERING_EMOJI_SHOWCASE_LINES)}"
         )
 
-    elif roll < chatter_chance:
-        last_emoji_showcase_time[guild_id] = now_ts
-        await message.channel.send(
-            wb_text("radio", apply_owner_voice_to_text(guild_id, random.choice(WANDERING_SWEAR_LINES)))
-        )
-
-
 # =========================================================
 # SHOWCASE GUILD BEHAVIOUR
 # =========================================================
@@ -7750,7 +7679,7 @@ async def maybe_send_wandering_personality(message, now_ts):
 SHOWCASE_COMMAND_HINTS = [
     "💡 Have you tried `/linkgamer`? Link your Discord to your in-game name and unlock leaderboards, economy rewards, and quest tracking.",
     "💡 Did you know `/leaderboard hall` shows a live leaderboard of PvP kills across the server? Give it a go.",
-    "💡 The `/wallet` command shows your penny balance. Earn pennies by chatting, completing quests, and avoiding the swear jar.",
+    "💡 The `/wallet` command shows your penny balance. Earn pennies by chatting, completing quests, and taking part in server activities.",
     "💡 Try `/pvequests` to see active PVE quests — hunting, fishing, crafting, and expedition challenges with real rewards.",
     "💡 `/shop` opens the server shop. Spend your pennies on items, perks, and more.",
     "💡 Ask me anything by mentioning me directly — I can help with bot commands, setup questions, and DayZ advice.",
@@ -7784,7 +7713,6 @@ SHOWCASE_FEATURE_PROMOS = [
     "🎯 Longshot detector flags every kill over 300m automatically and adds it to the sniper hall of fame.",
     "👋 Custom welcome messages greet new survivors when they join Discord — make a great first impression instantly.",
     "📊 Full player stat tracking pulled live from ADM logs. No manual data entry, no spreadsheets, no fuss.",
-    "🪙 The swear jar economy: every time someone swears in chat, pennies move from their wallet to the community pot. Light moderation with a sense of humour.",
     "⏰ Automated scheduled restart announcements + countdown warnings (30/15/5/1 minute) keep players from losing loot when the server reboots.",
     "💥 Airdrop events: admins can spawn a loot crate anywhere on the map with a single command — XML pushed to Nitrado automatically.",
 ]
@@ -7871,22 +7799,19 @@ SHOWCASE_QUESTION_RESPONSES = {
     # ── Economy ───────────────────────────────────────────
     "economy": [
         "💰 The economy system gives players pennies for chatting, completing quests, and good behaviour. They spend them in `/shop`. Admins configure rewards with `/addreward`.",
-        "🪙 Full Discord-side economy: earn pennies by playing, spend them in `/shop`, get fined by the swear jar, earn bonuses from PVE quests.",
+        "🪙 Full Discord-side economy: earn pennies by playing, spend them in `/shop`, and earn bonuses from PVE quests.",
     ],
     "money": [
         "💸 Check your balance with `/wallet`. Spend it in `/shop`. Earn more by playing on the server (link your gamertag first with `/linkgamer`).",
     ],
     "wallet": [
-        "💰 `/wallet` shows your penny balance. Earn pennies by playing on a linked server, completing PVE quests, and chatting (just watch the swear jar!).",
+        "💰 `/wallet` shows your penny balance. Earn pennies by playing on a linked server, completing PVE quests, and chatting.",
     ],
     "shop": [
         "🛒 `/shop` opens the server shop. Admins decide what's stocked — items, perks, custom rewards.",
     ],
     "pennies": [
-        "🪙 Pennies are the in-Discord currency. Earned from gameplay, lost to the swear jar, spent in the shop.",
-    ],
-    "swear": [
-        "💸 The swear jar is real! Every swear word costs pennies. Light moderation with a sense of humour. Check your balance with `/wallet`.",
+        "🪙 Pennies are the in-Discord currency. Earned from gameplay and server activities, then spent in the shop.",
     ],
     # ── Factions ──────────────────────────────────────────
     "faction": [
@@ -8395,7 +8320,6 @@ CHANNEL_RESTORE_PACKS = {
     "economy": [
         "economy",
         "money_feed",
-        "swear_jar_feed",
         "purchase_logs",
         "vehicle_rentals",
         "rental_logs",
@@ -8633,7 +8557,6 @@ BOT_CHANNEL_CATEGORY_BY_KEY = {
     "help_channel": "support",
     "economy": "economy",
     "money_feed": "economy",
-    "swear_jar_feed": "economy",
     "admin_logs": "staff_ops",
     "nitrado_ban_logs": "staff_ops",
     "dashboard_audit": "staff_ops",
@@ -10389,7 +10312,7 @@ async def _translate_via_openai(text, target_language, source_language):
         "Translate the user's message into the target language using natural chat meaning, "
         "not stiff dictionary wording. Preserve Discord mentions, URLs, emojis, usernames, "
         "gamertags, server names, item names, and DayZ terms when they are names. Keep the "
-        "same casual tone and profanity strength. Do not add commentary. Return only the "
+        "same casual tone and intensity, but never add profanity. Do not add commentary. Return only the "
         "translated message. For German slang like 'geil' in a positive chat context, use "
         "'awesome', 'cool', or 'sick', not the literal sexual meaning."
     )
@@ -10976,6 +10899,17 @@ def load_guild_configs():
 
     changed = False
     for config in guild_configs.values():
+        owner_voice = config.get("owner_voice") if isinstance(config, dict) else None
+        if isinstance(owner_voice, dict) and owner_voice.pop("swearing", None) is not None:
+            changed = True
+        channels = config.get("channels") if isinstance(config, dict) else None
+        if isinstance(channels, dict) and channels.pop("swear_jar_feed", None) is not None:
+            changed = True
+        for list_key in ("disabled_channels", "custom_channel_routes"):
+            values = config.get(list_key) if isinstance(config, dict) else None
+            if isinstance(values, list) and "swear_jar_feed" in values:
+                config[list_key] = [value for value in values if value != "swear_jar_feed"]
+                changed = True
         if normalize_server_control_schedules(config):
             changed = True
     if changed:
@@ -11983,8 +11917,8 @@ async def generate_death_roast(killer, victim, weapon, distance, headshot=False,
     tone_value = (tone or AI_ROAST_TONE or "mixed").lower()
     tone_hint = {
         "edgy": "Tone: dark, edgy DayZ humour. Punchy. No slurs, no real-world tragedies.",
-        "pg13": "Tone: PG-13 witty/sarcastic. No swears.",
-        "brutal_clean": "Tone: brutal but clean. No swears. Make it sting.",
+        "pg13": "Tone: PG-13 witty/sarcastic and clean-language.",
+        "brutal_clean": "Tone: brutal but clean-language. Make it sting.",
     }.get(tone_value, "Tone: pick at random between dark/edgy, witty/sarcastic, and brutal-but-clean.")
 
     headshot_hint = " It was a HEADSHOT — reference that." if headshot else ""
@@ -14100,15 +14034,6 @@ def load_heatmap():
 
 def save_heatmap():
     save_json(HEATMAP_FILE, territory_heat)
-
-
-def load_swear_jar():
-    global swear_jar
-    swear_jar = load_json(SWEAR_JAR_FILE)
-
-
-def save_swear_jar():
-    save_json(SWEAR_JAR_FILE, swear_jar)
 
 
 def load_linked_players():
@@ -23654,7 +23579,7 @@ async def billing_plan_selection_loop():
         )
 
 # =========================================================
-# SWEAR JAR
+# MEMBER ONBOARDING EVENTS
 # =========================================================
 
 @bot.event
@@ -24221,7 +24146,7 @@ async def on_message(message):
             print(f"COMPANY ANNOUNCE BROADCAST ERROR: {error}")
     # Quest workshop: admin-only freestyle AI quest channel. Route this
     # FIRST and early-return so workshop chatter doesn't run through the
-    # normal swearjar/AI-roast pipeline.
+    # normal chat and AI-response pipeline.
     if message.guild:
         wb_config = guild_configs.get(str(message.guild.id), {})
         wb_channel_id = wb_config.get("channels", {}).get("quest_workshop")
@@ -24240,42 +24165,6 @@ async def on_message(message):
     await maybe_translate_message(message)
     await apply_chat_reward_punishment_rules(message, lower)
 
-    found_words = [
-        word for word in SWEAR_WORDS
-        if word in lower
-    ]
-    if not SWEAR_JAR_ENABLED:
-        found_words = []
-
-    if found_words:
-
-        user_id = str(message.author.id)
-
-        if user_id not in swear_jar:
-
-            swear_jar[user_id] = {
-                "name": str(message.author),
-                "count": 0,
-                "balance": 0
-            }
-
-        swear_jar[user_id]["count"] += len(found_words)
-
-        swear_jar[user_id]["balance"] += (
-            len(found_words) * 100
-        )
-
-        pennies_total = swear_jar[user_id]["balance"]
-
-        save_swear_jar()
-
-        await send_swear_jar_feed(
-            message,
-            found_words,
-            len(found_words) * 100,
-            pennies_total
-        )
-
     now_ts = datetime.now(UTC).timestamp()
 
     if await maybe_handle_owner_natural_language(message, lower, now_ts):
@@ -24288,19 +24177,8 @@ async def on_message(message):
     # Previously: AI_RESPONSES scanned every chat line for words like "shit",
     # "raid", "loot", "base", "dead" and replied with a 🧠 tip on EVERY hit
     # with no cooldown — e.g. "🧠 Tactical advice: panicking rarely improves
-    # aim." All other feeds (killfeed, radar, safe zones, quests, swear jar,
+    # aim." All other feeds (killfeed, radar, safe zones, quests,
     # @-mention AI chat, RPT events) are untouched.
-
-    user_id = str(message.author.id)
-
-    if user_id not in player_chat_tracker:
-
-        player_chat_tracker[user_id] = {
-            "recent_messages": 0,
-            "recent_swears": 0,
-            "clean_messages": 0,
-            "eligible": False
-        }
 
     # 🔇 FUNNY_ROTATION random "🧠 Pro tip / 💡 Tip" chatter DISABLED by owner
     # request (PR #44). The 4% per-message chance + 15min cooldown still
@@ -24312,82 +24190,6 @@ async def on_message(message):
     await maybe_send_wandering_personality(message, now_ts)
     await maybe_send_ai_generated_picture(message, now_ts)
 
-    tracker = player_chat_tracker[user_id]
-
-    tracker["recent_messages"] += 1
-
-    if found_words:
-
-        tracker["recent_swears"] += len(found_words)
-        tracker["clean_messages"] = 0
-
-        if tracker["recent_swears"] >= SWEAR_REDEMPTION_THRESHOLD:
-            tracker["eligible"] = True
-
-    else:
-
-        tracker["clean_messages"] += 1
-
-        if (
-            tracker["eligible"]
-            and tracker["clean_messages"] >= SWEAR_REDEMPTION_MESSAGES_REQUIRED
-        ):
-
-            import random
-
-            reward = random.randint(
-                SWEAR_REWARD_MIN,
-                SWEAR_REWARD_MAX
-            )
-
-            guild_id = str(message.guild.id) if message.guild else None
-            wallet = guild_wallet(guild_id, user_id, str(message.author))
-            wallet_credit(wallet, reward, "cash")
-
-            tracker["eligible"] = False
-            tracker["recent_swears"] = 0
-            tracker["clean_messages"] = 0
-            tracker["recent_messages"] = 0
-
-            save_wallets()
-
-            await send_money_feed(
-                message.guild,
-                guild_configs.get(str(message.guild.id), {}) if message.guild else {},
-                "SWEAR JAR REDEMPTION",
-                f"{message.author.mention} earned **{reward} pennies** for clean messages.",
-                [
-                    {"name": "Survivor", "value": message.author.mention, "inline": True},
-                    {"name": "Reward", "value": f"{reward} pennies", "inline": True},
-                    {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
-                ],
-                color=0x2ECC71,
-                footer="Money Feed - Swear Jar",
-            )
-
-            redemption_messages = [
-                f"🧼 {message.author.mention} finally cleaned up their language. Miracles do happen. +{reward} pennies 🪙",
-                f"💰 Good behaviour detected from {message.author.mention}. Survivor rehabilitation successful. +{reward} pennies 🪙",
-                f"🧠 AI Notice: {message.author.mention} survived {SWEAR_REDEMPTION_MESSAGES_REQUIRED} messages without swearing. Reward issued. +{reward} pennies 🪙",
-                f"📻 Chernarus Radio: {message.author.mention} has temporarily stopped speaking like a lunatic. +{reward} pennies 🪙",
-                f"🏆 Redemption Arc Complete: {message.author.mention} earned {reward} pennies for not swearing constantly."
-            ]
-
-            redemption_embed = discord.Embed(
-                title="✨ SWEAR JAR REDEMPTION",
-                description=random.choice(redemption_messages),
-                color=0x2ECC71
-            )
-
-            redemption_embed.set_thumbnail(url=BOT_IMAGE)
-
-            redemption_embed.set_footer(
-                text="Wandering Bot Alpha • Behaviour System"
-            )
-
-            await message.channel.send(
-                embed=style_embed(redemption_embed)
-            )
 
     # Prefix commands disabled; slash commands only mode.
 
@@ -24840,7 +24642,7 @@ async def helpme(ctx):
         name="📊 Stats & Leaderboards",
         value=(
             "`/playercard [name]` — full career dossier (omit name for your own)\n"
-            "`/leaderboard setup` — admin: hourly Server + Global leaderboard (10 feeds: kills, deaths, time played, builds, kill streak, longest shot, swearing, flags raised, animal deaths, zombie deaths)\n"
+            "`/leaderboard setup` — admin: hourly Server + Global leaderboard (kills, deaths, time played, builds, kill streak, longest shot, flags raised, animal deaths, and zombie deaths)\n"
             "`/leaderboard hall` — 🏅 all-time Hall of Fame for this server\n"
             "`/leaderboard challenges` — 🎯 today's daily challenge + progress\n"
             "`/leaderboard refresh / unset` — admin\n"
@@ -25040,45 +24842,6 @@ async def online(ctx):
     )
 
     embed.set_thumbnail(url=BOT_IMAGE)
-
-    await ctx.send(
-        embed=style_embed(embed)
-    )
-
-
-@bot.command()
-async def swearjar(ctx):
-
-    if not swear_jar:
-
-        await ctx.send(
-            "Swear jar is empty."
-        )
-
-        return
-
-    sorted_users = sorted(
-        swear_jar.values(),
-        key=lambda x: x["balance"],
-        reverse=True
-    )
-
-    leaderboard = []
-
-    for index, user in enumerate(
-        sorted_users[:10],
-        start=1
-    ):
-
-        leaderboard.append(
-            f"{index}. {user['name']} - £{user['balance']} ({user['count']} swears)"
-        )
-
-    embed = discord.Embed(
-        title="💸 SWEAR JAR LEADERBOARD",
-        description="\n".join(leaderboard),
-        color=0xF1C40F
-    )
 
     await ctx.send(
         embed=style_embed(embed)
@@ -29789,9 +29552,7 @@ AI_RESPONSES = {
     "loot": "🧠 Tip: Medical buildings and hunting camps are usually worth checking.",
     "base": "🧠 Tip: Small hidden stashes survive longer than giant compounds.",
     "cheater": "🧠 AI Watch: Record clips and timestamps before reporting suspicious activity.",
-    "dead": "💀 DayZ teaches lessons the painful way.",
-    "fuck": "💸 Calm down survivor, the swear jar is getting rich.",
-    "shit": "🧠 Tactical advice: panicking rarely improves aim."
+    "dead": "💀 DayZ teaches lessons the painful way."
 }
 
 AI_KEYWORDS = [
@@ -30281,7 +30042,7 @@ PVE_CHALLENGE_BANK = [
 
 PVE_GENERATED_QUEST_SEEDS = [
     ("Hunting", "Deer Trail", "Hunt {count} deer, stag, or doe and return with proof.", "animal_kill", 500, "Easy", "Move along forest edges and listen more than you sprint."),
-    ("Hunting", "Farmyard Forager", "Hunt {count} chickens, goats, sheep, cows, or pigs.", "animal_kill", 450, "Easy", "Farms and small villages are better than wandering in circles swearing at bushes."),
+    ("Hunting", "Farmyard Forager", "Hunt {count} chickens, goats, sheep, cows, or pigs.", "animal_kill", 450, "Easy", "Farms and small villages are better than wandering in circles shouting at bushes."),
     ("Hunting", "Wolf Line", "Survive and clear {count} wolves.", "animal_kill", 900, "Medium", "Bandages first, confidence second. Wolves love idiots with empty stamina."),
     ("Hunting", "Bear Story", "Bring down {count} bear as a squad and live to brag about it.", "animal_kill", 1800, "Hard", "Shoot together, spread out, and avoid heroic solo nonsense."),
     ("Zombie Control", "Clinic Sweep", "Clear {count} infected near medical buildings.", "zombie_kill", 650, "Easy", "Doors, blades, stamina. The holy trinity of not getting slapped silly."),
@@ -48016,7 +47777,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         name="📻 Personality & Atmosphere",
         value=(
             "The bot has a distinct voice — dry, sardonic, and deeply invested in your "
-            "server's survival drama. It drops in-character remarks, reacts to swearing, "
+            "server's survival drama. It drops clean, in-character remarks, reacts to events, "
             "and keeps the atmosphere alive between events."
         ),
         inline=False
@@ -48161,7 +47922,7 @@ async def ownerbotshowcase(interaction: discord.Interaction, secret_code: str, i
         name="💰 Server Economy",
         value=(
             "A complete penny-based economy with wallets, a shop, keyword rewards, "
-            "punishment rules, recurring wages, and a swear jar. Fully configurable per server."
+            "punishment rules, recurring wages, and configurable payouts. Fully configurable per server."
         ),
         inline=False
     )
@@ -52507,8 +52268,6 @@ async def editradarzone(
 
 @bot.tree.command(name="helpme", description="Show command/help information")
 async def slash_helpme(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "helpme")
-@extra_tools_group.command(name="swearjar", description="Show swear jar leaderboard")
-async def slash_swearjar(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "swearjar")
 async def slash_heatmap(interaction: discord.Interaction): await run_legacy_as_slash(interaction, "heatmap")
 @bot.tree.command(name="toplongshots", description="Show longshot leaderboard")
 async def slash_toplongshots(interaction: discord.Interaction):
@@ -54072,11 +53831,6 @@ LEADERBOARD_CATEGORIES = [
         "value": lambda v: f"{float(v):.0f}m",
     },
     {
-        "key": "swears",      "title": "🤬  MOST SWEARING",
-        "source": "swear_jar", "stat_key": "count",
-        "value": lambda v: f"{int(v):,} swears",
-    },
-    {
         "key": "flags",       "title": "🚩  MOST FLAGS RAISED",
         "source": "player_stats", "stat_key": "flags_raised",
         "value": lambda v: f"{int(v):,} flags",
@@ -54181,25 +53935,6 @@ def gather_category_rows(category, scope, guild_id=None, limit=10):
         out.sort(key=lambda r: r[1], reverse=True)
         return [(p, category["value"](v)) for p, v in out[:limit]]
 
-    if src == "swear_jar":
-        # swear_jar is a flat dict keyed by Discord user_id, with
-        # 'name' and 'count' fields. Not per-guild — same data shown
-        # in both server and global scopes (consistent with how it's
-        # stored).
-        rows = []
-        for user_id, entry in swear_jar.items():
-            if not isinstance(entry, dict):
-                continue
-            v = int(entry.get(sk, 0) or 0)
-            if v <= 0:
-                continue
-            name = entry.get("name", f"user_{user_id}")
-            # Drop the #discriminator if it's a legacy User#1234 format
-            name = name.split("#")[0] if "#" in name else name
-            rows.append((name, v))
-        rows.sort(key=lambda r: r[1], reverse=True)
-        return [(p, category["value"](v)) for p, v in rows[:limit]]
-
     return []
 
 
@@ -54253,7 +53988,7 @@ def build_mega_leaderboard_summary_embed():
             "**🏠 Server** — top 10 on this server\n"
             "**🌍 Global** — top 10 across every Wandering Bot guild\n\n"
             "**Tracked:** ☠️ Kills · 💀 Deaths · ⏱️ Time Played · 🔨 Builds · "
-            "🔫 Kill Streak · 🎯 Longest Shot · 🤬 Swearing · 🚩 Flags · "
+            "🔫 Kill Streak · 🎯 Longest Shot · 🚩 Flags · "
             "🐺 Animal Deaths · 🧟 Zombie Deaths"
         ),
         color=0xE67E22,
@@ -56956,7 +56691,6 @@ HIDDEN_GROUP_SUBCOMMANDS = {
     },
     "tools": {
         "editradarzone",
-        "swearjar",
         "purgebots",
         "spectator",
     },
@@ -57109,7 +56843,6 @@ async def on_ready():
     await ensure_pve_channels_for_active_guilds()
     load_player_stats()
     load_heatmap()
-    load_swear_jar()
     load_linked_players()
     load_support_tickets()
     load_factions()
@@ -57228,7 +56961,6 @@ try:
                 "alive_streaks": alive_streaks,
                 "daily_challenges": daily_challenges,
                 "territory_heat": territory_heat,
-                "swear_jar": swear_jar,
                 "linked_players": linked_players,
                 "linked_player_claims": linked_player_claims,
                 "support_tickets": support_tickets,

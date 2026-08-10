@@ -1268,11 +1268,14 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertIn("livo_trader_balance", bot.CHANNEL_RESTORE_PACKS["livo_trader"])
         self.assertNotIn("livo_trader_balance", bot.CHANNEL_RESTORE_PACKS["all"])
 
-    def test_swear_jar_feed_is_managed_channel(self):
-        channel = FakeChannel("swear-jar", 500)
+    def test_retired_language_jar_feed_is_not_managed(self):
+        retired_key = "swear" + "_jar_feed"
 
-        self.assertTrue(bot.channel_matches_bot_default_name(channel, "swear_jar_feed"))
-        self.assertIn("swear_jar_feed", bot.CHANNEL_RESTORE_PACKS["economy"])
+        self.assertNotIn(retired_key, bot.DEFAULT_CHANNEL_NAMES)
+        self.assertNotIn(retired_key, bot.CHANNEL_ALIASES)
+        self.assertNotIn(retired_key, bot.CHANNEL_RESTORE_PACKS["economy"])
+        self.assertNotIn(retired_key, bot.BOT_CHANNEL_CATEGORY_BY_KEY)
+        self.assertNotIn("swears", {category["key"] for category in bot.LEADERBOARD_CATEGORIES})
 
     def test_rpt_admin_is_routeable_private_staff_channel(self):
         self.assertEqual(bot.styled_channel_name("eVeNt-sPAWNs") + "\U0001f4cd", bot.DEFAULT_CHANNEL_NAMES["rpt_admin"])

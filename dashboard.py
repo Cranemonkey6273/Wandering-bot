@@ -1401,7 +1401,6 @@ FILES = {
     "pve_challenges": "pve_challenges.json",
     "pve_ai_campaigns": "pve_ai_campaigns.json",
     "pve_workshop_schedules": "pve_workshop_schedules.json",
-    "swear_jar": "swear_jar.json",
     "longshot_records": "longshot_records.json",
     "removed_guilds": "removed_guilds.json",
     "ai_agent": "ai_agent.json",
@@ -1436,7 +1435,6 @@ SERVER_PROFILE_RUNTIME_STORE_FILES = tuple(dict.fromkeys((
     "alive_streaks.json",
     "daily_challenges.json",
     "heatmap.json",
-    "swear_jar.json",
     "linked_players.json",
     "linked_player_claims.json",
     "support_tickets.json",
@@ -1504,7 +1502,7 @@ FEED_ROUTE_GROUPS = {
     },
     "economy": {
         "label": "Economy",
-        "keys": ["economy", "money_feed", "swear_jar_feed", "purchase_logs", "vehicle_rentals", "rental_logs"],
+        "keys": ["economy", "money_feed", "purchase_logs", "vehicle_rentals", "rental_logs"],
     },
     "community": {
         "label": "Community",
@@ -1557,7 +1555,6 @@ FEED_ROUTE_LABELS = {
     "help_channel": "Help desk",
     "economy": "Shop / economy",
     "money_feed": "Money feed",
-    "swear_jar_feed": "Swear jar",
     "admin_logs": "Admin logs",
     "nitrado_ban_logs": "Nitrado ban logs",
     "dashboard_audit": "Dashboard audit",
@@ -37855,7 +37852,6 @@ def remove_guild_dashboard_data(guild_id: str, config: dict[str, Any]) -> None:
         "pve_challenges",
         "pve_ai_campaigns",
         "pve_workshop_schedules",
-        "swear_jar",
         "longshot_records",
     ]:
         store = load_store(store_name, {})
@@ -38093,30 +38089,7 @@ def longshot_board(players: list[dict[str, Any]], longshot_records: Any, guild_i
     }
 
 
-def swear_board(swear_jar: Any, players: list[dict[str, Any]]) -> dict[str, Any]:
-    known_names = {str(player.get("discord_id", "")): player_display_name(player) for player in players if player.get("discord_id")}
-    rows = []
-    if isinstance(swear_jar, dict):
-        for key, entry in swear_jar.items():
-            if isinstance(entry, dict):
-                count = safe_int(entry.get("count") or entry.get("swears") or entry.get("total"))
-                name = str(entry.get("name") or known_names.get(str(key)) or key)
-            else:
-                count = safe_int(entry)
-                name = str(known_names.get(str(key)) or key)
-            if count > 0:
-                rows.append({"name": name, "count": count})
-    rows.sort(key=lambda item: (-item["count"], item["name"].lower()))
-    return {
-        "title": "🤬 Most Swearing",
-        "rows": [
-            {"name": row["name"], "value": f"{row['count']} swears", "medal": medal_class(index)}
-            for index, row in enumerate(rows[:10], start=1)
-        ],
-    }
-
-
-def leaderboard_categories(players: list[dict[str, Any]], swear_jar: Any, longshot_records: Any, guild_id: str) -> list[dict[str, Any]]:
+def leaderboard_categories(players: list[dict[str, Any]], longshot_records: Any, guild_id: str) -> list[dict[str, Any]]:
     return [
         stat_board("☠️ Most Kills", players, "kills", "kills"),
         stat_board("💀 Most Deaths", players, "deaths", "deaths"),
@@ -38124,7 +38097,6 @@ def leaderboard_categories(players: list[dict[str, Any]], swear_jar: Any, longsh
         stat_board("🔨 Most Built", players, "builds", "parts"),
         stat_board("🔫 Highest Kill Streak", players, "kill_streak", "kills w/o dying"),
         longshot_board(players, longshot_records, guild_id),
-        swear_board(swear_jar, players),
         stat_board("🚩 Most Flags Raised", players, "flags_raised", "flags"),
         stat_board("🐺 Most Deaths By Animal", players, "animal_deaths", "deaths"),
         stat_board("🧟 Most Deaths By Zombies", players, "zombie_deaths", "deaths"),
@@ -40287,7 +40259,6 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     pve_ai_campaigns = (runtime_state.get("pve_ai_campaigns") or load_store("pve_ai_campaigns", {})) if needs_pve else {}
     pve_workshop_schedules = (runtime_state.get("pve_workshop_schedules") or load_store("pve_workshop_schedules", {})) if needs_pve else {}
     rpt_event_tracker_store = (runtime_state.get("rpt_event_tracker") or load_store("rpt_event_tracker", {})) if needs_pve else {}
-    swear_jar = (runtime_state.get("swear_jar") or load_store("swear_jar", {})) if needs_leaderboard_extras else {}
     longshot_records = (runtime_state.get("longshot_records") or load_store("longshot_records", {})) if needs_leaderboard_extras else {}
     dashboard_live_feeds = (runtime_state.get("dashboard_live_feeds") or load_store("dashboard_live_feeds", {})) if needs_live_feeds else {}
     player_audit = (runtime_state.get("player_audit") or load_store("player_audit", {})) if needs_player_audit else {}
@@ -40400,7 +40371,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "platform_label": dashboard_server_platform_label(server_platform),
                 "online": online,
                 "leaders": players,
-                "leaderboards": leaderboard_categories(players, swear_jar, longshot_records, guild_id),
+                "leaderboards": leaderboard_categories(players, longshot_records, guild_id),
                 "members": redact(server_members),
                 "discord_members": redact(discord_members),
                 "discord_member_count": discord_member_count,
