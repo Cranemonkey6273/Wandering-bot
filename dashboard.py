@@ -511,7 +511,11 @@ DEFAULT_BOT_INVITE_URL = os.getenv(
     "BOT_INVITE_URL",
     "https://discord.com/oauth2/authorize?client_id=1500819036026437662&permissions=8&integration_type=0&scope=bot+applications.commands",
 )
-SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "https://discord.gg/9d8rZDSQaE").strip()
+SUPPORT_DISCORD_URL = os.getenv("WANDERING_SUPPORT_DISCORD_URL", "https://discord.gg/aQ4r9XSn2T").strip()
+if SUPPORT_DISCORD_URL == "https://discord.gg/9d8rZDSQaE":
+    # Migrate the retired invite even when an older Railway variable still
+    # contains the previous project default.
+    SUPPORT_DISCORD_URL = "https://discord.gg/aQ4r9XSn2T"
 ANDROID_APP_ID = os.getenv("WANDERING_ANDROID_APP_ID", "com.dayzwanderingbot.app").strip() or "com.dayzwanderingbot.app"
 ANDROID_PLAY_STORE_URL = os.getenv(
     "WANDERING_ANDROID_PLAY_STORE_URL",
@@ -1977,7 +1981,9 @@ APP_WELCOME_TEMPLATE = """
       <div class="guide-actions">
         <a class="secondary" href="/setup-guide">View the complete setup guide</a>
         <a class="secondary" href="/setup-guide/download">Download the setup guide</a>
+        <a class="secondary" href="{{ support_url }}" target="_blank" rel="external noopener">Join the support Discord</a>
       </div>
+      <p class="help"><strong>Need help after adding the bot?</strong> Run <code>/supportbot issue:describe the problem</code> in your Discord to open a private support ticket directly with the Wandering Bot owner.</p>
     </section>
 
     <section class="login" aria-labelledby="login-heading">
@@ -3623,7 +3629,7 @@ APP_DASHBOARD_TEMPLATE = """
       right: 0;
       bottom: 0;
       display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: .2rem;
       padding: .42rem .5rem calc(.42rem + env(safe-area-inset-bottom));
       background: rgba(255, 255, 255, .98);
@@ -3707,7 +3713,41 @@ APP_DASHBOARD_TEMPLATE = """
       {% endif %}
     </section>
 
-    {% if server and app_view == 'home' %}
+    {% if app_view == 'start' %}
+    <section class="page-intro"><h2>Get started</h2><p>Add Wandering Bot to a Discord you administer, connect the correct DayZ service and know exactly where to get help.</p></section>
+    <section class="metrics" aria-label="Account and server allowance">
+      <article class="metric"><span>Plan</span><strong style="font-size:1rem">{{ server_slot_entitlement.plan_name }}</strong><small>active dashboard access</small></article>
+      <article class="metric"><span>DayZ servers</span><strong>{{ server_slot_entitlement.used }}{% if not server_slot_entitlement.unlimited %} / {{ server_slot_entitlement.limit }}{% endif %}</strong><small>{% if server_slot_entitlement.unlimited %}owner access{% else %}included plus active add-ons{% endif %}</small></article>
+      <article class="metric"><span>Slots left</span><strong>{% if server_slot_entitlement.unlimited %}&infin;{% else %}{{ server_slot_entitlement.remaining }}{% endif %}</strong><small>{% if server_slot_entitlement.can_add %}another service can be connected{% else %}allowance currently full{% endif %}</small></article>
+      <article class="metric"><span>Discords</span><strong>{{ servers|length }}</strong><small>available to this login</small></article>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Add the bot</h2><details class="info"><summary aria-label="About adding the bot">i</summary><div>The invite opens Discord's official permission screen. You must be the server owner or an administrator allowed to add applications.</div></details></div>
+      <p class="muted">Use the same button for a first Discord or another community. Wandering Bot will only create the small starter channel set until an administrator chooses more feeds during setup.</p>
+      {% if not server_slot_entitlement.can_add %}<div class="notice"><strong>Your DayZ server allowance is full.</strong> You may still add the bot to Discord, but another DayZ service cannot be connected to this dashboard until a slot becomes available.</div>{% endif %}
+      <div class="review-actions">
+        <a class="button" href="{{ bot_invite_url }}" target="_blank" rel="external noopener">Add Wandering Bot to Discord</a>
+        <a class="button secondary" href="/setup-guide">Open setup guide</a>
+      </div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Connection checklist</h2><span>Four steps</span></div>
+      <div class="learn-flow">
+        <article class="learn-step"><b>1</b><strong>Choose the Discord</strong><span>Approve the bot in the community you own or administer.</span></article>
+        <article class="learn-step"><b>2</b><strong>Prepare Nitrado</strong><span>Use the service ID, API token and FTP details for the same DayZ service.</span></article>
+        <article class="learn-step"><b>3</b><strong>Run /setup</strong><span>Choose the platform, map and only the channel packs your community wants.</span></article>
+        <article class="learn-step"><b>4</b><strong>Verify the feed</strong><span>Run <code>/admstatus</code>, save the private dashboard login and return to the app.</span></article>
+      </div>
+      <div class="review-actions"><a class="button secondary" href="/setup-guide/download">Download setup guide</a><a class="button secondary" href="{{ app_urls.home }}">Open current dashboard</a></div>
+    </section>
+    <section class="section">
+      <div class="section-head"><h2>Help from the bot owner</h2><span>Direct support</span></div>
+      <p class="muted">From your Discord, run <code>/supportbot issue:describe the problem</code>. It opens an admin support ticket directly with the Wandering Bot owner without exposing private server details in public channels.</p>
+      <div class="review-actions"><a class="button secondary" href="{{ support_url }}" target="_blank" rel="external noopener">Open support Discord</a><a class="button secondary" href="mailto:{{ support_email }}">Email support</a></div>
+    </section>
+    <section class="notice safe-notice"><strong>Plans and billing:</strong> Your active plan and enforced server allowance are shown above. Payment links are intentionally not placed inside the Google Play app. For subscription or billing changes, use the Wandering Bot website separately in your browser.</section>
+
+    {% elif server and app_view == 'home' %}
     <section class="page-intro"><h2>Command centre</h2><p>A focused mobile overview. Full desktop-only builders stay out of the app.</p></section>
     <section class="metrics" aria-label="Server summary">
       <article class="metric"><span>Online</span><strong>{{ server.online|length }}</strong><small>survivors tracked</small></article>
@@ -3718,6 +3758,7 @@ APP_DASHBOARD_TEMPLATE = """
     <section class="section">
       <div class="section-head"><h2>Mobile tools</h2><details class="info"><summary aria-label="About mobile tools">i</summary><div>These are the mobile areas currently ready to use. Desktop-only builders are deliberately not shown here.</div></details></div>
       <div class="tool-grid">
+        <a class="tool-row" href="{{ app_urls.start }}"><b>Setup</b><strong>Get started</strong><span>Add the bot, connect another Discord, check server slots or contact support.</span></a>
         <a class="tool-row" href="{{ app_urls.feeds }}"><b>Live</b><strong>Server feeds</strong><span>Review recent ADM activity for the selected DayZ server.</span></a>
         <a class="tool-row" href="{{ app_urls.events }}"><b>Events</b><strong>Airdrop builder</strong><span>Create guarded airdrops and confirm live spawns from the RPT tracker.</span></a>
         <a class="tool-row" href="{{ app_urls.economy }}"><b>Economy</b><strong>Shop control</strong><span>Search items and change prices, limits or availability.</span></a>
@@ -4063,6 +4104,7 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
   </main>
 
   <nav class="bottom-nav" aria-label="App navigation">
+    <a class="{{ 'active' if app_view == 'start' else '' }}" href="{{ app_urls.start }}">Start</a>
     <a class="{{ 'active' if app_view == 'home' else '' }}" href="{{ app_urls.home }}">Home</a>
     <a class="{{ 'active' if app_view == 'feeds' else '' }}" href="{{ app_urls.feeds }}">Feeds</a>
     <a class="{{ 'active' if app_view == 'events' else '' }}" href="{{ app_urls.events }}">Events</a>
@@ -32156,6 +32198,7 @@ def mobile_app_welcome(error: str = ""):
         error=error,
         pwa_theme_color=PWA_THEME_COLOR,
         bot_invite_url=dashboard_bot_invite_url(),
+        support_url=SUPPORT_DISCORD_URL,
         support_email=PUBLIC_SUPPORT_EMAIL,
         app_source=source,
         return_to=return_to,
@@ -40916,6 +40959,7 @@ def delete_dashboard_admin_record(section: str, guild_id: Any, item_id: Any) -> 
 
 
 MOBILE_APP_VIEW_SECTIONS = {
+    "start": "live-feeds",
     "home": "live-feeds",
     "feeds": "live-feeds",
     "events": "pve",
@@ -42045,6 +42089,26 @@ def mobile_app():
         if selected_access
         else dashboard_feature_allowed(selected_config, "pve_quests")
     )
+    slot_guild_configs = load_store("guild_configs", {})
+    if not isinstance(slot_guild_configs, dict):
+        slot_guild_configs = {}
+    slot_primary_guild_id = normalize_guild_id(auth.get("guild_id") or selected_guild_id)
+    server_slot_entitlement = dashboard_server_slot_entitlement(
+        slot_guild_configs,
+        slot_primary_guild_id,
+        owner_bypass=auth.get("kind") == "owner",
+    ) if slot_primary_guild_id else {
+        "plan_id": "owner" if auth.get("kind") == "owner" else "free_bot",
+        "plan_name": "Owner" if auth.get("kind") == "owner" else "Wandering Bot Free",
+        "base_limit": 1,
+        "addon_slots": 0,
+        "limit": None if auth.get("kind") == "owner" else 1,
+        "used": len(payload["state"].get("servers", [])),
+        "remaining": None if auth.get("kind") == "owner" else max(0, 1 - len(payload["state"].get("servers", []))),
+        "unlimited": auth.get("kind") == "owner",
+        "over_limit": False,
+        "can_add": True if auth.get("kind") == "owner" else len(payload["state"].get("servers", [])) < 1,
+    }
     return render_template_string(
         APP_DASHBOARD_TEMPLATE,
         auth=auth,
@@ -42059,6 +42123,8 @@ def mobile_app():
         app_view=payload["app_view"],
         app_urls=payload["app_urls"],
         app_source=native_app_source(),
+        bot_invite_url=dashboard_bot_invite_url(),
+        server_slot_entitlement=server_slot_entitlement,
         crafting_library_url=(f"/crafting?source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting"),
         files_library_url=(f"/crafting?tab=files&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=files"),
         app_qs=payload["app_qs"],

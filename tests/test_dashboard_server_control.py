@@ -720,12 +720,15 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_mobile_app_welcome_explains_install_setup_and_password_reset(self):
         template = dashboard.APP_WELCOME_TEMPLATE
 
+        self.assertEqual("https://discord.gg/aQ4r9XSn2T", dashboard.SUPPORT_DISCORD_URL)
         self.assertIn("Add Wandering Bot to Discord", template)
         self.assertIn("/setup", template)
         self.assertIn("Nitrado service ID", template)
         self.assertIn("/admstatus", template)
         self.assertIn('href="/setup-guide"', template)
         self.assertIn('href="/setup-guide/download"', template)
+        self.assertIn("Join the support Discord", template)
+        self.assertIn("/supportbot issue:describe the problem", template)
         self.assertIn("/dashboardcredentials reset:true", template)
         self.assertIn('name="return_to"', template)
         self.assertIn('name="app_source"', template)
@@ -756,6 +759,7 @@ class DashboardServerControlTests(unittest.TestCase):
 
     def test_mobile_app_view_normalizer_limits_routes_to_finished_views(self):
         self.assertEqual("home", dashboard.normalize_mobile_app_view(None))
+        self.assertEqual("start", dashboard.normalize_mobile_app_view(" START "))
         self.assertEqual("feeds", dashboard.normalize_mobile_app_view(" FEEDS "))
         self.assertEqual("events", dashboard.normalize_mobile_app_view("events"))
         self.assertEqual("economy", dashboard.normalize_mobile_app_view("economy"))
@@ -885,8 +889,14 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_mobile_app_template_is_a_focused_mobile_command_hub(self):
         template = dashboard.APP_DASHBOARD_TEMPLATE
 
-        for label in ("Home", "Feeds", "Events", "Economy", "Control", "Guides"):
+        for label in ("Start", "Home", "Feeds", "Events", "Economy", "Control", "Guides"):
             self.assertIn(f">{label}</a>", template)
+        self.assertIn("Add Wandering Bot to Discord", template)
+        self.assertIn("Connection checklist", template)
+        self.assertIn("/supportbot issue:describe the problem", template)
+        self.assertIn("server_slot_entitlement.plan_name", template)
+        self.assertIn("Payment links are intentionally not placed inside the Google Play app", template)
+        self.assertNotIn("buy.stripe.com", template)
         self.assertIn("DayZ field guide", template)
         self.assertIn("Airdrop builder", template)
         self.assertIn("Live from latest RPT", template)
