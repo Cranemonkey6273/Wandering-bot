@@ -35,6 +35,11 @@ from dayz_file_intelligence import (
     validate_upload_not_dangerously_shrunken,
     validate_dayz_upload_text,
 )
+from discord_setup_localization import (
+    setup_choice_text,
+    setup_interaction_language,
+    setup_text,
+)
 from datetime import datetime, UTC, timedelta
 from collections import OrderedDict, defaultdict, deque
 from discord.ext import commands, tasks
@@ -18244,20 +18249,38 @@ def setup_wizard_initial_values(existing_config):
     }
 
 
-def setup_wizard_channel_status(values, existing_config):
+def setup_wizard_channel_status(values, existing_config, language="en"):
     bundle = str(values.get("channel_bundle") or "essentials")
     keys, error = resolve_channel_setup_selection(bundle, values.get("channel_selection", ""))
     if error:
-        return [], error
+        return [], setup_text(language, "invalid_channel_selection")
     tier_keys = set(channel_setup_tier_keys(existing_config or {}))
     outside_tier = [key for key in (keys or []) if key not in tier_keys]
     if outside_tier:
-        return keys or [], "Not included in this plan: " + ", ".join(outside_tier)
+        return keys or [], setup_text(
+            language,
+            "channels_outside_plan",
+            channels=", ".join(outside_tier),
+        )
     return keys or [], ""
 
 
 def setup_wizard_has_value(values, existing_config, key):
     return bool(str(values.get(key) or "").strip() or str((existing_config or {}).get(key) or "").strip())
+
+
+def setup_wizard_localized_choices(choices, language, prefix):
+    localized = []
+    for label, value, description in choices:
+        localized_label, localized_description = setup_choice_text(
+            language,
+            prefix,
+            value,
+            label,
+            description,
+        )
+        localized.append((localized_label, value, localized_description))
+    return localized
 
 
 class SetupWizardChoiceSelect(discord.ui.Select):
@@ -18280,30 +18303,34 @@ class SetupWizardChoiceSelect(discord.ui.Select):
         self.wizard.values[self.field] = self.values[0]
         if self.field == "server_platform" and getattr(self.wizard, "step", 1) == 1:
             self.wizard.step = 2
-            self.wizard.notice = "Platform saved. Now choose the map and server style."
+            self.wizard.notice = setup_text(self.wizard.language, "platform_saved")
             self.wizard.rebuild_items()
         else:
-            self.wizard.notice = f"{self.placeholder} updated."
+            self.wizard.notice = setup_text(self.wizard.language, "selection_updated")
         await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
 
 
-class SetupCredentialsModal(discord.ui.Modal, title="Connect Nitrado and FTP"):
+class SetupCredentialsModal(discord.ui.Modal):
     def __init__(self, wizard):
-        super().__init__(timeout=600)
+        super().__init__(title=setup_text(wizard.language, "credentials_title"), timeout=600)
         self.wizard = wizard
         fields = [
-            ("nitrado_token", "Nitrado API token", "Paste the token from Nitrado API access", 512),
-            ("service_id", "Nitrado service ID", "Numbers only, from the service page", 20),
-            ("nitrado_user", "Nitrado account/FTP user", "Example: ni12248929_2", 128),
-            ("ftp_user", "FTP login username", "The FTP username shown by Nitrado", 128),
-            ("ftp_password", "FTP password", "The FTP password shown by Nitrado", 512),
+            ("nitrado_token", "token_label", "token_placeholder", 512),
+            ("service_id", "service_label", "service_placeholder", 20),
+            ("nitrado_user", "nitrado_user_label", "nitrado_user_placeholder", 128),
+            ("ftp_user", "ftp_user_label", "ftp_user_placeholder", 128),
+            ("ftp_password", "ftp_password_label", "ftp_password_placeholder", 512),
         ]
         self.inputs = {}
-        for key, label, placeholder, maximum in fields:
+        for key, label_key, placeholder_key, maximum in fields:
             already_saved = setup_wizard_has_value(wizard.values, wizard.existing_config, key)
             item = discord.ui.TextInput(
-                label=label,
-                placeholder=("Already supplied - blank keeps it" if already_saved else placeholder),
+                label=setup_text(wizard.language, label_key),
+                placeholder=(
+                    setup_text(wizard.language, "already_saved")
+                    if already_saved
+                    else setup_text(wizard.language, placeholder_key)
+                ),
                 required=not already_saved,
                 min_length=1 if not already_saved else None,
                 max_length=maximum,
@@ -18317,42 +18344,42 @@ class SetupCredentialsModal(discord.ui.Modal, title="Connect Nitrado and FTP"):
             value = str(item.value or "")
             if value:
                 self.wizard.values[key] = value if key in {"ftp_password"} else value.strip()
-        self.wizard.notice = "Credentials captured privately. Values are hidden from the review."
+        self.wizard.notice = setup_text(self.wizard.language, "credentials_saved")
         await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
 
 
-class SetupAdvancedModal(discord.ui.Modal, title="Advanced and PC options"):
+class SetupAdvancedModal(discord.ui.Modal):
     def __init__(self, wizard):
-        super().__init__(timeout=600)
+        super().__init__(title=setup_text(wizard.language, "advanced_title"), timeout=600)
         self.wizard = wizard
         custom_default = str(wizard.values.get("channel_selection") or "")[:4000]
         self.ftp_host = discord.ui.TextInput(
-            label="Optional FTP host or IP",
-            placeholder="Blank uses Nitrado discovery / keeps saved host",
+            label=setup_text(wizard.language, "ftp_host_label"),
+            placeholder=setup_text(wizard.language, "ftp_host_placeholder"),
             required=False,
             max_length=255,
         )
         self.rcon_host = discord.ui.TextInput(
-            label="PC only: BattlEye RCon host",
-            placeholder="Blank keeps RCon unchanged/disabled",
+            label=setup_text(wizard.language, "rcon_host_label"),
+            placeholder=setup_text(wizard.language, "rcon_host_placeholder"),
             required=False,
             max_length=255,
         )
         self.rcon_port = discord.ui.TextInput(
-            label="PC only: BattlEye RCon port",
-            placeholder="Port from BEServer_x64.cfg",
+            label=setup_text(wizard.language, "rcon_port_label"),
+            placeholder=setup_text(wizard.language, "rcon_port_placeholder"),
             required=False,
             max_length=5,
         )
         self.rcon_password = discord.ui.TextInput(
-            label="PC only: BattlEye RCon password",
-            placeholder="Blank keeps the saved password",
+            label=setup_text(wizard.language, "rcon_password_label"),
+            placeholder=setup_text(wizard.language, "rcon_password_placeholder"),
             required=False,
             max_length=512,
         )
         self.channel_selection = discord.ui.TextInput(
-            label="Custom channel keys (only for Custom list)",
-            placeholder="killfeed, online, radar",
+            label=setup_text(wizard.language, "custom_channels_label"),
+            placeholder=setup_text(wizard.language, "custom_channels_placeholder"),
             default=custom_default or None,
             required=False,
             max_length=4000,
@@ -18372,22 +18399,23 @@ class SetupAdvancedModal(discord.ui.Modal, title="Advanced and PC options"):
         for key, value in updates.items():
             if value or key == "channel_selection":
                 self.wizard.values[key] = value
-        self.wizard.notice = "Advanced choices captured. RCon is used only when PC is selected."
+        self.wizard.notice = setup_text(self.wizard.language, "advanced_saved")
         await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
 
 
 class SetupWizardOwnedView(discord.ui.View):
-    def __init__(self, *, owner_id, guild_id, timeout=900):
+    def __init__(self, *, owner_id, guild_id, language="en", timeout=900):
         super().__init__(timeout=timeout)
         self.owner_id = int(owner_id)
         self.guild_id = int(guild_id)
+        self.language = language
 
     async def interaction_check(self, interaction: discord.Interaction):
         if int(getattr(interaction.user, "id", 0) or 0) != self.owner_id:
-            await interaction.response.send_message("This private setup belongs to the administrator who opened it.", ephemeral=True)
+            await interaction.response.send_message(setup_text(self.language, "wrong_user"), ephemeral=True)
             return False
         if not interaction.guild or int(interaction.guild.id) != self.guild_id:
-            await interaction.response.send_message("Open `/setup` inside the server you want to configure.", ephemeral=True)
+            await interaction.response.send_message(setup_text(self.language, "wrong_server"), ephemeral=True)
             return False
         return True
 
@@ -18404,7 +18432,7 @@ class SetupWizardActionButton(discord.ui.Button):
             return
         if self.action == "back":
             self.wizard.step = max(1, self.wizard.step - 1)
-            self.wizard.notice = "Previous step restored."
+            self.wizard.notice = setup_text(self.wizard.language, "previous_step")
             self.wizard.rebuild_items()
             await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
             return
@@ -18421,7 +18449,7 @@ class SetupWizardActionButton(discord.ui.Button):
             await interaction.response.send_modal(SetupAdvancedModal(self.wizard))
             return
         if self.action == "review":
-            self.wizard.notice = "Review these choices. Confirm applies them; Back changes them."
+            self.wizard.notice = setup_text(self.wizard.language, "review_notice")
             await interaction.response.edit_message(
                 embed=self.wizard.build_embed(review=True),
                 view=SetupWizardConfirmView(self.wizard),
@@ -18430,7 +18458,8 @@ class SetupWizardActionButton(discord.ui.Button):
 
 class SetupWizardView(SetupWizardOwnedView):
     def __init__(self, interaction, existing_config):
-        super().__init__(owner_id=interaction.user.id, guild_id=interaction.guild.id)
+        language = setup_interaction_language(interaction)
+        super().__init__(owner_id=interaction.user.id, guild_id=interaction.guild.id, language=language)
         self.guild_name = interaction.guild.name
         self.existing_config = existing_config if isinstance(existing_config, dict) else {}
         self.values = setup_wizard_initial_values(self.existing_config)
@@ -18456,173 +18485,203 @@ class SetupWizardView(SetupWizardOwnedView):
         return choices
 
     def step_instructions(self):
-        return {
-            1: "First, choose where this DayZ server runs: Xbox, PlayStation or PC.",
-            2: "Now choose the map and whether the server is PVE, PVP or Hybrid.",
-            3: "Choose a small channel pack. You can enable more feeds later from the dashboard.",
-            4: "Open the private credentials pop-up, then review the finished setup.",
-        }.get(self.step, "Review the setup.")
+        return setup_text(self.language, f"step_{self.step}")
 
     def rebuild_items(self):
         self.clear_items()
         if self.step == 1:
             self.add_item(SetupWizardChoiceSelect(
-                self, field="server_platform", label="Choose Xbox, PlayStation or PC",
-                choices=SETUP_WIZARD_PLATFORM_CHOICES, row=0,
+                self, field="server_platform", label=setup_text(self.language, "choose_platform"),
+                choices=setup_wizard_localized_choices(SETUP_WIZARD_PLATFORM_CHOICES, self.language, "platform"), row=0,
             ))
             self.add_item(SetupWizardActionButton(
-                self, action="cancel", label="Cancel", style=discord.ButtonStyle.danger, row=1,
+                self, action="cancel", label=setup_text(self.language, "cancel"), style=discord.ButtonStyle.danger, row=1,
             ))
             return
         if self.step == 2:
             self.add_item(SetupWizardChoiceSelect(
-                self, field="server_map", label="Choose the DayZ map",
+                self, field="server_map", label=setup_text(self.language, "choose_map"),
                 choices=SETUP_WIZARD_MAP_CHOICES, row=0,
             ))
             self.add_item(SetupWizardChoiceSelect(
-                self, field="server_mode", label="Choose PVE, PVP or Hybrid",
-                choices=SETUP_WIZARD_MODE_CHOICES, row=1,
+                self, field="server_mode", label=setup_text(self.language, "choose_mode"),
+                choices=setup_wizard_localized_choices(SETUP_WIZARD_MODE_CHOICES, self.language, "mode"), row=1,
             ))
             button_row = 2
         elif self.step == 3:
             self.add_item(SetupWizardChoiceSelect(
-                self, field="channel_bundle", label="Choose the starter channel pack",
-                choices=self.channel_choices, row=0,
+                self, field="channel_bundle", label=setup_text(self.language, "choose_channels"),
+                choices=setup_wizard_localized_choices(self.channel_choices, self.language, "channel"), row=0,
             ))
             button_row = 1
         else:
             self.add_item(SetupWizardActionButton(
-                self, action="credentials", label="Enter Nitrado and FTP", style=discord.ButtonStyle.primary, row=0,
+                self, action="credentials", label=setup_text(self.language, "credentials_button"), style=discord.ButtonStyle.primary, row=0,
             ))
-            advanced_label = "PC RCon / Advanced" if self.values.get("server_platform") == "pc" else "Advanced FTP host"
+            advanced_label = setup_text(
+                self.language,
+                "advanced_pc" if self.values.get("server_platform") == "pc" else "advanced_console",
+            )
             self.add_item(SetupWizardActionButton(
                 self, action="advanced", label=advanced_label, style=discord.ButtonStyle.secondary, row=0,
             ))
             self.add_item(SetupWizardActionButton(
-                self, action="review", label="Review setup", style=discord.ButtonStyle.success, row=0,
+                self, action="review", label=setup_text(self.language, "review_button"), style=discord.ButtonStyle.success, row=0,
             ))
             self.add_item(SetupWizardActionButton(
-                self, action="back", label="Back", style=discord.ButtonStyle.secondary, row=1,
+                self, action="back", label=setup_text(self.language, "back"), style=discord.ButtonStyle.secondary, row=1,
             ))
             self.add_item(SetupWizardActionButton(
-                self, action="cancel", label="Cancel", style=discord.ButtonStyle.danger, row=1,
+                self, action="cancel", label=setup_text(self.language, "cancel"), style=discord.ButtonStyle.danger, row=1,
             ))
             return
         self.add_item(SetupWizardActionButton(
-            self, action="back", label="Back", style=discord.ButtonStyle.secondary, row=button_row,
+            self, action="back", label=setup_text(self.language, "back"), style=discord.ButtonStyle.secondary, row=button_row,
         ))
         self.add_item(SetupWizardActionButton(
-            self, action="next", label="Continue", style=discord.ButtonStyle.primary, row=button_row,
+            self, action="next", label=setup_text(self.language, "continue"), style=discord.ButtonStyle.primary, row=button_row,
         ))
         self.add_item(SetupWizardActionButton(
-            self, action="cancel", label="Cancel", style=discord.ButtonStyle.danger, row=button_row,
+            self, action="cancel", label=setup_text(self.language, "cancel"), style=discord.ButtonStyle.danger, row=button_row,
         ))
 
     def build_embed(self, *, review=False):
         values = self.values
-        channel_keys, channel_error = setup_wizard_channel_status(values, self.existing_config)
+        channel_keys, channel_error = setup_wizard_channel_status(values, self.existing_config, self.language)
         required = ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
         missing = [key for key in required if not setup_wizard_has_value(values, self.existing_config, key)]
-        credential_status = "Ready" if not missing else "Still needed: " + ", ".join(missing)
+        credential_status = (
+            setup_text(self.language, "ready")
+            if not missing
+            else setup_text(self.language, "still_needed", items=", ".join(missing))
+        )
         rcon_ready = all(
             setup_wizard_has_value(values, self.existing_config, key)
             for key in ("rcon_host", "rcon_port", "rcon_password")
         )
-        rcon_status = "Ready" if rcon_ready else "Optional / not configured"
+        rcon_status = (
+            setup_text(self.language, "ready")
+            if rcon_ready
+            else setup_text(self.language, "optional")
+        )
         bundle_label = next(
-            (label for label, value, _description in SETUP_WIZARD_CHANNEL_CHOICES if value == values.get("channel_bundle")),
+            (
+                setup_choice_text(self.language, "channel", value, label, description)[0]
+                for label, value, description in SETUP_WIZARD_CHANNEL_CHOICES
+                if value == values.get("channel_bundle")
+            ),
             str(values.get("channel_bundle") or "Essentials"),
         )
-        title = "WANDERING BOT SETUP REVIEW" if review else f"WANDERING BOT SETUP - STEP {self.step} OF 4"
+        title = (
+            setup_text(self.language, "review_title")
+            if review
+            else setup_text(self.language, "step_title", step=self.step)
+        )
         embed = discord.Embed(
             title=title,
-            description=(
-                "Private guided setup for **" + self.guild_name + "**.\n"
-                "Nothing changes until the final Confirm button is pressed."
-            ),
+            description=setup_text(self.language, "private_description", guild=self.guild_name),
             color=0xF39C12,
         )
         if review:
             embed.add_field(
-                name="SERVER",
+                name=setup_text(self.language, "server"),
                 value=(
-                    f"Platform: **{str(values.get('server_platform') or '').title()}**\n"
-                    f"Map: **{str(values.get('server_map') or '').title()}**\n"
-                    f"Style: **{str(values.get('server_mode') or '').upper()}**"
+                    f"{setup_text(self.language, 'platform')}: **{str(values.get('server_platform') or '').title()}**\n"
+                    f"{setup_text(self.language, 'map')}: **{str(values.get('server_map') or '').title()}**\n"
+                    f"{setup_text(self.language, 'style')}: **{str(values.get('server_mode') or '').upper()}**"
                 ),
                 inline=True,
             )
             embed.add_field(
-                name="CONNECTION",
+                name=setup_text(self.language, "connection"),
                 value=f"Nitrado/FTP: **{credential_status}**\nPC RCon: **{rcon_status}**",
                 inline=True,
             )
             embed.add_field(
-                name="DISCORD CHANNELS",
+                name=setup_text(self.language, "discord_channels"),
                 value=(
-                    f"Pack: **{bundle_label}**\n"
-                    + (f"Will enable **{len(channel_keys)}** included channel routes." if not channel_error else f"Warning: **{channel_error}**")
-                    + "\nMore feeds can be enabled later from Dashboard -> Feed Routing."
+                    f"{setup_text(self.language, 'pack')}: **{bundle_label}**\n"
+                    + (
+                        setup_text(self.language, "will_enable", count=len(channel_keys))
+                        if not channel_error
+                        else f"{setup_text(self.language, 'warning')}: **{channel_error}**"
+                    )
+                    + "\n"
+                    + setup_text(self.language, "more_feeds")
                 ),
                 inline=False,
             )
         else:
-            progress = ["Platform", "Map and style", "Channels", "Connection"]
+            progress = [
+                setup_text(self.language, "progress_platform"),
+                setup_text(self.language, "progress_server"),
+                setup_text(self.language, "progress_channels"),
+                setup_text(self.language, "progress_connection"),
+            ]
             progress_text = "  >  ".join(
                 (f"**{label}**" if index == self.step else label)
                 for index, label in enumerate(progress, start=1)
             )
-            embed.add_field(name="PROGRESS", value=progress_text, inline=False)
+            embed.add_field(name=setup_text(self.language, "progress"), value=progress_text, inline=False)
             if self.step >= 2:
                 embed.add_field(
-                    name="SELECTED PLATFORM",
+                    name=setup_text(self.language, "selected_platform"),
                     value=f"**{str(values.get('server_platform') or '').title()}**",
                     inline=True,
                 )
             if self.step >= 3:
                 embed.add_field(
-                    name="SELECTED SERVER",
+                    name=setup_text(self.language, "selected_server"),
                     value=f"**{str(values.get('server_map') or '').title()} / {str(values.get('server_mode') or '').upper()}**",
                     inline=True,
                 )
             if self.step == 4:
                 embed.add_field(
-                    name="CHANNEL PACK",
-                    value=f"**{bundle_label}** ({len(channel_keys)} routes)",
+                    name=setup_text(self.language, "channel_pack"),
+                    value=f"**{bundle_label}** ({len(channel_keys)} {setup_text(self.language, 'routes')})",
                     inline=True,
                 )
                 embed.add_field(
-                    name="CREDENTIALS",
+                    name=setup_text(self.language, "credentials"),
                     value=f"**{credential_status}**",
                     inline=False,
                 )
-        embed.add_field(name="WHAT TO DO", value=self.notice, inline=False)
+        embed.add_field(name=setup_text(self.language, "what_to_do"), value=self.notice, inline=False)
         embed.set_thumbnail(url=BOT_IMAGE)
-        embed.set_footer(text="Only you can see and control this setup - times out after 15 minutes")
+        embed.set_footer(text=setup_text(self.language, "private_footer"))
         return style_embed(embed)
 
     async def cancel(self, interaction):
         embed = discord.Embed(
-            title="SETUP CANCELLED",
-            description="Nothing was changed. Run `/setup` whenever you are ready.",
+            title=setup_text(self.language, "cancelled_title"),
+            description=setup_text(self.language, "cancelled_desc"),
             color=0xE74C3C,
         )
         await interaction.response.edit_message(embed=style_embed(embed), view=None)
 
 
-class SetupWizardConfirmView(SetupWizardOwnedView):
-    def __init__(self, wizard):
-        super().__init__(owner_id=wizard.owner_id, guild_id=wizard.guild_id)
-        self.wizard = wizard
+class SetupWizardConfirmButton(discord.ui.Button):
+    def __init__(self, view, *, action, label, style, emoji=None):
+        super().__init__(label=label, style=style, emoji=emoji)
+        self.confirm_view = view
+        self.action = action
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
-    async def back_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        self.wizard.notice = "Change any choice, then press Review again."
-        await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+    async def callback(self, interaction: discord.Interaction):
+        wizard = self.confirm_view.wizard
+        if self.action == "back":
+            wizard.notice = setup_text(wizard.language, "change_notice")
+            await interaction.response.edit_message(embed=wizard.build_embed(), view=wizard)
+            return
+        if self.action == "cancel":
+            embed = discord.Embed(
+                title=setup_text(wizard.language, "cancelled_title"),
+                description=setup_text(wizard.language, "cancelled_desc"),
+                color=0xE74C3C,
+            )
+            await interaction.response.edit_message(embed=style_embed(embed), view=None)
+            return
 
-    @discord.ui.button(label="Confirm setup", style=discord.ButtonStyle.success, emoji="✅")
-    async def confirm_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        values = self.wizard.values
+        values = wizard.values
         success = await apply_setup_configuration(
             interaction,
             nitrado_token=values.get("nitrado_token", ""),
@@ -18640,14 +18699,12 @@ class SetupWizardConfirmView(SetupWizardOwnedView):
             channel_selection=values.get("channel_selection", ""),
             restore_deleted_channels=False,
             ftp_host=values.get("ftp_host", ""),
+            setup_language=wizard.language,
         )
         if success:
             complete = discord.Embed(
-                title="SETUP COMPLETE",
-                description=(
-                    "Wandering Bot is connected. Only the selected channel pack was enabled.\n\n"
-                    "Use the dashboard Feed Routing page whenever you want to add or remove feeds."
-                ),
+                title=setup_text(wizard.language, "complete_title"),
+                description=setup_text(wizard.language, "complete_desc"),
                 color=0x2ECC71,
             )
             try:
@@ -18655,27 +18712,37 @@ class SetupWizardConfirmView(SetupWizardOwnedView):
             except Exception:
                 pass
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
-    async def cancel_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
-        embed = discord.Embed(
-            title="SETUP CANCELLED",
-            description="Nothing was changed. Run `/setup` whenever you are ready.",
-            color=0xE74C3C,
-        )
-        await interaction.response.edit_message(embed=style_embed(embed), view=None)
+
+class SetupWizardConfirmView(SetupWizardOwnedView):
+    def __init__(self, wizard):
+        super().__init__(owner_id=wizard.owner_id, guild_id=wizard.guild_id, language=wizard.language)
+        self.wizard = wizard
+        self.add_item(SetupWizardConfirmButton(
+            self, action="back", label=setup_text(wizard.language, "back"),
+            style=discord.ButtonStyle.secondary, emoji="⬅️",
+        ))
+        self.add_item(SetupWizardConfirmButton(
+            self, action="confirm", label=setup_text(wizard.language, "confirm"),
+            style=discord.ButtonStyle.success, emoji="✅",
+        ))
+        self.add_item(SetupWizardConfirmButton(
+            self, action="cancel", label=setup_text(wizard.language, "cancel"),
+            style=discord.ButtonStyle.danger,
+        ))
 
 
 @bot.tree.command(name="setup", description="Open the private Wandering Bot setup wizard")
 @app_commands.default_permissions(administrator=True)
 async def setup_command(interaction: discord.Interaction):
+    language = setup_interaction_language(interaction)
     if not interaction.guild:
-        await interaction.response.send_message("Run `/setup` inside the Discord server you want to connect.", ephemeral=True)
+        await interaction.response.send_message(setup_text(language, "guild_only"), ephemeral=True)
         return
     permissions = getattr(interaction.user, "guild_permissions", None)
     is_admin = bool(getattr(permissions, "administrator", False))
     is_owner = int(getattr(interaction.guild, "owner_id", 0) or 0) == int(getattr(interaction.user, "id", 0) or 0)
     if not is_admin and not is_owner:
-        await interaction.response.send_message("Only the Discord server owner or an administrator can run setup.", ephemeral=True)
+        await interaction.response.send_message(setup_text(language, "admin_only"), ephemeral=True)
         return
     guild_id = str(interaction.guild.id)
     existing_config = guild_configs.get(guild_id, {}) if isinstance(guild_configs.get(guild_id), dict) else {}
@@ -18699,7 +18766,8 @@ async def apply_setup_configuration(
     channel_bundle: str = "",
     channel_selection: str = "",
     restore_deleted_channels: bool = False,
-    ftp_host: str = ""
+    ftp_host: str = "",
+    setup_language: str = "en",
 ):
 
     await interaction.response.defer(ephemeral=True)
@@ -18709,7 +18777,7 @@ async def apply_setup_configuration(
     supplied_ftp_host = normalize_ftp_host(ftp_host)
     if supplied_ftp_host and not looks_like_ftp_host(supplied_ftp_host):
         await interaction.followup.send(
-            "That FTP host does not look valid. Use only the host/IP shown by Nitrado, not a full URL or file path.",
+            setup_text(setup_language, "invalid_ftp_host"),
             ephemeral=True
         )
         return False
@@ -18735,7 +18803,7 @@ async def apply_setup_configuration(
             channel_selection,
         )
         if channel_selection_error:
-            await interaction.followup.send(channel_selection_error, ephemeral=True)
+            await interaction.followup.send(setup_text(setup_language, "invalid_channel_selection"), ephemeral=True)
             return False
     elif "channel_setup_initialized" not in existing_config:
         # Older guild records never had a channel selection flag. Preserve
@@ -18754,9 +18822,11 @@ async def apply_setup_configuration(
         outside_tier = [key for key in selected_channel_keys if key not in tier_keys]
         if outside_tier:
             await interaction.followup.send(
-                "Those channels are not included in this subscription's automatic Discord pack: "
-                + ", ".join(f"`{key}`" for key in outside_tier)
-                + ". Use the dashboard Feed Routing page to opt into an available feed, or upgrade the plan.",
+                setup_text(
+                    setup_language,
+                    "channels_outside_plan",
+                    channels=", ".join(f"`{key}`" for key in outside_tier),
+                ),
                 ephemeral=True,
             )
             return False
@@ -18773,20 +18843,22 @@ async def apply_setup_configuration(
         missing_setup.append("ftp_password")
     if missing_setup:
         await interaction.followup.send(
-            "This server has no saved setup for: "
-            + ", ".join(f"`{item}`" for item in missing_setup)
-            + ". Run `/setup` once with the Nitrado/API/FTP details. After that you can rerun `/setup` with only `server_mode`, `server_map`, or `server_platform`.",
+            setup_text(
+                setup_language,
+                "missing_setup",
+                items=", ".join(f"`{item}`" for item in missing_setup),
+            ),
             ephemeral=True,
         )
         return False
 
     token_ok, clean_nitrado_token, token_error = validate_nitrado_api_token(raw_nitrado_token)
     if not token_ok:
-        await interaction.followup.send(token_error, ephemeral=True)
+        await interaction.followup.send(setup_text(setup_language, "invalid_nitrado_token"), ephemeral=True)
         return False
 
     if not re.fullmatch(r"[0-9]{3,20}", clean_service_id):
-        await interaction.followup.send("Nitrado service ID should be numbers only.", ephemeral=True)
+        await interaction.followup.send(setup_text(setup_language, "invalid_service_id"), ephemeral=True)
         return False
 
     credential_checks = [
@@ -18802,7 +18874,10 @@ async def apply_setup_configuration(
             allow_spaces=allow_spaces,
         )
         if not ok:
-            await interaction.followup.send(credential_error, ephemeral=True)
+            await interaction.followup.send(
+                setup_text(setup_language, "invalid_credential", field=label),
+                ephemeral=True,
+            )
             return False
         clean_credentials[label] = clean_value
 
@@ -18815,23 +18890,23 @@ async def apply_setup_configuration(
             raw_rcon_host = raw_rcon_port = raw_rcon_password = ""
         elif selected_server_platform != "pc":
             await interaction.followup.send(
-                "BattlEye RCon is only used for PC servers. Pick `server_platform: PC` before saving these RCon details.",
+                setup_text(setup_language, "rcon_pc_only"),
                 ephemeral=True,
             )
             return False
     if raw_rcon_host or raw_rcon_port or raw_rcon_password:
         if not raw_rcon_host or not raw_rcon_port or not raw_rcon_password:
             await interaction.followup.send(
-                "PC BattlEye RCon setup needs all three values: rcon_host, rcon_port and rcon_password. Leave all three blank to keep RCon disabled.",
+                setup_text(setup_language, "rcon_all_required"),
                 ephemeral=True,
             )
             return False
         ok, clean_rcon_host, rcon_error = validate_rcon_host(raw_rcon_host)
         if not ok:
-            await interaction.followup.send(rcon_error, ephemeral=True)
+            await interaction.followup.send(setup_text(setup_language, "invalid_rcon_host"), ephemeral=True)
             return False
         if not re.fullmatch(r"[0-9]{1,5}", raw_rcon_port) or not 1 <= int(raw_rcon_port) <= 65535:
-            await interaction.followup.send("rcon_port must be a number between 1 and 65535.", ephemeral=True)
+            await interaction.followup.send(setup_text(setup_language, "invalid_rcon_port"), ephemeral=True)
             return False
         ok, clean_rcon_password, rcon_error = validate_nitrado_ascii_credential(
             raw_rcon_password,
@@ -18839,7 +18914,7 @@ async def apply_setup_configuration(
             allow_spaces=False,
         )
         if not ok:
-            await interaction.followup.send(rcon_error, ephemeral=True)
+            await interaction.followup.send(setup_text(setup_language, "invalid_rcon_password"), ephemeral=True)
             return False
         clean_rcon = {
             "rcon_host": clean_rcon_host,
@@ -19316,25 +19391,29 @@ async def apply_setup_configuration(
                 print(f"SETUP HELP FALLBACK ERROR {guild_id}: {fallback_error}")
 
     await interaction.followup.send(
-        f"✅ Wandering Bot fully connected and operational. Server mode: `{selected_server_mode}`.",
+        "✅ " + setup_text(setup_language, "connected", mode=selected_server_mode),
         ephemeral=True
     )
 
     if dashboard_password:
         await interaction.followup.send(
-            f"Dashboard URL: {DASHBOARD_PUBLIC_URL}\n"
-            f"Dashboard ID: `{dashboard_credentials['dashboard_id']}`\n"
-            f"Dashboard password: `{dashboard_password}`\n\n"
-            "Save this password now. It will not be shown again. "
-            "Use `/dashboardcredentials reset:true` if you need a new one.",
+            setup_text(
+                setup_language,
+                "dashboard_new",
+                url=DASHBOARD_PUBLIC_URL,
+                dashboard_id=dashboard_credentials["dashboard_id"],
+                password=dashboard_password,
+            ),
             ephemeral=True,
         )
     else:
         await interaction.followup.send(
-            f"Dashboard URL: {DASHBOARD_PUBLIC_URL}\n"
-            f"Dashboard ID: `{dashboard_credentials['dashboard_id']}`\n"
-            "Password already exists and was not changed. "
-            "Use `/dashboardcredentials reset:true` if you need a new one.",
+            setup_text(
+                setup_language,
+                "dashboard_existing",
+                url=DASHBOARD_PUBLIC_URL,
+                dashboard_id=dashboard_credentials["dashboard_id"],
+            ),
             ephemeral=True,
         )
 
