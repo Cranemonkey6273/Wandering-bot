@@ -148,6 +148,56 @@ class TranslationBatchingTests(unittest.IsolatedAsyncioTestCase):
             "French (EN -> FR)",
         ])
 
+    def test_long_translation_pages_preserve_every_character(self):
+        original = ("Original paragraph with spacing.\n" * 70).rstrip()
+        german = ("Uebersetzter Absatz mit Abstand.\n" * 75).rstrip()
+        pages = bot.translation_batch_embed_payloads(
+            original,
+            [{"target_language": "de", "used_source": "en", "translated": german}],
+        )
+
+        original_parts = []
+        german_parts = []
+        for page in pages:
+            for field in page["fields"]:
+                if field["name"].startswith("Original"):
+                    original_parts.append(field["value"])
+                elif field["name"].startswith("German"):
+                    german_parts.append(field["value"])
+
+        self.assertEqual("".join(original_parts), original)
+        self.assertEqual("".join(german_parts), german)
+        self.assertGreater(len(pages), 1)
+
+    async def test_openai_provider_receives_the_complete_message(self):
+        full_text = ("Long OpenAI translation input. " * 90).strip()
+        captured = {}
+        old_key = bot.OPENAI_API_KEY
+        old_to_thread = bot.asyncio.to_thread
+
+        class _Response:
+            status_code = 200
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"choices": [{"message": {"content": "vollstaendige uebersetzung"}}]}
+
+        async def fake_to_thread(_func, *_args, **kwargs):
+            captured.update(kwargs.get("json") or {})
+            return _Response()
+
+        bot.OPENAI_API_KEY = "test-key"
+        bot.asyncio.to_thread = fake_to_thread
+        try:
+            result = await bot._translate_via_openai(full_text, "de", "en")
+        finally:
+            bot.OPENAI_API_KEY = old_key
+            bot.asyncio.to_thread = old_to_thread
+
+        self.assertEqual("vollstaendige uebersetzung", result)
+        self.assertIn(full_text, captured["messages"][1]["content"])
+
     async def test_multiple_rules_to_same_channel_send_one_embed(self):
         guild_id = "987654321"
         source_channel = _FakeChannel(10, "general")
@@ -217,6 +267,42 @@ class TranslationBatchingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(source_channel.sent), 1)
         self.assertIs(source_channel.sent[0].get("reference"), message)
         self.assertFalse(source_channel.sent[0].get("mention_author"))
+
+    async def test_full_long_message_is_translated_and_continued(self):
+        guild_id = "246813579"
+        source_channel = _FakeChannel(40, "general")
+        target_channel = _FakeChannel(50, "translations")
+        guild = _FakeGuild(guild_id, {50: target_channel})
+        full_text = ("This complete message must reach the translator intact. " * 38).strip()
+        message = _FakeMessage(guild, source_channel, full_text)
+        captured = []
+
+        old_config = bot.guild_configs.get(guild_id)
+        old_translate = bot.translate_text
+        bot.guild_configs[guild_id] = {
+            "translations": [
+                {"enabled": True, "mode": "channel", "source_language": "en", "target_language": "de", "target_channel_id": 50},
+                {"enabled": True, "mode": "channel", "source_language": "en", "target_language": "fr", "target_channel_id": 50},
+            ]
+        }
+
+        async def fake_translate(text, target_language="en", source_language="auto"):
+            captured.append(text)
+            return f"{target_language}:{text}"
+
+        bot.translate_text = fake_translate
+        try:
+            await bot.maybe_translate_message(message)
+        finally:
+            bot.translate_text = old_translate
+            if old_config is None:
+                bot.guild_configs.pop(guild_id, None)
+            else:
+                bot.guild_configs[guild_id] = old_config
+
+        self.assertEqual(captured, [full_text, full_text])
+        self.assertGreater(len(target_channel.sent), 1)
+        self.assertTrue(all("embed" in sent for sent in target_channel.sent))
 
 
 if __name__ == "__main__":

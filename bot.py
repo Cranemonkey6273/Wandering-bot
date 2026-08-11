@@ -10217,73 +10217,114 @@ def translation_embed_title(target_language):
     return f"{target} translation" if label == target else f"{label} translation"
 
 
+def split_translation_text(value, limit=1000):
+    """Split text without discarding characters, preferring natural boundaries."""
+    text = str(value or "")
+    if not text:
+        return ["-"]
+    limit = max(1, int(limit or 1000))
+    chunks = []
+    remaining = text
+    while len(remaining) > limit:
+        newline_cut = remaining.rfind("\n", 0, limit + 1)
+        space_cut = remaining.rfind(" ", 0, limit + 1)
+        cut = max(newline_cut, space_cut)
+        if cut < max(1, limit // 2):
+            cut = limit
+        else:
+            cut += 1
+        chunks.append(remaining[:cut])
+        remaining = remaining[cut:]
+    if remaining or not chunks:
+        chunks.append(remaining)
+    return chunks
+
+
 def _translation_embed_value(value, limit=1000):
-    text = str(value or "").strip()
-    if len(text) <= limit:
-        return text or "-"
-    return text[: max(0, limit - 3)].rstrip() + "..."
+    """Compatibility helper for short single-field translation embeds."""
+    return split_translation_text(value, limit)[0] or "-"
 
 
-def translation_batch_embed_payload(original_text, translations):
+def translation_batch_embed_payloads(original_text, translations):
+    """Build Discord-safe continuation pages without truncating any text."""
     clean_translations = [
         item for item in (translations or [])
         if isinstance(item, dict) and str(item.get("translated") or "").strip()
     ]
     primary_target = clean_translations[0].get("target_language", "en") if clean_translations else "en"
-    payload = {
-        "title": "Multi-language translation" if len(clean_translations) != 1 else translation_embed_title(primary_target),
-        "fields": [
-            {
-                "name": "Original",
-                "value": _translation_embed_value(original_text, 1000),
-                "inline": False,
-            }
-        ],
-        "footer": f"{len(clean_translations)} translation(s)",
-    }
-    for item in clean_translations[:10]:
+    title = "Multi-language translation" if len(clean_translations) != 1 else translation_embed_title(primary_target)
+    blocks = [("Original", str(original_text or "") or "-")]
+    for item in clean_translations:
         target_lang = normalize_translation_language(item.get("target_language"), "en")
         used_source = normalize_translation_language(item.get("used_source") or item.get("source_language"), "auto")
         label = _translation_language_label(target_lang)
         if label == target_lang.upper():
             label = target_lang.upper()
-        payload["fields"].append({
-            "name": f"{label} ({used_source.upper()} -> {target_lang.upper()})",
-            "value": _translation_embed_value(item.get("translated"), 1000),
-            "inline": False,
-        })
-    if len(clean_translations) > 10:
-        payload["fields"].append({
-            "name": "More translations",
-            "value": f"{len(clean_translations) - 10} more target language(s) were configured but Discord embeds only show the first 10 here.",
-            "inline": False,
-        })
-    return payload
+        blocks.append((f"{label} ({used_source.upper()} -> {target_lang.upper()})", str(item.get("translated") or "")))
+
+    fields = []
+    for name, text in blocks:
+        chunks = split_translation_text(text, 1000)
+        total = len(chunks)
+        for index, chunk in enumerate(chunks, start=1):
+            chunk_name = name if total == 1 else f"{name} ({index}/{total})"
+            fields.append({"name": chunk_name, "value": chunk or "-", "inline": False})
+
+    pages = []
+    page_fields = []
+    page_size = 0
+    for field in fields:
+        field_size = len(field["name"]) + len(field["value"])
+        if page_fields and (len(page_fields) >= 5 or page_size + field_size > 4800):
+            pages.append(page_fields)
+            page_fields = []
+            page_size = 0
+        page_fields.append(field)
+        page_size += field_size
+    if page_fields:
+        pages.append(page_fields)
+
+    page_count = max(1, len(pages))
+    return [
+        {
+            "title": title if index == 1 else f"Translation continued ({index}/{page_count})",
+            "fields": page,
+            "footer": (
+                f"{len(clean_translations)} translation(s)"
+                + (f" | Page {index}/{page_count}" if page_count > 1 else "")
+            ),
+        }
+        for index, page in enumerate(pages or [[]], start=1)
+    ]
+
+
+def translation_batch_embed_payload(original_text, translations):
+    return translation_batch_embed_payloads(original_text, translations)[0]
+
+
+def build_translation_batch_embeds(message, translations, include_route=False):
+    payloads = translation_batch_embed_payloads(getattr(message, "content", ""), translations)
+    author_name = getattr(getattr(message, "author", None), "display_name", None) or str(getattr(message, "author", "Unknown"))
+    avatar_url = getattr(getattr(getattr(message, "author", None), "display_avatar", None), "url", None)
+    embeds = []
+    for page_index, payload in enumerate(payloads):
+        embed = discord.Embed(title=payload["title"], color=0x1ABC9C)
+        if avatar_url:
+            embed.set_author(name=str(author_name), icon_url=avatar_url)
+        else:
+            embed.set_author(name=str(author_name))
+        for field in payload["fields"]:
+            embed.add_field(name=field["name"], value=field["value"], inline=bool(field.get("inline")))
+        if include_route and page_index == 0:
+            embed.add_field(name="From", value=getattr(getattr(message, "author", None), "mention", str(author_name)), inline=True)
+            embed.add_field(name="Original Channel", value=getattr(getattr(message, "channel", None), "mention", "Unknown"), inline=True)
+        embed.set_footer(text=payload["footer"])
+        embeds.append(embed)
+    return embeds
 
 
 def build_translation_batch_embed(message, translations, include_route=False):
-    payload = translation_batch_embed_payload(getattr(message, "content", ""), translations)
-    embed = discord.Embed(
-        title=payload["title"],
-        color=0x1ABC9C,
-    )
-    author_name = getattr(getattr(message, "author", None), "display_name", None) or str(getattr(message, "author", "Unknown"))
-    avatar_url = getattr(getattr(getattr(message, "author", None), "display_avatar", None), "url", None)
-    if avatar_url:
-        embed.set_author(name=str(author_name), icon_url=avatar_url)
-    else:
-        embed.set_author(name=str(author_name))
-    for field in payload["fields"]:
-        embed.add_field(
-            name=field["name"],
-            value=field["value"],
-            inline=bool(field.get("inline")),
-        )
-    if include_route:
-        embed.add_field(name="From", value=getattr(getattr(message, "author", None), "mention", str(author_name)), inline=True)
-        embed.add_field(name="Original Channel", value=getattr(getattr(message, "channel", None), "mention", "Unknown"), inline=True)
-    embed.set_footer(text=payload["footer"])
-    return embed
+    return build_translation_batch_embeds(message, translations, include_route=include_route)[0]
 
 
 def _translation_provider_order():
@@ -10320,7 +10361,7 @@ async def _translate_via_openai(text, target_language, source_language):
         f"Source language: {_translation_language_label(src)}\n"
         f"Target language: {_translation_language_label(target)}\n"
         "Message:\n"
-        f"{text[:1600]}"
+        f"{text}"
     )
     payload = {
         "model": TRANSLATION_OPENAI_MODEL,
@@ -10329,7 +10370,7 @@ async def _translate_via_openai(text, target_language, source_language):
             {"role": "user", "content": user_message},
         ],
         "temperature": 0.1,
-        "max_tokens": 700,
+        "max_tokens": min(4000, max(900, len(text))),
     }
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
@@ -10434,28 +10475,34 @@ async def _translate_via_mymemory(text, target_language, source_language):
     elif src == target_language:
         return text
     try:
-        response = await asyncio.to_thread(
-            requests.get,
-            "https://api.mymemory.translated.net/get",
-            params={
-                "q": text,
-                "langpair": f"{src}|{target_language or 'en'}",
-                "de": "noreply@wandering-bot.local",  # bumps daily quota a bit
-            },
-            timeout=TRANSLATION_TIMEOUT_SECONDS,
-        )
-        if response.status_code != 200:
-            print(f"[TRANSLATE] MyMemory HTTP {response.status_code}: {response.text[:200]}")
-            return None
-        data = response.json()
-        status = data.get("responseStatus")
-        if status != 200 and status != "200":
-            details = str(data.get("responseDetails") or "")
-            if "select two distinct languages" in details.lower():
-                return text
-            print(f"[TRANSLATE] MyMemory status={status} msg={details}")
-            return None
-        return (data.get("responseData") or {}).get("translatedText")
+        translated_chunks = []
+        for chunk in split_translation_text(text, 450):
+            response = await asyncio.to_thread(
+                requests.get,
+                "https://api.mymemory.translated.net/get",
+                params={
+                    "q": chunk,
+                    "langpair": f"{src}|{target_language or 'en'}",
+                    "de": "noreply@wandering-bot.local",  # bumps daily quota a bit
+                },
+                timeout=TRANSLATION_TIMEOUT_SECONDS,
+            )
+            if response.status_code != 200:
+                print(f"[TRANSLATE] MyMemory HTTP {response.status_code}: {response.text[:200]}")
+                return None
+            data = response.json()
+            status = data.get("responseStatus")
+            if status != 200 and status != "200":
+                details = str(data.get("responseDetails") or "")
+                if "select two distinct languages" in details.lower():
+                    return text
+                print(f"[TRANSLATE] MyMemory status={status} msg={details}")
+                return None
+            translated_chunk = str((data.get("responseData") or {}).get("translatedText") or "")
+            if not translated_chunk:
+                return None
+            translated_chunks.append(translated_chunk)
+        return "".join(translated_chunks)
     except Exception as err:
         print(f"[TRANSLATE] MyMemory error: {err}")
         return None
@@ -10689,11 +10736,7 @@ async def maybe_translate_message(message):
                 attempts.append("en")
 
         for attempt_source in dict.fromkeys(attempts):
-            candidate = await translate_text(
-                message.content[:900],
-                target_lang,
-                attempt_source,
-            )
+            candidate = await translate_text(message.content, target_lang, attempt_source)
             if not candidate:
                 continue
             last_result = candidate
@@ -10751,23 +10794,24 @@ async def maybe_translate_message(message):
         if not translations:
             continue
         include_route = any(str(item.get("mode") or "").lower() == "channel" for item in translations)
-        embed = build_translation_batch_embed(message, translations, include_route=include_route)
+        embeds = build_translation_batch_embeds(message, translations, include_route=include_route)
         try:
             same_channel = int(getattr(target_channel, "id", 0) or 0) == int(getattr(message.channel, "id", -1) or -1)
-            send_kwargs = {"embed": style_embed(embed)}
-            if same_channel:
-                send_kwargs.update({
-                    "reference": message,
-                    "mention_author": False,
-                    "allowed_mentions": discord.AllowedMentions.none(),
-                })
-            await target_channel.send(**send_kwargs)
+            for page_index, embed in enumerate(embeds):
+                send_kwargs = {"embed": style_embed(embed)}
+                if same_channel and page_index == 0:
+                    send_kwargs.update({
+                        "reference": message,
+                        "mention_author": False,
+                        "allowed_mentions": discord.AllowedMentions.none(),
+                    })
+                await target_channel.send(**send_kwargs)
             for item in translations:
                 rule_index = item.get("rule_index", "?")
                 record_translation_runtime_stat(guild_id, "posted", f"rule#{rule_index} posted to {getattr(target_channel, 'id', '')}")
             rule_list = ", ".join(f"rule#{item.get('rule_index', '?')}" for item in translations)
             print(
-                f"[TRANSLATE] {rule_list} posted as one embed to "
+                f"[TRANSLATE] {rule_list} posted as {len(embeds)} embed page(s) to "
                 f"#{getattr(target_channel, 'name', target_channel.id)}"
             )
         except discord.Forbidden as forbidden_err:
@@ -18134,56 +18178,512 @@ def ensure_dashboard_credentials(guild_id, config, guild_name):
     return created["credentials"], created["password"]
 
 
-@bot.tree.command(
-    name="setup",
-    description="Connect your Nitrado server"
-)
-@app_commands.describe(
-    nitrado_token="Your Nitrado API token. Optional after the first setup.",
-    service_id="Your Nitrado service ID. Optional after the first setup.",
-    nitrado_user="Example: ni12248929_2. Optional after the first setup.",
-    ftp_user="Your Nitrado FTP username. Optional after the first setup.",
-    ftp_password="Your Nitrado FTP password. Optional after the first setup.",
-    rcon_host="PC only: BattlEye RCon host/IP. Leave blank if not enabled.",
-    rcon_port="PC only: BattlEye RCon port from BEServer_x64.cfg.",
-    rcon_password="PC only: BattlEye RCon password from BEServer_x64.cfg.",
-    server_platform="Console/host platform: Xbox, PlayStation, or PC. Leave blank to keep current.",
-    server_map="Server map: Chernarus, Livonia, or Sakhal. Leave blank to keep current.",
-    server_mode="Server style: PVP only, PVE only, or Hybrid. Leave blank to keep current.",
-    channel_bundle="Which group of bot channels to create/enable. Leave blank to keep existing routes.",
-    channel_selection="Custom comma-separated channel keys, for example killfeed,online,radar.",
-    restore_deleted_channels="Recreate bot channels that server owners deleted",
-    ftp_host="Optional: your Nitrado FTP host/IP if Railway cannot resolve Nitrado defaults"
-)
-@app_commands.choices(
-    server_platform=[
-        app_commands.Choice(name="Xbox - DayZXB files", value="xbox"),
-        app_commands.Choice(name="PlayStation - DayZPS files", value="playstation"),
-        app_commands.Choice(name="PC - DayZPC/MP missions", value="pc"),
-    ],
-    server_map=[
-        app_commands.Choice(name="Chernarus", value="chernarus"),
-        app_commands.Choice(name="Livonia", value="livonia"),
-        app_commands.Choice(name="Sakhal", value="sakhal"),
-    ],
-    server_mode=[
-        app_commands.Choice(name="Hybrid - PVP and PVE", value="hybrid"),
-        app_commands.Choice(name="PVP only", value="pvp"),
-        app_commands.Choice(name="PVE only", value="pve"),
-    ],
-    channel_bundle=[
-        app_commands.Choice(name="Essentials (recommended)", value="essentials"),
-        app_commands.Choice(name="Live feeds", value="live"),
-        app_commands.Choice(name="Community", value="community"),
-        app_commands.Choice(name="Staff", value="staff"),
-        app_commands.Choice(name="Economy", value="economy"),
-        app_commands.Choice(name="Factions", value="factions"),
-        app_commands.Choice(name="PVE", value="pve"),
-        app_commands.Choice(name="Full (all channels)", value="full"),
-        app_commands.Choice(name="Custom list", value="custom"),
-    ]
-)
-async def setup_command(
+SETUP_WIZARD_PLATFORM_CHOICES = [
+    ("Xbox", "xbox", "DayZXB mission files"),
+    ("PlayStation", "playstation", "DayZPS mission files"),
+    ("PC", "pc", "DayZPC/MP missions; optional BattlEye RCon"),
+]
+SETUP_WIZARD_MAP_CHOICES = [
+    ("Chernarus", "chernarus", "dayzOffline.chernarusplus"),
+    ("Livonia", "livonia", "dayzOffline.enoch"),
+    ("Sakhal", "sakhal", "dayzOffline.sakhal"),
+]
+SETUP_WIZARD_MODE_CHOICES = [
+    ("PVE only", "pve", "No player-versus-player play"),
+    ("Hybrid", "hybrid", "PVP and PVE features"),
+    ("PVP only", "pvp", "Player-versus-player focused"),
+]
+SETUP_WIZARD_CHANNEL_CHOICES = [
+    ("Essentials (recommended)", "essentials", "A small starter set; add more later"),
+    ("Live feeds", "live", "Killfeed and live server activity"),
+    ("Community", "community", "Welcome, links, clips and community"),
+    ("Staff", "staff", "Private staff and audit routes"),
+    ("Economy", "economy", "Shop, purchases and rentals"),
+    ("Factions", "factions", "Faction chat, tickets and staff"),
+    ("PVE", "pve", "Quests, hunting and expeditions"),
+    ("Full", "full", "Every channel included by the plan"),
+    ("Custom list", "custom", "Enter exact channel keys in Advanced"),
+]
+
+
+def setup_wizard_initial_values(existing_config):
+    config = existing_config if isinstance(existing_config, dict) else {}
+    platform, server_map, server_mode = resolve_setup_server_settings(config)
+    saved_keys = list(config.get("channel_setup_keys") or []) if isinstance(config.get("channel_setup_keys"), list) else []
+    channel_bundle = "essentials"
+    channel_selection = ""
+    if config.get("channel_setup_initialized") and saved_keys:
+        matched_bundle = ""
+        for _label, candidate, _description in SETUP_WIZARD_CHANNEL_CHOICES:
+            if candidate in {"custom", "full"}:
+                continue
+            candidate_keys, candidate_error = resolve_channel_setup_selection(candidate)
+            if not candidate_error and set(candidate_keys or []) == set(saved_keys):
+                matched_bundle = candidate
+                break
+        if matched_bundle:
+            channel_bundle = matched_bundle
+        else:
+            channel_bundle = "custom"
+            channel_selection = ", ".join(saved_keys)
+    return {
+        "server_platform": platform,
+        "server_map": server_map,
+        "server_mode": server_mode,
+        "channel_bundle": channel_bundle,
+        "channel_selection": channel_selection,
+        "nitrado_token": "",
+        "service_id": "",
+        "nitrado_user": "",
+        "ftp_user": "",
+        "ftp_password": "",
+        "ftp_host": "",
+        "rcon_host": "",
+        "rcon_port": "",
+        "rcon_password": "",
+    }
+
+
+def setup_wizard_channel_status(values, existing_config):
+    bundle = str(values.get("channel_bundle") or "essentials")
+    keys, error = resolve_channel_setup_selection(bundle, values.get("channel_selection", ""))
+    if error:
+        return [], error
+    tier_keys = set(channel_setup_tier_keys(existing_config or {}))
+    outside_tier = [key for key in (keys or []) if key not in tier_keys]
+    if outside_tier:
+        return keys or [], "Not included in this plan: " + ", ".join(outside_tier)
+    return keys or [], ""
+
+
+def setup_wizard_has_value(values, existing_config, key):
+    return bool(str(values.get(key) or "").strip() or str((existing_config or {}).get(key) or "").strip())
+
+
+class SetupWizardChoiceSelect(discord.ui.Select):
+    def __init__(self, wizard, *, field, label, choices, row):
+        self.wizard = wizard
+        self.field = field
+        current = str(wizard.values.get(field) or "")
+        options = [
+            discord.SelectOption(
+                label=choice_label,
+                value=value,
+                description=description[:100],
+                default=value == current,
+            )
+            for choice_label, value, description in choices
+        ]
+        super().__init__(placeholder=label, min_values=1, max_values=1, options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        self.wizard.values[self.field] = self.values[0]
+        if self.field == "server_platform" and getattr(self.wizard, "step", 1) == 1:
+            self.wizard.step = 2
+            self.wizard.notice = "Platform saved. Now choose the map and server style."
+            self.wizard.rebuild_items()
+        else:
+            self.wizard.notice = f"{self.placeholder} updated."
+        await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+
+
+class SetupCredentialsModal(discord.ui.Modal, title="Connect Nitrado and FTP"):
+    def __init__(self, wizard):
+        super().__init__(timeout=600)
+        self.wizard = wizard
+        fields = [
+            ("nitrado_token", "Nitrado API token", "Paste the token from Nitrado API access", 512),
+            ("service_id", "Nitrado service ID", "Numbers only, from the service page", 20),
+            ("nitrado_user", "Nitrado account/FTP user", "Example: ni12248929_2", 128),
+            ("ftp_user", "FTP login username", "The FTP username shown by Nitrado", 128),
+            ("ftp_password", "FTP password", "The FTP password shown by Nitrado", 512),
+        ]
+        self.inputs = {}
+        for key, label, placeholder, maximum in fields:
+            already_saved = setup_wizard_has_value(wizard.values, wizard.existing_config, key)
+            item = discord.ui.TextInput(
+                label=label,
+                placeholder=("Already supplied - blank keeps it" if already_saved else placeholder),
+                required=not already_saved,
+                min_length=1 if not already_saved else None,
+                max_length=maximum,
+                style=discord.TextStyle.short,
+            )
+            self.inputs[key] = item
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        for key, item in self.inputs.items():
+            value = str(item.value or "")
+            if value:
+                self.wizard.values[key] = value if key in {"ftp_password"} else value.strip()
+        self.wizard.notice = "Credentials captured privately. Values are hidden from the review."
+        await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+
+
+class SetupAdvancedModal(discord.ui.Modal, title="Advanced and PC options"):
+    def __init__(self, wizard):
+        super().__init__(timeout=600)
+        self.wizard = wizard
+        custom_default = str(wizard.values.get("channel_selection") or "")[:4000]
+        self.ftp_host = discord.ui.TextInput(
+            label="Optional FTP host or IP",
+            placeholder="Blank uses Nitrado discovery / keeps saved host",
+            required=False,
+            max_length=255,
+        )
+        self.rcon_host = discord.ui.TextInput(
+            label="PC only: BattlEye RCon host",
+            placeholder="Blank keeps RCon unchanged/disabled",
+            required=False,
+            max_length=255,
+        )
+        self.rcon_port = discord.ui.TextInput(
+            label="PC only: BattlEye RCon port",
+            placeholder="Port from BEServer_x64.cfg",
+            required=False,
+            max_length=5,
+        )
+        self.rcon_password = discord.ui.TextInput(
+            label="PC only: BattlEye RCon password",
+            placeholder="Blank keeps the saved password",
+            required=False,
+            max_length=512,
+        )
+        self.channel_selection = discord.ui.TextInput(
+            label="Custom channel keys (only for Custom list)",
+            placeholder="killfeed, online, radar",
+            default=custom_default or None,
+            required=False,
+            max_length=4000,
+            style=discord.TextStyle.paragraph,
+        )
+        for item in (self.ftp_host, self.rcon_host, self.rcon_port, self.rcon_password, self.channel_selection):
+            self.add_item(item)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        updates = {
+            "ftp_host": str(self.ftp_host.value or "").strip(),
+            "rcon_host": str(self.rcon_host.value or "").strip(),
+            "rcon_port": str(self.rcon_port.value or "").strip(),
+            "rcon_password": str(self.rcon_password.value or ""),
+            "channel_selection": str(self.channel_selection.value or "").strip(),
+        }
+        for key, value in updates.items():
+            if value or key == "channel_selection":
+                self.wizard.values[key] = value
+        self.wizard.notice = "Advanced choices captured. RCon is used only when PC is selected."
+        await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+
+
+class SetupWizardOwnedView(discord.ui.View):
+    def __init__(self, *, owner_id, guild_id, timeout=900):
+        super().__init__(timeout=timeout)
+        self.owner_id = int(owner_id)
+        self.guild_id = int(guild_id)
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        if int(getattr(interaction.user, "id", 0) or 0) != self.owner_id:
+            await interaction.response.send_message("This private setup belongs to the administrator who opened it.", ephemeral=True)
+            return False
+        if not interaction.guild or int(interaction.guild.id) != self.guild_id:
+            await interaction.response.send_message("Open `/setup` inside the server you want to configure.", ephemeral=True)
+            return False
+        return True
+
+
+class SetupWizardActionButton(discord.ui.Button):
+    def __init__(self, wizard, *, action, label, style, row=0):
+        super().__init__(label=label, style=style, row=row)
+        self.wizard = wizard
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.action == "cancel":
+            await self.wizard.cancel(interaction)
+            return
+        if self.action == "back":
+            self.wizard.step = max(1, self.wizard.step - 1)
+            self.wizard.notice = "Previous step restored."
+            self.wizard.rebuild_items()
+            await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+            return
+        if self.action == "next":
+            self.wizard.step = min(4, self.wizard.step + 1)
+            self.wizard.notice = self.wizard.step_instructions()
+            self.wizard.rebuild_items()
+            await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+            return
+        if self.action == "credentials":
+            await interaction.response.send_modal(SetupCredentialsModal(self.wizard))
+            return
+        if self.action == "advanced":
+            await interaction.response.send_modal(SetupAdvancedModal(self.wizard))
+            return
+        if self.action == "review":
+            self.wizard.notice = "Review these choices. Confirm applies them; Back changes them."
+            await interaction.response.edit_message(
+                embed=self.wizard.build_embed(review=True),
+                view=SetupWizardConfirmView(self.wizard),
+            )
+
+
+class SetupWizardView(SetupWizardOwnedView):
+    def __init__(self, interaction, existing_config):
+        super().__init__(owner_id=interaction.user.id, guild_id=interaction.guild.id)
+        self.guild_name = interaction.guild.name
+        self.existing_config = existing_config if isinstance(existing_config, dict) else {}
+        self.values = setup_wizard_initial_values(self.existing_config)
+        self.step = 1
+        self.notice = self.step_instructions()
+        self.channel_choices = self.allowed_channel_choices()
+        allowed_values = {value for _label, value, _description in self.channel_choices}
+        if self.values["channel_bundle"] not in allowed_values:
+            self.values["channel_bundle"] = "custom" if self.values.get("channel_selection") else "essentials"
+        self.rebuild_items()
+
+    def allowed_channel_choices(self):
+        tier_keys = set(channel_setup_tier_keys(self.existing_config))
+        choices = []
+        for choice in SETUP_WIZARD_CHANNEL_CHOICES:
+            _label, value, _description = choice
+            if value == "custom":
+                choices.append(choice)
+                continue
+            keys, error = resolve_channel_setup_selection(value)
+            if not error and set(keys or []).issubset(tier_keys):
+                choices.append(choice)
+        return choices
+
+    def step_instructions(self):
+        return {
+            1: "First, choose where this DayZ server runs: Xbox, PlayStation or PC.",
+            2: "Now choose the map and whether the server is PVE, PVP or Hybrid.",
+            3: "Choose a small channel pack. You can enable more feeds later from the dashboard.",
+            4: "Open the private credentials pop-up, then review the finished setup.",
+        }.get(self.step, "Review the setup.")
+
+    def rebuild_items(self):
+        self.clear_items()
+        if self.step == 1:
+            self.add_item(SetupWizardChoiceSelect(
+                self, field="server_platform", label="Choose Xbox, PlayStation or PC",
+                choices=SETUP_WIZARD_PLATFORM_CHOICES, row=0,
+            ))
+            self.add_item(SetupWizardActionButton(
+                self, action="cancel", label="Cancel", style=discord.ButtonStyle.danger, row=1,
+            ))
+            return
+        if self.step == 2:
+            self.add_item(SetupWizardChoiceSelect(
+                self, field="server_map", label="Choose the DayZ map",
+                choices=SETUP_WIZARD_MAP_CHOICES, row=0,
+            ))
+            self.add_item(SetupWizardChoiceSelect(
+                self, field="server_mode", label="Choose PVE, PVP or Hybrid",
+                choices=SETUP_WIZARD_MODE_CHOICES, row=1,
+            ))
+            button_row = 2
+        elif self.step == 3:
+            self.add_item(SetupWizardChoiceSelect(
+                self, field="channel_bundle", label="Choose the starter channel pack",
+                choices=self.channel_choices, row=0,
+            ))
+            button_row = 1
+        else:
+            self.add_item(SetupWizardActionButton(
+                self, action="credentials", label="Enter Nitrado and FTP", style=discord.ButtonStyle.primary, row=0,
+            ))
+            advanced_label = "PC RCon / Advanced" if self.values.get("server_platform") == "pc" else "Advanced FTP host"
+            self.add_item(SetupWizardActionButton(
+                self, action="advanced", label=advanced_label, style=discord.ButtonStyle.secondary, row=0,
+            ))
+            self.add_item(SetupWizardActionButton(
+                self, action="review", label="Review setup", style=discord.ButtonStyle.success, row=0,
+            ))
+            self.add_item(SetupWizardActionButton(
+                self, action="back", label="Back", style=discord.ButtonStyle.secondary, row=1,
+            ))
+            self.add_item(SetupWizardActionButton(
+                self, action="cancel", label="Cancel", style=discord.ButtonStyle.danger, row=1,
+            ))
+            return
+        self.add_item(SetupWizardActionButton(
+            self, action="back", label="Back", style=discord.ButtonStyle.secondary, row=button_row,
+        ))
+        self.add_item(SetupWizardActionButton(
+            self, action="next", label="Continue", style=discord.ButtonStyle.primary, row=button_row,
+        ))
+        self.add_item(SetupWizardActionButton(
+            self, action="cancel", label="Cancel", style=discord.ButtonStyle.danger, row=button_row,
+        ))
+
+    def build_embed(self, *, review=False):
+        values = self.values
+        channel_keys, channel_error = setup_wizard_channel_status(values, self.existing_config)
+        required = ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
+        missing = [key for key in required if not setup_wizard_has_value(values, self.existing_config, key)]
+        credential_status = "Ready" if not missing else "Still needed: " + ", ".join(missing)
+        rcon_ready = all(
+            setup_wizard_has_value(values, self.existing_config, key)
+            for key in ("rcon_host", "rcon_port", "rcon_password")
+        )
+        rcon_status = "Ready" if rcon_ready else "Optional / not configured"
+        bundle_label = next(
+            (label for label, value, _description in SETUP_WIZARD_CHANNEL_CHOICES if value == values.get("channel_bundle")),
+            str(values.get("channel_bundle") or "Essentials"),
+        )
+        title = "WANDERING BOT SETUP REVIEW" if review else f"WANDERING BOT SETUP - STEP {self.step} OF 4"
+        embed = discord.Embed(
+            title=title,
+            description=(
+                "Private guided setup for **" + self.guild_name + "**.\n"
+                "Nothing changes until the final Confirm button is pressed."
+            ),
+            color=0xF39C12,
+        )
+        if review:
+            embed.add_field(
+                name="SERVER",
+                value=(
+                    f"Platform: **{str(values.get('server_platform') or '').title()}**\n"
+                    f"Map: **{str(values.get('server_map') or '').title()}**\n"
+                    f"Style: **{str(values.get('server_mode') or '').upper()}**"
+                ),
+                inline=True,
+            )
+            embed.add_field(
+                name="CONNECTION",
+                value=f"Nitrado/FTP: **{credential_status}**\nPC RCon: **{rcon_status}**",
+                inline=True,
+            )
+            embed.add_field(
+                name="DISCORD CHANNELS",
+                value=(
+                    f"Pack: **{bundle_label}**\n"
+                    + (f"Will enable **{len(channel_keys)}** included channel routes." if not channel_error else f"Warning: **{channel_error}**")
+                    + "\nMore feeds can be enabled later from Dashboard -> Feed Routing."
+                ),
+                inline=False,
+            )
+        else:
+            progress = ["Platform", "Map and style", "Channels", "Connection"]
+            progress_text = "  >  ".join(
+                (f"**{label}**" if index == self.step else label)
+                for index, label in enumerate(progress, start=1)
+            )
+            embed.add_field(name="PROGRESS", value=progress_text, inline=False)
+            if self.step >= 2:
+                embed.add_field(
+                    name="SELECTED PLATFORM",
+                    value=f"**{str(values.get('server_platform') or '').title()}**",
+                    inline=True,
+                )
+            if self.step >= 3:
+                embed.add_field(
+                    name="SELECTED SERVER",
+                    value=f"**{str(values.get('server_map') or '').title()} / {str(values.get('server_mode') or '').upper()}**",
+                    inline=True,
+                )
+            if self.step == 4:
+                embed.add_field(
+                    name="CHANNEL PACK",
+                    value=f"**{bundle_label}** ({len(channel_keys)} routes)",
+                    inline=True,
+                )
+                embed.add_field(
+                    name="CREDENTIALS",
+                    value=f"**{credential_status}**",
+                    inline=False,
+                )
+        embed.add_field(name="WHAT TO DO", value=self.notice, inline=False)
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="Only you can see and control this setup - times out after 15 minutes")
+        return style_embed(embed)
+
+    async def cancel(self, interaction):
+        embed = discord.Embed(
+            title="SETUP CANCELLED",
+            description="Nothing was changed. Run `/setup` whenever you are ready.",
+            color=0xE74C3C,
+        )
+        await interaction.response.edit_message(embed=style_embed(embed), view=None)
+
+
+class SetupWizardConfirmView(SetupWizardOwnedView):
+    def __init__(self, wizard):
+        super().__init__(owner_id=wizard.owner_id, guild_id=wizard.guild_id)
+        self.wizard = wizard
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️")
+    async def back_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        self.wizard.notice = "Change any choice, then press Review again."
+        await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
+
+    @discord.ui.button(label="Confirm setup", style=discord.ButtonStyle.success, emoji="✅")
+    async def confirm_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        values = self.wizard.values
+        success = await apply_setup_configuration(
+            interaction,
+            nitrado_token=values.get("nitrado_token", ""),
+            service_id=values.get("service_id", ""),
+            nitrado_user=values.get("nitrado_user", ""),
+            ftp_user=values.get("ftp_user", ""),
+            ftp_password=values.get("ftp_password", ""),
+            rcon_host=values.get("rcon_host", ""),
+            rcon_port=values.get("rcon_port", ""),
+            rcon_password=values.get("rcon_password", ""),
+            server_platform=values.get("server_platform", ""),
+            server_map=values.get("server_map", ""),
+            server_mode=values.get("server_mode", ""),
+            channel_bundle=values.get("channel_bundle", ""),
+            channel_selection=values.get("channel_selection", ""),
+            restore_deleted_channels=False,
+            ftp_host=values.get("ftp_host", ""),
+        )
+        if success:
+            complete = discord.Embed(
+                title="SETUP COMPLETE",
+                description=(
+                    "Wandering Bot is connected. Only the selected channel pack was enabled.\n\n"
+                    "Use the dashboard Feed Routing page whenever you want to add or remove feeds."
+                ),
+                color=0x2ECC71,
+            )
+            try:
+                await interaction.edit_original_response(embed=style_embed(complete), view=None)
+            except Exception:
+                pass
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, interaction: discord.Interaction, _button: discord.ui.Button):
+        embed = discord.Embed(
+            title="SETUP CANCELLED",
+            description="Nothing was changed. Run `/setup` whenever you are ready.",
+            color=0xE74C3C,
+        )
+        await interaction.response.edit_message(embed=style_embed(embed), view=None)
+
+
+@bot.tree.command(name="setup", description="Open the private Wandering Bot setup wizard")
+@app_commands.default_permissions(administrator=True)
+async def setup_command(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("Run `/setup` inside the Discord server you want to connect.", ephemeral=True)
+        return
+    permissions = getattr(interaction.user, "guild_permissions", None)
+    is_admin = bool(getattr(permissions, "administrator", False))
+    is_owner = int(getattr(interaction.guild, "owner_id", 0) or 0) == int(getattr(interaction.user, "id", 0) or 0)
+    if not is_admin and not is_owner:
+        await interaction.response.send_message("Only the Discord server owner or an administrator can run setup.", ephemeral=True)
+        return
+    guild_id = str(interaction.guild.id)
+    existing_config = guild_configs.get(guild_id, {}) if isinstance(guild_configs.get(guild_id), dict) else {}
+    wizard = SetupWizardView(interaction, existing_config)
+    await interaction.response.send_message(embed=wizard.build_embed(), view=wizard, ephemeral=True)
+
+
+async def apply_setup_configuration(
     interaction: discord.Interaction,
     nitrado_token: str = "",
     service_id: str = "",
@@ -18212,7 +18712,7 @@ async def setup_command(
             "That FTP host does not look valid. Use only the host/IP shown by Nitrado, not a full URL or file path.",
             ephemeral=True
         )
-        return
+        return False
 
     raw_nitrado_token = str(nitrado_token or "").strip() or str(existing_config.get("nitrado_token") or "").strip()
     clean_service_id = str(service_id or "").strip() or str(existing_config.get("service_id") or "").strip()
@@ -18236,7 +18736,7 @@ async def setup_command(
         )
         if channel_selection_error:
             await interaction.followup.send(channel_selection_error, ephemeral=True)
-            return
+            return False
     elif "channel_setup_initialized" not in existing_config:
         # Older guild records never had a channel selection flag. Preserve
         # their existing routes until the owner explicitly chooses a pack.
@@ -18259,7 +18759,7 @@ async def setup_command(
                 + ". Use the dashboard Feed Routing page to opt into an available feed, or upgrade the plan.",
                 ephemeral=True,
             )
-            return
+            return False
     missing_setup = []
     if not raw_nitrado_token:
         missing_setup.append("nitrado_token")
@@ -18278,16 +18778,16 @@ async def setup_command(
             + ". Run `/setup` once with the Nitrado/API/FTP details. After that you can rerun `/setup` with only `server_mode`, `server_map`, or `server_platform`.",
             ephemeral=True,
         )
-        return
+        return False
 
     token_ok, clean_nitrado_token, token_error = validate_nitrado_api_token(raw_nitrado_token)
     if not token_ok:
         await interaction.followup.send(token_error, ephemeral=True)
-        return
+        return False
 
     if not re.fullmatch(r"[0-9]{3,20}", clean_service_id):
         await interaction.followup.send("Nitrado service ID should be numbers only.", ephemeral=True)
-        return
+        return False
 
     credential_checks = [
         ("Nitrado FTP username", raw_nitrado_user, False),
@@ -18303,7 +18803,7 @@ async def setup_command(
         )
         if not ok:
             await interaction.followup.send(credential_error, ephemeral=True)
-            return
+            return False
         clean_credentials[label] = clean_value
 
     # BattlEye RCon is an optional PC-only live-control path. It must never
@@ -18318,21 +18818,21 @@ async def setup_command(
                 "BattlEye RCon is only used for PC servers. Pick `server_platform: PC` before saving these RCon details.",
                 ephemeral=True,
             )
-            return
+            return False
     if raw_rcon_host or raw_rcon_port or raw_rcon_password:
         if not raw_rcon_host or not raw_rcon_port or not raw_rcon_password:
             await interaction.followup.send(
                 "PC BattlEye RCon setup needs all three values: rcon_host, rcon_port and rcon_password. Leave all three blank to keep RCon disabled.",
                 ephemeral=True,
             )
-            return
+            return False
         ok, clean_rcon_host, rcon_error = validate_rcon_host(raw_rcon_host)
         if not ok:
             await interaction.followup.send(rcon_error, ephemeral=True)
-            return
+            return False
         if not re.fullmatch(r"[0-9]{1,5}", raw_rcon_port) or not 1 <= int(raw_rcon_port) <= 65535:
             await interaction.followup.send("rcon_port must be a number between 1 and 65535.", ephemeral=True)
-            return
+            return False
         ok, clean_rcon_password, rcon_error = validate_nitrado_ascii_credential(
             raw_rcon_password,
             "BattlEye RCon password",
@@ -18340,7 +18840,7 @@ async def setup_command(
         )
         if not ok:
             await interaction.followup.send(rcon_error, ephemeral=True)
-            return
+            return False
         clean_rcon = {
             "rcon_host": clean_rcon_host,
             "rcon_port": str(int(raw_rcon_port)),
@@ -18837,6 +19337,8 @@ async def setup_command(
             "Use `/dashboardcredentials reset:true` if you need a new one.",
             ephemeral=True,
         )
+
+    return True
 
 
 @bot.tree.command(name="dashboardcredentials", description="Admin: view or reset this server's private dashboard login")

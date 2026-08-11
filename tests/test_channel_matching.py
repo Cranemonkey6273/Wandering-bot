@@ -1652,6 +1652,43 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(bot.channel_setup_key_selected(config, "killfeed"))
         self.assertFalse(bot.channel_setup_key_selected(config, "pve_quests"))
 
+    def test_setup_wizard_new_server_starts_with_small_essentials_pack(self):
+        values = bot.setup_wizard_initial_values({})
+
+        self.assertEqual("xbox", values["server_platform"])
+        self.assertEqual("essentials", values["channel_bundle"])
+        keys, error = bot.setup_wizard_channel_status(values, {"dashboard": {"tier": "dashboard_ultimate"}})
+        self.assertEqual("", error)
+        self.assertLess(len(keys), 15)
+
+    def test_setup_wizard_preserves_existing_platform_and_bundle(self):
+        essentials, error = bot.resolve_channel_setup_selection("essentials")
+        self.assertEqual("", error)
+        config = {
+            "server_platform": "pc",
+            "server_map": "sakhal",
+            "server_mode": "pve",
+            "channel_setup_initialized": True,
+            "channel_setup_keys": essentials,
+        }
+
+        values = bot.setup_wizard_initial_values(config)
+
+        self.assertEqual("pc", values["server_platform"])
+        self.assertEqual("sakhal", values["server_map"])
+        self.assertEqual("pve", values["server_mode"])
+        self.assertEqual("essentials", values["channel_bundle"])
+
+    def test_setup_command_opens_wizard_without_exposing_credentials_as_options(self):
+        import inspect
+
+        parameters = list(inspect.signature(bot.setup_command).parameters)
+        wizard_source = inspect.getsource(bot.SetupWizardView.rebuild_items)
+
+        self.assertEqual(["interaction"], parameters)
+        self.assertIn('self.step == 1', wizard_source)
+        self.assertIn('field="server_platform"', wizard_source)
+
 
 if __name__ == "__main__":
     unittest.main()
