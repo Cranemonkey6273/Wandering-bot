@@ -12120,6 +12120,7 @@ PAGE_TEMPLATE = """
           <h3>Spam, Scam & Advert Guard</h3>
           <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>Guard enabled
               <select name="enabled"><option value="false" {{ 'selected' if not guard.enabled else '' }}>Off</option><option value="true" {{ 'selected' if guard.enabled else '' }}>On</option></select>
@@ -12170,6 +12171,7 @@ PAGE_TEMPLATE = """
           <h3>PC Cheat Guard</h3>
           <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
             <label>PC cheat checks
               <select name="cheat_check_enabled"><option value="true" {{ 'selected' if cheat.enabled is not defined or cheat.enabled else '' }}>On</option><option value="false" {{ 'selected' if cheat.enabled is defined and not cheat.enabled else '' }}>Off</option></select>
             </label>
@@ -12186,8 +12188,9 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel">
           <h3>Stack Watch</h3>
-          <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
+          <form class="admin-form" method="post" action="/api/admin/stack-watch" data-route="/api/admin/stack-watch">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
             <label>Watch placements
               <select name="stack_watch_enabled"><option value="true" {{ 'selected' if stack.enabled is not defined or stack.enabled else '' }}>On</option><option value="false" {{ 'selected' if stack.enabled is defined and not stack.enabled else '' }}>Off</option></select>
             </label>
@@ -17137,6 +17140,7 @@ PAGE_TEMPLATE = """
       "/api/admin/shop-bundle",
       "/api/admin/shop-bulk",
       "/api/admin/moderation-guard",
+      "/api/admin/stack-watch",
       "/api/admin/link-enforcement",
       "/api/admin/on-screen-message",
       "/api/admin/server-control",
@@ -20109,6 +20113,7 @@ ADMIN_ROUTES = [
     "/api/admin/zone-action",
     "/api/admin/member-action",
     "/api/admin/moderation-guard",
+    "/api/admin/stack-watch",
     "/api/admin/link-enforcement",
     "/api/admin/on-screen-message",
     "/api/admin/server-control",
@@ -20176,6 +20181,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/zone-action": "safe_zones",
     "/api/admin/member-action": "members",
     "/api/admin/moderation-guard": "moderation",
+    "/api/admin/stack-watch": "moderation",
     "/api/admin/link-enforcement": "server_rules",
     "/api/admin/on-screen-message": "server_rules",
     "/api/admin/server-control": "server_control",
@@ -46294,6 +46300,52 @@ def moderation_action(value: Any, default: str) -> str:
     return action if action in MODERATION_ACTIONS else default
 
 
+def moderation_target_config(
+    guild_configs: dict[str, Any],
+    guild_id: str,
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Resolve moderation settings to the DayZ profile visible in the form.
+
+    Multi-server dashboards render a selected profile's settings. Saving those
+    settings into the guild-level fallback makes the form appear to revert on
+    refresh, so profile-aware forms must write back to that same profile.
+    """
+    base_config = guild_configs.setdefault(guild_id, {"channels": {}})
+    profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    if profile_id:
+        profiles = dashboard_server_profile_store(base_config)
+        profile_config = profiles.get(profile_id) if isinstance(profiles, dict) else None
+        if isinstance(profile_config, dict):
+            return base_config, profile_config, profile_id
+    return base_config, base_config, ""
+
+
+def stack_watch_config_from_payload(payload: dict[str, Any], previous: Any = None) -> dict[str, Any]:
+    previous = previous if isinstance(previous, dict) else {}
+    stack = dict(previous)
+    stack["enabled"] = safe_bool(payload.get("stack_watch_enabled"), safe_bool(previous.get("enabled"), True))
+    stack["objects"] = stack_watch_objects_from_payload(payload, previous.get("objects"))
+    stack["window_seconds"] = max(10, min(1800, safe_int(payload.get("stack_watch_window_seconds"), safe_int(previous.get("window_seconds"), 180))))
+    stack["radius_meters"] = max(1, min(100, safe_int(payload.get("stack_watch_radius_meters"), safe_int(previous.get("radius_meters"), 8))))
+    stack["min_count"] = max(1, min(20, safe_int(payload.get("stack_watch_min_count"), safe_int(previous.get("min_count"), 2))))
+    stack_action = str(payload.get("stack_watch_action") or previous.get("action") or "notify").strip().lower()
+    if stack_action not in {"notify", "temp_ban", "perm_ban"}:
+        stack_action = "notify"
+    stack["action"] = stack_action
+    stack["temp_ban_minutes"] = max(1, min(525600, safe_int(payload.get("stack_watch_temp_ban_minutes"), safe_int(previous.get("temp_ban_minutes"), 1440))))
+    stack["reason"] = str(payload.get("stack_watch_reason") or previous.get("reason") or "Possible stacking raid from repeated nearby build placements.").strip()[:500]
+    stack["alert_each_watched"] = safe_bool(payload.get("stack_watch_alert_each"), safe_bool(previous.get("alert_each_watched"), True))
+    stack["channel_key"] = str(payload.get("stack_watch_channel_key") or previous.get("channel_key") or "admin_logs").strip()[:80]
+    stack["area_x"] = str(payload.get("stack_watch_area_x") if payload.get("stack_watch_area_x") is not None else previous.get("area_x", "")).strip()[:40]
+    stack["area_z"] = str(payload.get("stack_watch_area_z") if payload.get("stack_watch_area_z") is not None else previous.get("area_z", "")).strip()[:40]
+    stack["area_radius_meters"] = max(0, min(30000, safe_int(payload.get("stack_watch_area_radius_meters"), safe_int(previous.get("area_radius_meters"), 0))))
+    stack["min_height"] = str(payload.get("stack_watch_min_height") if payload.get("stack_watch_min_height") is not None else previous.get("min_height", "")).strip()[:40]
+    stack["max_height"] = str(payload.get("stack_watch_max_height") if payload.get("stack_watch_max_height") is not None else previous.get("max_height", "")).strip()[:40]
+    stack["updated_at"] = datetime.now(UTC).isoformat()
+    return stack
+
+
 @APP.post("/api/admin/moderation-guard")
 def api_moderation_guard():
     payload, error = require_admin()
@@ -46305,7 +46357,7 @@ def api_moderation_guard():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
+    base_config, config, profile_id = moderation_target_config(guild_configs, guild_id, payload)
     guard_previous = config.get("moderation_guard", {})
     if not isinstance(guard_previous, dict):
         guard_previous = {}
@@ -46353,32 +46405,12 @@ def api_moderation_guard():
     cheat["updated_at"] = datetime.now(UTC).isoformat()
     config["cheat_check"] = cheat
 
-    stack_previous = config.get("stack_watch", {})
-    if not isinstance(stack_previous, dict):
-        stack_previous = {}
-    stack = dict(stack_previous)
-    stack["enabled"] = safe_bool(payload.get("stack_watch_enabled"), safe_bool(stack_previous.get("enabled"), True))
-    stack["objects"] = stack_watch_objects_from_payload(payload, stack_previous.get("objects"))
-    stack["window_seconds"] = max(10, min(1800, safe_int(payload.get("stack_watch_window_seconds"), safe_int(stack_previous.get("window_seconds"), 180))))
-    stack["radius_meters"] = max(1, min(100, safe_int(payload.get("stack_watch_radius_meters"), safe_int(stack_previous.get("radius_meters"), 8))))
-    stack["min_count"] = max(1, min(20, safe_int(payload.get("stack_watch_min_count"), safe_int(stack_previous.get("min_count"), 2))))
-    stack_action = str(payload.get("stack_watch_action") or stack_previous.get("action") or "notify").strip().lower()
-    if stack_action not in {"notify", "temp_ban", "perm_ban"}:
-        stack_action = "notify"
-    stack["action"] = stack_action
-    stack["temp_ban_minutes"] = max(1, min(525600, safe_int(payload.get("stack_watch_temp_ban_minutes"), safe_int(stack_previous.get("temp_ban_minutes"), 1440))))
-    stack["reason"] = str(payload.get("stack_watch_reason") or stack_previous.get("reason") or "Possible stacking raid from repeated nearby build placements.").strip()[:500]
-    stack["alert_each_watched"] = safe_bool(payload.get("stack_watch_alert_each"), safe_bool(stack_previous.get("alert_each_watched"), True))
-    stack["channel_key"] = str(payload.get("stack_watch_channel_key") or stack_previous.get("channel_key") or "admin_logs").strip()[:80]
-    stack["area_x"] = str(payload.get("stack_watch_area_x") if payload.get("stack_watch_area_x") is not None else stack_previous.get("area_x", "")).strip()[:40]
-    stack["area_z"] = str(payload.get("stack_watch_area_z") if payload.get("stack_watch_area_z") is not None else stack_previous.get("area_z", "")).strip()[:40]
-    stack["area_radius_meters"] = max(0, min(30000, safe_int(payload.get("stack_watch_area_radius_meters"), safe_int(stack_previous.get("area_radius_meters"), 0))))
-    stack["min_height"] = str(payload.get("stack_watch_min_height") if payload.get("stack_watch_min_height") is not None else stack_previous.get("min_height", "")).strip()[:40]
-    stack["max_height"] = str(payload.get("stack_watch_max_height") if payload.get("stack_watch_max_height") is not None else stack_previous.get("max_height", "")).strip()[:40]
-    stack["updated_at"] = datetime.now(UTC).isoformat()
+    stack = stack_watch_config_from_payload(payload, config.get("stack_watch"))
     config["stack_watch"] = stack
 
     config["updated_at"] = datetime.now(UTC).isoformat()
+    if profile_id:
+        base_config["updated_at"] = config["updated_at"]
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
     return dashboard_api_response(
@@ -47184,6 +47216,39 @@ def api_ai_agent_state():
             request.args.get("run_id"),
             new_conversation=safe_bool(request.args.get("new_conversation"), False),
         )
+    )
+
+
+@APP.post("/api/admin/stack-watch")
+def api_stack_watch():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    base_config, config, profile_id = moderation_target_config(guild_configs, guild_id, payload)
+    stack = stack_watch_config_from_payload(payload, config.get("stack_watch"))
+    config["stack_watch"] = stack
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    if profile_id:
+        base_config["updated_at"] = config["updated_at"]
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    selection_note = ", ".join(stack.get("objects") or []) or "no objects"
+    return dashboard_api_response(
+        raw_payload,
+        {
+            "ok": True,
+            "stack_watch": stack,
+            "server_profile_id": profile_id,
+            "note": f"Stack Watch saved exactly: {selection_note}.",
+        },
+        "moderation",
+        "#moderation",
     )
 
 

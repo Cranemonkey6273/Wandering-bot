@@ -32,6 +32,27 @@ from _bot_loader import import_bot_module  # noqa: E402
 bot = import_bot_module()
 
 
+class DeliveryCoordinateTests(unittest.TestCase):
+    def test_new_shop_delivery_uses_dayz_x_y_z_order(self):
+        xml_text = bot.build_delivery_xml(
+            [{"item": "NailBox", "x": "123", "y": "0", "z": "456"}],
+            [],
+        )
+
+        self.assertIn('name="NailBox" pos="123.0 0.0 456.0"', xml_text)
+
+    def test_legacy_shop_delivery_treats_old_y_field_as_horizontal_z(self):
+        xml_text = bot.build_delivery_xml(
+            [{"item": "NailBox", "x": "123", "y": "456"}],
+            [],
+        )
+
+        self.assertIn('name="NailBox" pos="123.0 0.0 456.0"', xml_text)
+
+    def test_delivery_bridge_grounds_zero_height_to_terrain(self):
+        self.assertIn("SurfaceY(pos[0], pos[2])", bot.WANDERING_DELIVERY_BRIDGE_CODE)
+
+
 def _base_event(event_id, event_type, class_name, **overrides):
     event = {
         "id": event_id,

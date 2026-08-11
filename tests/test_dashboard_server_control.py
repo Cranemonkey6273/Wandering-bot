@@ -100,6 +100,7 @@ class DashboardServerControlTests(unittest.TestCase):
     def test_stack_watch_uses_unambiguous_preset_checkboxes(self):
         template = dashboard.PAGE_TEMPLATE
 
+        self.assertIn('action="/api/admin/stack-watch" data-route="/api/admin/stack-watch"', template)
         self.assertIn('type="hidden" name="stack_watch_objects_present" value="true"', template)
         self.assertIn('type="checkbox" name="stack_watch_object_presets"', template)
         self.assertNotIn('name="stack_watch_object_presets" multiple', template)
@@ -130,12 +131,52 @@ class DashboardServerControlTests(unittest.TestCase):
             patch.object(dashboard, "sync_runtime_store"),
             patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, data, *_args: data),
         ):
-            response = dashboard.api_moderation_guard()
+            response = dashboard.api_stack_watch()
 
         self.assertEqual(["GardenPlot"], response["stack_watch"]["objects"])
         self.assertEqual(["GardenPlot"], configs["guild-1"]["stack_watch"]["objects"])
         saved_configs = save_store.call_args.args[1]
         self.assertEqual(["GardenPlot"], saved_configs["guild-1"]["stack_watch"]["objects"])
+
+    def test_stack_watch_saves_to_the_selected_dayz_profile(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "stack_watch": {"objects": ["FenceKit"]},
+                "server_profiles": {
+                    "cherno": {
+                        "server_map": "chernarus",
+                        "stack_watch": {"objects": ["GardenPlot", "FenceKit"]},
+                    },
+                    "sakhal": {
+                        "server_map": "sakhal",
+                        "stack_watch": {"objects": ["WatchtowerKit"]},
+                    },
+                },
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "stack_watch_objects_present": True,
+            "stack_watch_enabled": True,
+            "stack_watch_object_presets": "GardenPlot",
+            "stack_watch_objects": "",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, data, *_args: data),
+        ):
+            response = dashboard.api_stack_watch()
+
+        self.assertEqual("cherno", response["server_profile_id"])
+        self.assertEqual(["GardenPlot"], configs["guild-1"]["server_profiles"]["cherno"]["stack_watch"]["objects"])
+        self.assertEqual(["WatchtowerKit"], configs["guild-1"]["server_profiles"]["sakhal"]["stack_watch"]["objects"])
+        self.assertEqual(["FenceKit"], configs["guild-1"]["stack_watch"]["objects"])
 
     def test_stack_watch_allows_only_genuine_custom_classes_in_custom_field(self):
         payload = {
@@ -162,6 +203,7 @@ class DashboardServerControlTests(unittest.TestCase):
             dashboard.PAGE_TEMPLATE,
         )
         self.assertIn('"/api/admin/moderation-guard",', dashboard.PAGE_TEMPLATE)
+        self.assertIn('"/api/admin/stack-watch",', dashboard.PAGE_TEMPLATE)
 
     def test_restart_schedule_notify_channel_keeps_the_saved_selection(self):
         template = dashboard.PAGE_TEMPLATE

@@ -13,6 +13,21 @@ from _bot_loader import import_bot_module  # noqa: E402
 bot = import_bot_module()
 
 
+class SupportTicketPanelTests(unittest.TestCase):
+    def test_support_button_has_stable_persistent_custom_id(self):
+        self.assertEqual("wandering:support:create", bot.SUPPORT_TICKET_BUTTON_CUSTOM_ID)
+        source = inspect.getsource(bot.on_interaction)
+        self.assertIn("SupportTicketIssueModal", source)
+        self.assertIn("is_support_button", source)
+
+    def test_support_ticket_creation_is_shared_by_command_and_modal(self):
+        command_callback = getattr(bot.supportbot, "callback", bot.supportbot)
+        modal_source = inspect.getsource(bot.SupportTicketIssueModal.on_submit)
+        command_source = inspect.getsource(command_callback)
+        self.assertIn("open_bot_support_ticket", modal_source)
+        self.assertIn("open_bot_support_ticket", command_source)
+
+
 class FakeRole:
     def __init__(self, name, role_id):
         self.name = name

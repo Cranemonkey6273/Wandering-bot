@@ -17816,7 +17816,10 @@ async def announce_new_guild_owner_support(guild, fallback_channel=None):
     )
     embed.add_field(
         name="Open a support ticket",
-        value="`/supportbot issue:describe the problem`\nOnly server administrators can open tickets.",
+        value=(
+            "Use `/supportpanel` once to post a reusable ticket button, or open one directly with "
+            "`/supportbot issue:describe the problem`. Only server administrators can open tickets."
+        ),
         inline=False,
     )
     embed.add_field(
@@ -19303,9 +19306,9 @@ async def apply_setup_configuration(
             value=(
                 "`/wallet` - check wallet\n"
                 "`/shop` - view black market\n"
-                "`/buy item_name x y` - queue item delivery\n"
+                "`/buy item_name x z` - queue a terrain-grounded item delivery\n"
                 "`/addwage`, `/listwages`, `/removewage`, `/collectincome` - wages and income\n"
-                "`/tools rentvehicle vehicle_name rental_hours x y` - queue vehicle rental\n"
+                "`/tools rentvehicle vehicle_name rental_hours x z` - queue vehicle rental\n"
                 "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`, `/server shopbackfill`, `/server bulkprice`\n"
                 "Admin rules: `/addreward`, `/addpunishment`"
             ),
@@ -19347,8 +19350,8 @@ async def apply_setup_configuration(
                 "listed in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.\n\n"
                 "Console object spawns: run `/console setupobjects` to create `custom/WanderingBotObjects.json` and add it to "
                 "`cfggameplay.json` under `WorldsData.objectSpawnersArr`. Add spawns with `/console addobject`.\n"
-                "Item spawning: add shop items with `/addshopitem`, players use `/buy item_name x y`, then the bot uploads `deliveries.xml` for next restart.\n"
-                "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x y`; the vehicle entry is written into the same restart delivery XML.\n"
+                "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z`. X/Z are the map coordinates and the bridge grounds the delivery to terrain for the next restart.\n"
+                "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x z`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
             ),
             inline=False
@@ -25345,8 +25348,8 @@ async def helpme(ctx):
     embed.add_field(
         name="DayZ Restart Deliveries",
         value=(
-            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x y`; the bot writes delivery XML for restart.\n"
-            "Vehicles: players use `/tools rentvehicle vehicle_name rental_hours x y`; the bot writes vehicle spawns into the restart XML.\n"
+            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x z`; the bot grounds deliveries to terrain and writes delivery XML for restart.\n"
+            "Vehicles: players use `/tools rentvehicle vehicle_name rental_hours x z`; the bot writes vehicle spawns into the restart XML.\n"
             "Console hosts: `init.c` is not exposed. Use `/console setupobjects`, `/console addobject`, and `/console exportobjects` for the `cfggameplay.json` object-spawner flow."
         ),
         inline=False
@@ -46485,7 +46488,7 @@ async def shop(ctx, server: str = ""):
 
 
 @bot.command()
-async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1, server: str = ""):
+async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: str = ""):
 
     user_id = str(ctx.author.id)
     guild_id, config, target_error = runtime_config_for_command_context(
@@ -46503,11 +46506,11 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1, server: st
     _discord_guild_id, order_profile_id = split_server_runtime_id(guild_id)
     server_label = dayz_server_display_name(guild_id, config)
     x_value = parse_dayz_map_number(x)
-    y_value = parse_dayz_map_number(y)
+    z_value = parse_dayz_map_number(z)
     quantity = max(1, min(99, safe_int(quantity, 1)))
 
-    if x_value is None or y_value is None:
-        await ctx.send("Use numeric map coordinates, for example `/buy NailBox 7500 8400 quantity:3`.")
+    if x_value is None or z_value is None:
+        await ctx.send("Use numeric DayZ X/Z map coordinates, for example `/buy NailBox 7500 8400 quantity:3`. The bot sets Y height from the terrain.")
         return
 
     item_name, item_config, error = resolve_purchase_item(guild_id, item_name)
@@ -46583,7 +46586,8 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1, server: st
                         "discord_id": user_id,
                         "item": row["item"],
                         "x": str(x_value),
-                        "y": str(y_value),
+                        "y": "0",
+                        "z": str(z_value),
                         "status": "queued",
                         "created": created_at
                     })
@@ -46599,7 +46603,8 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1, server: st
                 "discord_id": user_id,
                 "item": item_name,
                 "x": str(x_value),
-                "y": str(y_value),
+                "y": "0",
+                "z": str(z_value),
                 "status": "queued",
                 "created": created_at
             })
@@ -46607,7 +46612,7 @@ async def buy(ctx, item_name: str, x: str, y: str, quantity: int = 1, server: st
     save_wallets()
     save_delivery_queue()
 
-    map_link = build_izurvive_link(f"{x_value},{y_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{y_value}"
+    map_link = build_izurvive_link(f"{x_value},{z_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{z_value}"
 
     embed = discord.Embed(
         title="📦 DELIVERY QUEUED",
@@ -46780,19 +46785,26 @@ def build_delivery_xml(items, vehicles, scenario_events=None):
     for delivery in items:
         item_name = delivery.get("item")
         x = parse_dayz_map_number(delivery.get("x"))
-        y = parse_dayz_map_number(delivery.get("y"))
-        if not item_name or x is None or y is None:
+        # Old queue rows stored the horizontal Z coordinate in a misleading
+        # `y` field. New rows use X/Y/Z correctly while this fallback safely
+        # finishes any orders queued before the migration.
+        has_explicit_z = delivery.get("z") is not None
+        z = parse_dayz_map_number(delivery.get("z") if has_explicit_z else delivery.get("y"))
+        y = parse_dayz_map_number(delivery.get("y")) if has_explicit_z else 0.0
+        if not item_name or x is None or y is None or z is None:
             continue
 
         xml_lines.append(
-            f'<object action="spawn_item" name="{safe_xml_attr(item_name)}" pos="{x} 0 {y}" />'
+            f'<object action="spawn_item" name="{safe_xml_attr(item_name)}" pos="{x} {y} {z}" />'
         )
 
     for vehicle in vehicles:
         vehicle_name = vehicle.get("vehicle")
         x = parse_dayz_map_number(vehicle.get("x"))
-        y = parse_dayz_map_number(vehicle.get("y"))
-        if not vehicle_name or x is None or y is None:
+        has_explicit_z = vehicle.get("z") is not None
+        z = parse_dayz_map_number(vehicle.get("z") if has_explicit_z else vehicle.get("y"))
+        y = parse_dayz_map_number(vehicle.get("y")) if has_explicit_z else 0.0
+        if not vehicle_name or x is None or y is None or z is None:
             continue
 
         action = vehicle.get("action") or "spawn_vehicle"
@@ -46804,13 +46816,13 @@ def build_delivery_xml(items, vehicles, scenario_events=None):
                 excluded = [item.strip() for item in excluded.split(",") if item.strip()]
             exclude_attr = "|".join(str(item).strip() for item in excluded if str(item).strip())
             xml_lines.append(
-                f'<object action="reset_all_vehicles" name="ALL_VEHICLES" pos="{x} 0 {y}" radius="{radius}" exclude="{safe_xml_attr(exclude_attr)}" />'
+                f'<object action="reset_all_vehicles" name="ALL_VEHICLES" pos="{x} {y} {z}" radius="{radius}" exclude="{safe_xml_attr(exclude_attr)}" />'
             )
             continue
 
         radius_attr = f' radius="{radius}"' if action == "reset_vehicle" else ""
         xml_lines.append(
-            f'<object action="{safe_xml_attr(action)}" name="{safe_xml_attr(vehicle_name)}" pos="{x} 0 {y}"{radius_attr} />'
+            f'<object action="{safe_xml_attr(action)}" name="{safe_xml_attr(vehicle_name)}" pos="{x} {y} {z}"{radius_attr} />'
         )
 
     for event in scenario_events or []:
@@ -46865,15 +46877,15 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_
 
 
 @bot.command()
-async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str):
+async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, z: str):
 
     user_id = str(ctx.author.id)
     guild_id = str(ctx.guild.id)
     x_value = parse_dayz_map_number(x)
-    y_value = parse_dayz_map_number(y)
+    z_value = parse_dayz_map_number(z)
 
-    if x_value is None or y_value is None:
-        await ctx.send("Use numeric map coordinates, for example `/tools rentvehicle OffroadHatchback 2 7500 8400`.")
+    if x_value is None or z_value is None:
+        await ctx.send("Use numeric DayZ X/Z map coordinates, for example `/tools rentvehicle OffroadHatchback 2 7500 8400`. The bot sets Y height from the terrain.")
         return
 
     items = guild_shop_items(guild_id)
@@ -46908,7 +46920,8 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
         "discord_id": user_id,
         "vehicle": vehicle_name,
         "x": str(x_value),
-        "y": str(y_value),
+        "y": "0",
+        "z": str(z_value),
         "rental_hours": rental_hours,
         "status": "queued",
         "created": str(datetime.now(UTC))
@@ -46919,7 +46932,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
     save_wallets()
     save_delivery_queue()
 
-    map_link = build_izurvive_link(f"{x_value},{y_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{y_value}"
+    map_link = build_izurvive_link(f"{x_value},{z_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{z_value}"
 
     embed = discord.Embed(
         title="🚗 VEHICLE RENTAL CONFIRMED",
@@ -47034,7 +47047,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, y: str)
 
 @bot.command()
 @commands.check(lambda ctx: has_staff_permissions(ctx))
-async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35, server: str = ""):
+async def resetvehicle(ctx, vehicle_name: str, x: str, z: str, radius: int = 35, server: str = ""):
     guild_id, config, target_error = runtime_config_for_command_context(
         ctx.guild,
         channel=ctx.channel,
@@ -47047,10 +47060,10 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35,
         return
 
     x_value = parse_dayz_map_number(x)
-    y_value = parse_dayz_map_number(y)
+    z_value = parse_dayz_map_number(z)
 
-    if x_value is None or y_value is None:
-        await ctx.send("❌ Use numeric map coordinates, for example `/resetvehicle OffroadHatchback 7500 8400 35`.")
+    if x_value is None or z_value is None:
+        await ctx.send("❌ Use numeric DayZ X/Z map coordinates, for example `/resetvehicle OffroadHatchback 7500 8400 35`. The bot sets Y height from the terrain.")
         return
 
     radius = max(5, min(250, int(radius or 35)))
@@ -47061,7 +47074,8 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35,
         "discord_id": str(ctx.author.id),
         "vehicle": vehicle_name,
         "x": str(x_value),
-        "y": str(y_value),
+        "y": "0",
+        "z": str(z_value),
         "radius": radius,
         "status": "queued",
         "created": str(datetime.now(UTC))
@@ -47070,7 +47084,7 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, y: str, radius: int = 35,
     vehicle_rentals_queue.append(reset_entry)
     save_delivery_queue()
 
-    map_link = f"https://dayz.ginfo.gg/#location={x_value};{y_value}"
+    map_link = build_izurvive_link(f"{x_value},{z_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{z_value}"
     embed = discord.Embed(
         title="🔄 VEHICLE RESET QUEUED",
         description=(
@@ -47877,26 +47891,23 @@ async def slash_serverstatus(interaction: discord.Interaction):
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
-@bot.tree.command(name="supportbot", description="Open an admin ticket with the bot owner")
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(issue="Briefly describe your bot issue")
-async def supportbot(interaction: discord.Interaction, issue: str):
+SUPPORT_TICKET_BUTTON_CUSTOM_ID = "wandering:support:create"
 
-    if not has_interaction_admin_power(interaction):
-        await interaction.response.send_message("Admin only.", ephemeral=True)
-        return
 
-    guild_id = str(interaction.guild.id)
+async def open_bot_support_ticket(guild, requester, issue: str):
+    """Create one private support ticket from either the command or panel."""
+    guild_id = str(guild.id)
     ticket_id = f"{guild_id}-{int(datetime.now(UTC).timestamp())}"
-    local_channel = await get_or_create_support_channel(interaction.guild)
+    local_channel = await get_or_create_support_channel(guild)
+    issue = str(issue or "").strip()[:1500]
 
     support_tickets[ticket_id] = {
         "guild_id": guild_id,
-        "guild_name": interaction.guild.name,
+        "guild_name": guild.name,
         "channel_id": local_channel.id,
-        "requester_id": interaction.user.id,
-        "requester_name": str(interaction.user),
-        "issue": issue[:1500],
+        "requester_id": requester.id,
+        "requester_name": str(requester),
+        "issue": issue,
         "status": "open",
         "created": str(datetime.now(UTC))
     }
@@ -47904,11 +47915,11 @@ async def supportbot(interaction: discord.Interaction, issue: str):
 
     local_embed = discord.Embed(
         title="Bot Support Ticket Opened",
-        description=issue[:1500],
+        description=issue,
         color=0x3498DB
     )
     local_embed.add_field(name="Ticket ID", value=ticket_id, inline=False)
-    local_embed.add_field(name="Opened By", value=interaction.user.mention, inline=False)
+    local_embed.add_field(name="Opened By", value=requester.mention, inline=False)
     local_embed.set_footer(text="Replies from the bot owner will appear here.")
     await local_channel.send(embed=style_embed(local_embed))
 
@@ -47916,17 +47927,101 @@ async def supportbot(interaction: discord.Interaction, issue: str):
     if owner_channel:
         owner_embed = discord.Embed(
             title="New Bot Support Ticket",
-            description=issue[:1500],
+            description=issue,
             color=0xE67E22
         )
         owner_embed.add_field(name="Ticket ID", value=ticket_id, inline=False)
-        owner_embed.add_field(name="Server", value=f"{interaction.guild.name} (`{guild_id}`)", inline=False)
-        owner_embed.add_field(name="Requester", value=str(interaction.user), inline=False)
+        owner_embed.add_field(name="Server", value=f"{guild.name} (`{guild_id}`)", inline=False)
+        owner_embed.add_field(name="Requester", value=str(requester), inline=False)
         owner_embed.add_field(name="Reply Command", value=f"/ownerreply ticket_id:{ticket_id}", inline=False)
         await owner_channel.send(embed=style_embed(owner_embed))
 
-    await interaction.response.send_message(
-        f"Support ticket `{ticket_id}` opened.",
+    return ticket_id, local_channel
+
+
+class SupportTicketIssueModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="Contact Wandering Bot Support", timeout=600)
+        self.issue = discord.ui.TextInput(
+            label="How can we help?",
+            placeholder="Describe the problem, what you expected, and any error shown.",
+            required=True,
+            min_length=5,
+            max_length=1500,
+            style=discord.TextStyle.paragraph,
+        )
+        self.add_item(self.issue)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild or not has_interaction_admin_power(interaction):
+            await interaction.response.send_message("Server administrators only.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        ticket_id, local_channel = await open_bot_support_ticket(
+            interaction.guild,
+            interaction.user,
+            str(self.issue.value),
+        )
+        await interaction.followup.send(
+            f"Support ticket `{ticket_id}` opened in {local_channel.mention}.",
+            ephemeral=True,
+        )
+
+
+class SupportTicketPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(
+            discord.ui.Button(
+                label="Open Support Ticket",
+                emoji="✉️",
+                style=discord.ButtonStyle.primary,
+                custom_id=SUPPORT_TICKET_BUTTON_CUSTOM_ID,
+            )
+        )
+
+
+@bot.tree.command(name="supportpanel", description="Post the Wandering Bot support ticket button")
+@app_commands.default_permissions(administrator=True)
+async def supportpanel(interaction: discord.Interaction):
+    if not interaction.guild or not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    if not isinstance(interaction.channel, discord.TextChannel):
+        await interaction.response.send_message("Run this in the text channel where the support panel should appear.", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title="Wandering Bot Support",
+        description=(
+            "Server owners and administrators can contact the Wandering Bot owner directly. "
+            "Click below, describe the problem, and a private support ticket will be opened for your staff."
+        ),
+        color=0x35D4C2,
+    )
+    embed.add_field(
+        name="Private and uncluttered",
+        value="No ticket channel is created until an administrator presses the button.",
+        inline=False,
+    )
+    embed.set_thumbnail(url=BOT_IMAGE)
+    await interaction.channel.send(embed=style_embed(embed), view=SupportTicketPanelView())
+    await interaction.response.send_message("Support panel posted.", ephemeral=True)
+
+
+@bot.tree.command(name="supportbot", description="Open an admin ticket with the bot owner")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(issue="Briefly describe your bot issue")
+async def supportbot(interaction: discord.Interaction, issue: str):
+
+    if not interaction.guild or not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    ticket_id, local_channel = await open_bot_support_ticket(interaction.guild, interaction.user, issue)
+
+    await interaction.followup.send(
+        f"Support ticket `{ticket_id}` opened in {local_channel.mention}.",
         ephemeral=True
     )
 
@@ -56778,13 +56873,13 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
 @bot.tree.command(name="buy", description="Buy an item and queue delivery")
 @app_commands.describe(
     item_name="Item",
-    x="Map X",
-    y="Map Y",
+    x="DayZ map X coordinate",
+    z="DayZ map Z coordinate; Y height is terrain-grounded automatically",
     quantity="How many to buy",
     server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
 @app_commands.autocomplete(item_name=purchase_item_autocomplete, server=server_profile_autocomplete)
-async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, y: str, quantity: int = 1, server: str = ""): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, y=y, quantity=quantity, server=server)
+async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, z: str, quantity: int = 1, server: str = ""): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, z=z, quantity=quantity, server=server)
 def auto_fetch_types_xml_from_server(config, guild_id):
     """Try every standard Nitrado console & PC types.xml path and return
     (success, message, local_temp_path) on the first hit.
@@ -57156,22 +57251,27 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
     )
 bot.tree.add_command(extra_tools_group)
 @extra_tools_group.command(name="rentvehicle", description="Rent a vehicle")
-@app_commands.describe(vehicle_name="Vehicle", rental_hours="Hours", x="Map X", y="Map Y")
-async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, y: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, y=y)
+@app_commands.describe(
+    vehicle_name="Vehicle",
+    rental_hours="Hours",
+    x="DayZ map X coordinate",
+    z="DayZ map Z coordinate; Y height is terrain-grounded automatically",
+)
+async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, z: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, z=z)
 @extra_tools_group.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     vehicle_name="DayZ vehicle class name",
-    x="Map X",
-    y="Map Y",
+    x="DayZ map X coordinate",
+    z="DayZ map Z coordinate; Y height is terrain-grounded automatically",
     radius="Delete matching old vehicles within this many meters",
     server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
-async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, y: str, radius: int = 35, server: str = ""):
+async def slash_resetvehicle(interaction: discord.Interaction, vehicle_name: str, x: str, z: str, radius: int = 35, server: str = ""):
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
-    await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, y=y, radius=radius, server=server)
+    await run_legacy_as_slash(interaction, "resetvehicle", vehicle_name=vehicle_name, x=x, z=z, radius=radius, server=server)
 @console_group.command(name="resetvehicles", description="Admin: reset all vehicles on next restart, with optional exclusions")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
@@ -57316,7 +57416,11 @@ async def on_interaction(interaction: discord.Interaction):
     needing to re-register every per-quest View instance.
     """
     try:
-        if interaction.guild and not billing_bot_service_is_active(guild_configs.get(str(interaction.guild.id), {})):
+        custom_id = (interaction.data or {}).get("custom_id", "") if interaction.type == discord.InteractionType.component else ""
+        is_support_button = custom_id == SUPPORT_TICKET_BUTTON_CUSTOM_ID
+        # Support remains reachable while billing is paused so an owner can
+        # resolve subscription or account problems instead of being locked out.
+        if interaction.guild and not is_support_button and not billing_bot_service_is_active(guild_configs.get(str(interaction.guild.id), {})):
             if interaction.type == discord.InteractionType.component:
                 try:
                     if not interaction.response.is_done():
@@ -57328,8 +57432,12 @@ async def on_interaction(interaction: discord.Interaction):
                     pass
             return
         if interaction.type == discord.InteractionType.component:
-            custom_id = (interaction.data or {}).get("custom_id", "")
-            if custom_id.startswith("pve_submit:"):
+            if is_support_button:
+                if not has_interaction_admin_power(interaction):
+                    await interaction.response.send_message("Server administrators only.", ephemeral=True)
+                else:
+                    await interaction.response.send_modal(SupportTicketIssueModal())
+            elif custom_id.startswith("pve_submit:"):
                 quest_code = custom_id.split(":", 1)[1]
                 await _handle_pve_submit_button(interaction, quest_code)
             elif custom_id.startswith("pve_ticket_claim:"):
