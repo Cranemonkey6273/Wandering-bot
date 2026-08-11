@@ -52,6 +52,125 @@ class DeliveryCoordinateTests(unittest.TestCase):
     def test_delivery_bridge_grounds_zero_height_to_terrain(self):
         self.assertIn("SurfaceY(pos[0], pos[2])", bot.WANDERING_DELIVERY_BRIDGE_CODE)
 
+    def test_delivery_bridge_preserves_explicit_height(self):
+        xml_text = bot.build_delivery_xml(
+            [{"item": "NailBox", "x": "123", "y": "42.5", "z": "456"}],
+            [],
+        )
+
+        self.assertIn('name="NailBox" pos="123.0 42.5 456.0"', xml_text)
+
+
+class ShopDeliveryRoutingTests(unittest.TestCase):
+    def test_single_server_autocomplete_returns_only_server(self):
+        class Guild:
+            id = 987654321
+
+        class Interaction:
+            guild = Guild()
+
+        config = {
+            "server_name": "Odyssey",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+        }
+        class Choice:
+            def __init__(self, name, value):
+                self.name = name
+                self.value = value
+
+        bot.guild_configs[str(Guild.id)] = config
+        try:
+            with patch.object(bot.app_commands, "Choice", Choice):
+                choices = asyncio.run(bot.server_profile_autocomplete(Interaction(), ""))
+        finally:
+            bot.guild_configs.pop(str(Guild.id), None)
+
+        self.assertEqual(1, len(choices))
+        self.assertIn("Odyssey", choices[0].name)
+        self.assertTrue(choices[0].value)
+
+    def test_console_ground_shop_delivery_builds_one_time_item_event(self):
+        config = {}
+        created = bot.create_console_shop_delivery_events(
+            config,
+            {"Hacksaw": 3},
+            8194,
+            9092,
+            "order-1",
+            "Player",
+            "123",
+        )
+
+        self.assertEqual(1, len(created))
+        event = created[0]
+        self.assertEqual("shop_delivery", event["event_type"])
+        self.assertEqual(1, event["remaining_restarts"])
+        self.assertEqual("native_xml_only", event["delivery_route"])
+
+        records, warnings = bot.console_ce_records_for_event(event)
+        self.assertFalse(warnings)
+        self.assertEqual(1, len(records))
+        record = records[0]
+        self.assertTrue(record["name"].startswith("ItemWanderingBot_"))
+        self.assertEqual(1, record["nominal"])
+        self.assertEqual(1, record["min_count"])
+        self.assertEqual(1, record["max_count"])
+        self.assertEqual("Hacksaw", record["child_records"][0]["type"])
+        self.assertEqual(3, record["child_records"][0]["count"])
+
+        spawns = ET.Element("eventposdef")
+        bot.add_console_ce_event_spawn(
+            spawns,
+            record["name"],
+            record["x"],
+            record["z"],
+            y=record.get("y"),
+        )
+        position = spawns.find("event/pos")
+        self.assertIsNotNone(position)
+        self.assertNotIn("y", position.attrib)
+
+    def test_completed_native_shop_delivery_requests_xml_cleanup(self):
+        config = {
+            "scenario_events": [{
+                "id": 1,
+                "event_type": "shop_delivery",
+                "enabled": True,
+                "permanent": False,
+                "remaining_restarts": 1,
+                "native_ce_uploaded_at": "2026-08-11T12:00:00+00:00",
+            }]
+        }
+
+        self.assertTrue(bot.mark_one_time_scenario_events_uploaded(config, require_native_upload=True))
+        self.assertEqual([], config["scenario_events"])
+        self.assertTrue(config["scenario_events_cleanup_pending"])
+        self.assertTrue(config["scenario_events_native_ce_cleanup_requested_at"])
+
+    def test_exact_height_object_is_cleaned_from_source_after_restart(self):
+        config = {
+            "console_object_spawner": {
+                "enabled": True,
+                "object_path": "/custom/WanderingBotObjects.json",
+                "objects": [{
+                    "id": 9,
+                    "name": "Hacksaw",
+                    "pos": [8194, 55, 9092],
+                    "ypr": [0, 0, 0],
+                    "scale": 1,
+                    "shop_delivery_state": "awaiting_restart",
+                }],
+            }
+        }
+
+        self.assertTrue(bot.mark_console_shop_object_deliveries_cleanup_due(config))
+        self.assertEqual("cleanup_due", config["console_object_spawner"]["objects"][0]["shop_delivery_state"])
+        with patch.object(bot, "upload_text_file_to_nitrado", return_value=(True, "uploaded")):
+            changed = asyncio.run(bot.process_console_shop_object_delivery_cleanup(config))
+        self.assertTrue(changed)
+        self.assertEqual([], config["console_object_spawner"]["objects"])
+
 
 def _base_event(event_id, event_type, class_name, **overrides):
     event = {

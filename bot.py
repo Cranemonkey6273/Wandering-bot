@@ -1716,7 +1716,7 @@ async def server_profile_autocomplete(interaction: discord.Interaction, current:
     guild = getattr(interaction, "guild", None)
     guild_id = str(getattr(guild, "id", "") or "").strip()
     config = guild_configs.get(guild_id) if guild_id else None
-    if not isinstance(config, dict) or not has_server_profiles(config):
+    if not isinstance(config, dict):
         return []
 
     search = normalize_discord_name(current)
@@ -1729,6 +1729,16 @@ async def server_profile_autocomplete(interaction: discord.Interaction, current:
         if search and search not in haystack:
             return
         choices.append(app_commands.Choice(name=label[:100], value=value[:100]))
+
+    # A guild with one DayZ server still needs one selectable Discord choice.
+    # Returning an empty list made Discord show "No options match your search"
+    # and prevented otherwise valid /buy orders from naming their only server.
+    if not has_server_profiles(config):
+        add_choice(
+            base_server_profile_primary_alias(config),
+            f"{base_server_profile_name(config)} (only server)",
+        )
+        return choices[:1]
 
     if should_include_base_server_profile(config):
         add_choice(base_server_profile_primary_alias(config), f"{base_server_profile_name(config)} (base)")
@@ -16836,6 +16846,8 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
         details = f"Fresh restart evidence detected in latest RPT ({'; '.join(restart_reasons)}). Total restart markers now {len(restart_markers)}."
         if last_known > 0 and mark_one_time_scenario_events_uploaded(config, require_native_upload=True):
             details += " Dashboard native CE event run counters advanced."
+        if last_known > 0 and mark_console_shop_object_deliveries_cleanup_due(config):
+            details += " Exact-height shop deliveries were marked for one-time Object Spawner cleanup."
         restart_history_record = append_restart_history(
             guild_id,
             config,
@@ -16880,6 +16892,8 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
             except Exception as online_reset_error:
                 print(f"[ONLINE STATE] restart clear failed for {guild_id}: {online_reset_error}")
         await _post_rpt_restart_report(guild_id, guild, state, new_events_this_cycle or kept, diagnostics, config)
+        if await process_console_shop_object_delivery_cleanup(config):
+            save_guild_configs_for_runtime(config)
         if restart_history_record:
             save_guild_configs()
             await publish_restart_history(guild_id, config, restart_history_record)
@@ -16897,6 +16911,8 @@ async def rpt_event_tracker_loop():
             if not config.get("nitrado_token") or not config.get("service_id"):
                 continue
             await refresh_rpt_event_tracker(guild_id, config)
+            if await process_console_shop_object_delivery_cleanup(config):
+                save_guild_configs_for_runtime(config)
         except Exception as err:
             print(f"[RPT TRACKER LOOP] {guild_id} error: {err}")
 
@@ -19306,7 +19322,7 @@ async def apply_setup_configuration(
             value=(
                 "`/wallet` - check wallet\n"
                 "`/shop` - view black market\n"
-                "`/buy item_name x z` - queue a terrain-grounded item delivery\n"
+                "`/buy item_name x z [y]` - queue an item delivery; leave Y blank for automatic terrain height\n"
                 "`/addwage`, `/listwages`, `/removewage`, `/collectincome` - wages and income\n"
                 "`/tools rentvehicle vehicle_name rental_hours x z` - queue vehicle rental\n"
                 "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`, `/server shopbackfill`, `/server bulkprice`\n"
@@ -19350,7 +19366,7 @@ async def apply_setup_configuration(
                 "listed in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.\n\n"
                 "Console object spawns: run `/console setupobjects` to create `custom/WanderingBotObjects.json` and add it to "
                 "`cfggameplay.json` under `WorldsData.objectSpawnersArr`. Add spawns with `/console addobject`.\n"
-                "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z`. X/Z are the map coordinates and the bridge grounds the delivery to terrain for the next restart.\n"
+                "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z` and may supply optional Y height for roofs or elevated platforms. Blank Y is grounded to terrain for the next restart.\n"
                 "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x z`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
             ),
@@ -25348,7 +25364,7 @@ async def helpme(ctx):
     embed.add_field(
         name="DayZ Restart Deliveries",
         value=(
-            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x z`; the bot grounds deliveries to terrain and writes delivery XML for restart.\n"
+            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x z`; optional Y supports roofs/elevated positions while blank Y is grounded to terrain.\n"
             "Vehicles: players use `/tools rentvehicle vehicle_name rental_hours x z`; the bot writes vehicle spawns into the restart XML.\n"
             "Console hosts: `init.c` is not exposed. Use `/console setupobjects`, `/console addobject`, and `/console exportobjects` for the `cfggameplay.json` object-spawner flow."
         ),
@@ -36268,6 +36284,67 @@ def build_console_object_spawner_json(objects):
     return json.dumps(output, indent=4)
 
 
+def mark_console_shop_object_deliveries_cleanup_due(config):
+    """Mark exact-height console shop objects for removal after mission start.
+
+    Object Spawner JSON is read at mission startup.  Keeping a paid delivery in
+    that source would create it again on every later restart, so a confirmed
+    fresh RPT cycle moves the order into a cleanup state.  The object already
+    spawned into the current mission is not deleted by rewriting the source.
+    """
+    changed = False
+    now_text = datetime.now(UTC).isoformat()
+    settings = console_object_spawner_config(config)
+    for item in settings.get("objects", []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("shop_delivery_state") or "") != "awaiting_restart":
+            continue
+        item["shop_delivery_state"] = "cleanup_due"
+        item["shop_delivery_restart_seen_at"] = now_text
+        changed = True
+    return changed
+
+
+async def process_console_shop_object_delivery_cleanup(config):
+    """Remove completed exact-height orders from Object Spawner JSON safely."""
+    settings = console_object_spawner_config(config)
+    objects = settings.get("objects", [])
+    cleanup_ids = {
+        str(item.get("id"))
+        for item in objects
+        if isinstance(item, dict)
+        and str(item.get("shop_delivery_state") or "") == "cleanup_due"
+    }
+    if not cleanup_ids:
+        return False
+
+    retained = [
+        item for item in objects
+        if not (isinstance(item, dict) and str(item.get("id")) in cleanup_ids)
+    ]
+    target_path = str(settings.get("object_path") or CONSOLE_OBJECT_SPAWNER_PATH)
+    upload_ok, upload_message = await asyncio.to_thread(
+        upload_text_file_to_nitrado,
+        config,
+        target_path,
+        build_console_object_spawner_json(retained),
+    )
+    now_text = datetime.now(UTC).isoformat()
+    if not upload_ok:
+        settings["shop_delivery_cleanup_error"] = str(upload_message or "Object Spawner cleanup upload failed")[:1000]
+        settings["shop_delivery_cleanup_failed_at"] = now_text
+        # State changed and must be persisted; the cleanup_due records remain
+        # in place so the five-minute RPT loop can retry safely.
+        return True
+
+    settings["objects"] = retained
+    settings["shop_delivery_cleanup_completed_at"] = now_text
+    settings.pop("shop_delivery_cleanup_error", None)
+    settings.pop("shop_delivery_cleanup_failed_at", None)
+    return True
+
+
 def load_reference_cfggameplay_text(map_key):
     map_key = "livonia" if map_key == "livonia" else "chernarus"
     path = dayz_reference_path(map_key, "cfggameplay.json")
@@ -36818,6 +36895,8 @@ def ce_event_family_for_record(event_type, class_name=""):
         return "Infected"
     if event_type == "vehicle_spawn":
         return "Vehicle"
+    if event_type == "shop_delivery":
+        return "Item"
     if event_type in {"airdrop", "loot_crate"}:
         if container_class in CONSOLE_CE_ITEM_CONTAINER_CLASSES:
             return "Item"
@@ -40889,6 +40968,8 @@ def console_ce_records_for_event(event, map_key=""):
     elif event_type == "gas_zone":
         count = 1
         lifetime = max(60, min(3888000, safe_int(event.get("gas_lifetime"), 3888000 if event.get("permanent") else 1800)))
+    elif event_type == "shop_delivery":
+        lifetime = max(60, min(3888000, safe_int(event.get("lifetime"), 604800)))
     if timing_defaults.get("lifetime") is not None:
         lifetime = safe_int(timing_defaults.get("lifetime"), lifetime)
     lifetime = max(60, min(3888000, safe_int(event.get("lifetime"), lifetime)))
@@ -41038,6 +41119,17 @@ def console_ce_records_for_event(event, map_key=""):
             "lootmin": 0,
             "lootmax": 0,
         }]
+    if event_type == "shop_delivery":
+        family = "Item"
+        limit_type = "custom"
+        child_records = [{
+            "type": class_name,
+            "count": count,
+            "min": count,
+            "max": count,
+            "lootmin": 0,
+            "lootmax": 0,
+        }]
 
     speed_defaults = scenario_speed_defaults(event_type, event, use_eventgroup=use_eventgroup)
     if timing_defaults:
@@ -41129,6 +41221,18 @@ def console_ce_records_for_event(event, map_key=""):
         "mapgroupproto_classes": mapgroupproto_classes,
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event, map_key=map_key) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
+    if event_type == "shop_delivery":
+        # One fixed CE parent produces the requested item quantity once. The
+        # managed definition is removed from the server files after the RPT
+        # confirms that restart, so it cannot repeat on later restarts.
+        record.update({
+            "nominal": 1,
+            "min_count": 1,
+            "max_count": 1,
+            "limit_type": "custom",
+            "child_records": child_records,
+            "deletable": True,
+        })
     if event_type == "gas_zone":
         gas_radius = max(30, min(1000, safe_int(event.get("radius"), 120)))
         record.update({
@@ -44551,7 +44655,7 @@ async def auto_push_scenario_events_xml(guild_id, config):
                 else "No live event XML upload was needed."
             )
 
-        upload_success, _, upload_messages = await asyncio.to_thread(
+        upload_success, built, upload_messages = await asyncio.to_thread(
             upload_console_ce_event_files,
             guild_id,
             config,
@@ -44567,6 +44671,11 @@ async def auto_push_scenario_events_xml(guild_id, config):
         )
 
     if upload_success:
+        now_text = datetime.now(UTC).isoformat()
+        for event in native_events:
+            apply_native_ce_upload_metadata(event, built, upload_messages, now_text)
+            event["updated_at"] = now_text
+        save_guild_configs_for_runtime(config)
         return True, (
             "✅ XML uploaded to Nitrado. Event will appear after the next server restart."
         )
@@ -44594,6 +44703,7 @@ def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
     events = scenario_events_for_config(config)
     kept = []
     changed = False
+    removed_confirmed_native = False
     now_text = datetime.now(UTC).isoformat()
 
     for event in events:
@@ -44628,9 +44738,17 @@ def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
             event["status"] = f"Completed one restart cycle; {remaining} restart(s) left"
             event["updated_at"] = now_text
             kept.append(event)
+        elif scenario_event_has_confirmed_native_upload(event):
+            removed_confirmed_native = True
         changed = True
 
     config["scenario_events"] = kept
+    if removed_confirmed_native:
+        # Upload a clean managed CE bundle after this mission has started.
+        # The spawned order/event remains in the current mission, while the
+        # next restart can no longer repeat its one-time definition.
+        config["scenario_events_cleanup_pending"] = True
+        config["scenario_events_native_ce_cleanup_requested_at"] = now_text
     return changed
 
 
@@ -46487,8 +46605,151 @@ async def shop(ctx, server: str = ""):
     await ctx.send(embed=style_embed(embed))
 
 
+def shop_delivery_item_counts(item_name, item_config, quantity):
+    """Expand a shop item or bundle into classname -> total quantity."""
+    counts = defaultdict(int)
+    bundle_items = shop_bundle_items(item_config)
+    if bundle_items:
+        for row in bundle_items:
+            counts[str(row["item"])] += max(1, safe_int(row.get("quantity"), 1)) * quantity
+    else:
+        counts[str(item_name)] += quantity
+    return {name: count for name, count in counts.items() if name and count > 0}
+
+
+def create_console_shop_delivery_events(config, item_counts, x_value, z_value, order_id, player, discord_id):
+    """Create one-time native CE Item events for a console ground delivery."""
+    created_events = []
+    now_text = datetime.now(UTC).isoformat()
+    events = scenario_events_for_config(config)
+    for class_name, total_count in item_counts.items():
+        remaining = max(1, safe_int(total_count, 1))
+        while remaining > 0:
+            chunk_count = min(250, remaining)
+            event = {
+                "id": next_scenario_event_id(config),
+                "event_type": "shop_delivery",
+                "name": f"Shop delivery {order_id}",
+                "class_name": str(class_name),
+                "x": float(x_value),
+                "y": 0.0,
+                "z": float(z_value),
+                "count": chunk_count,
+                "radius": 0,
+                "lifetime": 604800,
+                "enabled": True,
+                "permanent": False,
+                "remaining_restarts": 1,
+                "force_native_ce": True,
+                "native_ce_explicit": True,
+                "delivery_route": "native_xml_only",
+                "created_by": "shop_delivery",
+                "shop_order_id": str(order_id),
+                "player": str(player),
+                "discord_id": str(discord_id),
+                "created_at": now_text,
+                "updated_at": now_text,
+                "upload_status": "waiting_for_bot_upload",
+                "status": "Console shop delivery native CE upload requested",
+            }
+            events.append(event)
+            created_events.append(event)
+            remaining -= chunk_count
+    return created_events
+
+
+async def route_console_shop_delivery(
+    guild_id,
+    config,
+    item_counts,
+    x_value,
+    z_value,
+    y_supplied,
+    y_value,
+    order_id,
+    player,
+    discord_id,
+):
+    """Write a paid console order through the supported DayZ file route."""
+    if not y_supplied:
+        created_events = create_console_shop_delivery_events(
+            config, item_counts, x_value, z_value, order_id, player, discord_id
+        )
+        created_ids = {str(event.get("id")) for event in created_events}
+        upload_ok, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+        if upload_ok:
+            save_guild_configs_for_runtime(config)
+            return True, "Native CE XML (terrain height)", upload_status
+
+        config["scenario_events"] = [
+            event for event in scenario_events_for_config(config)
+            if str(event.get("id")) not in created_ids
+        ]
+        # A failed multi-file request may have reached only some CE targets.
+        # An explicit cleanup pass safely restores the managed XML set.
+        now_text = datetime.now(UTC).isoformat()
+        config["scenario_events_cleanup_pending"] = True
+        config["scenario_events_native_ce_cleanup_requested_at"] = now_text
+        config["scenario_events_cleanup_error"] = str(upload_status or "Shop delivery upload failed")[:1000]
+        save_guild_configs_for_runtime(config)
+        return False, "Native CE XML (terrain height)", upload_status
+
+    settings = console_object_spawner_config(config)
+    if not settings.get("enabled"):
+        return False, "Object Spawner JSON (exact Y)", (
+            "Exact Y-height delivery is not configured on this console server. "
+            "A server owner must run `/console setupobjects` once, then retry the purchase."
+        )
+
+    original_objects = copy.deepcopy(settings.get("objects", []))
+    now_text = datetime.now(UTC).isoformat()
+    next_id = next_console_object_id(settings)
+    for class_name, total_count in item_counts.items():
+        for item_index in range(max(1, safe_int(total_count, 1))):
+            # A small grid prevents multiple bundle items occupying exactly the
+            # same physical point while preserving the requested roof area.
+            x_offset = ((item_index % 3) - 1) * 0.35 if total_count > 1 else 0.0
+            z_offset = ((item_index // 3) % 3 - 1) * 0.35 if total_count > 1 else 0.0
+            record = dayz_object_record(
+                class_name,
+                float(x_value) + x_offset,
+                float(z_value) + z_offset,
+                y=float(y_value),
+                persistent=False,
+                object_id=next_id,
+            )
+            next_id += 1
+            if not record:
+                settings["objects"] = original_objects
+                return False, "Object Spawner JSON (exact Y)", f"Invalid DayZ classname or coordinates for `{class_name}`."
+            record.update({
+                "shop_delivery_state": "awaiting_restart",
+                "shop_order_id": str(order_id),
+                "shop_delivery_created_at": now_text,
+                "shop_delivery_player": str(player),
+                "shop_delivery_discord_id": str(discord_id),
+            })
+            settings["objects"].append(record)
+
+    target_path = str(settings.get("object_path") or CONSOLE_OBJECT_SPAWNER_PATH)
+    upload_ok, upload_message = await asyncio.to_thread(
+        upload_text_file_to_nitrado,
+        config,
+        target_path,
+        build_console_object_spawner_json(settings["objects"]),
+    )
+    if not upload_ok:
+        settings["objects"] = original_objects
+        return False, "Object Spawner JSON (exact Y)", str(upload_message or "Object Spawner upload failed")
+
+    settings["last_shop_delivery_upload_at"] = now_text
+    settings["last_shop_delivery_order_id"] = str(order_id)
+    save_guild_configs_for_runtime(config)
+    return True, "Object Spawner JSON (exact Y)", str(upload_message or "Object Spawner JSON uploaded")
+
+
 @bot.command()
-async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: str = ""):
+async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: str = "", y: str = ""):
 
     user_id = str(ctx.author.id)
     guild_id, config, target_error = runtime_config_for_command_context(
@@ -46507,10 +46768,12 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
     server_label = dayz_server_display_name(guild_id, config)
     x_value = parse_dayz_map_number(x)
     z_value = parse_dayz_map_number(z)
+    y_supplied = str(y or "").strip() != ""
+    y_value = parse_dayz_map_number(y) if y_supplied else 0.0
     quantity = max(1, min(99, safe_int(quantity, 1)))
 
-    if x_value is None or z_value is None:
-        await ctx.send("Use numeric DayZ X/Z map coordinates, for example `/buy NailBox 7500 8400 quantity:3`. The bot sets Y height from the terrain.")
+    if x_value is None or z_value is None or y_value is None:
+        await ctx.send("Use numeric DayZ X/Z map coordinates. Y is optional: leave it blank for automatic terrain height, or enter an exact Y for a roof/elevated spawn.")
         return
 
     item_name, item_config, error = resolve_purchase_item(guild_id, item_name)
@@ -46564,60 +46827,69 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
         await ctx.send(f"Not enough {guild_economy_currency(economy_guild_id)}. Total cost is {format_currency(price, economy_guild_id)}.")
         return
 
+    wallet_before_purchase = copy.deepcopy(wallet)
     wallet_debit(wallet, price, "cash")
     wallet["daily_transactions"] += quantity
 
     created_at = str(datetime.now(UTC))
-    if is_bundle:
-        bundle_id = f"bundle-{guild_id}-{user_id}-{int(datetime.now(UTC).timestamp())}"
-        for bundle_index in range(quantity):
-            current_bundle_id = f"{bundle_id}-{bundle_index + 1}"
-            for row in bundle_items:
-                for _ in range(row["quantity"]):
-                    delivery_queue.append({
-                        "guild_id": guild_id,
-                        "server_profile_id": order_profile_id,
-                        "server_label": server_label,
-                        "delivery_type": "bundle_item",
-                        "bundle_id": current_bundle_id,
-                        "bundle_name": item_name,
-                        "spawn_ready": False,
-                        "player": str(ctx.author),
-                        "discord_id": user_id,
-                        "item": row["item"],
-                        "x": str(x_value),
-                        "y": "0",
-                        "z": str(z_value),
-                        "status": "queued",
-                        "created": created_at
-                    })
+    order_id = f"shop-{guild_id}-{user_id}-{int(datetime.now(UTC).timestamp() * 1000)}"
+    item_counts = shop_delivery_item_counts(item_name, item_config, quantity)
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    delivery_method = "PC delivery bridge"
+    delivery_status = "Queued for the next server restart."
+
+    if platform_key in {"xbox", "playstation"}:
+        route_ok, delivery_method, delivery_status = await route_console_shop_delivery(
+            guild_id,
+            config,
+            item_counts,
+            x_value,
+            z_value,
+            y_supplied,
+            y_value,
+            order_id,
+            str(ctx.author),
+            user_id,
+        )
+        if not route_ok:
+            wallet.clear()
+            wallet.update(wallet_before_purchase)
+            save_wallets()
+            await ctx.send(
+                "❌ The order was not charged because the console delivery file could not be prepared.\n"
+                f"**Route:** {delivery_method}\n**Reason:** {delivery_status}"
+            )
+            return
     else:
-        for _ in range(quantity):
-            delivery_queue.append({
-                "guild_id": guild_id,
-                "server_profile_id": order_profile_id,
-                "server_label": server_label,
-                "delivery_type": "item",
-                "spawn_ready": False,
-                "player": str(ctx.author),
-                "discord_id": user_id,
-                "item": item_name,
-                "x": str(x_value),
-                "y": "0",
-                "z": str(z_value),
-                "status": "queued",
-                "created": created_at
-            })
+        for delivery_class, delivery_count in item_counts.items():
+            for _ in range(delivery_count):
+                delivery_queue.append({
+                    "guild_id": guild_id,
+                    "server_profile_id": order_profile_id,
+                    "server_label": server_label,
+                    "delivery_type": "bundle_item" if is_bundle else "item",
+                    "bundle_id": order_id if is_bundle else "",
+                    "bundle_name": item_name if is_bundle else "",
+                    "spawn_ready": False,
+                    "player": str(ctx.author),
+                    "discord_id": user_id,
+                    "item": delivery_class,
+                    "x": str(x_value),
+                    "y": str(y_value),
+                    "z": str(z_value),
+                    "status": "queued",
+                    "created": created_at,
+                })
+        save_delivery_queue()
 
     save_wallets()
-    save_delivery_queue()
 
     map_link = build_izurvive_link(f"{x_value},{z_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{z_value}"
 
     embed = discord.Embed(
         title="📦 DELIVERY QUEUED",
         description=(
-            f"Your order has been added to the next restart delivery queue."
+            "Your order has been written to the correct server delivery route for the next restart."
         ),
         color=0x3498DB
     )
@@ -46658,6 +46930,18 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
         inline=False
     )
 
+    embed.add_field(
+        name="Delivery Method",
+        value=delivery_method,
+        inline=False,
+    )
+
+    embed.add_field(
+        name="Height",
+        value=f"Exact Y: {y_value}" if y_supplied else "Automatic terrain height",
+        inline=False,
+    )
+
     embed.set_thumbnail(url=BOT_IMAGE)
 
     embed.set_footer(
@@ -46681,6 +46965,7 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
             {"name": "Unit Price", "value": format_currency(unit_price, economy_guild_id), "inline": True},
             {"name": "Cost", "value": format_currency(price, economy_guild_id), "inline": True},
             {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
+            {"name": "Delivery Method", "value": delivery_method, "inline": False},
             {"name": "Delivery Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
         ],
         color=0x9B59B6,
@@ -47061,7 +47346,6 @@ async def resetvehicle(ctx, vehicle_name: str, x: str, z: str, radius: int = 35,
 
     x_value = parse_dayz_map_number(x)
     z_value = parse_dayz_map_number(z)
-
     if x_value is None or z_value is None:
         await ctx.send("❌ Use numeric DayZ X/Z map coordinates, for example `/resetvehicle OffroadHatchback 7500 8400 35`. The bot sets Y height from the terrain.")
         return
@@ -56874,12 +57158,13 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
 @app_commands.describe(
     item_name="Item",
     x="DayZ map X coordinate",
-    z="DayZ map Z coordinate; Y height is terrain-grounded automatically",
+    z="DayZ map Z coordinate",
+    y="Optional exact Y height for roofs; leave blank for terrain height",
     quantity="How many to buy",
     server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
 @app_commands.autocomplete(item_name=purchase_item_autocomplete, server=server_profile_autocomplete)
-async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, z: str, quantity: int = 1, server: str = ""): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, z=z, quantity=quantity, server=server)
+async def slash_buy(interaction: discord.Interaction, item_name: str, x: str, z: str, y: str = "", quantity: int = 1, server: str = ""): await run_legacy_as_slash(interaction, "buy", item_name=item_name, x=x, z=z, quantity=quantity, server=server, y=y)
 def auto_fetch_types_xml_from_server(config, guild_id):
     """Try every standard Nitrado console & PC types.xml path and return
     (success, message, local_temp_path) on the first hit.
