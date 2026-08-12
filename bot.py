@@ -6,6 +6,7 @@ import os
 import re
 import json
 import copy
+import functools
 import random
 import math
 import hashlib
@@ -19364,8 +19365,8 @@ async def apply_setup_configuration(
                 "Console hosts: `init.c` is not exposed. Use XML/JSON config files instead: `types.xml`, "
                 "`cfgspawnabletypes.xml`, `globals.xml`, `events.xml`, `cfgeventspawns.xml`, and named spawn-gear JSON files "
                 "listed in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.\n\n"
-                "Console object spawns: run `/console setupobjects` to create `custom/WanderingBotObjects.json` and add it to "
-                "`cfggameplay.json` under `WorldsData.objectSpawnersArr`. Add spawns with `/console addobject`.\n"
+                "Console exact-Y object spawns are prepared automatically on the first elevated shop order from the verified live "
+                "`cfggameplay.json`. Owners can use `/console setupobjects` to verify or repair that link manually. Add custom spawns with `/console addobject`.\n"
                 "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z` and may supply optional Y height for roofs or elevated platforms. Blank Y is grounded to terrain for the next restart.\n"
                 "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x z`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
@@ -20851,6 +20852,10 @@ def bridge_init_c_diagnostic(config, max_dirs=60, max_roots=12, timeout_seconds=
     return found, visible_roots, notes
 
 
+WANDERING_DELIVERY_BRIDGE_VERSION = 6
+WANDERING_DELIVERY_BRIDGE_MARKER = f"WANDERING BOT BRIDGE v{WANDERING_DELIVERY_BRIDGE_VERSION}"
+
+
 WANDERING_DELIVERY_BRIDGE_CODE = r'''
 string WanderingBotAttribute(string line, string attributeName)
 {
@@ -21096,8 +21101,9 @@ void WanderingBotSpawnEvent(string itemName, vector centerPos, int count, float 
 
 void SpawnWanderingDeliveries()
 {
-    // WANDERING BOT BRIDGE v5 - supports deliveries, vehicle reset, and scenario events.
+    // WANDERING BOT BRIDGE v6 - one-shot delivery batches, resets, and scenario events.
     string path = "$mission:custom/deliveries.xml";
+    string completedBatchPath = "$profile:WanderingBotLastDeliveryBatch.txt";
     FileHandle file = OpenFile(path, FileMode.READ);
 
     if (!file)
@@ -21106,9 +21112,30 @@ void SpawnWanderingDeliveries()
         return;
     }
 
+    string completedBatch;
+    FileHandle completedBatchFile = OpenFile(completedBatchPath, FileMode.READ);
+    if (completedBatchFile)
+    {
+        FGets(completedBatchFile, completedBatch);
+        CloseFile(completedBatchFile);
+    }
+
+    string batchId;
     string line;
     while (FGets(file, line) > 0)
     {
+        if (line.Contains("<objects"))
+        {
+            batchId = WanderingBotAttribute(line, "batch_id");
+            if (batchId != "" && completedBatch == batchId)
+            {
+                CloseFile(file);
+                Print("[WANDERING BOT] Delivery batch already completed; skipping: " + batchId);
+                return;
+            }
+            continue;
+        }
+
         if (line.Contains("<object"))
         {
             string itemName = WanderingBotAttribute(line, "name");
@@ -21176,6 +21203,21 @@ void SpawnWanderingDeliveries()
     }
 
     CloseFile(file);
+
+    if (batchId != "")
+    {
+        FileHandle completedBatchWriter = OpenFile(completedBatchPath, FileMode.WRITE);
+        if (completedBatchWriter)
+        {
+            FPrintln(completedBatchWriter, batchId);
+            CloseFile(completedBatchWriter);
+            Print("[WANDERING BOT] Delivery batch marked complete: " + batchId);
+        }
+        else
+        {
+            Print("[WANDERING BOT] WARNING: could not persist completed delivery batch: " + batchId);
+        }
+    }
 }
 '''
 
@@ -21203,7 +21245,7 @@ def install_wandering_delivery_bridge(init_text):
     updated = init_text
     bridge_code = WANDERING_DELIVERY_BRIDGE_CODE.strip()
 
-    if "WANDERING BOT BRIDGE v5" not in updated:
+    if WANDERING_DELIVERY_BRIDGE_MARKER not in updated:
         block = find_enforce_function_block(updated, "SpawnWanderingDeliveries")
         if block:
             start, end = block
@@ -28841,40 +28883,21 @@ async def restartserver(ctx, server: str = ""):
 
     print("SERVER RESTART REQUESTED")
 
-    delivery_upload_note = ""
-    delivery_upload_failed_for_paid_items = False
-    try:
-        normal_scenario_events = bridge_scenario_events(config)
-        delivery_scenario_events = delivery_bridge_scenario_events(config)
-        console_ce_enabled = console_ce_event_config(config).get("enabled")
-        has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
-        if has_delivery_work or (normal_scenario_events and not console_ce_enabled) or (delivery_scenario_events and console_ce_enabled):
-            upload_success, _xml_output_path = await asyncio.to_thread(
-                write_and_upload_delivery_xml,
-                guild_id,
-                config,
-                datetime.now(UTC),
-                delivery_scenario_events if console_ce_enabled else None,
-                not console_ce_enabled,
-            )
-            delivery_upload_note = f" Pre-restart delivery XML upload: {'ok' if upload_success else 'failed'}."
-            delivery_upload_failed_for_paid_items = bool(has_delivery_work and not upload_success)
-            print(f"MANUAL PRE-RESTART DELIVERY XML UPLOAD {guild_id}: {upload_success}")
-    except Exception as upload_error:
-        delivery_upload_note = f" Pre-restart delivery XML upload failed: {upload_error}"
-        delivery_upload_failed_for_paid_items = bool(queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id))
-        print(f"MANUAL PRE-RESTART DELIVERY XML UPLOAD ERROR {guild_id}: {upload_error}")
-
-    if delivery_upload_failed_for_paid_items:
+    delivery_ready, _had_paid_work, delivery_upload_note = await prepare_delivery_xml_before_restart(
+        guild_id,
+        config,
+        datetime.now(UTC),
+    )
+    if not delivery_ready:
         await ctx.send(
             "Restart cancelled because paid delivery XML could not be uploaded. "
-            "The order is still queued, so retry the restart after the upload issue is fixed."
+            f"The order is still queued, so retry after the upload issue is fixed. {delivery_upload_note}"
         )
         return
 
     ok, message = await asyncio.to_thread(nitrado_restart_server_now, config)
     if delivery_upload_note:
-        message = f"{message}{delivery_upload_note}"
+        message = f"{message} {delivery_upload_note}"
     print(f"RESTART STATUS: ok={ok} {message}")
     record = append_restart_history(
         guild_id,
@@ -29454,6 +29477,70 @@ def _restart_schedule_due_slot(local_now, restart_offset, restart_interval, grac
     return local_now.replace(minute=0, second=0, microsecond=0)
 
 
+async def _prepare_delivery_xml_before_restart_unlocked(guild_id, config, generated_at=None):
+    """Upload restart delivery work and report whether paid orders are safe.
+
+    A restart may still proceed when an optional scenario export fails, but it
+    must never proceed after a paid item/vehicle upload fails.  The paid queue
+    stays intact on failure so the customer is neither charged-and-lost nor
+    silently marked as delivered.
+    """
+    generated_at = generated_at or datetime.now(UTC)
+    paid_items = queue_entries_for_guild(delivery_queue, guild_id)
+    paid_vehicles = queue_entries_for_guild(vehicle_rentals_queue, guild_id)
+    has_paid_work = bool(paid_items or paid_vehicles)
+    if has_paid_work and not delivery_bridge_runtime_supported(config):
+        return False, True, (
+            "Paid restart delivery is queued, but this server has no confirmed PC delivery bridge. "
+            "The queue was preserved and no restart was requested."
+        )
+    normal_scenario_events = bridge_scenario_events(config)
+    delivery_scenario_events = delivery_bridge_scenario_events(config)
+    console_ce_enabled = console_ce_event_config(config).get("enabled")
+    needs_upload = bool(
+        has_paid_work
+        or (normal_scenario_events and not console_ce_enabled)
+        or (delivery_scenario_events and console_ce_enabled)
+    )
+    if not needs_upload:
+        return True, False, "No restart delivery XML changes were pending."
+
+    try:
+        upload_success, _xml_output_path = await asyncio.to_thread(
+            write_and_upload_delivery_xml,
+            guild_id,
+            config,
+            generated_at,
+            delivery_scenario_events if console_ce_enabled else None,
+            not console_ce_enabled,
+        )
+    except Exception as upload_error:
+        if has_paid_work:
+            return False, True, f"Paid delivery XML upload raised an error: {upload_error}"
+        return True, False, f"Optional delivery XML upload raised an error: {upload_error}"
+
+    if has_paid_work and not upload_success:
+        return False, True, "Paid delivery XML could not be uploaded; the paid order remains queued."
+    return True, has_paid_work, f"Restart delivery XML upload: {'ok' if upload_success else 'failed (optional work only)'}."
+
+
+async def prepare_delivery_xml_before_restart(guild_id, config, generated_at=None):
+    """Serialise delivery preparation for one runtime server.
+
+    Both restart schedulers can observe the same due minute.  Holding this lock
+    through queue discovery and upload prevents them from exporting, consuming,
+    or restarting against the same paid order twice.
+    """
+    lock_key = str(guild_id or "global")
+    lock = delivery_upload_locks.setdefault(lock_key, asyncio.Lock())
+    async with lock:
+        return await _prepare_delivery_xml_before_restart_unlocked(
+            guild_id,
+            config,
+            generated_at,
+        )
+
+
 async def request_scheduled_restart_without_discord_channel(guild_id, config, now, current_hour):
     """Issue the scheduled Nitrado restart even when Discord cannot announce it."""
     token = config.get("nitrado_token")
@@ -29466,6 +29553,24 @@ async def request_scheduled_restart_without_discord_channel(guild_id, config, no
             "bot_schedule",
             "blocked",
             "Scheduled restart reached its time, but Nitrado token or service id is missing. Discord announcement channel was also unavailable.",
+            "scheduled_restart_loop",
+        )
+        save_guild_configs_for_runtime(config)
+        await publish_restart_history(guild_id, config, record)
+        return False
+
+    delivery_ready, _had_paid_work, delivery_note = await prepare_delivery_xml_before_restart(
+        guild_id,
+        config,
+        now,
+    )
+    if not delivery_ready:
+        record = append_restart_history(
+            guild_id,
+            config,
+            "bot_schedule",
+            "blocked",
+            f"Scheduled restart cancelled before Nitrado request. {delivery_note}",
             "scheduled_restart_loop",
         )
         save_guild_configs_for_runtime(config)
@@ -29487,7 +29592,7 @@ async def request_scheduled_restart_without_discord_channel(guild_id, config, no
             (
                 f"Scheduled restart at {current_hour:02d}:00 {timezone_label} "
                 f"({now.strftime('%Y-%m-%d %H:%M UTC')}). Nitrado status {restart_response.status_code}. "
-                "Restart proceeded without a Discord announcement channel."
+                f"Restart proceeded without a Discord announcement channel. {delivery_note}"
             ),
             "scheduled_restart_loop",
         )
@@ -30027,33 +30132,28 @@ async def scheduled_restart_loop():
                                 print(f"ECONOMY VEHICLE RESET {guild_id}: ok={ok} {message}")
                             continue
 
-                        normal_scenario_events = bridge_scenario_events(config)
-                        delivery_scenario_events = delivery_bridge_scenario_events(config)
-                        native_scenario_events = native_ce_scenario_events(config)
-                        console_ce_enabled = console_ce_event_config(config).get("enabled")
-                        has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
-                        if has_delivery_work or (normal_scenario_events and not console_ce_enabled) or (delivery_scenario_events and console_ce_enabled):
-                            upload_success, _ = await asyncio.to_thread(
-                                write_and_upload_delivery_xml,
+                        delivery_ready, _had_paid_work, delivery_note = await prepare_delivery_xml_before_restart(
+                            guild_id,
+                            config,
+                            now,
+                        )
+                        print(f"PRE-RESTART DELIVERY CHECK {guild_id}: ready={delivery_ready} {delivery_note}")
+                        if not delivery_ready:
+                            record = append_restart_history(
                                 guild_id,
                                 config,
-                                now,
-                                delivery_scenario_events if console_ce_enabled else None,
-                                not console_ce_enabled,
+                                "bot_schedule",
+                                "blocked",
+                                f"Scheduled restart cancelled before Nitrado request. {delivery_note}",
+                                "scheduled_restart_loop",
                             )
-                            print(f"PRE-RESTART DELIVERY XML UPLOAD {guild_id}: {upload_success}")
+                            save_guild_configs_for_runtime(config)
+                            await publish_restart_history(guild_id, config, record)
+                            continue
 
-                        if native_scenario_events and console_ce_enabled:
-                            success, _, messages = await asyncio.to_thread(
-                                upload_console_ce_event_files,
-                                guild_id,
-                                config,
-                                "",
-                                "",
-                                "",
-                                True,
-                            )
-                            print(f"PRE-RESTART NATIVE CE XML UPLOAD {guild_id}: {success} {' | '.join(messages[-4:])}")
+                        # Native console CE files are uploaded only by the
+                        # explicit event/order action.  A routine restart must
+                        # never rewrite unrelated live events.xml files.
 
                         url = (
                             f"https://api.nitrado.net/services/"
@@ -30077,7 +30177,7 @@ async def scheduled_restart_loop():
                             config,
                             "bot_schedule",
                             "requested" if restart_ok else "failed",
-                            f"Scheduled restart at {current_hour:02d}:00 {restart_timezone_name(config)} ({now.strftime('%Y-%m-%d %H:%M UTC')}). Nitrado status {restart_response.status_code}.",
+                            f"Scheduled restart at {current_hour:02d}:00 {restart_timezone_name(config)} ({now.strftime('%Y-%m-%d %H:%M UTC')}). Nitrado status {restart_response.status_code}. {delivery_note}",
                             "scheduled_restart_loop",
                         )
                         save_guild_configs_for_runtime(config)
@@ -34152,6 +34252,27 @@ shop_items = {}
 wallets = {}
 delivery_queue = []
 vehicle_rentals_queue = []
+shop_purchase_locks = {}
+delivery_upload_locks = {}
+MAX_SHOP_DELIVERY_ITEMS_PER_ORDER = 250
+
+
+def serialize_shop_purchase(func):
+    """Prevent two paid commands in one Discord from racing shared files/wallets.
+
+    Console exact-height orders rewrite one Object Spawner JSON document and PC
+    orders share one delivery queue.  Serialising the short purchase transaction
+    prevents simultaneous commands from losing an order or double-spending a
+    stale wallet snapshot.
+    """
+    @functools.wraps(func)
+    async def wrapped(ctx, *args, **kwargs):
+        discord_guild_id = str(getattr(getattr(ctx, "guild", None), "id", "") or "global")
+        lock = shop_purchase_locks.setdefault(discord_guild_id, asyncio.Lock())
+        async with lock:
+            return await func(ctx, *args, **kwargs)
+
+    return wrapped
 
 ECONOMY_CURRENCY_OPTIONS = {
     "pennies": {"label": "pennies", "singular": "penny"},
@@ -35718,7 +35839,14 @@ INVALID_SPAWNABLETYPE_ITEM_KEYS = {
 
 def delivery_bridge_config_ready(config):
     bridge = config.get("dayz_delivery_bridge") if isinstance(config, dict) and isinstance(config.get("dayz_delivery_bridge"), dict) else {}
-    return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
+    try:
+        bridge_version = int(bridge.get("bridge_version") or 0)
+    except Exception:
+        bridge_version = 0
+    return bool(
+        (bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
+        and bridge_version >= WANDERING_DELIVERY_BRIDGE_VERSION
+    )
 
 
 def delivery_bridge_runtime_supported(config):
@@ -46781,6 +46909,17 @@ def shop_delivery_item_counts(item_name, item_config, quantity):
     return {name: count for name, count in counts.items() if name and count > 0}
 
 
+def shop_delivery_size_error(item_counts):
+    """Reject an expanded order before charging if it is unsafe to deliver."""
+    total_items = sum(max(0, safe_int(count, 0)) for count in (item_counts or {}).values())
+    if total_items > MAX_SHOP_DELIVERY_ITEMS_PER_ORDER:
+        return (
+            f"That order expands to {total_items} spawned items. The safe maximum is "
+            f"{MAX_SHOP_DELIVERY_ITEMS_PER_ORDER} items per purchase; reduce the quantity or bundle size."
+        )
+    return ""
+
+
 def create_console_shop_delivery_events(config, item_counts, x_value, z_value, order_id, player, discord_id):
     """Create one-time native CE Item events for a console ground delivery."""
     created_events = []
@@ -46858,21 +46997,24 @@ async def route_console_shop_delivery(
         save_guild_configs_for_runtime(config)
         return False, "Native CE XML (terrain height)", upload_status
 
+    # Re-check the verified live cfggameplay.json for every paid exact-height
+    # order.  A saved "ready" flag can outlive a mission reset, map change or a
+    # manual Nitrado edit; trusting it would accept payment for an unreferenced
+    # Object Spawner file.
     settings = console_object_spawner_config(config)
-    if not console_object_spawner_is_ready(config, guild_id):
-        setup_ok, setup_message, _setup_details = await ensure_console_object_spawner_ready(
-            guild_id,
-            config,
+    setup_ok, setup_message, _setup_details = await ensure_console_object_spawner_ready(
+        guild_id,
+        config,
+    )
+    if not setup_ok:
+        settings["enabled"] = False
+        settings["setup_error"] = str(setup_message or "Exact-height setup failed")[:1000]
+        save_guild_configs_for_runtime(config)
+        return False, "Object Spawner JSON (exact Y)", (
+            "Exact Y-height delivery could not be prepared safely from the verified live mission files. "
+            f"{setup_message} No shop balance was charged."
         )
-        if not setup_ok:
-            settings["enabled"] = False
-            settings["setup_error"] = str(setup_message or "Exact-height setup failed")[:1000]
-            save_guild_configs_for_runtime(config)
-            return False, "Object Spawner JSON (exact Y)", (
-                "Exact Y-height delivery could not be prepared safely from the verified live mission files. "
-                f"{setup_message} No shop balance was charged."
-            )
-        settings = console_object_spawner_config(config)
+    settings = console_object_spawner_config(config)
 
     original_objects = copy.deepcopy(settings.get("objects", []))
     now_text = datetime.now(UTC).isoformat()
@@ -46922,6 +47064,7 @@ async def route_console_shop_delivery(
 
 
 @bot.command()
+@serialize_shop_purchase
 async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: str = "", y: str = ""):
 
     user_id = str(ctx.author.id)
@@ -46984,6 +47127,21 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
             await ctx.send("That item is restricted to a specific Discord role.")
             return
 
+    item_counts = shop_delivery_item_counts(item_name, item_config, quantity)
+    delivery_size_error = shop_delivery_size_error(item_counts)
+    if delivery_size_error:
+        await ctx.send(f"The order was not charged. {delivery_size_error}")
+        return
+
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    if platform_key == "pc" and not delivery_bridge_runtime_supported(config):
+        await ctx.send(
+            "The order was not charged because this PC server has not confirmed the current one-shot delivery bridge yet. "
+            "BattlEye RCon is used for live administration, but vanilla DayZ RCon has no item-spawn command. "
+            "A server owner must run `/installdayzbridge install:true` once, then retry the purchase."
+        )
+        return
+
     wallet = guild_wallet(economy_guild_id, user_id, str(ctx.author))
 
     item_daily_limit = int(item_config.get("daily_limit", 0) or 0)
@@ -47006,9 +47164,7 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
 
     created_at = str(datetime.now(UTC))
     order_id = f"shop-{guild_id}-{user_id}-{int(datetime.now(UTC).timestamp() * 1000)}"
-    item_counts = shop_delivery_item_counts(item_name, item_config, quantity)
-    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
-    delivery_method = "PC delivery bridge"
+    delivery_method = "PC one-shot delivery bridge"
     delivery_status = "Queued for the next server restart."
 
     if platform_key in {"xbox", "playstation"}:
@@ -47062,7 +47218,8 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
     embed = discord.Embed(
         title="📦 DELIVERY QUEUED",
         description=(
-            "Your order has been written to the correct server delivery route for the next restart."
+                "Your order has been written to the correct server delivery route for the next restart. "
+                "PC RCon remains the live control/status route; the mission bridge performs the DayZ spawn."
         ),
         color=0x3498DB
     )
@@ -47237,8 +47394,26 @@ def parse_dayz_map_number(value):
         return None
 
 
-def build_delivery_xml(items, vehicles, scenario_events=None):
-    xml_lines = ["<objects>"]
+def delivery_batch_id(items, vehicles, scenario_events=None, generation_key=""):
+    """Return a stable ID for one exact restart-delivery payload."""
+    canonical_payload = json.dumps(
+        {
+            "items": list(items or []),
+            "vehicles": list(vehicles or []),
+            "scenario_events": list(scenario_events or []),
+            "generation_key": str(generation_key or ""),
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()[:32]
+
+
+def build_delivery_xml(items, vehicles, scenario_events=None, batch_id=""):
+    resolved_batch_id = str(batch_id or delivery_batch_id(items, vehicles, scenario_events)).strip()
+    xml_lines = [f'<objects batch_id="{safe_xml_attr(resolved_batch_id)}">']
 
     for delivery in items:
         item_name = delivery.get("item")
@@ -47308,6 +47483,12 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_
         "scenario_events": scenario_events,
         "generated": str(generated_at)
     }
+    output["batch_id"] = delivery_batch_id(
+        output["items"],
+        output["vehicles"],
+        output["scenario_events"],
+        output["generated"],
+    )
 
     save_json(delivery_file, output)
     print(f"DELIVERY FILE GENERATED FOR {guild_id}")
@@ -47318,7 +47499,14 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_
     )
 
     with open(xml_output_path, "w", encoding="utf-8") as xml_file:
-        xml_file.write(build_delivery_xml(output["items"], output["vehicles"], scenario_events))
+        xml_file.write(
+            build_delivery_xml(
+                output["items"],
+                output["vehicles"],
+                scenario_events,
+                batch_id=output["batch_id"],
+            )
+        )
 
     print(f"XML DELIVERY FILE GENERATED FOR {guild_id}")
     upload_success = upload_delivery_xml_to_nitrado(config, xml_output_path, guild_id)
@@ -47335,15 +47523,47 @@ def write_and_upload_delivery_xml(guild_id, config, generated_at=None, scenario_
 
 
 @bot.command()
-async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, z: str):
+@serialize_shop_purchase
+async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, z: str, server: str = ""):
 
     user_id = str(ctx.author.id)
-    guild_id = str(ctx.guild.id)
+    guild_id, config, target_error = runtime_config_for_command_context(
+        ctx.guild,
+        channel=ctx.channel,
+        member=ctx.author,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await ctx.send(target_error)
+        return
+    guild_id = str(guild_id)
+    economy_guild_id = discord_guild_id_for_runtime_id(guild_id)
+    _discord_guild_id, order_profile_id = split_server_runtime_id(guild_id)
+    server_label = dayz_server_display_name(guild_id, config)
     x_value = parse_dayz_map_number(x)
     z_value = parse_dayz_map_number(z)
 
     if x_value is None or z_value is None:
         await ctx.send("Use numeric DayZ X/Z map coordinates, for example `/tools rentvehicle OffroadHatchback 2 7500 8400`. The bot sets Y height from the terrain.")
+        return
+
+    if rental_hours < 1 or rental_hours > 168:
+        await ctx.send("Vehicle rental time must be between 1 and 168 hours (7 days).")
+        return
+
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    if platform_key != "pc":
+        await ctx.send(
+            "The rental was not charged. Timed vehicle rentals currently require the PC `init.c` delivery bridge; "
+            "console servers should use the native vehicle event tools instead."
+        )
+        return
+    if not delivery_bridge_runtime_supported(config):
+        await ctx.send(
+            "The rental was not charged because this PC server has not confirmed the current one-shot delivery bridge yet. "
+            "A server owner must run `/installdayzbridge install:true` once, then retry."
+        )
         return
 
     items = guild_shop_items(guild_id)
@@ -47362,17 +47582,19 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, z: str)
 
     rental_price = vehicle_data.get("price", 0) * max(rental_hours, 1)
 
-    wallet = guild_wallet(guild_id, user_id, str(ctx.author))
+    wallet = guild_wallet(economy_guild_id, user_id, str(ctx.author))
 
     if wallet_balance(wallet) < rental_price:
 
-        await ctx.send(f"❌ Not enough {guild_economy_currency(guild_id)}.")
+        await ctx.send(f"❌ Not enough {guild_economy_currency(economy_guild_id)}.")
         return
 
     wallet_debit(wallet, rental_price, "cash")
 
     rental_entry = {
         "guild_id": guild_id,
+        "server_profile_id": order_profile_id,
+        "server_label": server_label,
         "action": "spawn_vehicle",
         "player": str(ctx.author),
         "discord_id": user_id,
@@ -47412,7 +47634,7 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, z: str)
 
     embed.add_field(
         name="💰 Cost",
-        value=format_currency(rental_price, guild_id),
+        value=format_currency(rental_price, economy_guild_id),
         inline=True
     )
 
@@ -47432,18 +47654,16 @@ async def rentvehicle(ctx, vehicle_name: str, rental_hours: int, x: str, z: str)
 
     # ================= RENTAL LOG =================
 
-    config = guild_configs.get(guild_id, {})
-
     await send_money_feed(
         ctx.guild,
         config,
         "VEHICLE RENTAL PAYMENT",
-        f"{ctx.author.mention} spent **{format_currency(rental_price, guild_id)}** on a vehicle rental.",
+        f"{ctx.author.mention} spent **{format_currency(rental_price, economy_guild_id)}** on a vehicle rental.",
         [
             {"name": "Survivor", "value": ctx.author.mention, "inline": True},
             {"name": "Vehicle", "value": vehicle_name, "inline": True},
             {"name": "Rental Time", "value": f"{rental_hours} hours", "inline": True},
-            {"name": "Cost", "value": format_currency(rental_price, guild_id), "inline": True},
+            {"name": "Cost", "value": format_currency(rental_price, economy_guild_id), "inline": True},
             {"name": "Balance After", "value": wallet_balance_brief(wallet), "inline": True},
             {"name": "Spawn Location", "value": f"[Open Map](<{map_link}>)", "inline": False},
         ],
@@ -47620,7 +47840,7 @@ class QueueAllVehicleResetButton(discord.ui.Button):
         await interaction.response.send_message(
             "All-vehicle reset queued for the next restart delivery run.\n"
             f"Excluded classes: {excluded_text}\n\n"
-            "This requires `/installdayzbridge install:true` with the v5 bridge and a server restart before the in-game cleanup happens.",
+            "This requires `/installdayzbridge install:true` with the current one-shot bridge and a server restart before the in-game cleanup happens.",
             ephemeral=True
         )
 
@@ -47699,28 +47919,22 @@ async def restart_delivery_processor():
             local_now = now.astimezone(local_tz)
 
             if _restart_schedule_matches(local_now, restart_offset, restart_interval):
-                normal_scenario_events = bridge_scenario_events(config)
-                delivery_scenario_events = delivery_bridge_scenario_events(config)
-                native_scenario_events = native_ce_scenario_events(config)
-                console_ce_enabled = console_ce_event_config(config).get("enabled")
-                has_delivery_work = queue_entries_for_guild(delivery_queue, guild_id) or queue_entries_for_guild(vehicle_rentals_queue, guild_id)
-                if has_delivery_work or (normal_scenario_events and not console_ce_enabled) or (delivery_scenario_events and console_ce_enabled):
-                    await asyncio.to_thread(
-                        write_and_upload_delivery_xml,
-                        guild_id,
-                        config,
-                        now,
-                        delivery_scenario_events if console_ce_enabled else None,
-                        not console_ce_enabled,
-                    )
+                delivery_ready, _had_paid_work, delivery_note = await prepare_delivery_xml_before_restart(
+                    guild_id,
+                    config,
+                    now,
+                )
+                print(
+                    f"DELIVERY PROCESSOR PRE-RESTART CHECK {guild_id}: "
+                    f"ready={delivery_ready} {delivery_note}"
+                )
 
                 # A restart schedule must never mutate CE XML.  Native CE
                 # changes are only executed by an explicit dashboard/Discord
                 # event create, edit, delete, or retry request.  In
                 # particular, do not re-upload a whole merged bundle merely
                 # because an existing event is still enabled at restart time.
-                # ``native_scenario_events`` is intentionally not acted on
-                # here; it is retained above only for delivery-route logic.
+                # Native scenario events are intentionally not acted on here.
 
                 pending_files = config.get("pending_server_file_changes") or []
                 if "messages.xml" in pending_files:
@@ -51453,6 +51667,7 @@ async def installdayzbridge(
         "init_path": init_path,
         "delivery_path": delivery_path,
         "backup_path": backup_path,
+        "bridge_version": WANDERING_DELIVERY_BRIDGE_VERSION,
         "installed_at": str(datetime.now(UTC)),
         "installed_by": str(interaction.user.id),
         "changed_init": changed,
@@ -51463,8 +51678,9 @@ async def installdayzbridge(
     embed = discord.Embed(
         title="DAYZ DELIVERY BRIDGE INSTALLED",
         description=(
-            "The bot backed up `init.c`, installed the restart delivery hook if needed, "
-            "and uploaded a starter `deliveries.xml`. Restart the server before expecting deliveries to spawn."
+            "The bot backed up `init.c`, installed the one-shot restart delivery hook if needed, "
+            "and uploaded a starter `deliveries.xml`. Completed batch IDs are stored in the writable server profile "
+            "so an old paid order is not spawned again on a later restart. Restart the server before expecting deliveries to spawn."
         ),
         color=0x2ECC71
     )
@@ -57703,8 +57919,10 @@ bot.tree.add_command(extra_tools_group)
     rental_hours="Hours",
     x="DayZ map X coordinate",
     z="DayZ map Z coordinate; Y height is terrain-grounded automatically",
+    server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
-async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, z: str): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, z=z)
+@app_commands.autocomplete(server=server_profile_autocomplete)
+async def slash_rentvehicle(interaction: discord.Interaction, vehicle_name: str, rental_hours: int, x: str, z: str, server: str = ""): await run_legacy_as_slash(interaction, "rentvehicle", vehicle_name=vehicle_name, rental_hours=rental_hours, x=x, z=z, server=server)
 @extra_tools_group.command(name="resetvehicle", description="Admin: reset a vehicle at a spawn position on next restart")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
@@ -57755,7 +57973,7 @@ async def slash_resetvehicles(interaction: discord.Interaction, server: str = ""
     embed.add_field(name="Current Exclusions", value=excluded_text[:1000], inline=False)
     embed.add_field(
         name="Before Using",
-        value="Run `/installdayzbridge install:true` after this update so your server has the v5 bridge.",
+        value="Run `/installdayzbridge install:true` after this update so your server has the current one-shot bridge.",
         inline=False
     )
     embed.set_thumbnail(url=BOT_IMAGE)
@@ -57771,7 +57989,7 @@ async def slash_resetvehicles(interaction: discord.Interaction, server: str = ""
 
 # Do not copy an old inline init.c snippet from this source file.
 # Use the dashboard XML Workshop bridge/export tools so Nitrado gets
-# the current v5 bridge that understands item deliveries, airdrops, animal
+# the current one-shot bridge that understands item deliveries, airdrops, animal
 # packs, vehicle spawns, and vehicle reset actions.
 
 HIDDEN_TOP_LEVEL_SLASH_COMMANDS = {

@@ -285,14 +285,22 @@ def import_bot_module():
     if hasattr(discord, "Client"):
         discord.Client.run = _noop  # type: ignore[attr-defined]
 
-    # Provide a fake dashboard module so the import does not call
-    # start_dashboard_server() with the real Flask app.
+    # Import bot.py with a temporary fake dashboard module so its bottom-level
+    # startup block cannot bind Flask during unit tests. Restore any real
+    # dashboard module afterwards; otherwise later dashboard test modules can
+    # accidentally receive this three-attribute stub depending on test order.
+    previous_dashboard = sys.modules.get("dashboard")
     fake_dashboard = types.ModuleType("dashboard")
     fake_dashboard.bind_runtime_callbacks = _noop
     fake_dashboard.configure_dashboard_state_provider = _noop
     fake_dashboard.start_dashboard_server = _noop
-    sys.modules.setdefault("dashboard", fake_dashboard)
-
-    import bot  # type: ignore
+    sys.modules["dashboard"] = fake_dashboard
+    try:
+        import bot  # type: ignore
+    finally:
+        if previous_dashboard is None:
+            sys.modules.pop("dashboard", None)
+        else:
+            sys.modules["dashboard"] = previous_dashboard
 
     return bot

@@ -198,7 +198,12 @@ class FlakySendChannel(FakeSendChannel):
     async def send(self, **kwargs):
         self.attempts += 1
         if self.attempts <= self.failures:
-            raise bot.discord.HTTPException("temporary Discord failure", status=self.status)
+            response = type(
+                "FakeDiscordResponse",
+                (),
+                {"status": self.status, "reason": "temporary Discord failure"},
+            )()
+            raise bot.discord.HTTPException(response, "temporary Discord failure")
         return await super().send(**kwargs)
 
 
@@ -1153,13 +1158,18 @@ class ChannelMatchingTests(unittest.TestCase):
                     },
                 },
             }
-            bot.bot.guilds = [FakeGuild([], guild_id="guild-a", name="Merged")]
-            bot.load_guild_configs = lambda: None
-            bot.save_guild_configs = lambda: None
-            bot.process_dashboard_scenario_xml_upload = fake_process
-            bot.process_scenario_event_discord_notices = fake_notices
+            with mock.patch.object(
+                type(bot.bot),
+                "guilds",
+                new_callable=mock.PropertyMock,
+                return_value=[FakeGuild([], guild_id="guild-a", name="Merged")],
+            ):
+                bot.load_guild_configs = lambda: None
+                bot.save_guild_configs = lambda: None
+                bot.process_dashboard_scenario_xml_upload = fake_process
+                bot.process_scenario_event_discord_notices = fake_notices
 
-            asyncio.run(bot.dashboard_scenario_upload_loop())
+                asyncio.run(bot.dashboard_scenario_upload_loop())
 
             self.assertEqual(["guild-a:cherno", "guild-a:livo"], calls)
             self.assertTrue(bot.guild_configs["guild-a"]["server_profiles"]["cherno"]["scenario_upload_worker_status"]["last_checked_at"])
@@ -1174,7 +1184,6 @@ class ChannelMatchingTests(unittest.TestCase):
             )
         finally:
             bot.guild_configs = previous_configs
-            bot.bot.guilds = previous_guilds
             bot.load_guild_configs = previous_load
             bot.save_guild_configs = previous_save
             bot.process_dashboard_scenario_xml_upload = previous_process
@@ -1697,7 +1706,8 @@ class ChannelMatchingTests(unittest.TestCase):
     def test_setup_command_opens_wizard_without_exposing_credentials_as_options(self):
         import inspect
 
-        parameters = list(inspect.signature(bot.setup_command).parameters)
+        setup_callback = getattr(bot.setup_command, "callback", bot.setup_command)
+        parameters = list(inspect.signature(setup_callback).parameters)
         wizard_source = inspect.getsource(bot.SetupWizardView.rebuild_items)
 
         self.assertEqual(["interaction"], parameters)

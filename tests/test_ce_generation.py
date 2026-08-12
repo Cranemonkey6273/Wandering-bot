@@ -60,8 +60,53 @@ class DeliveryCoordinateTests(unittest.TestCase):
 
         self.assertIn('name="NailBox" pos="123.0 42.5 456.0"', xml_text)
 
+    def test_delivery_xml_has_stable_one_shot_batch_id(self):
+        items = [{"item": "NailBox", "x": "123", "y": "0", "z": "456"}]
+        batch_id = bot.delivery_batch_id(items, [], generation_key="2026-08-12T12:00:00+00:00")
+        first = bot.build_delivery_xml(items, [], batch_id=batch_id)
+        second = bot.build_delivery_xml(items, [], batch_id=batch_id)
+
+        self.assertEqual(first.splitlines()[0], second.splitlines()[0])
+        self.assertRegex(first.splitlines()[0], r'^<objects batch_id="[a-f0-9]{32}">$')
+        later_batch = bot.delivery_batch_id(items, [], generation_key="2026-08-12T16:00:00+00:00")
+        self.assertNotEqual(batch_id, later_batch)
+
+    def test_delivery_bridge_skips_and_records_completed_batch(self):
+        bridge = bot.WANDERING_DELIVERY_BRIDGE_CODE
+
+        self.assertIn("WANDERING BOT BRIDGE v6", bridge)
+        self.assertIn('$profile:WanderingBotLastDeliveryBatch.txt', bridge)
+        self.assertIn('completedBatch == batchId', bridge)
+        self.assertIn('OpenFile(completedBatchPath, FileMode.WRITE)', bridge)
+
+    def test_old_delivery_bridge_version_is_not_considered_safe(self):
+        old = {
+            "server_platform": "pc",
+            "dayz_delivery_bridge": {
+                "installed_at": "2026-08-01T00:00:00+00:00",
+                "bridge_version": bot.WANDERING_DELIVERY_BRIDGE_VERSION - 1,
+            },
+        }
+        current = {
+            "server_platform": "pc",
+            "dayz_delivery_bridge": {
+                "installed_at": "2026-08-01T00:00:00+00:00",
+                "bridge_version": bot.WANDERING_DELIVERY_BRIDGE_VERSION,
+            },
+        }
+
+        self.assertFalse(bot.delivery_bridge_runtime_supported(old))
+        self.assertTrue(bot.delivery_bridge_runtime_supported(current))
+
 
 class ShopDeliveryRoutingTests(unittest.TestCase):
+    def test_shop_bundle_expansion_has_a_safe_precharge_limit(self):
+        allowed = {"Hacksaw": bot.MAX_SHOP_DELIVERY_ITEMS_PER_ORDER}
+        oversized = {"Hacksaw": bot.MAX_SHOP_DELIVERY_ITEMS_PER_ORDER + 1}
+
+        self.assertEqual("", bot.shop_delivery_size_error(allowed))
+        self.assertIn("safe maximum", bot.shop_delivery_size_error(oversized))
+
     def test_single_server_autocomplete_returns_only_server(self):
         class Guild:
             id = 987654321
@@ -340,6 +385,152 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         order_payload = __import__("json").loads(uploads[2][1])
         self.assertEqual("Hacksaw", order_payload["Objects"][0]["name"])
         self.assertEqual([8194.0, 42.5, 9092.0], order_payload["Objects"][0]["pos"])
+
+    def test_exact_height_purchase_revalidates_saved_ready_state_against_live_cfg(self):
+        guild_id = "987650005"
+        live_path = "/dayzxb_missions/dayzOffline.chernarusplus/cfggameplay.json"
+        config = {
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "console_object_spawner": {
+                "enabled": True,
+                "cfggameplay_path": live_path,
+                "object_path": "/dayzxb_missions/dayzOffline.chernarusplus/custom/WanderingBotObjects.json",
+                "spawner_ref": "./custom/WanderingBotObjects.json",
+                "objects": [],
+            },
+        }
+        # Simulate a mission reset/manual edit which removed the reference even
+        # though the dashboard's saved state still says the bridge is ready.
+        live_cfg = '{"version":129,"WorldsData":{"objectSpawnersArr":[]}}'
+        uploads = []
+
+        def upload(_config, path, content):
+            uploads.append((path, content))
+            return True, "uploaded"
+
+        bot.guild_configs[guild_id] = config
+        try:
+            with (
+                patch.object(
+                    bot,
+                    "download_live_cfggameplay_source",
+                    return_value=(True, "verified live", live_cfg, live_path),
+                ),
+                patch.object(bot, "upload_text_file_to_nitrado", side_effect=upload),
+                patch.object(bot, "save_guild_configs_for_runtime"),
+            ):
+                ok, route, message = asyncio.run(
+                    bot.route_console_shop_delivery(
+                        guild_id,
+                        config,
+                        {"Hacksaw": 1},
+                        8194,
+                        9092,
+                        True,
+                        42.5,
+                        "order-revalidate",
+                        "Player",
+                        "123",
+                    )
+                )
+        finally:
+            bot.guild_configs.pop(guild_id, None)
+
+        self.assertTrue(ok, message)
+        self.assertEqual("Object Spawner JSON (exact Y)", route)
+        self.assertEqual(3, len(uploads))
+        repaired_cfg = __import__("json").loads(uploads[1][1])
+        self.assertIn(
+            "./custom/WanderingBotObjects.json",
+            repaired_cfg["WorldsData"]["objectSpawnersArr"],
+        )
+        order_payload = __import__("json").loads(uploads[2][1])
+        paid_objects = [row for row in order_payload["Objects"] if row.get("name") == "Hacksaw"]
+        self.assertEqual(1, len(paid_objects))
+        self.assertEqual([8194.0, 42.5, 9092.0], paid_objects[0]["pos"])
+
+    def test_paid_restart_delivery_failure_blocks_restart_and_keeps_queue(self):
+        guild_id = "987650006"
+        config = {
+            "server_platform": "pc",
+            "dayz_delivery_bridge": {
+                "installed_at": "2026-08-12T10:00:00+00:00",
+                "bridge_version": bot.WANDERING_DELIVERY_BRIDGE_VERSION,
+            },
+        }
+        queued = {"guild_id": guild_id, "item": "Hacksaw", "x": "1", "y": "0", "z": "2"}
+        bot.delivery_queue.append(queued)
+        try:
+            with patch.object(bot, "write_and_upload_delivery_xml", return_value=(False, "failed.xml")):
+                ready, had_paid, note = asyncio.run(
+                    bot.prepare_delivery_xml_before_restart(guild_id, config)
+                )
+        finally:
+            if queued in bot.delivery_queue:
+                bot.delivery_queue.remove(queued)
+
+        self.assertFalse(ready)
+        self.assertTrue(had_paid)
+        self.assertIn("remains queued", note)
+
+    def test_paid_restart_delivery_requires_confirmed_pc_bridge(self):
+        guild_id = "987650007"
+        config = {"server_platform": "pc"}
+        queued = {"guild_id": guild_id, "item": "Hacksaw", "x": "1", "y": "0", "z": "2"}
+        bot.delivery_queue.append(queued)
+        try:
+            with patch.object(bot, "write_and_upload_delivery_xml") as upload:
+                ready, had_paid, note = asyncio.run(
+                    bot.prepare_delivery_xml_before_restart(guild_id, config)
+                )
+        finally:
+            if queued in bot.delivery_queue:
+                bot.delivery_queue.remove(queued)
+
+        self.assertFalse(ready)
+        self.assertTrue(had_paid)
+        self.assertIn("no confirmed", note)
+        self.assertIn("delivery bridge", note)
+        upload.assert_not_called()
+
+    def test_parallel_restart_workers_prepare_paid_batch_once(self):
+        guild_id = "987650008"
+        config = {
+            "server_platform": "pc",
+            "dayz_delivery_bridge": {
+                "installed_at": "2026-08-12T10:00:00+00:00",
+                "bridge_version": bot.WANDERING_DELIVERY_BRIDGE_VERSION,
+            },
+        }
+        queued = {"guild_id": guild_id, "item": "Hacksaw", "x": "1", "y": "0", "z": "2"}
+        bot.delivery_queue.append(queued)
+        calls = []
+
+        def slow_successful_upload(target_guild_id, *_args, **_kwargs):
+            calls.append(target_guild_id)
+            __import__("time").sleep(0.08)
+            bot.remove_uploaded_queue_entries(target_guild_id)
+            return True, "delivery.xml"
+
+        async def run_both():
+            return await asyncio.gather(
+                bot.prepare_delivery_xml_before_restart(guild_id, config),
+                bot.prepare_delivery_xml_before_restart(guild_id, config),
+            )
+
+        try:
+            with patch.object(bot, "write_and_upload_delivery_xml", side_effect=slow_successful_upload):
+                results = asyncio.run(run_both())
+        finally:
+            bot.delivery_queue = [entry for entry in bot.delivery_queue if entry is not queued]
+            bot.delivery_upload_locks.pop(guild_id, None)
+
+        self.assertEqual([guild_id], calls)
+        self.assertTrue(results[0][0])
+        self.assertTrue(results[0][1])
+        self.assertTrue(results[1][0])
+        self.assertFalse(results[1][1])
 
 
 def _base_event(event_id, event_type, class_name, **overrides):

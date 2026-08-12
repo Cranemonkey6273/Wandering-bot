@@ -63,6 +63,7 @@ def _install_flask_stub():
     sys.modules.setdefault("flask", flask)
 
 
+_previous_flask_module = sys.modules.get("flask")
 _install_flask_stub()
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -71,7 +72,16 @@ _SPEC = importlib.util.spec_from_file_location("dashboard_server_control_under_t
 dashboard = importlib.util.module_from_spec(_SPEC)
 assert _SPEC and _SPEC.loader
 sys.modules[_SPEC.name] = dashboard
-_SPEC.loader.exec_module(dashboard)
+try:
+    _SPEC.loader.exec_module(dashboard)
+finally:
+    # This module deliberately loads dashboard.py against a tiny Flask stub,
+    # but that stub must not leak into later test modules which exercise the
+    # real Flask test client.
+    if _previous_flask_module is None:
+        sys.modules.pop("flask", None)
+    else:
+        sys.modules["flask"] = _previous_flask_module
 
 
 class FakeResponse:

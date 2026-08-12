@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import unittest
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
@@ -50,6 +51,7 @@ class RestartTimezoneTests(unittest.TestCase):
         }
         now = datetime(2026, 7, 1, 13, 4, tzinfo=UTC)
         with patch.object(self.bot, "nitrado_restart_headers_or_error", return_value=({"Authorization": "Bearer test"}, "")), \
+             patch.object(self.bot, "prepare_delivery_xml_before_restart", new=AsyncMock(return_value=(True, False, "No paid work."))), \
              patch.object(self.bot.requests, "post", return_value=Response()) as restart_post, \
              patch.object(self.bot, "save_guild_configs_for_runtime"), \
              patch.object(self.bot, "publish_restart_history", new=AsyncMock()), \
@@ -60,6 +62,47 @@ class RestartTimezoneTests(unittest.TestCase):
         restart_post.assert_called_once()
         self.assertEqual("requested", config["restart_history"][0]["status"])
         self.assertIn("without a Discord announcement channel", config["restart_history"][0]["details"])
+
+    def test_scheduled_restart_is_blocked_before_nitrado_when_paid_delivery_is_unsafe(self):
+        config = {
+            "nitrado_token": "test-token",
+            "service_id": "1234567",
+            "restart_timezone": "UTC",
+        }
+        now = datetime(2026, 7, 1, 13, 4, tzinfo=UTC)
+        with patch.object(
+            self.bot,
+            "prepare_delivery_xml_before_restart",
+            new=AsyncMock(return_value=(False, True, "Paid delivery upload failed; queue preserved.")),
+        ), patch.object(self.bot.requests, "post") as restart_post, patch.object(
+            self.bot, "save_guild_configs_for_runtime"
+        ), patch.object(
+            self.bot, "publish_restart_history", new=AsyncMock()
+        ):
+            ok = asyncio.run(
+                self.bot.request_scheduled_restart_without_discord_channel("guild-1", config, now, 13)
+            )
+
+        self.assertFalse(ok)
+        restart_post.assert_not_called()
+        self.assertEqual("blocked", config["restart_history"][0]["status"])
+        self.assertIn("queue preserved", config["restart_history"][0]["details"])
+
+    def test_routine_restart_never_reuploads_native_console_ce_files(self):
+        source = "\n".join((
+            inspect.getsource(self.bot.scheduled_restart_loop.coro),
+            inspect.getsource(self.bot.restart_delivery_processor.coro),
+        ))
+
+        self.assertNotIn("upload_console_ce_event_files", source)
+
+    def test_all_restart_processors_use_the_paid_delivery_safety_gate(self):
+        scheduled_source = inspect.getsource(self.bot.scheduled_restart_loop.coro)
+        delivery_source = inspect.getsource(self.bot.restart_delivery_processor.coro)
+
+        self.assertIn("prepare_delivery_xml_before_restart", scheduled_source)
+        self.assertIn("prepare_delivery_xml_before_restart", delivery_source)
+        self.assertNotIn("write_and_upload_delivery_xml", delivery_source)
 
     def test_restart_warning_is_persisted_and_removed_from_its_original_channel(self):
         class Message:

@@ -48,6 +48,7 @@ DATA_ROOT = (
     or "."
 )
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+WANDERING_DELIVERY_BRIDGE_VERSION = 6
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
 PUBLIC_FEED_PREVIEW_FOLDER = os.path.join(APP_ROOT, "public_feed_previews")
@@ -21558,7 +21559,14 @@ SCENARIO_UPLOAD_RESET_FIELDS = {
 
 def dashboard_delivery_bridge_config_ready(config: Any) -> bool:
     bridge = config.get("dayz_delivery_bridge") if isinstance(config, dict) and isinstance(config.get("dayz_delivery_bridge"), dict) else {}
-    return bool(bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
+    try:
+        bridge_version = int(bridge.get("bridge_version") or 0)
+    except Exception:
+        bridge_version = 0
+    return bool(
+        (bridge.get("installed_at") or bridge.get("manual_confirmed_at"))
+        and bridge_version >= WANDERING_DELIVERY_BRIDGE_VERSION
+    )
 
 
 def dashboard_delivery_bridge_runtime_supported(config: Any) -> bool:
