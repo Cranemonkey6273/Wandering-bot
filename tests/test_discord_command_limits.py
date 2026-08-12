@@ -22,6 +22,29 @@ class DiscordCommandLimitTests(unittest.TestCase):
 
         self.assertLessEqual(tools_children, 25)
 
+    def test_console_group_child_limit_is_not_exceeded(self):
+        text = BOT_SOURCE.read_text(encoding="utf-8")
+        console_children = len(re.findall(r"@console_group\.command\b", text))
+
+        self.assertGreater(console_children, 0)
+        self.assertLessEqual(console_children, 25)
+
+    def test_console_setup_group_is_public(self):
+        text = BOT_SOURCE.read_text(encoding="utf-8")
+
+        self.assertRegex(
+            text,
+            r"@console_group\.command\(name=[\"']setupobjects[\"']",
+        )
+        hidden_groups = re.search(
+            r"HIDDEN_SLASH_GROUPS\s*=\s*(.*?)(?:\n\n|HIDDEN_GROUP_SUBCOMMANDS)",
+            text,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(hidden_groups)
+        self.assertNotIn('"console"', hidden_groups.group(1))
+        self.assertNotIn("'console'", hidden_groups.group(1))
+
     def test_retired_showcase_command_is_not_registered(self):
         text = BOT_SOURCE.read_text(encoding="utf-8")
 

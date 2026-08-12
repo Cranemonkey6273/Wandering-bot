@@ -45060,6 +45060,170 @@ def download_live_cfggameplay_source(config, guild_id):
     return False, "Could not download live cfggameplay.json because no path candidates were available.", None, ""
 
 
+def console_object_spawner_paths_for_mission(guild_id, cfggameplay_path, object_path="", spawner_ref=""):
+    """Resolve Object Spawner paths beside the selected server's live mission.
+
+    Older dashboard releases used ``/dayzxb/custom``.  DayZ resolves the
+    ``./custom/...`` reference from the active mission directory, so that old
+    path could successfully upload a file which the game would never read.
+    """
+    resolved_cfg_path = canonical_remote_path(
+        cfggameplay_path or console_ce_default_paths(guild_id)["cfggameplay_path"]
+    )
+    mission_base = resolved_cfg_path.rsplit("/", 1)[0]
+    resolved_spawner_ref = str(spawner_ref or CONSOLE_OBJECT_SPAWNER_REF).strip()
+    relative_ref = resolved_spawner_ref.replace("\\", "/").lstrip("./")
+    mission_object_path = canonical_remote_path(f"{mission_base}/{relative_ref}")
+
+    requested_object_path = canonical_remote_path(object_path)
+    legacy_object_paths = {
+        canonical_remote_path(CONSOLE_OBJECT_SPAWNER_PATH).lower(),
+        "/dayzps/custom/wanderingbotobjects.json",
+        "/dayz/custom/wanderingbotobjects.json",
+    }
+    if not requested_object_path or requested_object_path.lower() in legacy_object_paths:
+        requested_object_path = mission_object_path
+
+    return {
+        "cfggameplay_path": resolved_cfg_path,
+        "object_path": requested_object_path,
+        "spawner_ref": resolved_spawner_ref,
+    }
+
+
+def console_object_spawner_is_ready(config, guild_id):
+    settings = console_object_spawner_config(config)
+    cfg_path = canonical_remote_path(settings.get("cfggameplay_path"))
+    object_path = canonical_remote_path(settings.get("object_path"))
+    if not settings.get("enabled") or not cfg_path or not object_path:
+        return False
+    if not console_ce_path_matches_selected_map(guild_id, cfg_path):
+        return False
+    mission_base = cfg_path.rsplit("/", 1)[0]
+    relative_ref = str(settings.get("spawner_ref") or CONSOLE_OBJECT_SPAWNER_REF).strip()
+    relative_ref = relative_ref.replace("\\", "/").lstrip("./")
+    expected_object_path = canonical_remote_path(f"{mission_base}/{relative_ref}")
+    return object_path.lower() == expected_object_path.lower()
+
+
+async def ensure_console_object_spawner_ready(
+    guild_id,
+    config,
+    *,
+    object_path="",
+    cfggameplay_path="",
+    spawner_ref="",
+    upload=True,
+):
+    """Safely install the console exact-height Object Spawner bridge.
+
+    The live ``cfggameplay.json`` is mandatory.  This deliberately never uses
+    the bundled fallback because replacing a customer's complete live file
+    with a vanilla template could erase unrelated gameplay configuration.
+    The unreferenced Object Spawner JSON is uploaded first; only after that
+    succeeds is the live cfgGameplay reference changed.
+    """
+    settings = console_object_spawner_config(config)
+    details = {
+        "object_upload": (False, "Upload not attempted."),
+        "cfg_upload": (False, "Upload not attempted."),
+        "cfg_changed": False,
+        "source_message": "",
+    }
+
+    requested_cfg_path = canonical_remote_path(cfggameplay_path)
+    if requested_cfg_path:
+        if not console_ce_path_matches_selected_map(guild_id, requested_cfg_path):
+            message = "The supplied cfggameplay.json path does not match the selected DayZ map."
+            details["source_message"] = message
+            return False, message, details
+        cfg_ok, cfg_message, cfg_text = await asyncio.to_thread(
+            download_text_file_from_nitrado,
+            config,
+            requested_cfg_path,
+        )
+        resolved_cfg_path = requested_cfg_path
+        if cfg_ok and str(cfg_text or "").strip():
+            remember_console_ce_mission_base(config, guild_id, resolved_cfg_path)
+        else:
+            cfg_ok = False
+    else:
+        cfg_ok, cfg_message, cfg_text, resolved_cfg_path = await asyncio.to_thread(
+            download_live_cfggameplay_source,
+            config,
+            guild_id,
+        )
+
+    details["source_message"] = str(cfg_message or "")
+    if not cfg_ok or not str(cfg_text or "").strip():
+        message = str(cfg_message or "Could not verify the live cfggameplay.json source.")
+        return False, message, details
+
+    paths = console_object_spawner_paths_for_mission(
+        guild_id,
+        resolved_cfg_path,
+        object_path or settings.get("object_path"),
+        spawner_ref or settings.get("spawner_ref"),
+    )
+    details.update(paths)
+    mission_base = paths["cfggameplay_path"].rsplit("/", 1)[0]
+    relative_ref = paths["spawner_ref"].replace("\\", "/").lstrip("./")
+    referenced_object_path = canonical_remote_path(f"{mission_base}/{relative_ref}")
+    if paths["object_path"].lower() != referenced_object_path.lower():
+        message = (
+            "The Object Spawner upload path does not match the path referenced by "
+            "WorldsData.objectSpawnersArr. Use the default paths or provide matching values."
+        )
+        return False, message, details
+
+    try:
+        updated_cfg, cfg_changed = update_cfggameplay_object_spawner(
+            cfg_text,
+            paths["spawner_ref"],
+        )
+    except Exception as error:
+        message = f"The verified live cfggameplay.json could not be parsed safely: {error}"
+        return False, message, details
+
+    details["cfg_changed"] = bool(cfg_changed)
+    if not upload:
+        details["object_upload"] = (False, "Preview only; upload skipped.")
+        details["cfg_upload"] = (False, "Preview only; upload skipped.")
+        return True, "Verified live files and prepared a safe setup preview.", details
+
+    spawner_json = build_console_object_spawner_json(settings.get("objects", []))
+    object_upload = await asyncio.to_thread(
+        upload_text_file_to_nitrado,
+        config,
+        paths["object_path"],
+        spawner_json,
+    )
+    details["object_upload"] = object_upload
+    if not object_upload[0]:
+        return False, f"Object Spawner JSON upload failed: {object_upload[1]}", details
+
+    if cfg_changed:
+        cfg_upload = await asyncio.to_thread(
+            upload_text_file_to_nitrado,
+            config,
+            paths["cfggameplay_path"],
+            updated_cfg,
+        )
+    else:
+        cfg_upload = (True, "The live cfggameplay.json already contains this Object Spawner reference.")
+    details["cfg_upload"] = cfg_upload
+    if not cfg_upload[0]:
+        return False, f"cfggameplay.json reference upload failed: {cfg_upload[1]}", details
+
+    now_text = datetime.now(UTC).isoformat()
+    settings.update(paths)
+    settings["enabled"] = True
+    settings["setup_completed_at"] = now_text
+    settings.pop("setup_error", None)
+    save_guild_configs_for_runtime(config)
+    return True, "Exact-height console delivery is configured and ready.", details
+
+
 def read_cfggameplay_damage_flags(text):
     data = json.loads(text or "{}")
     if not isinstance(data, dict):
@@ -46695,11 +46859,20 @@ async def route_console_shop_delivery(
         return False, "Native CE XML (terrain height)", upload_status
 
     settings = console_object_spawner_config(config)
-    if not settings.get("enabled"):
-        return False, "Object Spawner JSON (exact Y)", (
-            "Exact Y-height delivery is not configured on this console server. "
-            "A server owner must run `/console setupobjects` once, then retry the purchase."
+    if not console_object_spawner_is_ready(config, guild_id):
+        setup_ok, setup_message, _setup_details = await ensure_console_object_spawner_ready(
+            guild_id,
+            config,
         )
+        if not setup_ok:
+            settings["enabled"] = False
+            settings["setup_error"] = str(setup_message or "Exact-height setup failed")[:1000]
+            save_guild_configs_for_runtime(config)
+            return False, "Object Spawner JSON (exact Y)", (
+                "Exact Y-height delivery could not be prepared safely from the verified live mission files. "
+                f"{setup_message} No shop balance was charged."
+            )
+        settings = console_object_spawner_config(config)
 
     original_objects = copy.deepcopy(settings.get("objects", []))
     now_text = datetime.now(UTC).isoformat()
@@ -52712,7 +52885,7 @@ console_group = app_commands.Group(
 )
 async def console_setupobjects(
     interaction: discord.Interaction,
-    object_path: str = CONSOLE_OBJECT_SPAWNER_PATH,
+    object_path: str = "",
     cfggameplay_path: str = "",
     spawner_ref: str = CONSOLE_OBJECT_SPAWNER_REF,
     upload: bool = True,
@@ -52734,46 +52907,34 @@ async def console_setupobjects(
         for field_name in ["ftp_user", "ftp_password"]
         if not config.get(field_name)
     ]
-    settings = console_object_spawner_config(config)
-    settings["object_path"] = object_path or CONSOLE_OBJECT_SPAWNER_PATH
-    settings["spawner_ref"] = spawner_ref or CONSOLE_OBJECT_SPAWNER_REF
-
-    cfg_ok, cfg_message, cfg_text, resolved_cfg_path = await asyncio.to_thread(
-        download_cfggameplay_with_fallback,
-        config,
+    setup_ok, setup_message, setup_details = await ensure_console_object_spawner_ready(
         guild_id,
-        cfggameplay_path
+        config,
+        object_path=object_path,
+        cfggameplay_path=cfggameplay_path,
+        spawner_ref=spawner_ref,
+        upload=upload,
     )
-    settings["cfggameplay_path"] = resolved_cfg_path
-
-    try:
-        updated_cfg, cfg_changed = update_cfggameplay_object_spawner(cfg_text, settings["spawner_ref"])
-    except Exception as error:
-        await interaction.followup.send(f"`cfggameplay.json` could not be parsed as JSON: `{error}`", ephemeral=True)
-        return
-
-    spawner_json = build_console_object_spawner_json(settings.get("objects", []))
-    object_upload = (False, "Upload skipped.")
-    cfg_upload = (False, "Upload skipped.")
-
-    if upload:
-        object_upload = await asyncio.to_thread(
-            upload_text_file_to_nitrado,
-            config,
-            settings["object_path"],
-            spawner_json
-        )
-        cfg_upload = await asyncio.to_thread(
-            upload_text_file_to_nitrado,
-            config,
-            resolved_cfg_path,
-            updated_cfg
-        )
-        settings["enabled"] = bool(object_upload[0] and cfg_upload[0])
-    else:
+    settings = console_object_spawner_config(config)
+    if upload and not setup_ok:
         settings["enabled"] = False
+        settings["setup_error"] = str(setup_message or "Setup failed")[:1000]
+        save_guild_configs_for_runtime(config)
 
-    save_guild_configs()
+    resolved_cfg_path = setup_details.get("cfggameplay_path") or canonical_remote_path(
+        cfggameplay_path or console_ce_default_paths(guild_id)["cfggameplay_path"]
+    )
+    resolved_object_path = setup_details.get("object_path") or console_object_spawner_paths_for_mission(
+        guild_id,
+        resolved_cfg_path,
+        object_path,
+        spawner_ref,
+    )["object_path"]
+    resolved_spawner_ref = setup_details.get("spawner_ref") or spawner_ref or CONSOLE_OBJECT_SPAWNER_REF
+    object_upload = setup_details.get("object_upload", (False, "Upload skipped."))
+    cfg_upload = setup_details.get("cfg_upload", (False, "Upload skipped."))
+    cfg_changed = bool(setup_details.get("cfg_changed"))
+    cfg_message = setup_details.get("source_message") or setup_message
 
     embed = discord.Embed(
         title="CONSOLE OBJECT SPAWNER SETUP",
@@ -52781,11 +52942,12 @@ async def console_setupobjects(
             "This uses DayZ console's `cfggameplay.json` `WorldsData.objectSpawnersArr` flow. "
             "No `init.c` is needed."
         ),
-        color=0x2ECC71 if settings.get("enabled") else 0xE67E22
+        color=0x2ECC71 if setup_ok else 0xE74C3C
     )
-    embed.add_field(name="Object Spawner", value=f"`{settings['object_path']}`", inline=False)
+    embed.add_field(name="Status", value=str(setup_message or "Unknown")[:900], inline=False)
+    embed.add_field(name="Object Spawner", value=f"`{resolved_object_path}`", inline=False)
     embed.add_field(name="cfggameplay.json", value=f"`{resolved_cfg_path}`", inline=False)
-    embed.add_field(name="Spawner Reference", value=f"`{settings['spawner_ref']}`", inline=False)
+    embed.add_field(name="Spawner Reference", value=f"`{resolved_spawner_ref}`", inline=False)
     embed.add_field(name="Objects", value=str(len(settings.get("objects", []))), inline=True)
     if missing_api_fields or missing_ftp_fields:
         missing_lines = []
@@ -52801,7 +52963,7 @@ async def console_setupobjects(
             )[:1000],
             inline=False
         )
-    embed.add_field(name="cfggameplay Source", value=("Downloaded from server" if cfg_ok else cfg_message)[:900], inline=False)
+    embed.add_field(name="cfggameplay Source", value=str(cfg_message or "Verified live source")[:900], inline=False)
     embed.add_field(name="cfggameplay Changed", value="Yes" if cfg_changed else "Already referenced", inline=True)
     embed.add_field(name="Object Upload", value=("OK" if object_upload[0] else object_upload[1])[:900], inline=False)
     embed.add_field(name="cfggameplay Upload", value=("OK" if cfg_upload[0] else cfg_upload[1])[:900], inline=False)
@@ -57639,9 +57801,7 @@ HIDDEN_TOP_LEVEL_SLASH_COMMANDS = {
     "whoami",
 }
 
-HIDDEN_SLASH_GROUPS = {
-    "console",
-}
+HIDDEN_SLASH_GROUPS = set()
 
 HIDDEN_GROUP_SUBCOMMANDS = {
     "events": {

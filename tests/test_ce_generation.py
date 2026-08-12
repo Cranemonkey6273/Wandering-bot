@@ -171,6 +171,176 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertEqual([], config["console_object_spawner"]["objects"])
 
+    def test_exact_height_setup_uses_verified_live_mission_and_preserves_fields(self):
+        guild_id = "987650001"
+        config = {
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "console_object_spawner": {
+                "enabled": False,
+                "object_path": "/dayzxb/custom/WanderingBotObjects.json",
+                "objects": [],
+            },
+        }
+        live_cfg = """{
+            "version": 129,
+            "GeneralData": {"disableBaseDamage": true},
+            "WorldsData": {
+                "lightingConfig": 2,
+                "objectSpawnersArr": ["./custom/ExistingBase.json"]
+            }
+        }"""
+        live_path = "/dayzxb_missions/dayzOffline.chernarusplus/cfggameplay.json"
+        uploads = []
+
+        def upload(_config, path, content):
+            uploads.append((path, content))
+            return True, "uploaded"
+
+        bot.guild_configs[guild_id] = config
+        try:
+            with (
+                patch.object(
+                    bot,
+                    "download_live_cfggameplay_source",
+                    return_value=(True, "verified live", live_cfg, live_path),
+                ),
+                patch.object(bot, "upload_text_file_to_nitrado", side_effect=upload),
+                patch.object(bot, "save_guild_configs_for_runtime"),
+            ):
+                ok, message, details = asyncio.run(
+                    bot.ensure_console_object_spawner_ready(guild_id, config)
+                )
+        finally:
+            bot.guild_configs.pop(guild_id, None)
+
+        self.assertTrue(ok, message)
+        self.assertEqual(2, len(uploads))
+        self.assertEqual(
+            "/dayzxb_missions/dayzOffline.chernarusplus/custom/WanderingBotObjects.json",
+            uploads[0][0],
+        )
+        self.assertEqual(live_path, uploads[1][0])
+        updated_cfg = __import__("json").loads(uploads[1][1])
+        self.assertTrue(updated_cfg["GeneralData"]["disableBaseDamage"])
+        self.assertEqual(2, updated_cfg["WorldsData"]["lightingConfig"])
+        self.assertEqual(
+            ["./custom/ExistingBase.json", "./custom/WanderingBotObjects.json"],
+            updated_cfg["WorldsData"]["objectSpawnersArr"],
+        )
+        self.assertTrue(config["console_object_spawner"]["enabled"])
+        self.assertEqual(uploads[0][0], details["object_path"])
+
+    def test_exact_height_setup_refuses_unverified_live_source_without_uploading(self):
+        guild_id = "987650002"
+        config = {"server_map": "chernarus", "server_platform": "xbox"}
+        bot.guild_configs[guild_id] = config
+        try:
+            with (
+                patch.object(
+                    bot,
+                    "download_live_cfggameplay_source",
+                    return_value=(False, "live download failed", None, ""),
+                ),
+                patch.object(bot, "upload_text_file_to_nitrado") as upload_mock,
+            ):
+                ok, message, _details = asyncio.run(
+                    bot.ensure_console_object_spawner_ready(guild_id, config)
+                )
+        finally:
+            bot.guild_configs.pop(guild_id, None)
+
+        self.assertFalse(ok)
+        self.assertIn("live download failed", message)
+        upload_mock.assert_not_called()
+        self.assertFalse(config["console_object_spawner"]["enabled"])
+
+    def test_exact_height_setup_does_not_enable_partial_two_file_upload(self):
+        guild_id = "987650004"
+        config = {"server_map": "sakhal", "server_platform": "playstation"}
+        live_path = "/dayzps_missions/dayzOffline.sakhal/cfggameplay.json"
+        live_cfg = '{"version":129,"WorldsData":{"objectSpawnersArr":[]}}'
+        uploads = []
+
+        def upload(_config, path, _content):
+            uploads.append(path)
+            if path.endswith("cfggameplay.json"):
+                return False, "simulated cfg upload failure"
+            return True, "uploaded"
+
+        bot.guild_configs[guild_id] = config
+        try:
+            with (
+                patch.object(
+                    bot,
+                    "download_live_cfggameplay_source",
+                    return_value=(True, "verified live", live_cfg, live_path),
+                ),
+                patch.object(bot, "upload_text_file_to_nitrado", side_effect=upload),
+            ):
+                ok, message, details = asyncio.run(
+                    bot.ensure_console_object_spawner_ready(guild_id, config)
+                )
+        finally:
+            bot.guild_configs.pop(guild_id, None)
+
+        self.assertFalse(ok)
+        self.assertIn("simulated cfg upload failure", message)
+        self.assertEqual(
+            "/dayzps_missions/dayzOffline.sakhal/custom/WanderingBotObjects.json",
+            uploads[0],
+        )
+        self.assertEqual(live_path, uploads[1])
+        self.assertFalse(config["console_object_spawner"]["enabled"])
+        self.assertFalse(details["cfg_upload"][0])
+
+    def test_exact_height_purchase_auto_prepares_bridge_then_writes_order(self):
+        guild_id = "987650003"
+        config = {"server_map": "chernarus", "server_platform": "xbox"}
+        live_path = "/dayzxb_missions/dayzOffline.chernarusplus/cfggameplay.json"
+        live_cfg = '{"version":129,"WorldsData":{"objectSpawnersArr":[]}}'
+        uploads = []
+
+        def upload(_config, path, content):
+            uploads.append((path, content))
+            return True, "uploaded"
+
+        bot.guild_configs[guild_id] = config
+        try:
+            with (
+                patch.object(
+                    bot,
+                    "download_live_cfggameplay_source",
+                    return_value=(True, "verified live", live_cfg, live_path),
+                ),
+                patch.object(bot, "upload_text_file_to_nitrado", side_effect=upload),
+                patch.object(bot, "save_guild_configs_for_runtime"),
+            ):
+                ok, route, message = asyncio.run(
+                    bot.route_console_shop_delivery(
+                        guild_id,
+                        config,
+                        {"Hacksaw": 1},
+                        8194,
+                        9092,
+                        True,
+                        42.5,
+                        "order-roof",
+                        "Player",
+                        "123",
+                    )
+                )
+        finally:
+            bot.guild_configs.pop(guild_id, None)
+
+        self.assertTrue(ok, message)
+        self.assertEqual("Object Spawner JSON (exact Y)", route)
+        self.assertEqual(3, len(uploads))
+        self.assertEqual(live_path, uploads[1][0])
+        order_payload = __import__("json").loads(uploads[2][1])
+        self.assertEqual("Hacksaw", order_payload["Objects"][0]["name"])
+        self.assertEqual([8194.0, 42.5, 9092.0], order_payload["Objects"][0]["pos"])
+
 
 def _base_event(event_id, event_type, class_name, **overrides):
     event = {
