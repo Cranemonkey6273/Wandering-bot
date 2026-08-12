@@ -10040,11 +10040,35 @@ class SlashContextAdapter:
 
 async def run_legacy_as_slash(interaction: discord.Interaction, legacy_name: str, *args, **kwargs):
     ctx = SlashContextAdapter(interaction)
+    # Discord requires an initial interaction acknowledgement within roughly
+    # three seconds. Several legacy commands (notably /buy on console) must
+    # first read and safely patch live Nitrado files, which can take longer.
+    # Defer before command lookup, lock acquisition or any network/file work;
+    # SlashContextAdapter.send then delivers the real result as a follow-up.
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True, thinking=True)
     cmd = bot.get_command(legacy_name)
     if not cmd:
         await ctx.send(f"❌ Command `{legacy_name}` not found.")
         return
-    await cmd.callback(ctx, *args, **kwargs)
+    try:
+        await cmd.callback(ctx, *args, **kwargs)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        # Never leave the customer with Discord's unhelpful "application did
+        # not respond" banner. Keep technical detail in Railway logs while
+        # giving the buyer a safe, actionable response.
+        print(
+            f"SLASH COMMAND ERROR /{legacy_name}: "
+            f"{type(error).__name__}: {str(error)[:600]}"
+        )
+        await ctx.send(
+            "The bot could not complete that command safely. "
+            "If this was a purchase, check your wallet or order audit before retrying; "
+            "delivery-preparation failures are rolled back automatically. "
+            "If it repeats, ask the server owner to check the bot audit/log feed."
+        )
 
 
 def ensure_wallet(user, guild_id=None):
@@ -19366,7 +19390,8 @@ async def apply_setup_configuration(
                 "`cfgspawnabletypes.xml`, `globals.xml`, `events.xml`, `cfgeventspawns.xml`, and named spawn-gear JSON files "
                 "listed in `cfggameplay.json` under `PlayerData.spawnGearPresetFiles`.\n\n"
                 "Console exact-Y object spawns are prepared automatically on the first elevated shop order from the verified live "
-                "`cfggameplay.json`. Owners can use `/console setupobjects` to verify or repair that link manually. Add custom spawns with `/console addobject`.\n"
+                "`cfggameplay.json`. If automatic exact-Y setup ever fails, an owner can run `/console setupobjects` "
+                "with its defaults; no mission paths need to be entered. Add custom spawns with `/console addobject`.\n"
                 "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z` and may supply optional Y height for roofs or elevated platforms. Blank Y is grounded to terrain for the next restart.\n"
                 "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x z`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
@@ -53091,19 +53116,13 @@ console_group = app_commands.Group(
 )
 
 
-@console_group.command(name="setupobjects", description="Admin: install console object spawner JSON and cfggameplay reference")
+@console_group.command(name="setupobjects", description="Admin repair: auto-detect and prepare exact-Y console shop delivery")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    object_path="Remote path for the object spawner JSON",
-    cfggameplay_path="Remote path to cfggameplay.json",
-    spawner_ref="Reference written into WorldsData.objectSpawnersArr",
-    upload="True uploads to Nitrado. False only previews status."
+    upload="True safely repairs the live files; false only checks and previews them"
 )
 async def console_setupobjects(
     interaction: discord.Interaction,
-    object_path: str = "",
-    cfggameplay_path: str = "",
-    spawner_ref: str = CONSOLE_OBJECT_SPAWNER_REF,
     upload: bool = True,
 ):
     if not has_interaction_admin_power(interaction):
@@ -53126,9 +53145,6 @@ async def console_setupobjects(
     setup_ok, setup_message, setup_details = await ensure_console_object_spawner_ready(
         guild_id,
         config,
-        object_path=object_path,
-        cfggameplay_path=cfggameplay_path,
-        spawner_ref=spawner_ref,
         upload=upload,
     )
     settings = console_object_spawner_config(config)
@@ -53138,15 +53154,15 @@ async def console_setupobjects(
         save_guild_configs_for_runtime(config)
 
     resolved_cfg_path = setup_details.get("cfggameplay_path") or canonical_remote_path(
-        cfggameplay_path or console_ce_default_paths(guild_id)["cfggameplay_path"]
+        console_ce_default_paths(guild_id)["cfggameplay_path"]
     )
     resolved_object_path = setup_details.get("object_path") or console_object_spawner_paths_for_mission(
         guild_id,
         resolved_cfg_path,
-        object_path,
-        spawner_ref,
+        "",
+        CONSOLE_OBJECT_SPAWNER_REF,
     )["object_path"]
-    resolved_spawner_ref = setup_details.get("spawner_ref") or spawner_ref or CONSOLE_OBJECT_SPAWNER_REF
+    resolved_spawner_ref = setup_details.get("spawner_ref") or CONSOLE_OBJECT_SPAWNER_REF
     object_upload = setup_details.get("object_upload", (False, "Upload skipped."))
     cfg_upload = setup_details.get("cfg_upload", (False, "Upload skipped."))
     cfg_changed = bool(setup_details.get("cfg_changed"))

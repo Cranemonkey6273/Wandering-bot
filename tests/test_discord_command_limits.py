@@ -45,6 +45,21 @@ class DiscordCommandLimitTests(unittest.TestCase):
         self.assertNotIn('"console"', hidden_groups.group(1))
         self.assertNotIn("'console'", hidden_groups.group(1))
 
+    def test_console_setupobjects_hides_technical_path_options(self):
+        text = BOT_SOURCE.read_text(encoding="utf-8")
+        command = re.search(
+            r"@console_group\.command\(name=[\"']setupobjects[\"'].*?\nasync def console_setupobjects\((.*?)\n\):",
+            text,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(command)
+        signature = command.group(1)
+        self.assertIn("upload: bool", signature)
+        self.assertNotIn("object_path", signature)
+        self.assertNotIn("cfggameplay_path", signature)
+        self.assertNotIn("spawner_ref", signature)
+
     def test_retired_showcase_command_is_not_registered(self):
         text = BOT_SOURCE.read_text(encoding="utf-8")
 
