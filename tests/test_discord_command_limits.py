@@ -60,6 +60,21 @@ class DiscordCommandLimitTests(unittest.TestCase):
         self.assertNotIn("cfggameplay_path", signature)
         self.assertNotIn("spawner_ref", signature)
 
+    def test_economy_currency_command_is_registered_with_supported_choices(self):
+        text = BOT_SOURCE.read_text(encoding="utf-8")
+        command = re.search(
+            r"@economy_group\.command\(name=[\"']currency[\"'].*?"
+            r"async def slash_economycurrency\(.*?\n\s*\)",
+            text,
+            flags=re.DOTALL,
+        )
+
+        self.assertIsNotNone(command)
+        command_text = command.group(0)
+        for currency in ("pennies", "euros", "pounds", "dollars"):
+            self.assertIn(f'value="{currency}"', command_text)
+        self.assertIn("@app_commands.default_permissions(administrator=True)", command_text)
+
     def test_retired_showcase_command_is_not_registered(self):
         text = BOT_SOURCE.read_text(encoding="utf-8")
 

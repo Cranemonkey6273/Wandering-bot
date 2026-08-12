@@ -54167,6 +54167,44 @@ async def slash_economyconfig(
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
 
+@economy_group.command(name="currency", description="Admin: change the currency wording used by the bot and shop")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(currency="Currency name shown in wallets, shop prices and economy feeds")
+@app_commands.choices(
+    currency=[
+        app_commands.Choice(name="Pennies", value="pennies"),
+        app_commands.Choice(name="Euros", value="euros"),
+        app_commands.Choice(name="Pounds", value="pounds"),
+        app_commands.Choice(name="Dollars", value="dollars"),
+    ]
+)
+async def slash_economycurrency(interaction: discord.Interaction, currency: str):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+    if not interaction.guild:
+        await interaction.response.send_message("This command must be used in a Discord server.", ephemeral=True)
+        return
+
+    guild_id = str(interaction.guild.id)
+    config = guild_configs.setdefault(
+        guild_id,
+        {"guild_name": interaction.guild.name, "channels": {}},
+    )
+    previous = guild_economy_currency(guild_id, config)
+    selected = normalize_economy_currency(currency)
+    config["economy_currency"] = selected
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    save_guild_configs_for_runtime(config)
+
+    await interaction.response.send_message(
+        f"Currency wording changed from **{previous}** to **{selected}**. "
+        "Existing wallet balances and shop prices were not converted or reset.",
+        ephemeral=True,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+
+
 def resolve_faction_for_command(interaction, faction_name=""):
     guild_id = str(interaction.guild.id)
     selected = str(faction_name or "").strip()
