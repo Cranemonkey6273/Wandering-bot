@@ -71,8 +71,15 @@ class DiscordCommandLimitTests(unittest.TestCase):
 
         self.assertIsNotNone(command)
         command_text = command.group(0)
-        for currency in ("pennies", "euros", "pounds", "dollars"):
+        supported = (
+            "pennies", "coins", "credits", "tokens", "euros", "pounds", "dollars",
+            "canadian_dollars", "australian_dollars", "new_zealand_dollars", "yen", "yuan",
+            "won", "rupees", "pesos", "reais", "zloty", "swedish_kronor",
+            "norwegian_kroner", "danish_kroner", "swiss_francs", "rubles", "lira", "rand",
+        )
+        for currency in supported:
             self.assertIn(f'value="{currency}"', command_text)
+        self.assertLessEqual(len(supported), 25)
         self.assertIn("@app_commands.default_permissions(administrator=True)", command_text)
 
     def test_retired_showcase_command_is_not_registered(self):
