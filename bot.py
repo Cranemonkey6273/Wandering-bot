@@ -26288,6 +26288,31 @@ def stack_watch_scope_matches(settings, x, z, y):
     return True
 
 
+def stack_watch_server_identity(guild_id, config):
+    """Return a clear, human-readable DayZ server identity for alerts."""
+    config = config if isinstance(config, dict) else {}
+    server_name = dayz_server_display_name(guild_id, config) or "DayZ Server"
+    platform_key = normalize_server_platform(config.get("server_platform") or config.get("platform"))
+    platform_label = {
+        "xbox": "Xbox",
+        "playstation": "PlayStation",
+        "pc": "PC",
+    }.get(platform_key, platform_key.title() or "Xbox")
+    map_key = server_map_key_from_config(config)
+    map_label = {
+        "chernarus": "Chernarus",
+        "livonia": "Livonia",
+        "sakhal": "Sakhal",
+    }.get(map_key, map_key.title())
+    _base_id, runtime_profile_id = split_server_runtime_id(guild_id)
+    profile_id = normalize_server_profile_id(
+        runtime_profile_id or config.get("_server_profile_id"),
+        default="",
+    )
+    profile_suffix = f" · profile `{profile_id}`" if profile_id else ""
+    return f"**{server_name}**\n{platform_label} · {map_label}{profile_suffix}"
+
+
 async def check_stack_watch_for_adm(guild_id, config, event_type, line, event_time=None):
     if event_type != "placed":
         return
@@ -26373,6 +26398,7 @@ async def check_stack_watch_for_adm(guild_id, config, event_type, line, event_ti
         description=f"**{player_name}** placed **{object_name}**.",
         color=0xE74C3C if triggered else 0xF1C40F,
     )
+    embed.add_field(name="DayZ Server", value=stack_watch_server_identity(guild_id, config), inline=False)
     embed.add_field(name="Object", value=f"`{object_name}`", inline=True)
     embed.add_field(name="Recent nearby count", value=f"`{len(nearby)}` in `{window}s` within `{radius:g}m`", inline=True)
     embed.add_field(name="Position", value=f"X `{x:.1f}` / Z `{z:.1f}` / Height `{y:.1f}`", inline=False)
