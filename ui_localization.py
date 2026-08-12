@@ -8,6 +8,7 @@ all code/file editing surfaces so DayZ class names and file data remain exact.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 
 SUPPORTED_UI_LANGUAGES = {
@@ -72,6 +73,8 @@ UI_TRANSLATIONS = {
         "Password": "Passwort",
         "Open App": "App öffnen",
         "Forgotten password?": "Passwort vergessen?",
+        "A Discord administrator can run": "Ein Discord-Administrator kann",
+        ". For security, an existing password cannot be displayed again.": ". Aus Sicherheitsgründen kann ein vorhandenes Passwort nicht erneut angezeigt werden.",
         "Contact support": "Support kontaktieren",
         "Quick actions": "Schnellaktionen",
         "Server list": "Serverliste",
@@ -172,6 +175,9 @@ UI_TRANSLATIONS = {
         "Browse free Crafting & Survival library": "Parcourir la bibliothèque gratuite d’artisanat et de survie",
         "First-time setup": "Première configuration", "Server login": "Connexion au serveur",
         "Dashboard ID": "Identifiant du tableau de bord", "Password": "Mot de passe", "Open App": "Ouvrir l’application",
+        "Forgotten password?": "Mot de passe oublié ?",
+        "A Discord administrator can run": "Un administrateur Discord peut exécuter",
+        ". For security, an existing password cannot be displayed again.": ". Pour des raisons de sécurité, un mot de passe existant ne peut pas être affiché de nouveau.",
         "Contact support": "Contacter l’assistance", "Home": "Accueil", "Feeds": "Flux", "Events": "Événements",
         "Economy": "Économie", "Control": "Contrôle", "Guides": "Guides", "Crafting": "Artisanat",
         "Quick actions": "Actions rapides", "Server list": "Liste des serveurs", "Create Event": "Créer un événement",
@@ -208,7 +214,10 @@ UI_TRANSLATIONS = {
         "Connect your server from the app": "Conecta tu servidor desde la app",
         "Add Wandering Bot to Discord": "Añadir Wandering Bot a Discord", "First-time setup": "Configuración inicial",
         "Server login": "Acceso al servidor", "Dashboard ID": "ID del panel", "Password": "Contraseña",
-        "Open App": "Abrir app", "Contact support": "Contactar con soporte", "Home": "Inicio", "Feeds": "Feeds",
+        "Open App": "Abrir app", "Forgotten password?": "¿Has olvidado la contraseña?",
+        "A Discord administrator can run": "Un administrador de Discord puede ejecutar",
+        ". For security, an existing password cannot be displayed again.": ". Por seguridad, no se puede volver a mostrar una contraseña existente.",
+        "Contact support": "Contactar con soporte", "Home": "Inicio", "Feeds": "Feeds",
         "Events": "Eventos", "Economy": "Economía", "Control": "Control", "Guides": "Guías", "Crafting": "Fabricación",
         "Quick actions": "Acciones rápidas", "Server list": "Lista de servidores", "Create Event": "Crear evento",
         "Edit Zones": "Editar zonas", "Restart Server": "Reiniciar servidor", "Overview": "Resumen",
@@ -244,7 +253,10 @@ UI_TRANSLATIONS = {
         "Connect your server from the app": "Połącz serwer z poziomu aplikacji",
         "Add Wandering Bot to Discord": "Dodaj Wandering Bot do Discorda", "First-time setup": "Pierwsza konfiguracja",
         "Server login": "Logowanie do serwera", "Dashboard ID": "ID panelu", "Password": "Hasło",
-        "Open App": "Otwórz aplikację", "Contact support": "Skontaktuj się z pomocą", "Home": "Strona główna",
+        "Open App": "Otwórz aplikację", "Forgotten password?": "Nie pamiętasz hasła?",
+        "A Discord administrator can run": "Administrator Discorda może uruchomić",
+        ". For security, an existing password cannot be displayed again.": ". Ze względów bezpieczeństwa istniejącego hasła nie można ponownie wyświetlić.",
+        "Contact support": "Skontaktuj się z pomocą", "Home": "Strona główna",
         "Feeds": "Kanały", "Events": "Wydarzenia", "Economy": "Ekonomia", "Control": "Sterowanie",
         "Guides": "Poradniki", "Crafting": "Rzemiosło", "Quick actions": "Szybkie działania",
         "Server list": "Lista serwerów", "Create Event": "Utwórz wydarzenie", "Edit Zones": "Edytuj strefy",
@@ -371,6 +383,151 @@ for _language, _phrases in CORE_APP_UI_TRANSLATIONS.items():
     UI_TRANSLATIONS[_language].update(_phrases)
 
 
+# The public homepage is the first experience for most customers.  Keep its
+# high-visibility marketing, setup and support copy complete in every supported
+# language.  File names, slash commands and DayZ class names are intentionally
+# absent: the browser localizer protects those technical fragments.
+PUBLIC_HOME_UI_TRANSLATIONS = {
+    "de": {
+        "Overview": "Übersicht",
+        "Android App": "Android-App",
+        "Kill Feed": "Killfeed",
+        "Discord Bot": "Discord-Bot",
+        "Nitrado Tools": "Nitrado-Werkzeuge",
+        "Trader Economy": "Händlerwirtschaft",
+        "Raid Alerts": "Raid-Warnungen",
+        "Dashboard": "Dashboard",
+        "Airdrops": "Airdrops",
+        "Console Killfeed": "Konsolen-Killfeed",
+        "DayZ server control": "DayZ-Serversteuerung",
+        "Add Wandering Bot to your DayZ server": "Wandering Bot zu deinem DayZ-Server hinzufügen",
+        "Install the Wandering Bot Android app or add the bot to Discord, connect Nitrado, and unlock mobile server control plus a guided dashboard for ADM feeds, live maps, events, restarts, XML tools, economy, bans, zones, and server setup.": "Installiere die Wandering-Bot-Android-App oder füge den Bot zu Discord hinzu, verbinde Nitrado und erhalte mobile Serversteuerung sowie ein geführtes Dashboard für ADM-Feeds, Live-Karten, Events, Neustarts, XML-Werkzeuge, Wirtschaft, Sperren, Zonen und Servereinrichtung.",
+        "Owner support is built in": "Besitzer-Support ist integriert",
+        "Need help after adding the bot? Open a ticket straight from your Discord.": "Brauchst du nach dem Hinzufügen des Bots Hilfe? Öffne direkt aus deinem Discord ein Ticket.",
+        "Any server administrator can use": "Jeder Serveradministrator kann",
+        ". It sends your issue directly to the Wandering Bot owner and keeps the reply in your server’s support ticket.": ". Dadurch wird dein Anliegen direkt an den Besitzer von Wandering Bot gesendet und die Antwort bleibt im Support-Ticket deines Servers.",
+        "DayZ Android app": "DayZ-Android-App",
+        "Install Wandering Bot from Google Play for mobile DayZ server control, live feeds, guides, events, economy and dashboard access.": "Installiere Wandering Bot aus Google Play für mobile DayZ-Serversteuerung, Live-Feeds, Anleitungen, Events, Wirtschaft und Dashboard-Zugriff.",
+        "DayZ kill feed and ADM feeds": "DayZ-Killfeed und ADM-Feeds",
+        "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs.": "Verfolge Kills, Tode, Weitschüsse, Online-Spieler, Neustartwarnungen und Prüf-Feeds aus deinen Serverprotokollen.",
+        "Airdrops, animals and hordes": "Airdrops, Tiere und Horden",
+        "Queue airdrops, animal drops, zombie hordes, gas zones, crash scenes, convoy-style events, and live event uploads from the dashboard.": "Plane Airdrops, Tier-Drops, Zombiehorden, Gaszonen, Absturzstellen, Konvoi-Events und Live-Event-Uploads im Dashboard.",
+        "Server dashboard": "Server-Dashboard",
+        "Create temporary or permanent admin logins for trusted staff, then choose which live events, XML tools, schedules, shops, economy, zones, and moderation tools they can use.": "Erstelle temporäre oder dauerhafte Admin-Zugänge für vertrauenswürdige Mitarbeiter und bestimme, welche Live-Events, XML-Werkzeuge, Zeitpläne, Shops, Wirtschafts-, Zonen- und Moderationswerkzeuge sie nutzen dürfen.",
+        "Restarts and vehicle resets": "Neustarts und Fahrzeug-Resets",
+        "Schedule server restarts, raid weekend reminders, base damage windows, container damage windows, and vehicle reset workflows from one control area.": "Plane Serverneustarts, Raid-Wochenend-Erinnerungen, Zeitfenster für Basis- und Containerschaden sowie Fahrzeug-Resets in einem Bereich.",
+        "Nitrado and Discord automation": "Nitrado- und Discord-Automatisierung",
+        "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible.": "Verbinde Nitrado, organisiere Discord-Kanäle, verwalte Sperr-Feeds, verknüpfe Gamertags und halte Teamaktionen nachvollziehbar.",
+        "Automatic Discord translation": "Automatische Discord-Übersetzung",
+        "Give international communities readable conversations with original messages and translations posted in the same channel or routed to a dedicated translation channel.": "Gib internationalen Communities verständliche Unterhaltungen, indem Originalnachrichten und Übersetzungen im selben Kanal oder in einem eigenen Übersetzungskanal erscheinen.",
+        "What it covers": "Enthaltene Bereiche",
+        "DayZ PC, PlayStation and Xbox killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.": "DayZ-Killfeed für PC, PlayStation und Xbox, Discord-Serverwerkzeuge, Nitrado-Dashboard, Live-Events, Shop-Wirtschaft und Admin-Steuerung.",
+        "Choose your Discord server, approve the requested permissions, then let the bot create or repair its channel layout.": "Wähle deinen Discord-Server, bestätige die angeforderten Berechtigungen und lass den Bot anschließend seine Kanalstruktur erstellen oder reparieren.",
+        "Run": "Ausführen",
+        "Enter platform, map, Nitrado token, service ID, FTP username, and FTP password. These are used for your server only.": "Gib Plattform, Karte, Nitrado-Token, Service-ID, FTP-Benutzername und FTP-Passwort ein. Diese Daten werden nur für deinen Server verwendet.",
+        "Use": "Verwende",
+        ", then": ", danach",
+        "once your ADM log is available so feeds can begin tracking players.": "sobald dein ADM-Protokoll verfügbar ist, damit die Feeds mit der Spielererfassung beginnen können.",
+        "Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.": "Aktiviere den Dashboard-Zugang für vertrauenswürdige Admins und verwalte anschließend Live-Events, XML-Werkzeuge, Shop, Wirtschaft, Zonen und Moderation im Webpanel.",
+        "Players can use": "Spieler können",
+        ". Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.": ". Mitarbeiter können Verknüpfungen prüfen, Events ausführen und die Serverwerkzeuge über Discord oder das Dashboard organisieren.",
+        "guidance, ADM connection checks, core Discord player and server feeds, leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web control tools.": "Anleitung, ADM-Verbindungsprüfungen, grundlegende Discord-Spieler- und Server-Feeds, Bestenlisten, Discord-Kanaleinrichtung und Serverregeln. Die folgenden Dashboard-Tarife ergänzen die Web-Steuerungswerkzeuge.",
+        "You do not need a dashboard login to use this guide. Gather the right details first, then run the private Discord setup without putting any credentials in public chat.": "Für diese Anleitung brauchst du keinen Dashboard-Zugang. Sammle zuerst die richtigen Daten und führe dann die private Discord-Einrichtung durch, ohne Zugangsdaten in einen öffentlichen Chat zu schreiben.",
+        "Step 1": "Schritt 1", "Step 2": "Schritt 2", "Step 3": "Schritt 3", "Step 4": "Schritt 4", "Step 5": "Schritt 5",
+        "Be the server owner or an administrator. After inviting the bot, place its Discord role above every role it needs to manage.": "Du musst Serverbesitzer oder Administrator sein. Setze die Discord-Rolle des Bots nach dem Einladen über alle Rollen, die er verwalten soll.",
+        "Open the correct DayZ service in Nitrado. Copy its service ID and create or copy an API token from the account/API settings. Keep the token private.": "Öffne den richtigen DayZ-Dienst in Nitrado. Kopiere seine Service-ID und erstelle oder kopiere in den Konto-/API-Einstellungen ein API-Token. Halte das Token geheim.",
+        "Use the FTP/file-access details for the selected DayZ service: host, username, and password. Never post these in Discord.": "Verwende die FTP-/Dateizugangsdaten des ausgewählten DayZ-Dienstes: Host, Benutzername und Passwort. Veröffentliche sie niemals in Discord.",
+        "Know whether the server is PC, Xbox, or PlayStation and choose the right map. ADM logs must be available before feeds can start.": "Prüfe, ob der Server auf PC, Xbox oder PlayStation läuft, und wähle die richtige Karte. ADM-Protokolle müssen verfügbar sein, bevor Feeds starten können.",
+        ", and finally": "und schließlich",
+        "once to confirm the first feed scan.": "einmal aus, um den ersten Feed-Scan zu bestätigen.",
+        "Keep each Cherno, Livonia, Sakhal, or customer server on its own profile with its own credentials and feed routes.": "Behalte jeden Cherno-, Livonia-, Sakhal- oder Kundenserver in einem eigenen Profil mit eigenen Zugangsdaten und Feed-Routen.",
+        "Android app live on Google Play — iPhone coming soon": "Android-App jetzt bei Google Play – iPhone folgt bald",
+        "The Wandering Bot Android app is live on Google Play now, with the iPhone version coming soon. Use the same permission-checked controls on a touch screen: activate server tools, check live feeds and status, run authorised actions, and prepare DayZ file or gameplay changes away from your desktop.": "Die Wandering-Bot-Android-App ist jetzt bei Google Play verfügbar; die iPhone-Version folgt bald. Nutze dieselben berechtigungsgeprüften Funktionen per Touchscreen: Serverwerkzeuge aktivieren, Live-Feeds und Status prüfen, autorisierte Aktionen ausführen und DayZ-Datei- oder Gameplay-Änderungen auch ohne Desktop vorbereiten.",
+        "Use your phone to check feeds and server status, manage supported dashboard controls, and keep your DayZ community moving without needing a desktop.": "Prüfe Feeds und Serverstatus auf deinem Handy, verwalte unterstützte Dashboard-Funktionen und betreue deine DayZ-Community ohne Desktop.",
+        "Prepare and review XML or JSON file changes, adjust supported gameplay settings, and keep every live upload behind the same clear review and approval step.": "Bereite XML- oder JSON-Dateiänderungen vor und prüfe sie, passe unterstützte Gameplay-Einstellungen an und halte jeden Live-Upload hinter demselben klaren Prüf- und Bestätigungsschritt.",
+        "The Android and iPhone app uses the same permission-checked backend as the dashboard, so credentials, billing, file uploads, restarts and staff roles stay protected.": "Die Android- und iPhone-App nutzt dasselbe berechtigungsgeprüfte Backend wie das Dashboard, damit Zugangsdaten, Abrechnung, Datei-Uploads, Neustarts und Teamrollen geschützt bleiben.",
+        "The Android app is live now and uses the same account access as Wandering Bot. The iPhone companion is coming soon for owners and trusted staff who want supported server tools, gameplay settings and DayZ file work from their phone.": "Die Android-App ist jetzt verfügbar und nutzt denselben Kontozugang wie Wandering Bot. Die iPhone-App folgt bald für Besitzer und vertrauenswürdige Mitarbeiter, die Serverwerkzeuge, Gameplay-Einstellungen und DayZ-Dateiarbeiten vom Handy aus nutzen möchten.",
+    },
+    "fr": {
+        "Overview": "Aperçu", "Android App": "Application Android", "Kill Feed": "Flux des éliminations", "Discord Bot": "Bot Discord", "Nitrado Tools": "Outils Nitrado", "Trader Economy": "Économie de commerce", "Raid Alerts": "Alertes de raid", "Dashboard": "Tableau de bord", "Airdrops": "Largages", "Console Killfeed": "Flux console",
+        "DayZ server control": "Contrôle de serveur DayZ", "Add Wandering Bot to your DayZ server": "Ajoutez Wandering Bot à votre serveur DayZ",
+        "Install the Wandering Bot Android app or add the bot to Discord, connect Nitrado, and unlock mobile server control plus a guided dashboard for ADM feeds, live maps, events, restarts, XML tools, economy, bans, zones, and server setup.": "Installez l’application Android Wandering Bot ou ajoutez le bot à Discord, connectez Nitrado et profitez du contrôle mobile du serveur ainsi que d’un tableau de bord guidé pour les flux ADM, les cartes en direct, les événements, les redémarrages, les outils XML, l’économie, les bannissements, les zones et la configuration du serveur.",
+        "Owner support is built in": "L’assistance du propriétaire est intégrée", "Need help after adding the bot? Open a ticket straight from your Discord.": "Besoin d’aide après avoir ajouté le bot ? Ouvrez un ticket directement depuis votre Discord.", "Any server administrator can use": "Tout administrateur du serveur peut utiliser", ". It sends your issue directly to the Wandering Bot owner and keeps the reply in your server’s support ticket.": ". Votre demande est envoyée directement au propriétaire de Wandering Bot et la réponse reste dans le ticket d’assistance de votre serveur.",
+        "DayZ Android app": "Application Android DayZ", "Install Wandering Bot from Google Play for mobile DayZ server control, live feeds, guides, events, economy and dashboard access.": "Installez Wandering Bot depuis Google Play pour contrôler votre serveur DayZ sur mobile et accéder aux flux, guides, événements, à l’économie et au tableau de bord.",
+        "DayZ kill feed and ADM feeds": "Flux d’éliminations DayZ et flux ADM", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs.": "Suivez les éliminations, les morts, les tirs longue distance, les joueurs en ligne, les alertes de redémarrage et les flux d’audit depuis les journaux du serveur.",
+        "Airdrops, animals and hordes": "Largages, animaux et hordes", "Queue airdrops, animal drops, zombie hordes, gas zones, crash scenes, convoy-style events, and live event uploads from the dashboard.": "Programmez des largages, apparitions d’animaux, hordes de zombies, zones de gaz, scènes de crash, événements de convoi et envois d’événements depuis le tableau de bord.",
+        "Server dashboard": "Tableau de bord du serveur", "Create temporary or permanent admin logins for trusted staff, then choose which live events, XML tools, schedules, shops, economy, zones, and moderation tools they can use.": "Créez des accès administrateur temporaires ou permanents pour le personnel de confiance, puis choisissez les événements, outils XML, horaires, boutiques, outils d’économie, zones et fonctions de modération qu’il peut utiliser.",
+        "Restarts and vehicle resets": "Redémarrages et réinitialisations des véhicules", "Schedule server restarts, raid weekend reminders, base damage windows, container damage windows, and vehicle reset workflows from one control area.": "Planifiez les redémarrages, rappels de week-end de raid, périodes de dégâts des bases et conteneurs et réinitialisations des véhicules depuis un seul espace.",
+        "Nitrado and Discord automation": "Automatisation Nitrado et Discord", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible.": "Connectez Nitrado, organisez les canaux Discord, gérez les flux de bannissement, liez les gamertags et gardez les actions du personnel visibles.",
+        "Automatic Discord translation": "Traduction Discord automatique", "Give international communities readable conversations with original messages and translations posted in the same channel or routed to a dedicated translation channel.": "Offrez aux communautés internationales des conversations lisibles avec les messages d’origine et leurs traductions dans le même canal ou dans un canal dédié.",
+        "What it covers": "Ce qui est inclus", "DayZ PC, PlayStation and Xbox killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.": "Flux DayZ pour PC, PlayStation et Xbox, outils Discord, tableau de bord Nitrado, événements en direct, économie de boutique et contrôle administratif.",
+        "Choose your Discord server, approve the requested permissions, then let the bot create or repair its channel layout.": "Choisissez votre serveur Discord, approuvez les autorisations demandées, puis laissez le bot créer ou réparer l’organisation de ses canaux.",
+        "Run": "Exécuter", "Enter platform, map, Nitrado token, service ID, FTP username, and FTP password. These are used for your server only.": "Saisissez la plateforme, la carte, le jeton Nitrado, l’identifiant de service, le nom d’utilisateur FTP et le mot de passe FTP. Ces données servent uniquement à votre serveur.", "Use": "Utilisez", ", then": ", puis", "once your ADM log is available so feeds can begin tracking players.": "une fois le journal ADM disponible afin que les flux puissent commencer à suivre les joueurs.",
+        "Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.": "Activez l’accès au tableau de bord pour les administrateurs de confiance, puis gérez les événements, outils XML, la boutique, l’économie, les zones et la modération depuis le panneau web.", "Players can use": "Les joueurs peuvent utiliser", ". Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.": ". Le personnel peut vérifier les liaisons, lancer des événements et organiser les outils du serveur depuis Discord ou le tableau de bord.",
+        "guidance, ADM connection checks, core Discord player and server feeds, leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web control tools.": "guidage, vérifications de connexion ADM, principaux flux Discord des joueurs et du serveur, classements, configuration des canaux Discord et règles du serveur. Les offres ci-dessous ajoutent les outils de contrôle web.",
+    },
+    "es": {
+        "Overview": "Resumen", "Android App": "App Android", "Kill Feed": "Feed de bajas", "Discord Bot": "Bot de Discord", "Nitrado Tools": "Herramientas de Nitrado", "Trader Economy": "Economía comercial", "Raid Alerts": "Alertas de incursión", "Dashboard": "Panel", "Airdrops": "Airdrops", "Console Killfeed": "Killfeed de consola",
+        "DayZ server control": "Control de servidor DayZ", "Add Wandering Bot to your DayZ server": "Añade Wandering Bot a tu servidor DayZ",
+        "Install the Wandering Bot Android app or add the bot to Discord, connect Nitrado, and unlock mobile server control plus a guided dashboard for ADM feeds, live maps, events, restarts, XML tools, economy, bans, zones, and server setup.": "Instala la app Android de Wandering Bot o añade el bot a Discord, conecta Nitrado y obtén control móvil del servidor y un panel guiado para feeds ADM, mapas en directo, eventos, reinicios, herramientas XML, economía, vetos, zonas y configuración del servidor.",
+        "Owner support is built in": "El soporte del propietario está integrado", "Need help after adding the bot? Open a ticket straight from your Discord.": "¿Necesitas ayuda después de añadir el bot? Abre un ticket directamente desde tu Discord.", "Any server administrator can use": "Cualquier administrador del servidor puede usar", ". It sends your issue directly to the Wandering Bot owner and keeps the reply in your server’s support ticket.": ". Envía tu problema directamente al propietario de Wandering Bot y conserva la respuesta en el ticket de soporte de tu servidor.",
+        "DayZ Android app": "App Android de DayZ", "Install Wandering Bot from Google Play for mobile DayZ server control, live feeds, guides, events, economy and dashboard access.": "Instala Wandering Bot desde Google Play para controlar el servidor DayZ desde el móvil y acceder a feeds, guías, eventos, economía y panel.",
+        "DayZ kill feed and ADM feeds": "Killfeed de DayZ y feeds ADM", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs.": "Sigue bajas, muertes, disparos lejanos, jugadores conectados, alertas de reinicio y feeds de auditoría desde los registros del servidor.",
+        "Airdrops, animals and hordes": "Airdrops, animales y hordas", "Queue airdrops, animal drops, zombie hordes, gas zones, crash scenes, convoy-style events, and live event uploads from the dashboard.": "Programa airdrops, apariciones de animales, hordas de zombis, zonas de gas, escenas de accidente, eventos tipo convoy y cargas de eventos desde el panel.",
+        "Server dashboard": "Panel del servidor", "Create temporary or permanent admin logins for trusted staff, then choose which live events, XML tools, schedules, shops, economy, zones, and moderation tools they can use.": "Crea accesos de administrador temporales o permanentes para personal de confianza y elige qué eventos, herramientas XML, horarios, tiendas, economía, zonas y herramientas de moderación pueden usar.",
+        "Restarts and vehicle resets": "Reinicios y restablecimientos de vehículos", "Schedule server restarts, raid weekend reminders, base damage windows, container damage windows, and vehicle reset workflows from one control area.": "Programa reinicios, recordatorios de fin de semana de incursión, periodos de daño de bases y contenedores y restablecimientos de vehículos desde una sola zona.",
+        "Nitrado and Discord automation": "Automatización de Nitrado y Discord", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible.": "Conecta Nitrado, organiza canales de Discord, gestiona feeds de vetos, vincula gamertags y mantén visibles las acciones del personal.",
+        "Automatic Discord translation": "Traducción automática de Discord", "Give international communities readable conversations with original messages and translations posted in the same channel or routed to a dedicated translation channel.": "Ofrece conversaciones legibles a comunidades internacionales con mensajes originales y traducciones en el mismo canal o en uno dedicado.",
+        "What it covers": "Qué incluye", "DayZ PC, PlayStation and Xbox killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.": "Killfeed de DayZ para PC, PlayStation y Xbox, herramientas de Discord, panel de Nitrado, eventos en directo, economía de tienda y control administrativo.",
+        "Choose your Discord server, approve the requested permissions, then let the bot create or repair its channel layout.": "Elige tu servidor de Discord, aprueba los permisos solicitados y deja que el bot cree o repare la organización de sus canales.",
+        "Run": "Ejecuta", "Enter platform, map, Nitrado token, service ID, FTP username, and FTP password. These are used for your server only.": "Introduce plataforma, mapa, token de Nitrado, ID de servicio, usuario FTP y contraseña FTP. Estos datos se usan solo para tu servidor.", "Use": "Usa", ", then": ", después", "once your ADM log is available so feeds can begin tracking players.": "cuando el registro ADM esté disponible para que los feeds empiecen a seguir a los jugadores.",
+        "Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.": "Activa el acceso al panel para administradores de confianza y gestiona eventos, herramientas XML, tienda, economía, zonas y moderación desde el panel web.", "Players can use": "Los jugadores pueden usar", ". Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.": ". El personal puede revisar vínculos, ejecutar eventos y organizar las herramientas del servidor desde Discord o el panel.",
+        "guidance, ADM connection checks, core Discord player and server feeds, leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web control tools.": "guía, comprobaciones de conexión ADM, feeds principales de jugadores y servidor en Discord, clasificaciones, configuración de canales y reglas del servidor. Los planes inferiores añaden las herramientas de control web.",
+    },
+    "pl": {
+        "Overview": "Przegląd", "Android App": "Aplikacja Android", "Kill Feed": "Kanał zabójstw", "Discord Bot": "Bot Discord", "Nitrado Tools": "Narzędzia Nitrado", "Trader Economy": "Ekonomia handlowa", "Raid Alerts": "Alerty rajdów", "Dashboard": "Panel", "Airdrops": "Zrzuty", "Console Killfeed": "Killfeed konsolowy",
+        "DayZ server control": "Sterowanie serwerem DayZ", "Add Wandering Bot to your DayZ server": "Dodaj Wandering Bot do swojego serwera DayZ",
+        "Install the Wandering Bot Android app or add the bot to Discord, connect Nitrado, and unlock mobile server control plus a guided dashboard for ADM feeds, live maps, events, restarts, XML tools, economy, bans, zones, and server setup.": "Zainstaluj aplikację Wandering Bot na Androidzie lub dodaj bota do Discorda, połącz Nitrado i korzystaj z mobilnego sterowania serwerem oraz panelu prowadzącego przez kanały ADM, mapy na żywo, wydarzenia, restarty, narzędzia XML, ekonomię, bany, strefy i konfigurację serwera.",
+        "Owner support is built in": "Pomoc właściciela jest wbudowana", "Need help after adding the bot? Open a ticket straight from your Discord.": "Potrzebujesz pomocy po dodaniu bota? Otwórz zgłoszenie bezpośrednio z Discorda.", "Any server administrator can use": "Każdy administrator serwera może użyć", ". It sends your issue directly to the Wandering Bot owner and keeps the reply in your server’s support ticket.": ". Problem zostanie wysłany bezpośrednio do właściciela Wandering Bot, a odpowiedź pozostanie w zgłoszeniu pomocy twojego serwera.",
+        "DayZ Android app": "Aplikacja DayZ na Androida", "Install Wandering Bot from Google Play for mobile DayZ server control, live feeds, guides, events, economy and dashboard access.": "Zainstaluj Wandering Bot z Google Play, aby sterować serwerem DayZ z telefonu oraz korzystać z kanałów, poradników, wydarzeń, ekonomii i panelu.",
+        "DayZ kill feed and ADM feeds": "Killfeed DayZ i kanały ADM", "Track kills, deaths, longshots, online players, restart alerts, and audit feeds from your server logs.": "Śledź zabójstwa, zgony, dalekie strzały, graczy online, alerty restartów i kanały audytu z dzienników serwera.",
+        "Airdrops, animals and hordes": "Zrzuty, zwierzęta i hordy", "Queue airdrops, animal drops, zombie hordes, gas zones, crash scenes, convoy-style events, and live event uploads from the dashboard.": "Planuj zrzuty, pojawianie się zwierząt, hordy zombie, strefy gazowe, miejsca katastrof, wydarzenia konwojowe i wysyłanie wydarzeń z panelu.",
+        "Server dashboard": "Panel serwera", "Create temporary or permanent admin logins for trusted staff, then choose which live events, XML tools, schedules, shops, economy, zones, and moderation tools they can use.": "Twórz tymczasowe lub stałe loginy administratorów dla zaufanej obsługi i wybieraj wydarzenia, narzędzia XML, harmonogramy, sklepy, ekonomię, strefy i narzędzia moderacji, których mogą używać.",
+        "Restarts and vehicle resets": "Restarty i resetowanie pojazdów", "Schedule server restarts, raid weekend reminders, base damage windows, container damage windows, and vehicle reset workflows from one control area.": "Planuj restarty, przypomnienia o weekendach rajdowych, okna uszkodzeń baz i kontenerów oraz resetowanie pojazdów w jednym miejscu.",
+        "Nitrado and Discord automation": "Automatyzacja Nitrado i Discorda", "Connect Nitrado, organise Discord channels, manage ban feeds, link gamertags, and keep staff actions visible.": "Połącz Nitrado, uporządkuj kanały Discorda, zarządzaj kanałami banów, łącz gamertagi i zachowaj widoczność działań obsługi.",
+        "Automatic Discord translation": "Automatyczne tłumaczenie Discorda", "Give international communities readable conversations with original messages and translations posted in the same channel or routed to a dedicated translation channel.": "Zapewnij międzynarodowym społecznościom czytelne rozmowy z oryginalnymi wiadomościami i tłumaczeniami w tym samym lub osobnym kanale.",
+        "What it covers": "Co obejmuje", "DayZ PC, PlayStation and Xbox killfeed, Discord server tools, Nitrado dashboard, live events, shop economy, and admin control.": "Killfeed DayZ na PC, PlayStation i Xbox, narzędzia Discorda, panel Nitrado, wydarzenia na żywo, ekonomia sklepu i sterowanie administratora.",
+        "Choose your Discord server, approve the requested permissions, then let the bot create or repair its channel layout.": "Wybierz serwer Discord, zatwierdź wymagane uprawnienia, a następnie pozwól botowi utworzyć lub naprawić układ kanałów.",
+        "Run": "Uruchom", "Enter platform, map, Nitrado token, service ID, FTP username, and FTP password. These are used for your server only.": "Wprowadź platformę, mapę, token Nitrado, identyfikator usługi, nazwę użytkownika FTP i hasło FTP. Dane są używane tylko dla twojego serwera.", "Use": "Użyj", ", then": ", następnie", "once your ADM log is available so feeds can begin tracking players.": "gdy dziennik ADM będzie dostępny, aby kanały mogły rozpocząć śledzenie graczy.",
+        "Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.": "Włącz logowanie do panelu dla zaufanych administratorów, a następnie zarządzaj wydarzeniami, narzędziami XML, sklepem, ekonomią, strefami i moderacją w panelu WWW.", "Players can use": "Gracze mogą użyć", ". Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.": ". Obsługa może sprawdzać połączenia, uruchamiać wydarzenia i porządkować narzędzia serwera z Discorda lub panelu.",
+        "guidance, ADM connection checks, core Discord player and server feeds, leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web control tools.": "wskazówki, kontrolę połączenia ADM, podstawowe kanały graczy i serwera na Discordzie, rankingi, konfigurację kanałów i zasady serwera. Poniższe plany panelu dodają internetowe narzędzia sterowania.",
+    },
+}
+
+for _language, _phrases in PUBLIC_HOME_UI_TRANSLATIONS.items():
+    UI_TRANSLATIONS[_language].update(_phrases)
+
+
+# Additional reviewed marketing copy lives in data so the main localization
+# module stays readable as public pages grow.  Loading is local and optional;
+# a missing file never makes the dashboard unavailable.
+_PUBLIC_TRANSLATION_DATA = Path(__file__).with_name("data") / "public_ui_translations.json"
+try:
+    _public_translation_payload = json.loads(_PUBLIC_TRANSLATION_DATA.read_text(encoding="utf-8"))
+except (OSError, ValueError, TypeError):
+    _public_translation_payload = {}
+for _language in ("de", "fr", "es", "pl"):
+    _phrases = _public_translation_payload.get(_language)
+    if isinstance(_phrases, dict):
+        UI_TRANSLATIONS[_language].update(
+            {
+                str(_english): str(_translated)
+                for _english, _translated in _phrases.items()
+                if str(_english).strip() and str(_translated).strip()
+            }
+        )
+
+
 UI_LOCALIZATION_CSS = r"""
 .ui-language-control{display:inline-flex;align-items:center;gap:.42rem;padding:.36rem .5rem;border:1px solid rgba(53,212,194,.34);border-radius:10px;background:rgba(4,15,14,.9);color:#d9efeb;font:600 12px/1.2 system-ui,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.22)}
 .ui-language-control label{white-space:nowrap;color:#a9c5c0}.ui-language-control select{max-width:132px;border:1px solid rgba(255,155,48,.55);border-radius:7px;background:#071311;color:#f5faf9;padding:.36rem .55rem;font:inherit;cursor:pointer}
@@ -417,6 +574,19 @@ _UI_LOCALIZATION_JS_TEMPLATE = r"""
     return element instanceof Element && !element.closest(skipSelector) && !element.closest('[data-ui-localizer]');
   }
 
+  function normalizePhrase(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function directTextNodes(element) {
+    return Array.from(element.childNodes).filter((node) => node.nodeType === Node.TEXT_NODE);
+  }
+
+  function directTextOriginal(node) {
+    if (!originals.has(node)) originals.set(node, node.nodeValue || '');
+    return originals.get(node);
+  }
+
   function translatedText(original, language) {
     if (language === 'en') return original;
     const leading = original.match(/^\s*/)?.[0] || '';
@@ -434,6 +604,41 @@ _UI_LOCALIZATION_JS_TEMPLATE = r"""
     const original = originals.get(node);
     const result = translatedText(original, language);
     if (node.nodeValue !== result) node.nodeValue = result;
+  }
+
+  function localizeElementPhrase(element, language) {
+    if (!(element instanceof Element) || !translatableElement(element)) return false;
+    if (element.matches('select,option,input,button,textarea')) return false;
+    if (element.querySelector('div,p,section,article,aside,header,footer,nav,ul,ol,table,form')) return false;
+    const nodes = directTextNodes(element);
+    if (!nodes.length) return false;
+    const originalPhrase = normalizePhrase(Array.from(element.childNodes).map((node) => {
+      if (node.nodeType === Node.TEXT_NODE) return directTextOriginal(node);
+      if (node instanceof Element && node.matches('code,kbd,samp')) return node.textContent || '';
+      return '';
+    }).join(' '));
+    if (!originalPhrase || isTechnicalText(originalPhrase)) return false;
+    const translated = language === 'en' ? originalPhrase : translations[language]?.[originalPhrase];
+    if (!translated) return false;
+    const target = nodes[0];
+    const leading = directTextOriginal(target).match(/^\s*/)?.[0] || '';
+    const trailing = directTextOriginal(nodes[nodes.length - 1]).match(/\s*$/)?.[0] || '';
+    target.nodeValue = `${leading}${translated}${trailing}`;
+    for (const node of nodes.slice(1)) node.nodeValue = '';
+    return true;
+  }
+
+  function ensureInlineSpacing(element) {
+    if (!(element instanceof Element) || !translatableElement(element)) return;
+    const children = Array.from(element.childNodes);
+    for (let index = 1; index < children.length; index += 1) {
+      const previous = children[index - 1];
+      const current = children[index];
+      if (!(previous instanceof Element) || current.nodeType !== Node.TEXT_NODE) continue;
+      if (!previous.matches('strong,b,code,kbd,samp')) continue;
+      const value = current.nodeValue || '';
+      if (value && !/^\s|^[,.;:!?)]/.test(value)) current.nodeValue = ` ${value}`;
+    }
   }
 
   function localizeAttributes(element, language) {
@@ -456,8 +661,13 @@ _UI_LOCALIZATION_JS_TEMPLATE = r"""
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
     let node;
     while ((node = walker.nextNode())) {
-      if (node.nodeType === Node.TEXT_NODE) localizeTextNode(node, language);
-      else localizeAttributes(node, language);
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (!(node.parentElement && localizeElementPhrase(node.parentElement, language))) localizeTextNode(node, language);
+      } else {
+        localizeAttributes(node, language);
+        localizeElementPhrase(node, language);
+        ensureInlineSpacing(node);
+      }
     }
   }
 

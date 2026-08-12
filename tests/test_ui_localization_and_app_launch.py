@@ -5,6 +5,7 @@ import unittest
 import dashboard
 from ui_localization import (
     CORE_APP_UI_TRANSLATIONS,
+    PUBLIC_HOME_UI_TRANSLATIONS,
     SUPPORTED_UI_LANGUAGES,
     UI_TRANSLATIONS,
     ui_localization_javascript,
@@ -41,6 +42,54 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertNotIn("fetch(", script)
         self.assertNotIn("translate.googleapis", script)
 
+    def test_public_homepage_has_full_core_translation_copy(self):
+        required = {
+            "Add Wandering Bot to your DayZ server",
+            "Owner support is built in",
+            "DayZ Android app",
+            "DayZ kill feed and ADM feeds",
+            "Airdrops, animals and hordes",
+            "Server dashboard",
+            "Restarts and vehicle resets",
+            "Nitrado and Discord automation",
+            "Automatic Discord translation",
+            "Choose your Discord server, approve the requested permissions, then let the bot create or repair its channel layout.",
+            "Enter platform, map, Nitrado token, service ID, FTP username, and FTP password. These are used for your server only.",
+            "Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.",
+        }
+        for language in ("de", "fr", "es", "pl"):
+            self.assertTrue(required.issubset(PUBLIC_HOME_UI_TRANSLATIONS[language]))
+            for english in required:
+                self.assertNotEqual(english, PUBLIC_HOME_UI_TRANSLATIONS[language][english])
+
+    def test_public_feed_and_pricing_sections_are_translated(self):
+        required = {
+            "Live Feed Previews",
+            "See how Wandering Bot posts into Discord",
+            "Let your community speak its own language",
+            "Pricing",
+            "Pick the dashboard access that fits your server",
+        }
+        for language in ("de", "fr", "es", "pl"):
+            for english in required:
+                self.assertIn(english, UI_TRANSLATIONS[language])
+                self.assertNotEqual(english, UI_TRANSLATIONS[language][english])
+
+    def test_mobile_entry_page_has_no_known_english_fallbacks(self):
+        required = {
+            "Browse free Crafting & Survival library",
+            "View DayZ loot tier maps",
+            "Choose the Discord server you administer and approve the requested permissions.",
+            "Have the Nitrado service ID and API token, plus the FTP host, username and password for the same DayZ service. Choose the correct platform and map.",
+            "Save the dashboard ID and one-time password from the private setup reply, then enter both credentials below.",
+            "Join the support Discord",
+            "Forgotten password?",
+        }
+        for language in ("de", "fr", "es", "pl"):
+            for english in required:
+                self.assertIn(english, UI_TRANSLATIONS[language])
+                self.assertNotEqual(english, UI_TRANSLATIONS[language][english])
+
     def test_localization_assets_are_injected_into_html_only(self):
         with dashboard.APP.test_client() as client:
             app_response = client.get("/app")
@@ -49,12 +98,12 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
 
         self.assertEqual(200, app_response.status_code)
         app_html = app_response.get_data(as_text=True)
-        self.assertIn('/ui-localization.css?v=1', app_html)
-        self.assertIn('/ui-localization.js?v=1', app_html)
+        self.assertIn('/ui-localization.css?v=2', app_html)
+        self.assertIn('/ui-localization.js?v=2', app_html)
         self.assertNotIn("Wandering Bot is now live on Google Play", app_html)
         self.assertEqual(200, script_response.status_code)
         self.assertIn("application/javascript", script_response.content_type)
-        self.assertNotIn('/ui-localization.js?v=1', script_response.get_data(as_text=True))
+        self.assertNotIn('/ui-localization.js?v=2', script_response.get_data(as_text=True))
         self.assertEqual(200, css_response.status_code)
         self.assertIn("text/css", css_response.content_type)
 

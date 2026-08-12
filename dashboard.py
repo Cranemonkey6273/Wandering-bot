@@ -1333,13 +1333,13 @@ def add_security_headers(response):
             if "/ui-localization.css" not in body and "</head>" in body:
                 body = body.replace(
                     "</head>",
-                    '<link rel="stylesheet" href="/ui-localization.css?v=1">\n</head>',
+                    '<link rel="stylesheet" href="/ui-localization.css?v=2">\n</head>',
                     1,
                 )
             if "/ui-localization.js" not in body and "</body>" in body:
                 body = body.replace(
                     "</body>",
-                    '<script src="/ui-localization.js?v=1" defer></script>\n</body>',
+                    '<script src="/ui-localization.js?v=2" defer></script>\n</body>',
                     1,
                 )
             response.set_data(body)
@@ -2468,6 +2468,8 @@ PUBLIC_LANDING_TEMPLATE = """
     .setup-panel header span { color: var(--amber); font-weight: 950; }
     .steps { display: grid; gap: .65rem; }
     .step { display: grid; grid-template-columns: 2.1rem minmax(0, 1fr); gap: .65rem; padding: .75rem; border: 1px solid rgba(126, 204, 184, .16); border-radius: .45rem; background: rgba(0,0,0,.22); }
+    .step strong, .step span { display: block; }
+    .step strong { margin-bottom: .18rem; }
     .num { display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border-radius: 50%; background: rgba(53, 212, 194, .17); color: var(--teal); font-weight: 950; }
     code { color: var(--green); font-weight: 900; overflow-wrap: anywhere; }
     .band { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; margin-top: 1rem; padding: .85rem; background: var(--panel-strong); }
