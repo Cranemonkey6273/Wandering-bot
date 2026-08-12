@@ -25077,7 +25077,6 @@ async def log_slash_command_usage(interaction):
         print(f"SLASH COMMAND LOG ERROR: {error}")
 
 
-@bot.tree.interaction_check
 async def log_all_slash_commands(interaction: discord.Interaction):
     if interaction.guild:
         load_guild_configs()
@@ -25095,6 +25094,12 @@ async def log_all_slash_commands(interaction: discord.Interaction):
             return False
     await log_slash_command_usage(interaction)
     return True
+
+
+# ``CommandTree.interaction_check`` is an overridable coroutine, not a
+# decorator in discord.py.  Assign the application-wide check explicitly so
+# every slash command is gated and audited before dispatch.
+bot.tree.interaction_check = log_all_slash_commands
 
 
 @bot.listen("on_command")
