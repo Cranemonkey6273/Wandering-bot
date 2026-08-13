@@ -10,3 +10,4 @@ py-cord
 requests
 python-dotenv
 pillow
+qrcode>=7.4,<9

@@ -39,6 +39,7 @@ import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
 from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_qr_builder import DayZQRBuilderError, build_dayz_qr_scene
 from ui_localization import UI_LOCALIZATION_CSS, ui_localization_javascript
 
 DATA_ROOT = (
@@ -1507,6 +1508,7 @@ DASHBOARD_FEATURE_LABELS = {
     "moderation": "Moderation tools",
     "translation": "Automatic translation",
     "ai_agent": "AI sandbox",
+    "qr_builder": "In-game QR builder",
 }
 DASHBOARD_FEATURE_KEYS = tuple(DASHBOARD_FEATURE_LABELS)
 FEED_ROUTE_GROUPS = {
@@ -1737,6 +1739,7 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
             "translation": True,
             "ai_agent": False,
+            "qr_builder": True,
         },
         "payment_url": "https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04",
         "stripe_payment_link_id": "",
@@ -1768,6 +1771,7 @@ DEFAULT_BILLING_PLANS = [
             "moderation": True,
             "translation": True,
             "ai_agent": True,
+            "qr_builder": True,
         },
         "payment_url": "https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05",
         "stripe_payment_link_id": "",
@@ -11059,7 +11063,7 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <nav class="tool-switcher" aria-label="XML workshop tools">
-        {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("saved", "Saved Recipes")] %}
+        {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("qr-code", "In-Game QR"), ("saved", "Saved Recipes")] %}
         <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}{{ profile_qs }}">{{ label }}</a>
         {% endfor %}
       </nav>
@@ -11659,6 +11663,61 @@ PAGE_TEMPLATE = """
             </div>
           </form>
         </article>
+        {% endif %}
+        {% if xml_tool == "qr-code" %}
+        {% if is_owner or (server and server.dashboard_access.features.qr_builder) %}
+        <article class="admin-panel full" id="qr-code-builder">
+          <h3>In-Game QR Code Builder</h3>
+          <p class="tool-note">Create a working QR object scene from a web or Discord URL. It reuses the exact proven frame, gate/window, concrete supports and pole layout supplied by Wandering Bot; only the dark QR cells change.</p>
+          <div class="command-detail-grid">
+            <form class="admin-form" method="post" action="/api/admin/qr-code-generate" data-html-submit="true">
+              <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+              <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+              <input class="hidden-field" name="dashboard_mode" value="{{ 'owner' if is_owner else 'admin' }}">
+              <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'Owner preview' }}" readonly></div>
+              <label class="full">URL to open
+                <input name="url" type="url" required placeholder="https://discord.gg/your-invite">
+                <span class="muted">Use a short direct URL. The proven low-object frame is a fixed 29 x 29 QR layout.</span>
+              </label>
+              <label>Unique scene name
+                <input name="name" required maxlength="64" placeholder="ChernoNWAFDiscordQR">
+              </label>
+              <label>Compass heading
+                <input name="heading" type="number" step="0.000001" value="0" required>
+              </label>
+              <label>X coordinate
+                <input name="x" type="number" step="0.000001" required placeholder="13030.0439">
+              </label>
+              <label>Y height / elevation
+                <input name="y" type="number" step="0.000001" required placeholder="16.015965">
+              </label>
+              <label>Z coordinate
+                <input name="z" type="number" step="0.000001" required placeholder="14046.6679">
+              </label>
+              <div class="full">
+                <button type="submit">Generate Validated QR Package</button>
+                <span class="result muted">Downloads the ObjectSpawner JSON, scannable PNG preview and setup instructions.</span>
+              </div>
+            </form>
+            <aside class="xml-output-panel">
+              <div class="mini-grid">
+                <div class="mini-card"><span class="muted">Frame</span><strong>29 exact objects</strong></div>
+                <div class="mini-card"><span class="muted">QR cells</span><strong>Dark cells only</strong></div>
+                <div class="mini-card"><span class="muted">Output</span><strong>Validated JSON</strong></div>
+                <div class="mini-card"><span class="muted">Install</span><strong>cfggameplay reference</strong></div>
+              </div>
+              <div class="embed-preview"><strong>Safe workflow</strong><span>The tool does not touch a live Nitrado server. Download, review and add the JSON path to <code>WorldsData.objectSpawnersArr</code>. Rotation and location are applied to the entire construction as one rigid scene.</span></div>
+              <div class="embed-preview warning"><strong>Important</strong><span>In-game rendering and scan distance still depend on DayZ, platform performance and placement. Test the generated build after the next restart before advertising it.</span></div>
+            </aside>
+          </div>
+        </article>
+        {% else %}
+        <article class="admin-panel full">
+          <h3>In-Game QR Code Builder</h3>
+          <p class="tool-note">This validated low-object QR builder is included with Wandering Bot Pro (€11.99), Ultimate and owner access.</p>
+          <a class="button" href="/admin?section=upgrade{{ server_qs }}{{ profile_qs }}">Compare plans</a>
+        </article>
+        {% endif %}
         {% endif %}
         {% if xml_tool == "saved" %}
         <article class="admin-panel full">
@@ -13176,6 +13235,7 @@ PAGE_TEMPLATE = """
                 <label class="check"><input type="checkbox" name="feature_server_control" {% if features.server_control %}checked{% endif %}> Server control</label>
                 <label class="check"><input type="checkbox" name="feature_wages" {% if features.wages %}checked{% endif %}> Economy wages</label>
                 <label class="check"><input type="checkbox" name="feature_ai_agent" {% if features.ai_agent %}checked{% endif %}> AI sandbox</label>
+                <label class="check"><input type="checkbox" name="feature_qr_builder" {% if features.qr_builder %}checked{% endif %}> In-game QR builder</label>
               </div>
             </div>
             <div class="full"><button type="submit">Save Access</button> <span class="result muted"></span></div>
@@ -20317,6 +20377,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/dayz-converter-inject": "xml_workshop",
     "/api/admin/xml-inject": "xml_workshop",
     "/api/admin/vehicle-loadout-generate": "xml_workshop",
+    "/api/admin/qr-code-generate": "qr_builder",
     "/api/admin/xml-workshop": "xml_workshop",
 }
 
@@ -22638,6 +22699,7 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
             f"Up to {server_limit} DayZ servers included",
             "Expanded event, moderation and server-management workflow",
             "Automatic Discord translation in the same channel or a dedicated translation channel",
+            "Validated in-game QR code builder using the proven low-object frame",
         ],
         "dashboard_ultimate": [
             "Everything in Pro dashboard access",
@@ -39089,6 +39151,7 @@ def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
             "wages": bool(features.get("wages", False)),
             "xml_workshop": bool(features.get("xml_workshop", False)),
             "ai_agent": bool(features.get("ai_agent", False)),
+            "qr_builder": bool(features.get("qr_builder", False)),
         },
     }
 
@@ -41759,7 +41822,7 @@ def page(mode: str, auth: dict[str, Any]):
     if active_section == "pve" and request.args.get("edit_event"):
         pve_tool = "builder"
     xml_tool = str(request.args.get("xml_tool") or "loot").strip().lower()
-    if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "saved"}:
+    if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "qr-code", "saved"}:
         xml_tool = "player-loadout"
     if active_section == "xml-workshop" and request.args.get("factory_map"):
         xml_tool = "loot"
@@ -41942,6 +42005,7 @@ def page(mode: str, auth: dict[str, Any]):
     return render_template_string(
         PAGE_TEMPLATE,
         mode=mode,
+        is_owner=auth.get("kind") == "owner",
         active_section=active_section,
         command_section=command_section,
         pve_tool=pve_tool,
@@ -44653,6 +44717,77 @@ def api_vehicle_loadout_generate():
     except ValueError as error:
         return jsonify({"ok": False, "success": False, "error": str(error)}), 400
     return jsonify({"ok": True, "success": True, **result, "note": "Generated vehicle spawnabletypes XML."})
+
+
+@APP.post("/api/admin/qr-code-generate")
+def api_qr_code_generate():
+    payload, error = require_admin()
+    if error:
+        return error
+    payload = strip_dashboard_control_fields(payload or {})
+    try:
+        result = build_dayz_qr_scene(
+            payload.get("url"),
+            payload.get("name"),
+            payload.get("x"),
+            payload.get("y"),
+            payload.get("z"),
+            payload.get("heading"),
+        )
+        filename = f"{result['name']}.json"
+        custom_path = f"./custom/{filename}"
+        scene_text = json.dumps(result["scene"], indent=2, ensure_ascii=False) + "\n"
+        valid, validation_message = validate_dayz_upload_text(custom_path, scene_text)
+        if not valid:
+            raise DayZQRBuilderError(f"Generated DayZ JSON failed validation: {validation_message}")
+    except DayZQRBuilderError as build_error:
+        return jsonify({"ok": False, "success": False, "error": str(build_error)}), 400
+
+    instruction_text = (
+        "WANDERING BOT - DAYZ IN-GAME QR PACKAGE\n"
+        "==========================================\n\n"
+        f"Scene name: {result['name']}\n"
+        f"URL: {result['url']}\n"
+        f"Anchor X/Y/Z: {result['anchor'][0]}, {result['anchor'][1]}, {result['anchor'][2]}\n"
+        f"Compass heading: {result['heading']}\n"
+        f"Exact frame objects: {result['frame_object_count']}\n"
+        f"Dark QR cell objects: {result['pixel_object_count']}\n"
+        f"Total objects: {result['total_object_count']}\n"
+        "Validation: passed Wandering Bot ObjectSpawner JSON checks\n\n"
+        "INSTALLATION\n"
+        f"1. Upload {filename} to the mission custom folder.\n"
+        "2. Open cfggameplay.json and find WorldsData.objectSpawnersArr.\n"
+        f"3. Add this exact reference without removing the existing entries:\n   \"{custom_path}\"\n"
+        "4. Validate cfggameplay.json, restart once, and test the QR in game.\n\n"
+        "This package never uploads or changes live Nitrado files automatically.\n"
+        "The supplied X/Y/Z is the frame anchor. The whole proven frame and QR are rotated together.\n"
+    )
+    manifest = {
+        "schema_version": 1,
+        "generator": "Wandering Bot In-Game QR Builder",
+        "name": result["name"],
+        "url": result["url"],
+        "custom_path": custom_path,
+        "anchor": result["anchor"],
+        "heading": result["heading"],
+        "frame_object_count": result["frame_object_count"],
+        "pixel_object_count": result["pixel_object_count"],
+        "total_object_count": result["total_object_count"],
+        "validation": {"ok": True, "message": "DayZ ObjectSpawner JSON validation passed."},
+    }
+    package = io.BytesIO()
+    with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(filename, scene_text)
+        archive.writestr(f"{result['name']}-preview.png", result["preview_png"])
+        archive.writestr(f"{result['name']}-manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+        archive.writestr("README.txt", instruction_text)
+    package.seek(0)
+    return send_file(
+        package,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{result['name']}-DayZ-QR.zip",
+    )
 
 
 @APP.post("/api/admin/loadout-package")
