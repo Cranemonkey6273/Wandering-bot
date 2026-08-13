@@ -2106,10 +2106,18 @@ def extract_packed_object(line):
 
 
 def extract_pvp_kill_details(line):
-    direct = re.search(r'Player "([^"]+)" killed Player "([^"]+)" with ([^ ]+)', line)
-    reverse = re.search(r'Player "([^"]+)".* killed by Player "([^"]+)".* with ([^ ]+)', line)
+    direct = re.search(
+        r'(?:Player\s+)?"([^"]+)"\s+killed\s+(?:Player\s+)?"([^"]+)"\s+with\s+([^\s]+)',
+        line,
+        re.IGNORECASE,
+    )
+    reverse = re.search(
+        r'(?:Player\s+)?"([^"]+)".*?\bkilled by\s+(?:Player\s+)?"([^"]+)".*?\bwith\s+([^\s]+)',
+        line,
+        re.IGNORECASE,
+    )
     hit_death = re.search(
-        r'"([^"]+)"\s+\(DEAD\).*?hit by Player "([^"]+)".*?for ([0-9]+\.?[0-9]*) damage \(([^)]+)\) with ([^ ]+) from ([0-9]+\.?[0-9]*)\s*m(?:eters?)?',
+        r'"([^"]+)"\s+\(DEAD\).*?hit by\s+(?:Player\s+)?"([^"]+)".*?for ([0-9]+\.?[0-9]*) damage \(([^)]+)\) with ([^ ]+) from ([0-9]+\.?[0-9]*)\s*m(?:eters?)?',
         line,
         re.IGNORECASE
     )
@@ -2176,6 +2184,95 @@ def extract_pvp_kill_details(line):
     details["headshot"] = headshot
 
     return details
+
+
+def extract_pvp_hit_details(line):
+    """Parse a player-on-player ADM damage line, including non-lethal hits.
+
+    DayZ has emitted both ``hit by "Name"`` and ``hit by Player "Name"``
+    variants.  The returned health value is the victim's health *after* the
+    hit, which lets payout rules reject corpse hits safely.
+    """
+    hit = re.search(
+        r'(?:Player\s+)?"([^"]+)"\s*(\(DEAD\))?.*?'
+        r'\[HP:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\]\s+hit by\s+'
+        r'(?:Player\s+)?"([^"]+)".*?for\s+'
+        r'([0-9]+(?:\.[0-9]+)?)\s+damage\s+\(([^)]+)\)'
+        r'(?:\s+with\s+([^\s]+))?'
+        r'(?:\s+from\s+([0-9]+(?:\.[0-9]+)?)\s*m(?:eters?)?)?',
+        str(line or ""),
+        re.IGNORECASE,
+    )
+    if not hit:
+        return None
+    details = {
+        "victim": hit.group(1),
+        "victim_dead": bool(hit.group(2)),
+        "victim_health": float(hit.group(3)),
+        "attacker": hit.group(4),
+        "damage": float(hit.group(5)),
+        "ammo": str(hit.group(6) or "").strip(),
+        "weapon": str(hit.group(7) or "").strip(),
+        "distance": float(hit.group(8) or 0),
+    }
+    details["coords"] = extract_adm_player_coords(line, details["victim"]) or extract_adm_coords(line)
+    details["attacker_coords"] = extract_adm_player_coords(line, details["attacker"])
+    return details
+
+
+def adm_hit_is_melee(hit_details, line=""):
+    if not isinstance(hit_details, dict):
+        return False
+    damage_type = str(hit_details.get("ammo") or "").strip().lower()
+    weapon = str(hit_details.get("weapon") or "").strip().lower()
+    if damage_type.startswith(("melee", "fist", "punch", "kick", "closecombat")):
+        return True
+    if weapon in {"fists", "hands", "unarmed"}:
+        return True
+    return bool(re.search(r'\((?:melee|fist|punch|kick|closecombat)', str(line or ""), re.IGNORECASE))
+
+
+def extract_verified_pve_kill_actor(line, target_kind):
+    """Return the hunter only when the ADM direction is Player -> PVE target.
+
+    This deliberately does not match ``Player ... killed by Infected`` or
+    animal attacks, preventing death lines from becoming hunting rewards.
+    """
+    target_kind = str(target_kind or "").strip().lower()
+    if target_kind == "infected":
+        target = r'(?:Infected[A-Za-z0-9_]*\b|Zombie[A-Za-z0-9_]*\b|Zmb[A-Za-z0-9_]*\b)'
+    elif target_kind == "animal":
+        target = (
+            r'(?:Animal_[A-Za-z0-9_]+\b|Bear\b|Wolf\b|Deer\b|Stag\b|Doe\b|'
+            r'Boar\b|Pig\b|Cow\b|Sheep\b|Goat\b|Chicken\b|Hen\b|Rooster\b|Fox\b|Hare\b)'
+        )
+    else:
+        return ""
+    match = re.search(
+        rf'(?:Player\s+)?"([^"]+)".*?\bkilled\s+{target}',
+        str(line or ""),
+        re.IGNORECASE,
+    )
+    return str(match.group(1) or "").strip() if match else ""
+
+
+def adm_player_was_killed_by(line, source_kind):
+    source_kind = str(source_kind or "").strip().lower()
+    if source_kind == "infected":
+        source = r'(?:Infected[A-Za-z0-9_]*\b|Zombie[A-Za-z0-9_]*\b|Zmb[A-Za-z0-9_]*\b)'
+    elif source_kind == "animal":
+        source = (
+            r'(?:Animal_[A-Za-z0-9_]+\b|Bear\b|Wolf\b|Deer\b|Stag\b|Doe\b|'
+            r'Boar\b|Pig\b|Cow\b|Sheep\b|Goat\b|Chicken\b|Hen\b|Rooster\b|Fox\b|Hare\b)'
+        )
+    else:
+        return ""
+    match = re.search(
+        rf'(?:Player\s+)?"([^"]+)".*?\bkilled by\s+{source}',
+        str(line or ""),
+        re.IGNORECASE,
+    )
+    return str(match.group(1) or "").strip() if match else ""
 
 
 def is_stale_self_kill_of_dead_player(line, kill_details=None):
@@ -10869,7 +10966,53 @@ async def maybe_translate_message(message):
                 record_translation_runtime_stat(guild_id, "failed", f"rule#{item.get('rule_index', '?')} send failed: {send_err}")
 
 
-ADM_ECONOMY_RULE_TYPES = {"kill", "death", "longshot"}
+ADM_ECONOMY_RULE_TYPES = {
+    "kill",
+    "death",
+    "headshot",
+    "longshot",
+    "player_hit",
+    "melee_hit",
+    "infected_kill",
+    "animal_kill",
+    "infected_death",
+    "animal_death",
+    "vehicle_death",
+    "suicide",
+    "bleedout",
+    "build",
+    "placed",
+    "packed",
+    "raid",
+    "flag_raise",
+    "flag_lower",
+    "kill_streak",
+    "bounty_claim",
+}
+
+ADM_ECONOMY_RULE_LABELS = {
+    "kill": "verified PvP kill",
+    "death": "verified PvP death",
+    "headshot": "verified PvP headshot kill",
+    "longshot": "verified longshot kill",
+    "player_hit": "verified PvP hit",
+    "melee_hit": "verified melee PvP hit",
+    "infected_kill": "verified infected kill",
+    "animal_kill": "verified animal kill",
+    "infected_death": "death caused by infected",
+    "animal_death": "death caused by an animal",
+    "vehicle_death": "vehicle death",
+    "suicide": "suicide",
+    "bleedout": "bleed-out death",
+    "build": "base-building action",
+    "placed": "item placement",
+    "packed": "packed item",
+    "raid": "dismantle/destroy action",
+    "flag_raise": "territory flag raised",
+    "flag_lower": "territory flag lowered",
+    "kill_streak": "PvP kill-streak bonus",
+    "bounty_claim": "bounty claim bonus",
+}
 
 
 def economy_rule_is_enabled(rule):
@@ -10933,6 +11076,16 @@ def normalize_economy_rule_stores(config):
                 normalized["minimum_distance"] = max(1.0, float(rule.get("minimum_distance", 100) or 100))
             except (TypeError, ValueError):
                 normalized["minimum_distance"] = 100.0
+        elif event_type in {"player_hit", "melee_hit"}:
+            try:
+                normalized["minimum_damage"] = max(0.0, float(rule.get("minimum_damage", 1) or 0))
+            except (TypeError, ValueError):
+                normalized["minimum_damage"] = 1.0
+        elif event_type == "kill_streak":
+            try:
+                normalized["minimum_streak"] = max(2, int(rule.get("minimum_streak", 3) or 3))
+            except (TypeError, ValueError):
+                normalized["minimum_streak"] = 3
         target.append(normalized)
         if source != store_name or normalized != rule_value:
             changed = True
@@ -11062,21 +11215,49 @@ async def apply_chat_reward_punishment_rules(message, lower):
     await message.channel.send(embed=style_embed(embed))
 
 
-async def apply_verified_adm_economy_rules(guild_id, config, kill_details):
-    """Apply per-kill/death/longshot rules only after ADM kill validation and dedupe."""
-    if not kill_details or not isinstance(config, dict):
+async def apply_verified_adm_economy_rules(
+    guild_id,
+    config,
+    kill_details=None,
+    *,
+    event_type="kill",
+    line="",
+):
+    """Apply server-scoped economy rules after ADM validation and dedupe.
+
+    The caller runs this only after the persistent line/event replay guards.
+    Direction-sensitive helpers ensure an infected/animal death never becomes
+    a hunting reward and a dead-body hit never becomes a per-hit reward.
+    """
+    if not isinstance(config, dict):
         return []
     normalize_economy_rule_stores(config)
     rules = config.get("adm_reward_rules", [])
     if not rules:
         return []
 
-    killer = str(kill_details.get("killer") or "").strip()
-    victim = str(kill_details.get("victim") or "").strip()
+    raw_event_type = str(event_type or "").strip().lower()
+    kill_details = kill_details if isinstance(kill_details, dict) else None
+    if raw_event_type == "kill" and not kill_details:
+        kill_details = extract_pvp_kill_details(line)
+    killer = str((kill_details or {}).get("killer") or "").strip()
+    victim = str((kill_details or {}).get("victim") or "").strip()
     try:
-        distance = float(kill_details.get("distance") or 0)
+        distance = float((kill_details or {}).get("distance") or 0)
     except (TypeError, ValueError):
         distance = 0.0
+    hit_details = extract_pvp_hit_details(line) if raw_event_type in {"cut", "kill"} and line else None
+    if raw_event_type == "kill" and not hit_details and kill_details:
+        hit_details = {
+            "attacker": killer,
+            "victim": victim,
+            "damage": float(kill_details.get("damage") or 0),
+            "distance": distance,
+            "ammo": kill_details.get("ammo") or "",
+            "weapon": kill_details.get("weapon") or "",
+            "victim_dead": True,
+            "victim_health": 0,
+        }
     economy_guild_id = discord_guild_id_for_runtime_id(guild_id)
     matched = []
     changed = False
@@ -11087,14 +11268,66 @@ async def apply_verified_adm_economy_rules(guild_id, config, kill_details):
         event_type = str(rule.get("event_type") or "").strip().lower()
         if event_type not in ADM_ECONOMY_RULE_TYPES:
             continue
-        subject = victim if event_type == "death" else killer
-        if event_type == "longshot":
+        subject = ""
+        if event_type == "kill" and raw_event_type == "kill":
+            subject = killer
+        elif event_type == "death" and raw_event_type == "kill":
+            subject = victim
+        elif event_type == "headshot" and raw_event_type == "kill" and (kill_details or {}).get("headshot"):
+            subject = killer
+        elif event_type == "longshot" and raw_event_type == "kill":
             try:
                 minimum_distance = max(1.0, float(rule.get("minimum_distance", 100) or 100))
             except (TypeError, ValueError):
                 minimum_distance = 100.0
             if distance < minimum_distance:
                 continue
+            subject = killer
+        elif event_type in {"player_hit", "melee_hit"} and hit_details:
+            attacker = str(hit_details.get("attacker") or "").strip()
+            hit_victim = str(hit_details.get("victim") or "").strip()
+            if not attacker or normalize_discord_name(attacker) == normalize_discord_name(hit_victim):
+                continue
+            # A non-kill damage event against HP 0/DEAD is a corpse hit. The
+            # validated lethal hit may count once because parse_adm already
+            # passed the PvP death-body guard before arriving here.
+            if raw_event_type != "kill" and (
+                hit_details.get("victim_dead") or float(hit_details.get("victim_health") or 0) <= 0
+            ):
+                continue
+            try:
+                minimum_damage = max(0.0, float(rule.get("minimum_damage", 1) or 0))
+            except (TypeError, ValueError):
+                minimum_damage = 1.0
+            if float(hit_details.get("damage") or 0) < minimum_damage:
+                continue
+            if event_type == "melee_hit" and not adm_hit_is_melee(hit_details, line):
+                continue
+            subject = attacker
+        elif event_type == "infected_kill" and raw_event_type == "zombie_kill":
+            subject = extract_verified_pve_kill_actor(line, "infected")
+        elif event_type == "animal_kill" and raw_event_type == "animal_kill":
+            subject = extract_verified_pve_kill_actor(line, "animal")
+        elif event_type == "infected_death" and raw_event_type == "zombie_kill":
+            subject = adm_player_was_killed_by(line, "infected")
+        elif event_type == "animal_death" and raw_event_type == "animal_kill":
+            subject = adm_player_was_killed_by(line, "animal")
+        elif event_type == "vehicle_death" and raw_event_type == "vehicle_kill":
+            subject = str((extract_vehicle_kill_details(line) or {}).get("victim") or "").strip()
+        elif event_type in {"suicide", "bleedout", "build", "placed", "packed", "raid", "flag_raise", "flag_lower"}:
+            if raw_event_type == event_type:
+                subject = extract_player_name(line)
+        elif event_type == "kill_streak" and raw_event_type == "kill":
+            try:
+                minimum_streak = max(2, int(rule.get("minimum_streak", 3) or 3))
+            except (TypeError, ValueError):
+                minimum_streak = 3
+            current = int(((alive_streaks.get(str(guild_id)) or {}).get(killer) or {}).get("current_spree", 0) or 0)
+            if current + 1 < minimum_streak:
+                continue
+            subject = killer
+        elif event_type == "bounty_claim" and raw_event_type == "kill" and get_bounty(guild_id, victim):
+            subject = killer
         try:
             amount = max(0, int(rule.get("amount", 0) or 0))
         except (TypeError, ValueError):
@@ -11132,11 +11365,7 @@ async def apply_verified_adm_economy_rules(guild_id, config, kill_details):
     if target_guild:
         lines = []
         for result in matched[:8]:
-            label = {
-                "kill": "verified PvP kill",
-                "death": "verified PvP death",
-                "longshot": "verified longshot kill",
-            }.get(result["event_type"], result["event_type"])
+            label = ADM_ECONOMY_RULE_LABELS.get(result["event_type"], result["event_type"])
             sign = "+" if result["amount"] >= 0 else "-"
             lines.append(
                 f"<@{result['discord_id']}> `{result['gamertag']}`: "
@@ -11147,7 +11376,7 @@ async def apply_verified_adm_economy_rules(guild_id, config, kill_details):
             config,
             "VERIFIED ADM ECONOMY RULE",
             "\n".join(lines),
-            [{"name": "Source", "value": "Validated and deduplicated ADM kill event", "inline": False}],
+            [{"name": "Source", "value": "Validated and deduplicated DayZ ADM event", "inline": False}],
             color=0xF1C40F,
             footer="Money Feed - Verified ADM Rule",
         )
@@ -15905,7 +16134,12 @@ def classify_event(line):
         if any(word in lower for word in ["hit", "attacked", "damage", "wound"]):
             return "zombie_hit"
 
-    if 'hit by player "' in lower and ("(dead)" in lower or "[hp: 0]" in lower):
+    if re.search(r'hit by\s+(?:player\s+)?"', lower) and ("(dead)" in lower or "[hp: 0]" in lower):
+        return "kill"
+
+    # Bohemia's documented ADM format omits the optional word ``Player``
+    # before the killer: Player "Victim" ... killed by "Killer" ...
+    if extract_pvp_kill_details(line):
         return "kill"
 
     # Vehicle deaths/hits — DayZ ADM lines look like:
@@ -22068,11 +22302,16 @@ async def parse_adm(guild_id, config):
             player_audit_changed = True
         update_player_stats_from_adm(guild_id, event_type, line)
         save_player_stats()
-        if event_type == "kill":
-            try:
-                await apply_verified_adm_economy_rules(guild_id, config, kill_details)
-            except Exception as economy_rule_error:
-                print(f"[ECONOMY] Verified ADM rule failed for {guild_id}: {economy_rule_error}")
+        try:
+            await apply_verified_adm_economy_rules(
+                guild_id,
+                config,
+                kill_details,
+                event_type=event_type,
+                line=line,
+            )
+        except Exception as economy_rule_error:
+            print(f"[ECONOMY] Verified ADM rule failed for {guild_id}: {economy_rule_error}")
         # Keep the consecutive-days streak tied to the actual survivor
         # lifecycle.  PvP and vehicle deaths are reset in their specialised
         # feed branches below; these ADM event types cover infected, animal,

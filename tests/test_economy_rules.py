@@ -106,6 +106,148 @@ class EconomyRuleTests(unittest.TestCase):
         link_lookup.assert_not_called()
         save_wallets.assert_not_called()
 
+    def _apply_rule(self, guild_id, rule, line, event_type, *, kill_details=None, user_id="55100"):
+        self.bot.wallets.pop(self.bot.wallet_key(guild_id, user_id), None)
+        config = {"adm_reward_rules": [rule], "chat_rules": []}
+        with patch.object(
+            self.bot,
+            "linked_gamertag_index_record",
+            return_value={"discord_id": user_id},
+        ), patch.object(self.bot, "discord_guild_for_runtime_id", return_value=None), patch.object(
+            self.bot, "save_wallets"
+        ) as save_wallets:
+            result = asyncio.run(
+                self.bot.apply_verified_adm_economy_rules(
+                    guild_id,
+                    config,
+                    kill_details,
+                    event_type=event_type,
+                    line=line,
+                )
+            )
+        return result, save_wallets, self.bot.guild_wallet(guild_id, user_id)
+
+    def test_player_hit_pays_attacker_after_minimum_damage(self):
+        guild_id = "9910010"
+        line = (
+            '12:00:00 | Player "Victim" (id=v pos=<1,2,3>)[HP: 74] '
+            'hit by Player "Attacker" (id=a pos=<4,5,6>) into Head(0) '
+            'for 26 damage (Bullet_45ACP) with FX-45 from 12.5 meters'
+        )
+        result, save_wallets, wallet = self._apply_rule(
+            guild_id,
+            {"id": "hit", "event_type": "player_hit", "kind": "reward", "amount": 20, "minimum_damage": 10},
+            line,
+            "cut",
+        )
+        self.assertEqual("Attacker", result[0]["gamertag"])
+        self.assertEqual(20, self.bot.wallet_balance(wallet))
+        save_wallets.assert_called_once()
+
+    def test_melee_hit_does_not_match_a_bullet(self):
+        line = (
+            'Player "Victim" (id=v pos=<1,2,3>)[HP: 74] hit by Player "Attacker" '
+            '(id=a pos=<4,5,6>) into Head(0) for 26 damage (Bullet_45ACP) with FX-45 from 2 meters'
+        )
+        result, save_wallets, _wallet = self._apply_rule(
+            "9910011",
+            {"id": "melee", "event_type": "melee_hit", "kind": "reward", "amount": 15},
+            line,
+            "cut",
+        )
+        self.assertEqual([], result)
+        save_wallets.assert_not_called()
+
+    def test_melee_hit_pays_attacker(self):
+        line = (
+            'Player "Victim" (id=v pos=<1,2,3>)[HP: 80] hit by Player "Attacker" '
+            '(id=a pos=<4,5,6>) into Torso(11) for 20 damage (MeleeFist) with Fists from 1.2 meters'
+        )
+        result, _save_wallets, wallet = self._apply_rule(
+            "9910012",
+            {"id": "melee", "event_type": "melee_hit", "kind": "reward", "amount": 15},
+            line,
+            "cut",
+        )
+        self.assertEqual("Attacker", result[0]["gamertag"])
+        self.assertEqual(15, self.bot.wallet_balance(wallet))
+
+    def test_non_kill_corpse_hit_never_pays(self):
+        line = (
+            'Player "Victim" (DEAD) (id=v pos=<1,2,3>)[HP: 0] hit by Player "Attacker" '
+            '(id=a pos=<4,5,6>) into Head(0) for 40 damage (Bullet_9x19) with SG5-K from 2 meters'
+        )
+        result, save_wallets, _wallet = self._apply_rule(
+            "9910013",
+            {"id": "hit", "event_type": "player_hit", "kind": "reward", "amount": 20},
+            line,
+            "cut",
+        )
+        self.assertEqual([], result)
+        save_wallets.assert_not_called()
+
+    def test_infected_death_is_not_mistaken_for_infected_kill(self):
+        death_line = 'Player "Victim" (DEAD) killed by Infected'
+        result, save_wallets, _wallet = self._apply_rule(
+            "9910014",
+            {"id": "infected", "event_type": "infected_kill", "kind": "reward", "amount": 50},
+            death_line,
+            "zombie_kill",
+        )
+        self.assertEqual([], result)
+        save_wallets.assert_not_called()
+
+    def test_infected_kill_requires_player_to_be_named_as_killer(self):
+        hunt_line = 'Player "Hunter" killed InfectedArmy'
+        result, _save_wallets, wallet = self._apply_rule(
+            "9910015",
+            {"id": "infected", "event_type": "infected_kill", "kind": "reward", "amount": 50},
+            hunt_line,
+            "zombie_kill",
+        )
+        self.assertEqual("Hunter", result[0]["gamertag"])
+        self.assertEqual(50, self.bot.wallet_balance(wallet))
+
+    def test_build_and_animal_hunt_rules_pay_only_the_actor(self):
+        build_result, _save_wallets, _wallet = self._apply_rule(
+            "9910016",
+            {"id": "build", "event_type": "build", "kind": "reward", "amount": 8},
+            'Player "Builder" (id=b pos=<1,2,3>) built Fence with Shovel',
+            "build",
+        )
+        hunt_result, _save_wallets, _wallet = self._apply_rule(
+            "9910017",
+            {"id": "hunt", "event_type": "animal_kill", "kind": "reward", "amount": 30},
+            'Player "Hunter" killed Animal_CanisLupus (pos=<1,2,3>)',
+            "animal_kill",
+        )
+        self.assertEqual("Builder", build_result[0]["gamertag"])
+        self.assertEqual("Hunter", hunt_result[0]["gamertag"])
+
+    def test_headshot_rule_only_matches_headshot_kill(self):
+        result, _save_wallets, wallet = self._apply_rule(
+            "9910018",
+            {"id": "headshot", "event_type": "headshot", "kind": "reward", "amount": 75},
+            "",
+            "kill",
+            kill_details={"killer": "Killer", "victim": "Victim", "distance": 20, "headshot": True},
+        )
+        self.assertEqual("Killer", result[0]["gamertag"])
+        self.assertEqual(75, self.bot.wallet_balance(wallet))
+
+    def test_official_bohemia_pvp_death_format_is_classified_and_parsed(self):
+        line = (
+            'Player "Survivor A"(id=victim pos=<13212.8, 10124.8, 6.0>) '
+            'killed by "Survivor B"(id=killer pos=<13211.8, 10120.8, 6.0>) '
+            'with M4-A1 from 42 meters'
+        )
+        self.assertEqual("kill", self.bot.classify_event(line))
+        details = self.bot.extract_pvp_kill_details(line)
+        self.assertEqual("Survivor A", details["victim"])
+        self.assertEqual("Survivor B", details["killer"])
+        self.assertEqual("M4-A1", details["weapon"])
+        self.assertEqual(42.0, details["distance"])
+
     def test_console_delivery_file_writes_are_serialized(self):
         guild_id = "9910004"
         self.bot.delivery_upload_locks.pop(guild_id, None)

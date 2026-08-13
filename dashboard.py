@@ -10592,7 +10592,7 @@ PAGE_TEMPLATE = """
         </article>
         <article class="admin-panel" id="economy-rules">
           <h3>Automatic Economy Rules</h3>
-          <p class="muted">Chat keywords only inspect Discord messages. Verified kill, death and longshot rules only run from a linked player's validated ADM event, after replay and dead-body checks.</p>
+          <p class="muted">Set an exact payout or penalty for verified DayZ activity. ADM rules are server-specific and run only after replay, actor-direction and dead-body checks. Chat keywords remain Discord-wide.</p>
           <form class="admin-form" id="economy-rule-form" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
@@ -10601,9 +10601,33 @@ PAGE_TEMPLATE = """
             <label>When this happens
               <select name="event_type">
                 <option value="chat_keyword">A Discord chat keyword is posted</option>
-                <option value="kill">Verified PvP kill from ADM</option>
-                <option value="death">Verified PvP death from ADM</option>
-                <option value="longshot">Verified PvP longshot from ADM</option>
+                <optgroup label="PvP combat">
+                  <option value="kill">Verified PvP kill from ADM</option>
+                  <option value="death">Verified PvP death from ADM</option>
+                  <option value="headshot">Verified PvP headshot kill from ADM</option>
+                  <option value="longshot">Verified PvP longshot from ADM</option>
+                  <option value="player_hit">Player hit from ADM</option>
+                  <option value="melee_hit">Melee player hit from ADM</option>
+                  <option value="kill_streak">Kill while on a streak</option>
+                  <option value="bounty_claim">Claim an active bounty</option>
+                </optgroup>
+                <optgroup label="PVE hunting and deaths">
+                  <option value="infected_kill">Kill an infected (compatible ADM evidence required)</option>
+                  <option value="animal_kill">Kill an animal (compatible ADM evidence required)</option>
+                  <option value="infected_death">Killed by infected</option>
+                  <option value="animal_death">Killed by animal</option>
+                  <option value="vehicle_death">Killed by vehicle</option>
+                  <option value="suicide">Suicide</option>
+                  <option value="bleedout">Bleed-out death</option>
+                </optgroup>
+                <optgroup label="Building and territory">
+                  <option value="build">Build action</option>
+                  <option value="placed">Place item or kit</option>
+                  <option value="packed">Pack item</option>
+                  <option value="raid">Dismantle or destroy</option>
+                  <option value="flag_raise">Raise territory flag</option>
+                  <option value="flag_lower">Lower territory flag</option>
+                </optgroup>
               </select>
             </label>
             <label>Reward or punish
@@ -10611,9 +10635,12 @@ PAGE_TEMPLATE = """
             </label>
             <label>Chat keyword <input name="keyword" placeholder="Only required for a chat-keyword rule"></label>
             <label>Longshot minimum distance (m) <input name="minimum_distance" type="number" min="1" max="2000" value="100"></label>
+            <label>Hit minimum damage <input name="minimum_damage" type="number" min="0" max="1000" step="0.1" value="1"></label>
+            <label>Kill-streak minimum <input name="minimum_streak" type="number" min="2" max="100" value="3"></label>
             <label>Amount <input name="amount" type="number" value="100"></label>
             <div class="full"><button type="submit">Save Rule</button> <span class="result muted"></span></div>
           </form>
+          <p class="muted">Build, placement and hit rewards can be farmed if set too high. Infected/animal kill rewards require the ADM to name the player as the killer; a player's death to infected or animals will never be paid as a hunt.</p>
           {% set economy_config = server.config if server and server.config else {} %}
           {% set discord_chat_rules = server.chat_rules if server and server.chat_rules else [] %}
           <h4>Active rules</h4>
@@ -10636,7 +10663,7 @@ PAGE_TEMPLATE = """
               {% endfor %}
               {% for rule in economy_config.get('adm_reward_rules', []) %}
               <tr>
-                <td>Verified ADM</td><td>{{ rule.event_type }}{% if rule.event_type == 'longshot' %} ({{ rule.minimum_distance or 100 }}m+){% endif %}</td>
+                <td>Verified ADM</td><td>{{ rule.event_type|replace('_', ' ')|title }}{% if rule.event_type == 'longshot' %} ({{ rule.minimum_distance or 100 }}m+){% elif rule.event_type in ['player_hit', 'melee_hit'] %} ({{ rule.minimum_damage or 1 }}+ damage){% elif rule.event_type == 'kill_streak' %} ({{ rule.minimum_streak or 3 }}+ streak){% endif %}</td>
                 <td>{{ 'Pay' if rule.kind == 'reward' else 'Remove' }} {{ rule.amount }}</td><td>{{ 'On' if rule.enabled is not sameas false else 'Off' }}</td>
                 <td>
                   <form class="admin-form inline-action" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
@@ -45935,8 +45962,14 @@ def api_economy_rule():
     event_type = str(payload.get("event_type") or "chat_keyword").strip().lower()
     kind = str(payload.get("kind") or "reward").strip().lower()
     amount = safe_int(payload.get("amount"))
-    if event_type not in {"chat_keyword", "kill", "death", "longshot"}:
-        return jsonify({"ok": False, "error": "event type must be chat keyword, verified kill, death or longshot"}), 400
+    supported_event_types = {
+        "chat_keyword", "kill", "death", "headshot", "longshot", "player_hit", "melee_hit",
+        "infected_kill", "animal_kill", "infected_death", "animal_death", "vehicle_death",
+        "suicide", "bleedout", "build", "placed", "packed", "raid", "flag_raise", "flag_lower",
+        "kill_streak", "bounty_claim",
+    }
+    if event_type not in supported_event_types:
+        return jsonify({"ok": False, "error": "unsupported verified economy event type"}), 400
     if kind not in {"reward", "punishment"}:
         return jsonify({"ok": False, "error": "kind must be reward or punishment"}), 400
     if amount <= 0:
@@ -45958,6 +45991,10 @@ def api_economy_rule():
         rule["keyword"] = keyword
     if event_type == "longshot":
         rule["minimum_distance"] = max(1, min(2000, safe_int(payload.get("minimum_distance"), 100)))
+    if event_type in {"player_hit", "melee_hit"}:
+        rule["minimum_damage"] = max(0, min(1000, safe_float(payload.get("minimum_damage"), 1)))
+    if event_type == "kill_streak":
+        rule["minimum_streak"] = max(2, min(100, safe_int(payload.get("minimum_streak"), 3)))
     rules.append(rule)
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)

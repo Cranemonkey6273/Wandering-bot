@@ -99,6 +99,13 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('value="kill">Verified PvP kill from ADM', template)
         self.assertIn('value="death">Verified PvP death from ADM', template)
         self.assertIn('value="longshot">Verified PvP longshot from ADM', template)
+        self.assertIn('value="player_hit">Player hit', template)
+        self.assertIn('value="melee_hit">Melee player hit', template)
+        self.assertIn('value="infected_kill">Kill an infected', template)
+        self.assertIn('value="animal_kill">Kill an animal', template)
+        self.assertIn('value="build">Build action', template)
+        self.assertIn('value="kill_streak">Kill while on a streak', template)
+        self.assertIn('value="bounty_claim">Claim an active bounty', template)
         self.assertIn('name="rule_store" value="chat"', template)
         self.assertIn('name="rule_store" value="adm"', template)
 
@@ -138,6 +145,37 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("kill", sakhal["adm_reward_rules"][0]["event_type"])
         self.assertEqual(250, sakhal["adm_reward_rules"][0]["amount"])
         self.assertEqual([], sakhal["chat_rules"])
+
+    def test_verified_hit_rule_saves_damage_threshold_to_selected_profile(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "server_profiles": {"cherno": {"server_map": "chernarus"}},
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "action": "create",
+            "event_type": "player_hit",
+            "kind": "reward",
+            "amount": "12",
+            "minimum_damage": "15.5",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store") as save_store,
+            patch.object(dashboard, "sync_runtime_store") as sync_runtime_store,
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_economy_rule()
+
+        rule = configs["guild-1"]["server_profiles"]["cherno"]["adm_reward_rules"][0]
+        self.assertEqual("player_hit", rule["event_type"])
+        self.assertEqual(12, rule["amount"])
+        self.assertEqual(15.5, rule["minimum_damage"])
         save_store.assert_called_once_with("guild_configs", configs)
         sync_runtime_store.assert_called_once_with("guild_configs", configs)
 
