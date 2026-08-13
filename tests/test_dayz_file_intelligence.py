@@ -63,6 +63,66 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         self.assertEqual("preserved", object_paths["mapgrouppos.xml"]["action"])
         self.assertEqual("preserved", object_paths["mapgroupproto.xml"]["action"])
 
+    def test_dependency_plan_links_the_map_group_proxy_method_without_events(self):
+        plan = dayz_dependency_plan_for_request(
+            "Use the proxy method to display an M4A1 on a wall.",
+            "mapgroupproto.xml",
+        )
+        files = {item["path"]: item for item in plan["files"]}
+
+        self.assertEqual("map_group_proxy_placement", plan["workflow"])
+        self.assertEqual("changed", files["mapgrouppos.xml"]["action"])
+        self.assertEqual("changed", files["mapgroupproto.xml"]["action"])
+        self.assertEqual("checked", files["db/types.xml"]["action"])
+        self.assertEqual("checked", files["db/globals.xml"]["action"])
+        self.assertEqual("preserved", files["db/events.xml"]["action"])
+
+    def test_dependency_plan_links_fire_smoke_proxy_scene_files(self):
+        plan = dayz_dependency_plan_for_request(
+            "Place a fire and smoke effect beneath a Static mass grave event.",
+            "mapgroupproto.xml",
+        )
+        files = {item["path"]: item for item in plan["files"]}
+
+        self.assertEqual("fire_smoke_proxy_event_scene", plan["workflow"])
+        for path in ("db/types.xml", "mapgroupproto.xml", "mapgrouppos.xml", "cfgeventspawns.xml", "db/events.xml"):
+            self.assertEqual("changed", files[path]["action"], path)
+        self.assertEqual("conditional", files["cfglimitsdefinition.xml"]["action"])
+        self.assertEqual("checked", files["db/globals.xml"]["action"])
+        self.assertEqual("preserved", files["cfgEffectArea.json"]["action"])
+
+    def test_map_group_point_and_proxy_vectors_are_validated(self):
+        valid_prototype = """<prototype>
+          <group name="EvalPoints" lootmax="1">
+            <container name="loot" lootmax="1">
+              <point pos="1.5 2.0 -1" range="0.5" height="1.0" />
+              <point pos="-1.5 2.0 1" range="0.5" height="1.0" />
+            </container>
+            <dispatch><proxy type="M4A1" pos="-1 2 1.5" rpy="-225 90 0" /></dispatch>
+          </group>
+        </prototype>"""
+        self.assertEqual((True, ""), validate_dayz_upload_text("mapgroupproto.xml", valid_prototype))
+
+        invalid_cases = (
+            (valid_prototype.replace('pos="1.5 2.0 -1"', 'pos="1.5 -1"'), "exactly 3"),
+            (valid_prototype.replace('range="0.5"', 'range="-0.5"', 1), "positive finite"),
+            (valid_prototype.replace('proxy type="M4A1"', 'proxy type=""'), "missing `type`"),
+        )
+        for content, expected in invalid_cases:
+            with self.subTest(expected=expected):
+                ok, message = validate_dayz_upload_text("mapgroupproto.xml", content)
+                self.assertFalse(ok)
+                self.assertIn(expected, message)
+
+        valid_placement = '<map><group name="EvalPoints" pos="7000 10 7000" rpy="0 90 0" a="90" /></map>'
+        self.assertEqual((True, ""), validate_dayz_upload_text("mapgrouppos.xml", valid_placement))
+        ok, message = validate_dayz_upload_text(
+            "mapgrouppos.xml",
+            valid_placement.replace('pos="7000 10 7000"', 'pos="7000 7000"'),
+        )
+        self.assertFalse(ok)
+        self.assertIn("exactly 3", message)
+
     def test_dependency_plan_uses_explicit_objectspawner_path_named_in_prompt(self):
         plan = dayz_dependency_plan_for_request(
             "Create custom/QA_Camp.json ObjectSpawner and register it in cfgGameplay.json.",

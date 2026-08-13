@@ -2617,7 +2617,7 @@ PUBLIC_LANDING_TEMPLATE = """
     </a>
     <div class="top-actions">
       <a class="button ghost" href="/login">Existing users log in</a>
-      <a class="button" href="/agent/login">AI Agent</a>
+      <a class="button" href="/login">AI Agent</a>
     </div>
   </header>
   <nav class="seo-nav" aria-label="Wandering Bot pages">
@@ -3138,7 +3138,8 @@ AGENT_LOGIN_TEMPLATE = """
     form { display: grid; gap: .75rem; margin-top: .9rem; }
     label { display: grid; gap: .25rem; color: var(--muted); font-size: .9rem; }
     input { width: 100%; border: 1px solid var(--line); border-radius: .55rem; background: #02090c; color: var(--text); padding: .75rem .8rem; }
-    button { border: 1px solid rgba(36,239,225,.42); border-radius: .55rem; background: rgba(36,239,225,.16); color: var(--text); padding: .8rem; font-weight: 900; cursor: pointer; }
+    button, .button { display: inline-flex; align-items: center; justify-content: center; border: 1px solid rgba(36,239,225,.42); border-radius: .55rem; background: rgba(36,239,225,.16); color: var(--text); padding: .8rem; font-weight: 900; cursor: pointer; text-decoration: none; }
+    .actions { display: grid; gap: .6rem; margin-top: .8rem; }
     .error { color: #ffe4e8; background: rgba(255,122,138,.14); border: 1px solid rgba(255,122,138,.34); padding: .65rem; border-radius: .55rem; }
     .muted { color: var(--muted); font-size: .9rem; }
     @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
@@ -3149,10 +3150,11 @@ AGENT_LOGIN_TEMPLATE = """
     <section>
       <img src="/brand-character" alt="Wandering Bot AI Sandbox">
       <h1>AI Sandbox</h1>
-      <p>Standalone sandbox access for planning, validation, safe file preparation, queued jobs, approvals and future paid credits. This login does not require the bot to be in a Discord server.</p>
+      <p>DayZ sandbox access for planning, validation, safe file preparation, queued jobs and paid AI credits.</p>
       <ul>
-        <li>Accounts are separate from Discord dashboard logins.</li>
-        <li>Credits are charged per agent prompt once billing is enabled.</li>
+        <li>Wandering Bot Ultimate includes the private AI Agent.</li>
+        <li>Paid server owners use their normal server dashboard login.</li>
+        <li>Stripe payment status controls access automatically.</li>
         <li>Live writes, deploys and destructive work stay approval-gated.</li>
       </ul>
       <p class="muted">Owner dashboard login still has full unrestricted access.</p>
@@ -3165,17 +3167,23 @@ AGENT_LOGIN_TEMPLATE = """
         <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
         <button type="submit">Open Sandbox</button>
       </form>
-      <h2>Create Account</h2>
+      <h2>Paid Ultimate Access</h2>
+      <p class="muted">Already paying for Ultimate? Use the dashboard credentials created during your Discord setup. The AI Agent unlocks automatically while that verified plan is active.</p>
+      <div class="actions">
+        <a class="button" href="/login">Open Ultimate dashboard login</a>
+        <a class="button" href="/#pricing">View plans</a>
+      </div>
       {% if signup_enabled %}
+      <h2>Standalone Account</h2>
       <form method="post" action="/agent/register">
         <label>Name <input name="name" autocomplete="name" required></label>
         <label>Email <input name="email" type="email" autocomplete="username" required></label>
         <label>Password <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
         <button type="submit">Create Agent Account</button>
       </form>
-      <p class="muted">New accounts start with {{ signup_credits }} credit(s). Payments/checkout are added in the billing step.</p>
+      <p class="muted">Standalone signup is a separate owner-controlled product. It does not replace verified Ultimate dashboard billing.</p>
       {% else %}
-      <p class="muted">Public signups are locked. Set <code>WANDERING_AGENT_SIGNUPS_ENABLED=true</code> when billing is ready.</p>
+      <p class="muted">Standalone public account creation is intentionally locked. Paid Ultimate customers do not need it.</p>
       {% endif %}
     </section>
   </main>
@@ -23985,8 +23993,8 @@ AI_AGENT_DAYZ_FORMAT_GUIDES = {
     "events.xml": "XML <events> root with <event name=\"...\"> definitions. Event names must correspond exactly with event-position records where positions are required. A complete CE review audits this alongside cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml.",
     "cfgeventspawns.xml": "XML <eventposdef> root with named <event> position records. Coordinates and the event name must match the companion events.xml definition. A group= reference must name a real cfgeventgroups.xml group.",
     "cfgeventgroups.xml": "XML <eventgroupdef> root containing named static group definitions used by CE events. Only add a group when cfgeventspawns.xml actually references it; group child classes that carry loot need matching mapgroupproto.xml definitions.",
-    "mapgroupproto.xml": "XML <prototype> root for map-group loot prototypes; mapgrouppos.xml places those groups on the map. A loot-bearing static object or event-group child must have a matching prototype group with usable loot points.",
-    "mapgrouppos.xml": "XML <map> root with group placements. Do not confuse it with mapgroupproto.xml, which defines the prototype content.",
+    "mapgroupproto.xml": "XML <prototype> root for named map-group prototypes. Ordinary <point pos=\"localX localY localZ\" range=\"...\" height=\"...\"/> records are candidate loot volumes; lootmax is the simultaneous loot cap and need not equal every point. The separate <dispatch><proxy type=\"...\" pos=\"localX localY localZ\" rpy=\"roll pitch yaw\"/></dispatch> method places explicit CE proxy items. Its exact group name must match mapgrouppos.xml.",
+    "mapgrouppos.xml": "XML <map> root with named group placements. pos is world X/elevation(Y)/Z and rpy is roll/pitch/yaw; the matching mapgroupproto.xml point/proxy positions are model-local offsets. Do not confuse this with ObjectSpawner JSON or event X/Z records.",
     "mapclusterproto.xml": "XML <prototype> root with <clusters> exports for map-cluster definitions.",
     "mapgroupcluster.xml": "XML <map> root with map-cluster group placements; preserve the selected map's grouping names and positions.",
     "globals.xml": "XML <variables> root containing named <var> central-economy values.",
@@ -30095,7 +30103,7 @@ def ai_agent_builtin_dayz_draft(task: dict[str, Any], prompt: Any) -> dict[str, 
     }
 
 
-AI_AGENT_DAYZ_EVAL_LAB_VERSION = 1
+AI_AGENT_DAYZ_EVAL_LAB_VERSION = 2
 
 
 def ai_agent_eval_runs(state: dict[str, Any], limit: int = 10) -> list[dict[str, Any]]:
@@ -30283,6 +30291,45 @@ def ai_agent_dayz_eval_lab_cases() -> list[tuple[str, str, str, Any]]:
         ai_agent_eval_lab_drafts([draft], ["mapgrouppos.xml"], True)
         return "Generated a placement for an existing prototype without inventing a new map-group definition.", ["prototype verified", "rpy/a derived", "prototype preserved"]
 
+    def mapgroup_loot_points() -> tuple[str, list[str]]:
+        knowledge = dayz_agent_file_knowledge("mapgroupproto.xml")
+        variants = str(knowledge.get("variants") or "")
+        ai_agent_eval_lab_require("local X/Y/Z" in variants, "Map-group points were not documented as model-local X/Y/Z offsets.")
+        ai_agent_eval_lab_require("maximum simultaneous loot" in variants, "lootmax was not separated from the number of candidate points.")
+        valid, message = validate_dayz_upload_text(
+            "mapgroupproto.xml",
+            '<prototype><group name="EvalPoints" lootmax="1"><container name="loot" lootmax="1"><point pos="1.5 2.0 -1" range="0.5" height="1.0"/><point pos="-1.5 2.0 1" range="0.5" height="1.0"/></container></group></prototype>',
+        )
+        ai_agent_eval_lab_require(valid, message or "A valid multiple-candidate point prototype was rejected.")
+        return "Confirmed local loot-point vectors and a lootmax cap smaller than the available point count.", ["local X/Y/Z", "positive range/height", "lootmax is a cap"]
+
+    def mapgroup_proxy_method() -> tuple[str, list[str]]:
+        prompt = "Use the proxy method to place an M4A1 on a wall with mapgrouppos and mapgroupproto."
+        plan = dayz_dependency_plan_for_request(prompt, "mapgroupproto.xml")
+        files = {str(item.get("path") or ""): str(item.get("action") or "") for item in plan.get("files", [])}
+        ai_agent_eval_lab_require(plan.get("workflow") == "map_group_proxy_placement", "Proxy work was routed to the wrong DayZ mechanism.")
+        ai_agent_eval_lab_require(files.get("mapgrouppos.xml") == "changed" and files.get("mapgroupproto.xml") == "changed", "The two linked MapGroup files were not both planned.")
+        ai_agent_eval_lab_require(files.get("db/events.xml") == "preserved", "The proxy method incorrectly changed events.xml.")
+        valid, message = validate_dayz_upload_text(
+            "mapgroupproto.xml",
+            '<prototype><group name="EvalProxy" lootmax="1"><dispatch><proxy type="M4A1" pos="-1 2 1.5" rpy="-225 90 0"/></dispatch></group></prototype>',
+        )
+        ai_agent_eval_lab_require(valid, message or "A valid dispatch/proxy prototype was rejected.")
+        return "Separated explicit CE proxy placement from ordinary points, events and ObjectSpawner JSON.", ["matching MapGroup files", "proxy vectors", "events preserved"]
+
+    def fire_smoke_proxy_scene() -> tuple[str, list[str]]:
+        plan = dayz_dependency_plan_for_request(
+            "Place a fire and smoke effect beneath a Static mass grave event at matching coordinates.",
+            "mapgroupproto.xml",
+        )
+        files = {str(item.get("path") or ""): str(item.get("action") or "") for item in plan.get("files", [])}
+        required_changed = {"db/types.xml", "mapgroupproto.xml", "mapgrouppos.xml", "cfgeventspawns.xml", "db/events.xml"}
+        ai_agent_eval_lab_require(plan.get("workflow") == "fire_smoke_proxy_event_scene", "Fire/smoke work was routed to the wrong mechanism.")
+        ai_agent_eval_lab_require(all(files.get(path) == "changed" for path in required_changed), "The linked fire/smoke scene did not plan all required changed files.")
+        ai_agent_eval_lab_require(files.get("cfglimitsdefinition.xml") == "conditional", "Custom hidden CE definitions were treated as mandatory.")
+        ai_agent_eval_lab_require(files.get("cfgEffectArea.json") == "preserved", "The proxy visual workflow was confused with cfgEffectArea.json.")
+        return "Audited a composite fire/smoke Static scene without confusing it with contaminated-area JSON.", ["linked event names", "linked MapGroup names", "CE records diffed", "effect-area preserved"]
+
     def malformed_xml() -> tuple[str, list[str]]:
         valid, _message = validate_dayz_upload_text("db/events.xml", "<events><event name=\"Broken\"><children></event></events>")
         ai_agent_eval_lab_require(not valid, "Malformed events.xml was accepted.")
@@ -30318,6 +30365,9 @@ def ai_agent_dayz_eval_lab_cases() -> list[tuple[str, str, str, Any]]:
         ("effect-area", "Static gas effect-area file", "Map and environment", effect_area),
         ("messages-file", "On-screen server messages file", "Messages and gameplay", messages_file),
         ("mapgroup-placement", "Existing map-group placement", "Map and environment", mapgroup_placement),
+        ("mapgroup-loot-points", "Map-group loot-point semantics", "Map and environment", mapgroup_loot_points),
+        ("mapgroup-proxy", "Map-group proxy placement", "Map and environment", mapgroup_proxy_method),
+        ("fire-smoke-proxy-scene", "Fire/smoke Static event scene", "Events and environment", fire_smoke_proxy_scene),
         ("reject-bad-xml", "Reject malformed XML", "Validation guard", malformed_xml),
         ("reject-mismatched-ce", "Reject mismatched linked CE names", "Validation guard", mismatched_ce),
         ("reject-outside-map", "Reject outside-map coordinates", "Validation guard", outside_map),
@@ -31744,7 +31794,7 @@ def ai_agent_llm_reply_for_task(
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "
         "cfgweather.xml controls weather; cfggameplay.json controls gameplay settings; events.xml definitions must match positions in cfgeventspawns.xml; "
         "every CE event plan must audit events.xml, cfgeventspawns.xml, cfgeventgroups.xml and mapgroupproto.xml together. A group= position must refer to a real event group, and a loot-bearing static object/group child must have a matching usable mapgroupproto group. Do not manufacture an event group or prototype for a simple vehicle event that does not reference one; clearly report it as checked and preserved instead. Event names should use the correct family prefix (Vehicle, Static, Loot, Item, Infected or Animal) and position rotations should be written with six decimal places. "
-        "mapgroupproto.xml defines reusable group structure and loot points while mapgrouppos.xml places matching group names on the selected map. A map-group placement request can therefore need both files plus types.xml and, only for new named loot rules, a CE limits-definition file. ObjectSpawner JSON instead needs its exact cfggameplay.json objectSpawnersArr reference and must not be converted into MapGroup files. Ambient animals are territory-driven: use the territory file plus its matching db/events.xml record and cfgenvironment.xml reference rather than assuming cfgeventspawns.xml. messages.xml controls scheduled on-screen messages; "
+        "mapgroupproto.xml defines reusable group structure and loot candidates while mapgrouppos.xml places exactly matching group names on the selected map. MapGroupPos pos values are world X/elevation(Y)/Z, but prototype point/proxy pos values are model-local X/Y/Z offsets and rpy is roll/pitch/yaw. A point's range and height describe its placement volume; lootmax is the simultaneous loot cap and does not need to equal every candidate point. Explicit displayed items use dispatch/proxy records and must be checked against types.xml and globals.xml LootProxyPlacement. A fire/smoke proxy scene can additionally link custom CE definitions and a matching Static event/position pair, and must not be confused with cfgEffectArea.json. Existing Bonfire/smoke CE records must be diffed rather than blindly replaced with example values. ObjectSpawner JSON instead needs its exact cfggameplay.json objectSpawnersArr reference and must not be converted into MapGroup files. Ambient animals are territory-driven: use the territory file plus its matching db/events.xml record and cfgenvironment.xml reference rather than assuming cfgeventspawns.xml. messages.xml controls scheduled on-screen messages; "
         "cfgplayerspawnpoints.xml controls fresh-spawn locations; cfgignorelist.xml excludes listed classes from CE persistence/storage and does not make them persist forever; cfglimitsdefinition.xml defines actual CE category/tag/usage/value names, while cfglimitsdefinitionuser.xml only creates named combinations from existing usage/value definitions; "
         "cfgrandompresets.xml controls random cargo groups; cfgundergroundtriggers.json controls underground area triggers; "
         "cfgenvironment.xml and territory files control environment references and zones. Use the supplied bundled reference or preset only when it matches the selected map and target file. "

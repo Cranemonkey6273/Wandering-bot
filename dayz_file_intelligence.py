@@ -154,7 +154,10 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     },
     "events.xml": {
         "purpose": "Central Economy event definitions.",
-        "dependencies": ["cfgeventspawns.xml position records must use the same event name.", "Object/item class names must exist in the matching DayZ version."],
+        "dependencies": [
+            "cfgeventspawns.xml position records must use the same event name.",
+            "Item/vehicle/infected/animal child classnames should be checked against the selected version's types.xml; a Static scene child can instead be an engine/static object whose supporting prototype or exact source must be verified.",
+        ],
         "variants": "Vehicle, Static, Loot, Item, Infected and Animal events have different CE semantics; choose the appropriate current event pattern.",
         "safety": "Treat a linked event package as multiple files. Merge named records instead of replacing a live events.xml.",
     },
@@ -172,21 +175,43 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     },
     "mapgroupproto.xml": {
         "purpose": "Reusable map-group prototypes, including compatible CE loot points, categories, usages and tiers for static objects/buildings.",
-        "dependencies": ["mapgrouppos.xml places a matching group on the selected map.", "types.xml item categories/usages must be compatible with the prototype's loot definitions.", "cfglimitsdefinition.xml defines any genuinely new category, tag, usage or value name; cfglimitsdefinitionuser.xml can only alias existing usage/value names."],
-        "variants": "A group can be inspected or preserved without being changed. It is required for a static loot-bearing group/object, not for a normal working vehicle or an ObjectSpawner JSON placement.",
-        "safety": "Do not confuse prototypes with map placements. Preserve the selected map's existing group names, point structure and loot rules; never add loot points to an unrelated object just because a request mentions loot.",
+        "dependencies": [
+            "mapgrouppos.xml places a matching group on the selected map; its group name must match exactly.",
+            "types.xml item categories/usages must be compatible with ordinary container loot rules, and every explicit dispatch/proxy classname must exist in the selected map/version.",
+            "globals.xml LootProxyPlacement must permit dispatch containers when the proxy method is requested.",
+            "cfglimitsdefinition.xml defines any genuinely new category, tag, usage or value name; cfglimitsdefinitionuser.xml can only alias existing usage/value names.",
+        ],
+        "variants": (
+            "Ordinary building loot uses one or more <container> records containing <point pos=\"localX localY localZ\" range=\"...\" height=\"...\"/> candidates. "
+            "The point position is a model-local X/Y/Z offset, not a world X/Z coordinate; moving local X or Z changes the point around that object's own origin and orientation. "
+            "A multi-floor point still needs the correct local Y offset, while range/height describe its placement volume and should normally come from DayZ CE diagnostics/export rather than guesswork. "
+            "A container/group lootmax is the maximum simultaneous loot assigned there, not a rule that it must equal every candidate point: vanilla groups commonly have more points than lootmax because each point can hold at most one item. "
+            "The separate proxy method uses <dispatch><proxy type=\"Classname\" pos=\"localX localY localZ\" rpy=\"roll pitch yaw\"/></dispatch> for deliberately displayed CE items such as wall-mounted or elevated loot. "
+            "For a fixed one-item-per-proxy custom layout, set the intended lootmax consistently with the number of active proxy items, while still comparing with the selected vanilla pattern. "
+            "A fire/smoke scene can use proxy groups such as a Bonfire or smoke-producing wreck placed through matching MapGroupPos groups; this is a proxy-visual workflow, not cfgEffectArea.json."
+        ),
+        "safety": (
+            "Do not confuse prototypes with world placements or ObjectSpawner JSON. Preserve existing groups and use a merge patch for one custom group. "
+            "Confirm the object/model origin and orientation in game; local positive/negative directions rotate with the placed group, so a flat screen-grid description is only a starting guide. "
+            "Fire/smoke proxy classes and their CE records vary by map/version. Bonfire and Wreck_UH1Y already have vanilla records in current bundled missions, so never overwrite them with example values without an explicit diff and user approval. "
+            "Use DayZ CE Loot Spawn Edit / Spawn Volume Vis / Re-Trace Group Points for final point placement when those tools are available."
+        ),
     },
     "mapgrouppos.xml": {
         "purpose": "Selected-map placements of map-group prototypes, including group name, position and rotation.",
-        "dependencies": ["Each placement group must have a compatible mapgroupproto.xml prototype.", "A prototype's categories/usages ultimately need compatible types.xml loot records."],
-        "variants": "Use this for map-native group placement data. A custom JSON ObjectSpawner placement instead needs custom/<file>.json plus cfggameplay.json, not mapgrouppos.xml.",
-        "safety": "Do not copy a placement from another map or change a group name without its matching prototype. Confirm terrain height and map bounds from the selected map before upload.",
+        "dependencies": ["Each placement group must have an exactly named compatible mapgroupproto.xml prototype.", "A prototype's categories/usages or explicit proxy classnames ultimately need compatible types.xml records."],
+        "variants": (
+            "A placement pos contains world X, elevation/Y, Z in that order; rpy contains roll, pitch, yaw. "
+            "The matching mapgroupproto point/proxy pos values are local X/Y/Z offsets from this placed group's origin. "
+            "Use this for map-native group placement data. A custom JSON ObjectSpawner placement instead needs custom/<file>.json plus cfggameplay.json."
+        ),
+        "safety": "Do not copy a placement from another map or change a group name without its matching prototype. Confirm elevation, terrain, object orientation and map bounds before upload; ADM logs commonly display coordinates in a different X/Z/elevation order.",
     },
     "types.xml": {
         "purpose": "Central Economy item quantities, lifetime, restock, tiers, categories, usages and flags.",
         "dependencies": ["cfgspawnabletypes.xml controls spawned attachments/cargo.", "cfglimitsdefinition XML and map group prototypes must agree on categories/usages."],
         "variants": "Use the matching vanilla class name and selected map/version item record as the base.",
-        "safety": "Never guess classnames or mass-rewrite loot. Explain the impact of nominal/min/restock/lifetime before changing it.",
+        "safety": "Never guess classnames or mass-rewrite loot. Explain the impact of nominal/min/restock/lifetime before changing it. A custom hidden category/usage can keep a proxy-only class out of ordinary loot, but existing vanilla records such as Bonfire or Wreck_UH1Y must be diffed rather than blindly replaced.",
     },
     "cfgspawnabletypes.xml": {
         "purpose": "Central Economy attachments, cargo, presets, nested item content, quantity and damage behaviour.",
@@ -342,7 +367,18 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
         return {"workflow": workflow, "summary": summary, "files": files, "guard": guard}
 
     ambient_terms = ("ambient spawner", "ambient animal", "ambient hen", "ambient fox", "ambient wildlife")
-    map_group_terms = ("mapgrouppos", "mapgroupproto", "map group", "mapgroup", "loot point", "lootpoint")
+    proxy_method_terms = (
+        "proxy method", "dispatch proxy", "dispatch/proxy", "spawnable loot position",
+        "spawn items anywhere", "wall mounted loot", "floating loot", "weapon on a wall",
+    )
+    fire_proxy_terms = (
+        "fire effect", "smoke effect", "fire and smoke", "fire/smoke", "burning event",
+        "burning scene", "mass grave fire", "mass grave smoke", "fireeffect", "helismoke",
+    )
+    map_group_terms = (
+        "mapgrouppos", "mapgroupproto", "map group", "mapgroup", "loot point", "lootpoint",
+        *proxy_method_terms,
+    )
     object_spawner_terms = ("objectspawner", "object spawner", "spawnobject", "spawn object")
     spawn_gear_terms = (
         "spawn gear", "starting gear", "starter gear", "spawngear", "loadout json",
@@ -365,6 +401,23 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
             "Validate that the event's global max, the territory dmin/dmax and child min weights are compatible; child weights should describe the intended type distribution.",
         )
 
+    if any(term in text for term in fire_proxy_terms):
+        return plan(
+            "fire_smoke_proxy_event_scene",
+            "A CE fire/smoke scene can combine proxy visual groups at world coordinates with a separately positioned Static event object. This is a linked XML workflow, not a cfgEffectArea.json contaminated-area file.",
+            [
+                entry("db/types.xml", "changed", "Merge only the deliberate proxy-class CE changes after diffing any existing selected-map Bonfire/smoke records; do not replace the complete file."),
+                entry("cfglimitsdefinition.xml", "conditional", "Define a custom hidden category/usage only when the chosen proxy records genuinely use those new exact names."),
+                entry("mapgroupproto.xml", "changed", "Add merge-only fire/smoke proxy groups and any static object's loot prototype, using validated local X/Y/Z and rpy values."),
+                entry("mapgrouppos.xml", "changed", "Place each visual group at world X/elevation/Z with names exactly matching its prototype."),
+                entry("cfgeventspawns.xml", "changed", "Place the Static event at matching X/Z coordinates and use the exact events.xml name."),
+                entry("db/events.xml", "changed", "Add the matching Static event definition and verified static child classname."),
+                entry("db/globals.xml", "checked", "Confirm LootProxyPlacement permits the selected dispatch/proxy method."),
+                entry("cfgEffectArea.json", "preserved", "This particular fire/smoke proxy method does not use the contaminated/effect-area JSON schema."),
+            ],
+            "Cross-check event names, MapGroup names, coordinates, categories/usages, classnames and proxy offsets. Fire-only or smoke-only requests may omit the other visual group, but must not omit the files genuinely linked by the selected mechanism.",
+        )
+
     if filename in {"events.xml", "cfgeventspawns.xml", "cfgeventgroups.xml"} or any(term in text for term in event_terms):
         return plan(
             "ce_event_package",
@@ -381,8 +434,24 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
         )
 
     if filename in {"mapgrouppos.xml", "mapgroupproto.xml"} or any(term in text for term in map_group_terms):
+        is_proxy_method = any(term in text for term in proxy_method_terms)
         placement_action = "changed" if filename == "mapgrouppos.xml" or any(term in text for term in ("place", "placement", "move", "position", "new building", "new group")) else "checked"
-        prototype_action = "changed" if filename == "mapgroupproto.xml" or any(term in text for term in ("loot point", "lootpoint", "new building", "new group", "prototype")) else "checked"
+        prototype_action = "changed" if filename == "mapgroupproto.xml" or any(term in text for term in ("loot point", "lootpoint", "new building", "new group", "prototype")) or is_proxy_method else "checked"
+        if is_proxy_method:
+            placement_action = "changed"
+            return plan(
+                "map_group_proxy_placement",
+                "The CE proxy method places a named group at world coordinates, then places explicit item proxies at model-local offsets inside that same group.",
+                [
+                    entry("mapgrouppos.xml", "changed", "Add the world X/elevation/Z placement and rotation using the exact same custom group name as the prototype."),
+                    entry("mapgroupproto.xml", "changed", "Add a merge-only group containing compatible loot rules and explicit dispatch/proxy records with local X/Y/Z and rpy values."),
+                    entry("db/types.xml", "checked", "Confirm every proxy classname exists in the active map/version and has enough CE availability for the intended proxy spawn."),
+                    entry("db/globals.xml", "checked", "Confirm LootProxyPlacement is enabled for dispatch-container loot."),
+                    entry("cfglimitsdefinition.xml", "conditional", "Change only if the proxy layout genuinely introduces a new category/usage/tag name."),
+                    entry("db/events.xml", "preserved", "The map-group proxy method is CE loot placement, not a positioned event package."),
+                ],
+                "World placement pos is X/elevation/Z; proxy pos is local X/Y/Z. Match the group name exactly, validate every classname, keep unrelated groups intact, and do not claim a building itself can be used as a proxy loot item.",
+            )
         return plan(
             "map_group_placement",
             "MapGroupPos places a named group on one map; MapGroupProto defines that group's reusable structure and loot points. They must be considered together, but either one may remain unchanged.",
@@ -1120,6 +1189,92 @@ def _validate_cfgweather_xml(root: ET.Element, target_path: Any) -> tuple[bool, 
     return True, ""
 
 
+def _validate_space_separated_vector(value: Any, label: str, target_path: Any, size: int = 3) -> tuple[bool, str]:
+    parts = str(value or "").strip().split()
+    if len(parts) != size:
+        return False, f"Refusing to upload `{target_path}`: {label} must contain exactly {size} space-separated numbers."
+    try:
+        numbers = [float(part) for part in parts]
+    except (TypeError, ValueError):
+        return False, f"Refusing to upload `{target_path}`: {label} must contain only numbers."
+    if not all(math.isfinite(number) for number in numbers):
+        return False, f"Refusing to upload `{target_path}`: {label} values must be finite."
+    return True, ""
+
+
+def _validate_mapgroupproto_xml(root: ET.Element, target_path: Any) -> tuple[bool, str]:
+    seen_group_names: set[str] = set()
+    for group_index, group in enumerate(root.findall("group")):
+        group_name = str(group.get("name") or "").strip()
+        if not group_name:
+            return False, f"Refusing to upload `{target_path}`: group {group_index + 1} is missing `name`."
+        if group_name in seen_group_names:
+            return False, f"Refusing to upload `{target_path}`: duplicate prototype group name `{group_name}`."
+        seen_group_names.add(group_name)
+        for node_label, node in [("group", group), *(("container", node) for node in group.findall("container"))]:
+            raw_lootmax = node.get("lootmax")
+            if raw_lootmax is None:
+                continue
+            try:
+                lootmax = int(raw_lootmax)
+            except (TypeError, ValueError):
+                return False, f"Refusing to upload `{target_path}`: {group_name} {node_label} lootmax must be an integer."
+            if lootmax < 0:
+                return False, f"Refusing to upload `{target_path}`: {group_name} {node_label} lootmax cannot be negative."
+        for point_index, point in enumerate(group.findall(".//point")):
+            valid, message = _validate_space_separated_vector(
+                point.get("pos"), f"{group_name} point {point_index + 1} `pos`", target_path
+            )
+            if not valid:
+                return valid, message
+            for attribute in ("range", "height"):
+                raw_value = point.get(attribute)
+                if raw_value is None:
+                    continue
+                try:
+                    number = float(raw_value)
+                except (TypeError, ValueError):
+                    return False, f"Refusing to upload `{target_path}`: {group_name} point {point_index + 1} `{attribute}` must be numeric."
+                if not math.isfinite(number) or number <= 0:
+                    return False, f"Refusing to upload `{target_path}`: {group_name} point {point_index + 1} `{attribute}` must be a positive finite number."
+        for proxy_index, proxy in enumerate(group.findall("./dispatch/proxy")):
+            if not str(proxy.get("type") or "").strip():
+                return False, f"Refusing to upload `{target_path}`: {group_name} proxy {proxy_index + 1} is missing `type`."
+            for attribute in ("pos", "rpy"):
+                valid, message = _validate_space_separated_vector(
+                    proxy.get(attribute), f"{group_name} proxy {proxy_index + 1} `{attribute}`", target_path
+                )
+                if not valid:
+                    return valid, message
+    return True, ""
+
+
+def _validate_mapgrouppos_xml(root: ET.Element, target_path: Any) -> tuple[bool, str]:
+    for group_index, group in enumerate(root.findall("group")):
+        group_name = str(group.get("name") or "").strip()
+        if not group_name:
+            return False, f"Refusing to upload `{target_path}`: placement group {group_index + 1} is missing `name`."
+        valid, message = _validate_space_separated_vector(
+            group.get("pos"), f"{group_name} placement `pos`", target_path
+        )
+        if not valid:
+            return valid, message
+        if group.get("rpy") is not None:
+            valid, message = _validate_space_separated_vector(
+                group.get("rpy"), f"{group_name} placement `rpy`", target_path
+            )
+            if not valid:
+                return valid, message
+        if group.get("a") is not None:
+            try:
+                angle = float(group.get("a"))
+            except (TypeError, ValueError):
+                return False, f"Refusing to upload `{target_path}`: {group_name} placement `a` must be numeric."
+            if not math.isfinite(angle):
+                return False, f"Refusing to upload `{target_path}`: {group_name} placement `a` must be finite."
+    return True, ""
+
+
 def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool, str]:
     """Validate known DayZ XML/JSON files before upload.
 
@@ -1152,6 +1307,10 @@ def validate_dayz_upload_text(target_path: Any, text_content: Any) -> tuple[bool
                 )
         if filename == "cfgweather.xml":
             return _validate_cfgweather_xml(root, target_path)
+        if filename == "mapgroupproto.xml":
+            return _validate_mapgroupproto_xml(root, target_path)
+        if filename == "mapgrouppos.xml":
+            return _validate_mapgrouppos_xml(root, target_path)
         if filename == "cfgeventspawns.xml":
             for event in root.findall("event"):
                 for position_index, position in enumerate(event.findall("pos")):

@@ -1358,6 +1358,36 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertFalse(access["allowed"])
         self.assertEqual("ultimate_required", access["status"])
 
+    def test_standalone_agent_account_also_requires_verified_ultimate_billing(self):
+        base_auth = {
+            "kind": "agent_account",
+            "account_id": "account-1",
+            "email": "owner@example.com",
+            "permissions": dashboard.default_agent_account_permissions(),
+        }
+
+        free_access = dashboard.ai_agent_access_for_auth({
+            **base_auth,
+            "subscription_tier": "free",
+            "subscription_status": "none",
+        }, {})
+        paid_access = dashboard.ai_agent_access_for_auth({
+            **base_auth,
+            "subscription_tier": "dashboard_ultimate",
+            "subscription_status": "active",
+        }, {})
+
+        self.assertFalse(free_access["allowed"])
+        self.assertEqual("ultimate_required", free_access["status"])
+        self.assertTrue(paid_access["allowed"])
+        self.assertEqual("ultimate", paid_access["role"])
+
+    def test_agent_login_explains_paid_route_without_advertising_signup_flag(self):
+        self.assertIn("Open Ultimate dashboard login", dashboard.AGENT_LOGIN_TEMPLATE)
+        self.assertIn("Stripe payment status controls access automatically", dashboard.AGENT_LOGIN_TEMPLATE)
+        self.assertNotIn("WANDERING_AGENT_SIGNUPS_ENABLED=true", dashboard.AGENT_LOGIN_TEMPLATE)
+        self.assertIn('<a class="button" href="/login">AI Agent</a>', dashboard.PUBLIC_LANDING_TEMPLATE)
+
     def test_dayz_ai_capability_matching_covers_events_and_mod_safety(self):
         event_capabilities = dashboard.ai_agent_dayz_capabilities_for_request(
             "Create a vehicle airdrop and infected horde event",
@@ -5452,14 +5482,17 @@ class DashboardServerControlTests(unittest.TestCase):
         result = dashboard.ai_agent_run_dayz_eval_lab(state, "test-owner")
 
         self.assertEqual("passed", result["status"])
-        self.assertEqual(15, result["case_count"])
-        self.assertEqual(15, result["passed_count"])
+        self.assertEqual(18, result["case_count"])
+        self.assertEqual(18, result["passed_count"])
         self.assertEqual(0, result["failed_count"])
         self.assertTrue(result["no_model_calls"])
         self.assertEqual(0, result["credit_cost"])
         self.assertEqual(0, result["live_server_writes"])
         self.assertEqual(result["id"], state["eval_runs"][0]["id"])
         self.assertIn("reject-mismatched-ce", {item["id"] for item in result["results"]})
+        self.assertIn("mapgroup-loot-points", {item["id"] for item in result["results"]})
+        self.assertIn("mapgroup-proxy", {item["id"] for item in result["results"]})
+        self.assertIn("fire-smoke-proxy-scene", {item["id"] for item in result["results"]})
         self.assertIn("/api/owner/ai-agent-eval-lab", dashboard.PAGE_TEMPLATE)
         self.assertIn("Run DayZ Eval Lab", dashboard.PAGE_TEMPLATE)
         self.assertIn("It never calls OpenAI, spends credits, starts a worker, touches Nitrado or changes a live server file", dashboard.PAGE_TEMPLATE)
