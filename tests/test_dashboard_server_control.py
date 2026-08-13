@@ -1878,6 +1878,30 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("DayZ Nitrado Bot", nitrado_page["title"])
         self.assertIn("DayZ Airdrop", airdrop_page["title"])
 
+    def test_best_dayz_killfeed_guide_answers_the_search_query_with_a_real_checklist(self):
+        guide = dashboard.PUBLIC_SEO_GUIDES["best-dayz-killfeed-bot"]
+        killfeed_page = dashboard.PUBLIC_SEO_PAGES["dayz-killfeed-bot"]
+        guide_text = " ".join(body for _title, body in guide["sections"])
+
+        self.assertEqual("/guides/best-dayz-killfeed-bot", guide["path"])
+        self.assertIn("Best DayZ Killfeed Bot", guide["title"])
+        self.assertEqual("2026-08-13", guide["published_at"])
+        self.assertEqual("2026-08-13", guide["updated_at"])
+        self.assertGreaterEqual(len(guide["sections"]), 8)
+        self.assertIn("already-dead body", guide_text)
+        self.assertIn("rate-limits", guide_text)
+        self.assertIn("best-dayz-killfeed-bot", killfeed_page["related"])
+        self.assertIn("Accuracy safeguards", " ".join(title for title, _body in killfeed_page["features"]))
+
+        with (
+            patch.object(dashboard, "DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com"),
+            patch.object(dashboard, "Response", side_effect=lambda body, **_kwargs: body),
+        ):
+            sitemap = dashboard.sitemap_xml()
+
+        self.assertIn("https://dayzwanderingbot.com/guides/best-dayz-killfeed-bot", sitemap)
+        self.assertIn("<lastmod>2026-08-13</lastmod>", sitemap)
+
     def test_public_seo_metadata_stays_concise_and_new_guides_are_linked(self):
         guide_keys = {
             "dayz-types-xml-loot-balancing",
