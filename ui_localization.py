@@ -612,9 +612,11 @@ _UI_LOCALIZATION_JS_TEMPLATE = r"""
     const leading = original.match(/^\s*/)?.[0] || '';
     const trailing = original.match(/\s*$/)?.[0] || '';
     const key = original.slice(leading.length, original.length - trailing.length).replace(/\s+/g, ' ').trim();
-    if (!key || isTechnicalText(key)) return original;
+    if (!key) return original;
     const result = translations[language]?.[key];
-    return result ? `${leading}${result}${trailing}` : original;
+    if (result) return `${leading}${result}${trailing}`;
+    if (isTechnicalText(key)) return original;
+    return original;
   }
 
   function localizeTextNode(node, language) {
@@ -637,7 +639,7 @@ _UI_LOCALIZATION_JS_TEMPLATE = r"""
       if (node instanceof Element && node.matches('code,kbd,samp')) return node.textContent || '';
       return '';
     }).join(' '));
-    if (!originalPhrase || isTechnicalText(originalPhrase)) return false;
+    if (!originalPhrase) return false;
     const translated = language === 'en' ? originalPhrase : translations[language]?.[originalPhrase];
     if (!translated) return false;
     const target = nodes[0];

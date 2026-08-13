@@ -38,6 +38,10 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
             "Wandering Bot AI",
             "DayZ File Workbench",
             "What do you need help with?",
+            "AI Sandbox",
+            "Common Tasks",
+            "Shop / Money",
+            "Edit types.xml",
         ):
             self.assertIn(required, expected_phrases)
 
@@ -67,6 +71,8 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertIn(".json-editor", script)
         self.assertIn("data-no-translate", script)
         self.assertIn("cfggameplay", script.lower())
+        self.assertIn("if (result) return", script)
+        self.assertLess(script.index("if (result) return"), script.index("if (isTechnicalText(key))"))
         self.assertNotIn("fetch(", script)
         self.assertNotIn("translate.googleapis", script)
 
