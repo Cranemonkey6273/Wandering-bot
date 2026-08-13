@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import json
+from pathlib import Path
 
 import dashboard
 from ui_localization import (
@@ -13,6 +15,32 @@ from ui_localization import (
 
 
 class UiLocalizationAndAppLaunchTests(unittest.TestCase):
+    def test_authenticated_dashboard_translation_catalog_has_language_parity(self):
+        payload = json.loads(
+            (Path(__file__).resolve().parents[1] / "data" / "dashboard_ui_translations.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected_languages = {"de", "fr", "es", "pl"}
+        self.assertEqual(expected_languages, set(payload))
+        expected_phrases = set(payload["de"])
+        self.assertGreaterEqual(len(expected_phrases), 70)
+        for language in expected_languages:
+            self.assertEqual(expected_phrases, set(payload[language]), language)
+            for english, translated in payload[language].items():
+                self.assertTrue(english.strip())
+                self.assertTrue(str(translated).strip(), f"{language}: {english}")
+                self.assertEqual(translated, UI_TRANSLATIONS[language][english])
+        for required in (
+            "Admin Control Panel",
+            "Live Event Manager",
+            "Where Do I Go?",
+            "Wandering Bot AI",
+            "DayZ File Workbench",
+            "What do you need help with?",
+        ):
+            self.assertIn(required, expected_phrases)
+
     def test_interface_localization_supports_five_languages(self):
         self.assertEqual({"en", "de", "fr", "es", "pl"}, set(SUPPORTED_UI_LANGUAGES))
         for language in ("de", "fr", "es", "pl"):

@@ -1293,6 +1293,19 @@ class DashboardServerControlTests(unittest.TestCase):
             "dayz_context": context,
         }))
 
+    def test_plain_chat_cfg_gameplay_repair_does_not_route_to_embedded_objectspawner_path(self):
+        objective = (
+            "QA TEST ONLY - offline draft work. Repair this malformed cfgGameplay.json and return "
+            "one complete valid JSON file. Fragment: {\"WorldsData\": {\"objectSpawnersArr\": "
+            "[\"./custom/qa-base.json\",], \"lightingConfig\": 1}}"
+        )
+
+        self.assertEqual("cfggameplay.json", dashboard.ai_agent_infer_dayz_target_path(objective))
+        context = dashboard.ai_agent_dayz_file_context({}, objective)
+        self.assertEqual("cfggameplay.json", context["target_path"])
+        self.assertFalse(context["is_custom_json"])
+        self.assertEqual("", dashboard.ai_agent_custom_json_missing_input({"dayz_context": context}, objective))
+
     def test_ai_agent_uses_verified_event_name_guidance_for_linked_ce_files(self):
         reply = dashboard.ai_agent_verified_dayz_event_link_reply(
             "Explain what must match between events.xml and cfgeventspawns.xml for an airdrop."
@@ -3703,6 +3716,22 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual([], plan["approvals"])
 
+    def test_offline_dayz_draft_with_multiple_negated_live_actions_needs_no_owner_approval(self):
+        objective = (
+            "QA TEST ONLY - offline explanation and draft only. Do not upload, restart, deploy, "
+            "or change a live server. Create and validate a complete Chernarus cfgweather.xml."
+        )
+
+        self.assertTrue(dashboard.ai_agent_dayz_scope_for_text(objective, "auto"))
+        plan = dashboard.ai_agent_plan_from_objective(
+            objective,
+            "auto",
+            {"read": True, "edit": True, "execute": False, "deploy": False},
+            dashboard.ai_agent_default_state(),
+        )
+
+        self.assertEqual([], plan["approvals"])
+
     def test_ai_agent_chat_does_not_charge_when_model_answer_failed(self):
         auth = {"kind": "guild", "guild_id": "guild-qa"}
         access = {"label": "QA owner", "subject_key": "guild:guild-qa"}
@@ -3969,6 +3998,57 @@ class DashboardServerControlTests(unittest.TestCase):
             )
         self.assertIn("merge-only offline review pair", reply)
         self.assertEqual("deterministic_dayz_draft", task["llm_status"])
+
+    def test_plain_chat_gas_zone_uses_explicit_map_and_builds_linked_ce_pair(self):
+        prompt = (
+            "Create a temporary gas zone on Sakhal named QA Harbour Gas centered at "
+            "[8906, 0, 10913] with radius 120. Draft only; do not upload or restart."
+        )
+        context = dashboard.ai_agent_dayz_file_context(
+            {"project_type": "dayz_files", "dayz_map": "chernarus"},
+            prompt,
+        )
+        task = {
+            "id": "qa-plain-gas",
+            "project_type": "dayz_files",
+            "dayz_context": context,
+            "steps": [],
+            "suggested_commands": [],
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_json", side_effect=AssertionError("model should not run")):
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None, prompt, False,
+            )
+
+        self.assertEqual("deterministic_dayz_draft", task["llm_status"])
+        self.assertEqual("sakhal", task["dayz_context"]["map"])
+        self.assertEqual("gas_zone", task["dayz_context"]["scenario"]["event_type"])
+        self.assertEqual(120, task["dayz_context"]["scenario"]["radius"])
+        by_path = {draft["target_path"]: draft for draft in task["dayz_drafts"]}
+        self.assertEqual({"db/events.xml", "cfgeventspawns.xml"}, set(by_path))
+        event_node = ET.fromstring(by_path["db/events.xml"]["content"]).find("event")
+        spawn_node = ET.fromstring(by_path["cfgeventspawns.xml"]["content"]).find("event")
+        self.assertEqual(event_node.get("name"), spawn_node.get("name"))
+        self.assertIn("GasZone", event_node.get("name"))
+        self.assertEqual("ContaminatedArea_Dynamic", event_node.find("./children/child").get("type"))
+        self.assertEqual("1800", event_node.findtext("lifetime"))
+        self.assertEqual("120", spawn_node.find("zone").get("r"))
+        self.assertEqual("8906", spawn_node.find("pos").get("x"))
+        self.assertEqual("10913", spawn_node.find("pos").get("z"))
+        package = by_path["db/events.xml"]["event_package"]
+        self.assertEqual("dynamic_ce_gas_zone", package["mechanism"])
+        self.assertIn("cfgeffectarea.json", package["preserved_files"])
+        self.assertIn("merge-only", reply)
+
+    def test_plain_chat_gas_zone_requires_coordinates_and_radius(self):
+        self.assertEqual(
+            {},
+            dashboard.ai_agent_infer_gas_scenario_from_prompt(
+                "Create a temporary gas zone on Sakhal, but choose the position for me.",
+                "chernarus",
+            ),
+        )
 
     def test_dayz_agent_builds_matching_merge_only_infected_horde_pair(self):
         context = dashboard.ai_agent_dayz_file_context(

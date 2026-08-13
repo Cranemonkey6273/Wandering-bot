@@ -24833,6 +24833,18 @@ def ai_agent_dayz_scope_for_text(text: Any, project_type: Any = "") -> bool:
     # these narrow, well-known negations before looking for live-risk markers;
     # an affirmative upload/deploy/restart request still stays owner-gated.
     risk_text = combined
+    # Remove a whole, explicitly negated live-action clause before applying
+    # the short exact replacements below.  Doing this first matters for text
+    # such as "do not upload, restart, deploy, or change a live server": an
+    # early replacement of just "do not upload" would otherwise leave the
+    # remaining live-risk words looking affirmative.
+    risk_text = re.sub(
+        r"\b(?:do\s+not|don't|never|without)\b[^.!?;\r\n]{0,240}"
+        r"\b(?:upload|deploy|restart|push|change|write|send)\b[^.!?;\r\n]{0,240}",
+        " ",
+        risk_text,
+        flags=re.IGNORECASE,
+    )
     for phrase in (
         "do not upload or change nitrado",
         "don't upload or change nitrado",
@@ -25932,6 +25944,26 @@ def ai_agent_infer_dayz_target_path(objective: Any) -> str:
     if not text.strip():
         return ""
     positive_create = bool(re.search(r"\b(create|draft|produce|generate|make|write)\b", text))
+    repair_existing = bool(re.search(r"\b(repair|fix|debug|correct)\b", text)) or bool(
+        re.search(r"\bvalidate\b", text)
+        and re.search(r"\b(malformed|broken|invalid|error|fragment|existing)\b", text)
+    )
+    # A malformed cfgGameplay file commonly contains objectSpawnersArr values
+    # such as ./custom/base.json.  Those embedded values are dependencies, not
+    # the file the customer asked us to repair.  Prefer an explicitly named
+    # protected file for repair/debug requests before considering custom paths
+    # found inside the pasted content.
+    if repair_existing:
+        for protected_path, _label in sorted(
+            AI_AGENT_DAYZ_TARGETS,
+            key=lambda item: len(os.path.basename(item[0])),
+            reverse=True,
+        ):
+            if dayz_is_supported_custom_json_path(protected_path):
+                continue
+            protected_filename = os.path.basename(protected_path).lower()
+            if re.search(rf"(?<![a-z0-9_]){re.escape(protected_filename)}(?![a-z0-9_])", text):
+                return protected_path
     # When a customer explicitly names a safe custom JSON deliverable and its
     # recognised DayZ schema, that file is the primary target.  The request
     # will often also name cfggameplay.json because the finished custom file
@@ -26733,6 +26765,77 @@ def ai_agent_infer_vehicle_scenario_from_prompt(prompt: Any, map_key: Any) -> di
         "dayz_scenario_permanent": "1",
     }
     return ai_agent_dayz_scenario_from_payload(payload, map_key)
+
+
+def ai_agent_infer_gas_scenario_from_prompt(prompt: Any, map_key: Any) -> dict[str, Any]:
+    """Infer an explicit vanilla contaminated-area request from plain chat.
+
+    Dynamic gas zones are linked CE records, not free-form model output.  This
+    fallback therefore requires coordinates and a radius, honours an explicit
+    map named in the request, and routes the result through the same bounded
+    scenario validator used by the dashboard workbench.
+    """
+    text = str(prompt or "").strip()
+    lower = text.lower()
+    if not text or not any(
+        term in lower
+        for term in ("gas zone", "contaminated zone", "contaminated area")
+    ):
+        return {}
+    explicit_map = next(
+        (candidate for candidate in ("chernarus", "livonia", "sakhal") if candidate in lower),
+        "",
+    )
+    selected_map = explicit_map or map_key
+    coordinate_match = re.search(
+        r"\bx\s*[:=]?\s*(-?\d+(?:\.\d+)?)\b[\s,;/]*(?:y\s*[:=]?\s*(-?\d+(?:\.\d+)?)\b[\s,;/]*)?z\s*[:=]?\s*(-?\d+(?:\.\d+)?)\b",
+        text,
+        re.IGNORECASE,
+    )
+    if coordinate_match:
+        x_value = coordinate_match.group(1)
+        y_value = coordinate_match.group(2) or "0"
+        z_value = coordinate_match.group(3)
+    else:
+        vector_match = re.search(
+            r"[\[(]\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*[\])]",
+            text,
+        )
+        if not vector_match:
+            return {}
+        x_value, y_value, z_value = vector_match.groups()
+    radius_match = re.search(r"\bradius\s*[:=]?\s*(\d+(?:\.\d+)?)\b", text, re.IGNORECASE)
+    if not radius_match:
+        return {}
+    permanent = bool(re.search(r"\bpermanent(?:ly)?\b", lower))
+    red = bool(re.search(r"\bred\s+(?:gas|contaminated)", lower))
+    preset_id = (
+        "gas_red_permanent" if red and permanent
+        else "gas_red_temp" if red
+        else "gas_permanent" if permanent
+        else "gas_temp"
+    )
+    name_match = re.search(
+        r"\bnamed\s+(.+?)(?=\s+(?:at|cent(?:er|re)(?:ed)?|on)\b|\s+[\[(]-?\d|$)",
+        text,
+        re.IGNORECASE,
+    )
+    payload = {
+        "dayz_scenario_type": "gas_zone",
+        "dayz_scenario_preset": preset_id,
+        "dayz_scenario_name": (
+            name_match.group(1).strip() if name_match else SCENARIO_SPAWN_PRESETS[preset_id]["label"]
+        ),
+        "dayz_scenario_x": x_value,
+        "dayz_scenario_y": y_value,
+        "dayz_scenario_z": z_value,
+        "dayz_scenario_angle": "0",
+        "dayz_scenario_radius": radius_match.group(1),
+        "dayz_scenario_count": "1",
+        "dayz_scenario_permanent": "1" if permanent else "0",
+        "dayz_scenario_restarts": "1",
+    }
+    return ai_agent_dayz_scenario_from_payload(payload, selected_map)
 
 
 def ai_agent_dayz_source_from_objective(objective: Any, target_path: Any) -> str:
@@ -28511,6 +28614,153 @@ def ai_agent_builtin_airdrop_event_drafts(task: dict[str, Any]) -> list[dict[str
     for draft in normalized:
         draft["event_package"] = event_package
         draft["base"] = f"merge-only records validated against bundled DayZ {DAYZ_CE_FILE_VERSION} {map_key} references"
+    return normalized
+
+
+def ai_agent_builtin_gas_zone_drafts(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Build a validated dynamic contaminated-area CE package.
+
+    A temporary gas zone changes the CE definition and matching spawn record.
+    ``cfgEffectArea.json`` defines static effect areas and is deliberately
+    checked and preserved for this dynamic mechanism.
+    """
+    context = task.get("dayz_context") if isinstance(task, dict) else None
+    if not isinstance(context, dict):
+        return []
+    scenario = context.get("scenario") if isinstance(context.get("scenario"), dict) else {}
+    if str(scenario.get("event_type") or "") != "gas_zone" or scenario.get("error"):
+        return []
+    package_context = copy.deepcopy(context)
+    package_context["target_path"] = "db/events.xml"
+    package_context["dependency_plan"] = {
+        "workflow": "ce_event_package",
+        "summary": "Dynamic contaminated area with one matching CE position and bounded zone radius.",
+        "files": [
+            {"path": "db/events.xml", "action": "changed"},
+            {"path": "cfgeventspawns.xml", "action": "changed"},
+            {"path": "cfgeventgroups.xml", "action": "checked"},
+            {"path": "mapgroupproto.xml", "action": "checked"},
+            {"path": "cfgeffectarea.json", "action": "checked"},
+        ],
+    }
+    map_key = normalize_dayz_reference_map_key(scenario.get("map") or context.get("map"))
+    class_name = str(scenario.get("class_name") or "").strip()
+    if class_name != "ContaminatedArea_Dynamic":
+        return []
+    try:
+        types_root = ET.fromstring(load_dayz_reference_text(map_key, "db", "types.xml"))
+        eventgroups_root = ET.fromstring(load_dayz_reference_text(map_key, "cfgeventgroups.xml"))
+        prototype_root = ET.fromstring(load_dayz_reference_text(map_key, "mapgroupproto.xml"))
+    except ET.ParseError:
+        return []
+    if not any(str(node.get("name") or "") == class_name for node in types_root.findall("type")):
+        return []
+    if eventgroups_root.tag != "eventgroupdef" or prototype_root.tag != "prototype":
+        return []
+    effect_area_text = load_dayz_reference_text(map_key, "cfgeffectarea.json")
+    valid_effect_area, _effect_message = validate_dayz_upload_text("cfgeffectarea.json", effect_area_text)
+    if not valid_effect_area:
+        return []
+
+    label = str(scenario.get("name") or "GasZone").strip()
+    slug = re.sub(r"[^A-Za-z0-9]+", "", label) or "GasZone"
+    x = safe_int(scenario.get("x"), 0)
+    z = safe_int(scenario.get("z"), 0)
+    angle = float(scenario.get("angle") or 0.0)
+    radius = max(30, min(30000, safe_int(scenario.get("radius"), 120)))
+    permanent = str(scenario.get("apply_payload", {}).get("permanent") or "0") == "1"
+    lifetime = 3888000 if permanent else 1800
+    event_name = f"StaticWanderingBot_GasZone_{slug}_{x}_{z}"[:64]
+    event_patch = (
+        "<events>\n"
+        f"    <event name=\"{event_name}\">\n"
+        "        <nominal>1</nominal>\n"
+        "        <min>1</min>\n"
+        "        <max>1</max>\n"
+        f"        <lifetime>{lifetime}</lifetime>\n"
+        "        <restock>0</restock>\n"
+        "        <saferadius>0</saferadius>\n"
+        f"        <distanceradius>{radius}</distanceradius>\n"
+        f"        <cleanupradius>{min(30100, radius + 100)}</cleanupradius>\n"
+        "        <flags deletable=\"1\" init_random=\"0\" remove_damaged=\"0\"/>\n"
+        "        <position>fixed</position>\n"
+        "        <limit>parent</limit>\n"
+        "        <active>1</active>\n"
+        "        <children>\n"
+        f"            <child lootmax=\"0\" lootmin=\"0\" max=\"1\" min=\"1\" type=\"{class_name}\"/>\n"
+        "        </children>\n"
+        "    </event>\n"
+        "</events>\n"
+    )
+    spawn_patch = (
+        "<eventposdef>\n"
+        f"    <event name=\"{event_name}\">\n"
+        f"        <zone smin=\"0\" smax=\"0\" dmin=\"1\" dmax=\"1\" r=\"{radius}\"/>\n"
+        f"        <pos x=\"{x}\" z=\"{z}\" a=\"{angle:.6f}\"/>\n"
+        "    </event>\n"
+        "</eventposdef>\n"
+    )
+    normalized, error = ai_agent_normalize_dayz_draft_package(
+        {
+            "dayz_drafts": [
+                {
+                    "target_path": "db/events.xml",
+                    "kind": "patch",
+                    "content": event_patch,
+                    "summary": (
+                        f"Validated {'permanent' if permanent else 'temporary'} dynamic contaminated-area "
+                        f"definition for `{event_name}` with radius {radius}."
+                    ),
+                },
+                {
+                    "target_path": "cfgeventspawns.xml",
+                    "kind": "patch",
+                    "content": spawn_patch,
+                    "summary": (
+                        f"Validated matching gas-zone position for `{event_name}` at X {x}, Z {z}, "
+                        f"with radius {radius}."
+                    ),
+                },
+            ]
+        },
+        package_context,
+    )
+    if error or len(normalized) != 2:
+        return []
+    event_package = {
+        "core_files": list(DAYZ_EVENT_CORE_FILES),
+        "changed_files": ["db/events.xml", "cfgeventspawns.xml"],
+        "preserved_files": ["cfgeventgroups.xml", "mapgroupproto.xml", "cfgeffectarea.json"],
+        "linked_event_name": event_name,
+        "linked_class_name": class_name,
+        "mechanism": "dynamic_ce_gas_zone",
+        "checks": [
+            {
+                "path": "cfgeventgroups.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "The direct contaminated-area position has no group= reference.",
+            },
+            {
+                "path": "mapgroupproto.xml",
+                "action": "preserved",
+                "valid": True,
+                "reason": "A dynamic contaminated-area child is not a static loot prototype.",
+            },
+            {
+                "path": "cfgeffectarea.json",
+                "action": "preserved",
+                "valid": True,
+                "reason": "Static effect areas use this JSON; the requested zone uses the dynamic CE mechanism.",
+            },
+        ],
+    }
+    for draft in normalized:
+        draft["event_package"] = event_package
+        draft["base"] = (
+            f"merge-only dynamic gas-zone records validated against bundled DayZ "
+            f"{DAYZ_CE_FILE_VERSION} {map_key} references"
+        )
     return normalized
 
 
@@ -31298,13 +31548,16 @@ def ai_agent_llm_reply_for_task(
         task["updated_at"] = datetime.now(UTC).isoformat()
         return invalid_values_reply
     if not scenario.get("id") and not scenario.get("error"):
-        inferred_vehicle_scenario = ai_agent_infer_vehicle_scenario_from_prompt(
-            prompt,
-            dayz_context.get("map"),
+        inferred_scenario = (
+            ai_agent_infer_vehicle_scenario_from_prompt(prompt, dayz_context.get("map"))
+            or ai_agent_infer_gas_scenario_from_prompt(prompt, dayz_context.get("map"))
         )
-        if inferred_vehicle_scenario:
-            dayz_context["scenario"] = inferred_vehicle_scenario
-            scenario = inferred_vehicle_scenario
+        if inferred_scenario:
+            dayz_context["scenario"] = inferred_scenario
+            # A map named in plain chat is authoritative for the inferred
+            # scenario and its active vanilla references.
+            dayz_context["map"] = inferred_scenario.get("map") or dayz_context.get("map")
+            scenario = inferred_scenario
     # Prefer deterministic generators for the narrow DayZ jobs they cover.
     # This prevents a model from truncating a large vanilla file or inventing a
     # linked CE event pair simply because it cannot fit the full base in context.
@@ -31314,6 +31567,7 @@ def ai_agent_llm_reply_for_task(
         or ai_agent_builtin_restricted_area_package_drafts(task, prompt)
         or ai_agent_builtin_vehicle_event_drafts(task)
         or ai_agent_builtin_airdrop_event_drafts(task)
+        or ai_agent_builtin_gas_zone_drafts(task)
         or ai_agent_builtin_infected_horde_drafts(task)
         or ai_agent_builtin_animal_pack_drafts(task)
     )

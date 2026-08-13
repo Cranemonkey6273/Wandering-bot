@@ -528,6 +528,26 @@ for _language in ("de", "fr", "es", "pl"):
         )
 
 
+# Reviewed copy used by authenticated dashboard and AI Sandbox screens.  Keep
+# this separate from public marketing copy so missing signed-in translations
+# cannot be hidden by an otherwise complete homepage dictionary.
+_DASHBOARD_TRANSLATION_DATA = Path(__file__).with_name("data") / "dashboard_ui_translations.json"
+try:
+    _dashboard_translation_payload = json.loads(_DASHBOARD_TRANSLATION_DATA.read_text(encoding="utf-8"))
+except (OSError, ValueError, TypeError):
+    _dashboard_translation_payload = {}
+for _language in ("de", "fr", "es", "pl"):
+    _phrases = _dashboard_translation_payload.get(_language)
+    if isinstance(_phrases, dict):
+        UI_TRANSLATIONS[_language].update(
+            {
+                str(_english): str(_translated)
+                for _english, _translated in _phrases.items()
+                if str(_english).strip() and str(_translated).strip()
+            }
+        )
+
+
 UI_LOCALIZATION_CSS = r"""
 .ui-language-control{display:inline-flex;align-items:center;gap:.42rem;padding:.36rem .5rem;border:1px solid rgba(53,212,194,.34);border-radius:10px;background:rgba(4,15,14,.9);color:#d9efeb;font:600 12px/1.2 system-ui,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.22)}
 .ui-language-control label{white-space:nowrap;color:#a9c5c0}.ui-language-control select{max-width:132px;border:1px solid rgba(255,155,48,.55);border-radius:7px;background:#071311;color:#f5faf9;padding:.36rem .55rem;font:inherit;cursor:pointer}
