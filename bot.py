@@ -1047,6 +1047,7 @@ SERVER_PROFILE_INHERITED_KEYS = (
     "restart_timezone",
 )
 SERVER_PROFILE_PERSIST_KEYS = (
+    "adm_reward_rules",
     "adm_last_log_path",
     "adm_log_directory",
     "adm_last_log_directory",
@@ -10868,13 +10869,142 @@ async def maybe_translate_message(message):
                 record_translation_runtime_stat(guild_id, "failed", f"rule#{item.get('rule_index', '?')} send failed: {send_err}")
 
 
+ADM_ECONOMY_RULE_TYPES = {"kill", "death", "longshot"}
+
+
+def economy_rule_is_enabled(rule):
+    value = rule.get("enabled", True) if isinstance(rule, dict) else False
+    return str(value).strip().lower() not in {"0", "false", "off", "no", "disabled"}
+
+
+def economy_rule_identifier(rule, index, store_name):
+    existing = str(rule.get("id") or "").strip()
+    if existing:
+        return existing
+    seed = "|".join([
+        str(store_name),
+        str(index),
+        str(rule.get("event_type") or "chat_keyword"),
+        str(rule.get("kind") or "reward"),
+        str(rule.get("keyword") or ""),
+        str(rule.get("amount") or 0),
+    ])
+    return f"economy-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+
+
+def normalize_economy_rule_stores(config):
+    """Separate ordinary message-keyword rules from verified ADM event rules."""
+    if not isinstance(config, dict):
+        return False
+    original_chat = config.get("chat_rules")
+    original_adm = config.get("adm_reward_rules")
+    chat_rules = []
+    adm_rules = []
+    changed = not isinstance(original_chat, list) or not isinstance(original_adm, list)
+
+    combined = []
+    if isinstance(original_chat, list):
+        combined.extend(("chat", rule) for rule in original_chat if isinstance(rule, dict))
+    if isinstance(original_adm, list):
+        combined.extend(("adm", rule) for rule in original_adm if isinstance(rule, dict))
+
+    for index, (source, rule_value) in enumerate(combined):
+        rule = dict(rule_value)
+        event_type = str(rule.get("event_type") or "chat_keyword").strip().lower()
+        if event_type == "player_kill":
+            event_type = "kill"
+        target = adm_rules if event_type != "chat_keyword" else chat_rules
+        store_name = "adm" if target is adm_rules else "chat"
+        normalized = {
+            **rule,
+            "id": economy_rule_identifier(rule, index, store_name),
+            "event_type": event_type,
+            "kind": "punishment" if str(rule.get("kind")).lower() == "punishment" else "reward",
+            "enabled": economy_rule_is_enabled(rule),
+        }
+        try:
+            normalized["amount"] = max(0, int(rule.get("amount", 0) or 0))
+        except (TypeError, ValueError):
+            normalized["amount"] = 0
+        if event_type == "chat_keyword":
+            normalized["keyword"] = str(rule.get("keyword") or "").strip()
+        elif event_type == "longshot":
+            try:
+                normalized["minimum_distance"] = max(1.0, float(rule.get("minimum_distance", 100) or 100))
+            except (TypeError, ValueError):
+                normalized["minimum_distance"] = 100.0
+        target.append(normalized)
+        if source != store_name or normalized != rule_value:
+            changed = True
+
+    if config.get("chat_rules") != chat_rules:
+        config["chat_rules"] = chat_rules
+        changed = True
+    if config.get("adm_reward_rules") != adm_rules:
+        config["adm_reward_rules"] = adm_rules
+        changed = True
+    return changed
+
+
+def consolidate_profile_chat_rules(config):
+    """Keep Discord message rules at guild level while ADM rules stay per DayZ server."""
+    if not isinstance(config, dict):
+        return False
+    changed = normalize_economy_rule_stores(config)
+    base_rules = config.setdefault("chat_rules", [])
+    existing_ids = {str(rule.get("id") or "") for rule in base_rules if isinstance(rule, dict)}
+    existing_signatures = {
+        (
+            str(rule.get("kind") or "reward"),
+            str(rule.get("keyword") or "").strip().lower(),
+            int(rule.get("amount", 0) or 0),
+        )
+        for rule in base_rules
+        if isinstance(rule, dict)
+    }
+    profiles = config.get("server_profiles")
+    if not isinstance(profiles, dict):
+        return changed
+    for profile_config in profiles.values():
+        if not isinstance(profile_config, dict):
+            continue
+        if normalize_economy_rule_stores(profile_config):
+            changed = True
+        profile_chat_rules = profile_config.get("chat_rules")
+        if not isinstance(profile_chat_rules, list) or not profile_chat_rules:
+            continue
+        for rule in profile_chat_rules:
+            if not isinstance(rule, dict):
+                continue
+            try:
+                amount = int(rule.get("amount", 0) or 0)
+            except (TypeError, ValueError):
+                amount = 0
+            rule_id = str(rule.get("id") or "")
+            signature = (
+                str(rule.get("kind") or "reward"),
+                str(rule.get("keyword") or "").strip().lower(),
+                amount,
+            )
+            if (rule_id and rule_id in existing_ids) or signature in existing_signatures:
+                continue
+            base_rules.append(copy.deepcopy(rule))
+            existing_ids.add(rule_id)
+            existing_signatures.add(signature)
+        profile_config["chat_rules"] = []
+        changed = True
+    return changed
+
+
 async def apply_chat_reward_punishment_rules(message, lower):
 
     if not message.guild:
         return
 
     guild_id = str(message.guild.id)
-    rules = guild_configs.get(guild_id, {}).get("chat_rules", [])
+    config = guild_configs.get(guild_id, {})
+    normalize_economy_rule_stores(config)
+    rules = config.get("chat_rules", [])
 
     if not rules:
         return
@@ -10883,8 +11013,13 @@ async def apply_chat_reward_punishment_rules(message, lower):
     wallet = ensure_wallet(message.author, guild_id)
 
     for rule in rules:
+        if not economy_rule_is_enabled(rule) or str(rule.get("event_type") or "chat_keyword") != "chat_keyword":
+            continue
         keyword = str(rule.get("keyword", "")).lower().strip()
-        amount = int(rule.get("amount", 0))
+        try:
+            amount = int(rule.get("amount", 0) or 0)
+        except (TypeError, ValueError):
+            amount = 0
         kind = rule.get("kind")
 
         if not keyword or amount <= 0 or keyword not in lower:
@@ -10925,6 +11060,98 @@ async def apply_chat_reward_punishment_rules(message, lower):
     embed.add_field(name="Wallet", value=wallet_balance_brief(wallet), inline=True)
 
     await message.channel.send(embed=style_embed(embed))
+
+
+async def apply_verified_adm_economy_rules(guild_id, config, kill_details):
+    """Apply per-kill/death/longshot rules only after ADM kill validation and dedupe."""
+    if not kill_details or not isinstance(config, dict):
+        return []
+    normalize_economy_rule_stores(config)
+    rules = config.get("adm_reward_rules", [])
+    if not rules:
+        return []
+
+    killer = str(kill_details.get("killer") or "").strip()
+    victim = str(kill_details.get("victim") or "").strip()
+    try:
+        distance = float(kill_details.get("distance") or 0)
+    except (TypeError, ValueError):
+        distance = 0.0
+    economy_guild_id = discord_guild_id_for_runtime_id(guild_id)
+    matched = []
+    changed = False
+
+    for rule in rules:
+        if not economy_rule_is_enabled(rule):
+            continue
+        event_type = str(rule.get("event_type") or "").strip().lower()
+        if event_type not in ADM_ECONOMY_RULE_TYPES:
+            continue
+        subject = victim if event_type == "death" else killer
+        if event_type == "longshot":
+            try:
+                minimum_distance = max(1.0, float(rule.get("minimum_distance", 100) or 100))
+            except (TypeError, ValueError):
+                minimum_distance = 100.0
+            if distance < minimum_distance:
+                continue
+        try:
+            amount = max(0, int(rule.get("amount", 0) or 0))
+        except (TypeError, ValueError):
+            amount = 0
+        if not subject or not amount:
+            continue
+        link_record = linked_gamertag_index_record(guild_id, subject)
+        discord_id = str((link_record or {}).get("discord_id") or "").strip()
+        if not discord_id:
+            continue
+        wallet = guild_wallet(economy_guild_id, discord_id, subject)
+        kind = "punishment" if str(rule.get("kind")).lower() == "punishment" else "reward"
+        if kind == "punishment":
+            if not wallet_debit(wallet, amount, "cash"):
+                continue
+            signed_amount = -amount
+        else:
+            wallet_credit(wallet, amount, "cash")
+            signed_amount = amount
+        changed = True
+        matched.append({
+            "rule_id": str(rule.get("id") or ""),
+            "event_type": event_type,
+            "kind": kind,
+            "amount": signed_amount,
+            "gamertag": subject,
+            "discord_id": discord_id,
+            "balance": wallet_balance(wallet),
+        })
+
+    if not changed:
+        return []
+    save_wallets()
+    target_guild = discord_guild_for_runtime_id(guild_id)
+    if target_guild:
+        lines = []
+        for result in matched[:8]:
+            label = {
+                "kill": "verified PvP kill",
+                "death": "verified PvP death",
+                "longshot": "verified longshot kill",
+            }.get(result["event_type"], result["event_type"])
+            sign = "+" if result["amount"] >= 0 else "-"
+            lines.append(
+                f"<@{result['discord_id']}> `{result['gamertag']}`: "
+                f"{sign}{format_currency(abs(result['amount']), economy_guild_id)} for {label}."
+            )
+        await send_money_feed(
+            target_guild,
+            config,
+            "VERIFIED ADM ECONOMY RULE",
+            "\n".join(lines),
+            [{"name": "Source", "value": "Validated and deduplicated ADM kill event", "inline": False}],
+            color=0xF1C40F,
+            footer="Money Feed - Verified ADM Rule",
+        )
+    return matched
 
 # =========================================================
 # LOADERS
@@ -10995,6 +11222,8 @@ def load_guild_configs():
                 config[list_key] = [value for value in values if value != "swear_jar_feed"]
                 changed = True
         if normalize_server_control_schedules(config):
+            changed = True
+        if consolidate_profile_chat_rules(config):
             changed = True
     if changed:
         save_guild_configs()
@@ -21839,6 +22068,11 @@ async def parse_adm(guild_id, config):
             player_audit_changed = True
         update_player_stats_from_adm(guild_id, event_type, line)
         save_player_stats()
+        if event_type == "kill":
+            try:
+                await apply_verified_adm_economy_rules(guild_id, config, kill_details)
+            except Exception as economy_rule_error:
+                print(f"[ECONOMY] Verified ADM rule failed for {guild_id}: {economy_rule_error}")
         # Keep the consecutive-days streak tied to the actual survivor
         # lifecycle.  PvP and vehicle deaths are reset in their specialised
         # feed branches below; these ADM event types cover infected, animal,
@@ -29489,6 +29723,33 @@ def _minutes_until_next_restart(now, restart_offset, restart_interval):
         candidates.append(delta)
 
     return min(candidates) if candidates else None
+
+
+CONSOLE_SHOP_RESTART_GUARD_MINUTES = 15
+
+
+def console_shop_restart_lockout_message(config, now=None, guard_minutes=CONSOLE_SHOP_RESTART_GUARD_MINUTES):
+    """Return a user-facing lockout only in the unsafe pre-restart write window."""
+    if not isinstance(config, dict):
+        return ""
+    if not schedule_bool(config.get("restart_schedule_enabled"), False):
+        return ""
+    if not schedule_bool(config.get("restart_schedule_confirmed"), True):
+        return ""
+    interval = max(1, min(24, safe_int(config.get("restart_interval_hours"), DEFAULT_RESTART_INTERVAL_HOURS)))
+    offset = max(0, min(23, safe_int(config.get("restart_start_hour"), 0)))
+    local_now = now or datetime.now(restart_timezone_for_config(config))
+    if getattr(local_now, "tzinfo", None) is None:
+        local_now = local_now.replace(tzinfo=restart_timezone_for_config(config))
+    minutes_until = _minutes_until_next_restart(local_now, offset, interval)
+    guard_minutes = max(1, safe_int(guard_minutes, CONSOLE_SHOP_RESTART_GUARD_MINUTES))
+    if minutes_until is not None and 0 < minutes_until <= guard_minutes:
+        return (
+            f"Console deliveries pause for the final {guard_minutes} minutes before a scheduled restart "
+            f"so the delivery file cannot be replaced mid-write. This order was not charged. "
+            f"Please retry after the restart (currently about {minutes_until} minute(s) away)."
+        )
+    return ""
 
 
 def _restart_schedule_hours(restart_offset, restart_interval):
@@ -47088,7 +47349,7 @@ def create_console_shop_delivery_events(config, item_counts, x_value, z_value, o
     return created_events
 
 
-async def route_console_shop_delivery(
+async def _route_console_shop_delivery_unlocked(
     guild_id,
     config,
     item_counts,
@@ -47190,6 +47451,35 @@ async def route_console_shop_delivery(
     return True, "Object Spawner JSON (exact Y)", str(upload_message or "Object Spawner JSON uploaded")
 
 
+async def route_console_shop_delivery(
+    guild_id,
+    config,
+    item_counts,
+    x_value,
+    z_value,
+    y_supplied,
+    y_value,
+    order_id,
+    player,
+    discord_id,
+):
+    """Serialize console file writes so concurrent buyers cannot overwrite one another."""
+    lock = delivery_upload_locks.setdefault(str(guild_id), asyncio.Lock())
+    async with lock:
+        return await _route_console_shop_delivery_unlocked(
+            guild_id,
+            config,
+            item_counts,
+            x_value,
+            z_value,
+            y_supplied,
+            y_value,
+            order_id,
+            player,
+            discord_id,
+        )
+
+
 @bot.command()
 @serialize_shop_purchase
 async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: str = "", y: str = ""):
@@ -47268,6 +47558,12 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
             "A server owner must run `/installdayzbridge install:true` once, then retry the purchase."
         )
         return
+
+    if platform_key in {"xbox", "playstation"}:
+        restart_lockout = console_shop_restart_lockout_message(config)
+        if restart_lockout:
+            await ctx.send(f"The order was not charged. {restart_lockout}")
+            return
 
     wallet = guild_wallet(economy_guild_id, user_id, str(ctx.author))
 
@@ -50161,7 +50457,14 @@ async def addreward(interaction: discord.Interaction, keyword: str, amount: int)
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
     rules = config.setdefault("chat_rules", [])
-    rules.append({"kind": "reward", "keyword": keyword.lower().strip(), "amount": amount})
+    rules.append({
+        "id": f"economy-{secrets.token_hex(6)}",
+        "kind": "reward",
+        "keyword": keyword.lower().strip(),
+        "event_type": "chat_keyword",
+        "amount": amount,
+        "enabled": True,
+    })
     save_guild_configs()
 
     await interaction.response.send_message(f"Reward rule added: `{keyword}` gives {format_currency(amount, guild_id)}.", ephemeral=True)
@@ -50183,7 +50486,14 @@ async def addpunishment(interaction: discord.Interaction, keyword: str, amount: 
     guild_id = str(interaction.guild.id)
     config = guild_configs.setdefault(guild_id, {"guild_name": interaction.guild.name, "channels": {}})
     rules = config.setdefault("chat_rules", [])
-    rules.append({"kind": "punishment", "keyword": keyword.lower().strip(), "amount": amount})
+    rules.append({
+        "id": f"economy-{secrets.token_hex(6)}",
+        "kind": "punishment",
+        "keyword": keyword.lower().strip(),
+        "event_type": "chat_keyword",
+        "amount": amount,
+        "enabled": True,
+    })
     save_guild_configs()
 
     await interaction.response.send_message(f"Punishment rule added: `{keyword}` removes {format_currency(amount, guild_id)}.", ephemeral=True)
@@ -50286,26 +50596,34 @@ async def removewage(interaction: discord.Interaction, wage_id: str):
 
 @app_commands.default_permissions(administrator=True)
 async def listrules(interaction: discord.Interaction):
-
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
-    rules = guild_configs.get(str(interaction.guild.id), {}).get("chat_rules", [])
-
+    config = guild_configs.get(str(interaction.guild.id), {})
+    normalize_economy_rule_stores(config)
+    rules = [("chat", rule) for rule in config.get("chat_rules", [])]
+    rules.extend(("adm", rule) for rule in config.get("adm_reward_rules", []))
     if not rules:
         await interaction.response.send_message("No reward or punishment rules configured.", ephemeral=True)
         return
 
-    lines = [
-        f"{idx}. {rule.get('kind')} `{rule.get('keyword')}` - {format_currency(rule.get('amount'), str(interaction.guild.id))}"
-        for idx, rule in enumerate(rules, start=1)
-    ]
+    lines = []
+    for idx, (store_name, rule) in enumerate(rules, start=1):
+        event_type = str(rule.get("event_type") or "chat_keyword")
+        condition = f"keyword `{rule.get('keyword')}`" if store_name == "chat" else f"verified `{event_type}`"
+        if event_type == "longshot":
+            condition += f" from {rule.get('minimum_distance', 100)}m"
+        status = "on" if economy_rule_is_enabled(rule) else "off"
+        lines.append(
+            f"{idx}. [{status}] {rule.get('kind')} for {condition} - "
+            f"{format_currency(rule.get('amount'), str(interaction.guild.id))}"
+        )
 
     embed = discord.Embed(
         title="Reward & Punishment Rules",
         description="\n".join(lines[:25]),
-        color=0xF1C40F
+        color=0xF1C40F,
     )
     await interaction.response.send_message(embed=style_embed(embed), ephemeral=True)
 
@@ -50313,24 +50631,26 @@ async def listrules(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(rule_number="Rule number from /listrules")
 async def removerule(interaction: discord.Interaction, rule_number: int):
-
     if not has_interaction_admin_power(interaction):
         await interaction.response.send_message("Admin only.", ephemeral=True)
         return
 
     guild_id = str(interaction.guild.id)
-    rules = guild_configs.get(guild_id, {}).get("chat_rules", [])
-
-    if rule_number < 1 or rule_number > len(rules):
+    config = guild_configs.get(guild_id, {})
+    normalize_economy_rule_stores(config)
+    combined = [(config.get("chat_rules", []), rule) for rule in config.get("chat_rules", [])]
+    combined.extend((config.get("adm_reward_rules", []), rule) for rule in config.get("adm_reward_rules", []))
+    if rule_number < 1 or rule_number > len(combined):
         await interaction.response.send_message("Rule number not found.", ephemeral=True)
         return
 
-    removed = rules.pop(rule_number - 1)
+    target_rules, removed = combined[rule_number - 1]
+    target_rules.remove(removed)
     save_guild_configs()
-
     await interaction.response.send_message(
-        f"Removed {removed.get('kind')} rule for `{removed.get('keyword')}`.",
-        ephemeral=True
+        f"Removed {removed.get('kind')} rule for "
+        f"`{removed.get('keyword') or removed.get('event_type')}`.",
+        ephemeral=True,
     )
 
 

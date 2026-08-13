@@ -10591,27 +10591,66 @@ PAGE_TEMPLATE = """
           </table>
         </article>
         <article class="admin-panel" id="economy-rules">
-          <h3>Reward / Punishment Rule</h3>
-          <form class="admin-form" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
+          <h3>Automatic Economy Rules</h3>
+          <p class="muted">Chat keywords only inspect Discord messages. Verified kill, death and longshot rules only run from a linked player's validated ADM event, after replay and dead-body checks.</p>
+          <form class="admin-form" id="economy-rule-form" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+            <input class="hidden-field" name="action" value="create">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
             <label>When this happens
               <select name="event_type">
-                <option value="chat_keyword">Chat keyword</option>
-                <option value="kill">Player kill</option>
-                <option value="death">Player death</option>
-                <option value="zombie_kill">Infected kill</option>
-                <option value="animal_kill">Animal kill</option>
-                <option value="longshot">Longshot</option>
+                <option value="chat_keyword">A Discord chat keyword is posted</option>
+                <option value="kill">Verified PvP kill from ADM</option>
+                <option value="death">Verified PvP death from ADM</option>
+                <option value="longshot">Verified PvP longshot from ADM</option>
               </select>
             </label>
             <label>Reward or punish
               <select name="kind"><option value="reward">Reward pennies</option><option value="punishment">Remove pennies</option></select>
             </label>
-            <label>Keyword / condition <input name="keyword" placeholder="e.g. gg, kill, longshot"></label>
+            <label>Chat keyword <input name="keyword" placeholder="Only required for a chat-keyword rule"></label>
+            <label>Longshot minimum distance (m) <input name="minimum_distance" type="number" min="1" max="2000" value="100"></label>
             <label>Amount <input name="amount" type="number" value="100"></label>
             <div class="full"><button type="submit">Save Rule</button> <span class="result muted"></span></div>
           </form>
+          {% set economy_config = server.config if server and server.config else {} %}
+          {% set discord_chat_rules = server.chat_rules if server and server.chat_rules else [] %}
+          <h4>Active rules</h4>
+          <table>
+            <thead><tr><th>Source</th><th>Condition</th><th>Effect</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for rule in discord_chat_rules %}
+              <tr>
+                <td>Discord message</td><td>Keyword: <code>{{ rule.keyword }}</code></td>
+                <td>{{ 'Pay' if rule.kind == 'reward' else 'Remove' }} {{ rule.amount }}</td><td>{{ 'On' if rule.enabled is not sameas false else 'Off' }}</td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}"><input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}"><input class="hidden-field" name="rule_store" value="chat"><input class="hidden-field" name="rule_id" value="{{ rule.id }}"><input class="hidden-field" name="action" value="toggle"><button type="submit">{{ 'Disable' if rule.enabled is not sameas false else 'Enable' }}</button>
+                  </form>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule" data-confirm="Delete this chat rule?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}"><input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}"><input class="hidden-field" name="rule_store" value="chat"><input class="hidden-field" name="rule_id" value="{{ rule.id }}"><input class="hidden-field" name="action" value="delete"><button type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+              {% for rule in economy_config.get('adm_reward_rules', []) %}
+              <tr>
+                <td>Verified ADM</td><td>{{ rule.event_type }}{% if rule.event_type == 'longshot' %} ({{ rule.minimum_distance or 100 }}m+){% endif %}</td>
+                <td>{{ 'Pay' if rule.kind == 'reward' else 'Remove' }} {{ rule.amount }}</td><td>{{ 'On' if rule.enabled is not sameas false else 'Off' }}</td>
+                <td>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}"><input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}"><input class="hidden-field" name="rule_store" value="adm"><input class="hidden-field" name="rule_id" value="{{ rule.id }}"><input class="hidden-field" name="action" value="toggle"><button type="submit">{{ 'Disable' if rule.enabled is not sameas false else 'Enable' }}</button>
+                  </form>
+                  <form class="admin-form inline-action" method="post" action="/api/admin/economy-rule" data-route="/api/admin/economy-rule" data-confirm="Delete this verified ADM rule?">
+                    <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}"><input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}"><input class="hidden-field" name="rule_store" value="adm"><input class="hidden-field" name="rule_id" value="{{ rule.id }}"><input class="hidden-field" name="action" value="delete"><button type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+              {% if not discord_chat_rules and not economy_config.get('adm_reward_rules') %}<tr><td colspan="5">No automatic economy rules configured.</td></tr>{% endif %}
+            </tbody>
+          </table>
         </article>
       </div>
     </section>
@@ -38093,6 +38132,103 @@ def dashboard_target_config_for_profile(guild_configs: dict[str, Any], guild_id:
     return profile, dashboard_server_profile_runtime_id(guild_id, profile_id), ""
 
 
+def dashboard_normalize_economy_rule_stores(config: Any) -> bool:
+    """Keep message-keyword rules separate from verified ADM event rules."""
+    if not isinstance(config, dict):
+        return False
+    original_chat = config.get("chat_rules")
+    original_adm = config.get("adm_reward_rules")
+    changed = not isinstance(original_chat, list) or not isinstance(original_adm, list)
+    combined = []
+    if isinstance(original_chat, list):
+        combined.extend(("chat", row) for row in original_chat if isinstance(row, dict))
+    if isinstance(original_adm, list):
+        combined.extend(("adm", row) for row in original_adm if isinstance(row, dict))
+    chat_rules = []
+    adm_rules = []
+    for index, (source, row_value) in enumerate(combined):
+        row = dict(row_value)
+        event_type = str(row.get("event_type") or "chat_keyword").strip().lower()
+        if event_type == "player_kill":
+            event_type = "kill"
+        target = chat_rules if event_type == "chat_keyword" else adm_rules
+        store_name = "chat" if target is chat_rules else "adm"
+        if not str(row.get("id") or "").strip():
+            seed = "|".join([
+                store_name,
+                str(index),
+                event_type,
+                str(row.get("kind") or "reward"),
+                str(row.get("keyword") or ""),
+                str(row.get("amount") or 0),
+            ])
+            row["id"] = f"economy-{hashlib.sha256(seed.encode('utf-8')).hexdigest()[:12]}"
+        row["event_type"] = event_type
+        row["kind"] = "punishment" if str(row.get("kind")).lower() == "punishment" else "reward"
+        row["enabled"] = dashboard_bool(row.get("enabled"), True)
+        row["amount"] = max(0, safe_int(row.get("amount"), 0))
+        if event_type == "chat_keyword":
+            row["keyword"] = str(row.get("keyword") or "").strip().lower()
+        elif event_type == "longshot":
+            row["minimum_distance"] = max(1, min(2000, safe_int(row.get("minimum_distance"), 100)))
+        target.append(row)
+        if source != store_name or row != row_value:
+            changed = True
+    if config.get("chat_rules") != chat_rules:
+        config["chat_rules"] = chat_rules
+        changed = True
+    if config.get("adm_reward_rules") != adm_rules:
+        config["adm_reward_rules"] = adm_rules
+        changed = True
+    return changed
+
+
+def dashboard_consolidate_profile_chat_rules(config: Any) -> bool:
+    """Move any legacy per-profile chat rules to their Discord-wide base config."""
+    if not isinstance(config, dict):
+        return False
+    changed = dashboard_normalize_economy_rule_stores(config)
+    base_rules = config.setdefault("chat_rules", [])
+    existing_ids = {str(rule.get("id") or "") for rule in base_rules if isinstance(rule, dict)}
+    existing_signatures = {
+        (
+            str(rule.get("kind") or "reward"),
+            str(rule.get("keyword") or "").strip().lower(),
+            safe_int(rule.get("amount")),
+        )
+        for rule in base_rules
+        if isinstance(rule, dict)
+    }
+    profiles = config.get("server_profiles")
+    if not isinstance(profiles, dict):
+        return changed
+    for profile_config in profiles.values():
+        if not isinstance(profile_config, dict):
+            continue
+        if dashboard_normalize_economy_rule_stores(profile_config):
+            changed = True
+        profile_chat_rules = profile_config.get("chat_rules")
+        if not isinstance(profile_chat_rules, list) or not profile_chat_rules:
+            continue
+        for rule in profile_chat_rules:
+            if not isinstance(rule, dict):
+                continue
+            rule_id = str(rule.get("id") or "")
+            signature = (
+                str(rule.get("kind") or "reward"),
+                str(rule.get("keyword") or "").strip().lower(),
+                safe_int(rule.get("amount")),
+            )
+            if (rule_id and rule_id in existing_ids) or signature in existing_signatures:
+                continue
+            base_rules.append(copy.deepcopy(rule))
+            existing_ids.add(rule_id)
+            existing_signatures.add(signature)
+        profile_config["chat_rules"] = []
+        changed = True
+    return changed
+
+
 def dashboard_target_config_for_runtime(guild_configs: dict[str, Any], runtime_id: Any) -> tuple[dict[str, Any] | None, str, str]:
     guild_id, profile_id = dashboard_split_server_runtime_id(runtime_id)
     return dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
@@ -40984,6 +41120,8 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
     for guild_id, config in sorted(guild_configs.items(), key=lambda item: str(item[1].get("guild_name", item[0])).lower() if isinstance(item[1], dict) else str(item[0])):
         if not isinstance(config, dict):
             continue
+        if dashboard_consolidate_profile_chat_rules(config):
+            guild_name_store_changed = True
         guild_id = normalize_guild_id(guild_id)
         if not is_discord_guild_snowflake(guild_id):
             continue
@@ -41105,6 +41243,7 @@ def load_dashboard_state(active_section: str = "overview", selected_guild_id: st
                 "economy_currency": normalize_economy_currency(config.get("economy_currency") or config.get("currency")),
                 "xml_workshop": redact(xml_workshop_summary(config)),
                 "chat_rules": redact(config.get("chat_rules", [])),
+                "adm_reward_rules": redact(config.get("adm_reward_rules", [])),
                 "survival_milestones": redact(dashboard_survival_milestone_settings(config, channels)),
                 "member_onboarding": redact(dashboard_member_onboarding_settings(config, channels, discord_roles)),
                 "embed_templates": redact(dashboard_admin_records(dashboard_admin, "embed_templates", guild_id)),
@@ -45751,36 +45890,80 @@ def api_economy_rule():
     raw_payload = payload or {}
     payload = strip_dashboard_control_fields(raw_payload)
     guild_id = normalize_guild_id(payload.get("guild_id"))
+    server_profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    action = str(payload.get("action") or "create").strip().lower()
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(
+        guild_configs, guild_id, server_profile_id
+    )
+    if target_error or not isinstance(config, dict):
+        return jsonify({"ok": False, "error": target_error or "server configuration not found"}), 404
+    base_config = guild_configs.get(guild_id)
+    if not isinstance(base_config, dict):
+        return jsonify({"ok": False, "error": "Discord server configuration not found"}), 404
+    dashboard_consolidate_profile_chat_rules(base_config)
+    dashboard_normalize_economy_rule_stores(config)
+
+    if action in {"delete", "toggle"}:
+        rule_id = str(payload.get("rule_id") or "").strip()
+        rule_store = str(payload.get("rule_store") or "").strip().lower()
+        store_key = "chat_rules" if rule_store == "chat" else "adm_reward_rules" if rule_store == "adm" else ""
+        target_config = base_config if rule_store == "chat" else config
+        rules = target_config.get(store_key, []) if store_key else []
+        target_rule = next((row for row in rules if str(row.get("id") or "") == rule_id), None)
+        if not isinstance(target_rule, dict):
+            return jsonify({"ok": False, "error": "economy rule was not found"}), 404
+        if action == "delete":
+            rules.remove(target_rule)
+            note = "Economy rule deleted."
+        else:
+            target_rule["enabled"] = not dashboard_bool(target_rule.get("enabled"), True)
+            target_rule["updated_at"] = datetime.now(UTC).isoformat()
+            note = "Economy rule enabled." if target_rule["enabled"] else "Economy rule disabled."
+        save_store("guild_configs", guild_configs)
+        sync_runtime_store("guild_configs", guild_configs)
+        return dashboard_api_response(
+            raw_payload,
+            {"ok": True, "rule": target_rule, "note": note},
+            "economy",
+            "#economy-rules",
+        )
+
     keyword = str(payload.get("keyword") or payload.get("condition") or "").strip().lower()
     event_type = str(payload.get("event_type") or "chat_keyword").strip().lower()
     kind = str(payload.get("kind") or "reward").strip().lower()
     amount = safe_int(payload.get("amount"))
+    if event_type not in {"chat_keyword", "kill", "death", "longshot"}:
+        return jsonify({"ok": False, "error": "event type must be chat keyword, verified kill, death or longshot"}), 400
     if kind not in {"reward", "punishment"}:
         return jsonify({"ok": False, "error": "kind must be reward or punishment"}), 400
     if amount <= 0:
         return jsonify({"ok": False, "error": "amount must be above 0"}), 400
-    if not keyword:
-        keyword = event_type
-    guild_configs = load_store("guild_configs", {})
-    if not isinstance(guild_configs, dict):
-        guild_configs = {}
-    config = guild_configs.setdefault(guild_id, {"channels": {}})
-    rules = config.setdefault("chat_rules", [])
-    if not isinstance(rules, list):
-        rules = []
-        config["chat_rules"] = rules
+    if event_type == "chat_keyword" and not keyword:
+        return jsonify({"ok": False, "error": "a chat keyword is required for a message rule"}), 400
+    store_key = "chat_rules" if event_type == "chat_keyword" else "adm_reward_rules"
+    target_config = base_config if event_type == "chat_keyword" else config
+    rules = target_config.setdefault(store_key, [])
     rule = {
+        "id": f"economy-{secrets.token_hex(6)}",
         "kind": kind,
-        "keyword": keyword,
         "event_type": event_type,
         "amount": amount,
+        "enabled": True,
         "updated_at": datetime.now(UTC).isoformat(),
     }
+    if event_type == "chat_keyword":
+        rule["keyword"] = keyword
+    if event_type == "longshot":
+        rule["minimum_distance"] = max(1, min(2000, safe_int(payload.get("minimum_distance"), 100)))
     rules.append(rule)
     save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "rule": rule, "note": "Saved economy rule."},
+        {"ok": True, "rule": rule, "note": "Saved automatic economy rule."},
         "economy",
         "#economy-rule-form",
     )

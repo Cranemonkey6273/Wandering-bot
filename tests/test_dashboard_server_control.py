@@ -91,6 +91,130 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_economy_rule_panel_separates_chat_from_verified_adm_events(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn("Automatic Economy Rules", template)
+        self.assertIn('value="chat_keyword">A Discord chat keyword is posted', template)
+        self.assertIn('value="kill">Verified PvP kill from ADM', template)
+        self.assertIn('value="death">Verified PvP death from ADM', template)
+        self.assertIn('value="longshot">Verified PvP longshot from ADM', template)
+        self.assertIn('name="rule_store" value="chat"', template)
+        self.assertIn('name="rule_store" value="adm"', template)
+
+    def test_verified_kill_rule_is_saved_only_to_selected_server_profile(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "server_profiles": {
+                    "cherno": {"server_map": "chernarus"},
+                    "sakhal": {"server_map": "sakhal"},
+                },
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "sakhal",
+            "action": "create",
+            "event_type": "kill",
+            "kind": "reward",
+            "amount": "250",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store") as save_store,
+            patch.object(dashboard, "sync_runtime_store") as sync_runtime_store,
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_economy_rule()
+
+        base = configs["guild-1"]
+        sakhal = base["server_profiles"]["sakhal"]
+        cherno = base["server_profiles"]["cherno"]
+        self.assertEqual([], base.get("adm_reward_rules", []))
+        self.assertEqual([], cherno.get("adm_reward_rules", []))
+        self.assertEqual("kill", sakhal["adm_reward_rules"][0]["event_type"])
+        self.assertEqual(250, sakhal["adm_reward_rules"][0]["amount"])
+        self.assertEqual([], sakhal["chat_rules"])
+        save_store.assert_called_once_with("guild_configs", configs)
+        sync_runtime_store.assert_called_once_with("guild_configs", configs)
+
+    def test_economy_rule_can_be_disabled_without_deleting_it(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "chat_rules": [
+                    {
+                        "id": "accidental-kill-word",
+                        "event_type": "chat_keyword",
+                        "kind": "reward",
+                        "keyword": "kill",
+                        "amount": 100,
+                        "enabled": True,
+                    }
+                ],
+                "adm_reward_rules": [],
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "action": "toggle",
+            "rule_store": "chat",
+            "rule_id": "accidental-kill-word",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_economy_rule()
+
+        rules = configs["guild-1"]["chat_rules"]
+        self.assertEqual(1, len(rules))
+        self.assertFalse(rules[0]["enabled"])
+
+    def test_discord_chat_rule_is_managed_at_base_level_while_profile_is_selected(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "chat_rules": [
+                    {
+                        "id": "accidental-kill-word",
+                        "event_type": "chat_keyword",
+                        "kind": "reward",
+                        "keyword": "kill",
+                        "amount": 100,
+                        "enabled": True,
+                    }
+                ],
+                "server_profiles": {"sakhal": {"server_map": "sakhal"}},
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "sakhal",
+            "action": "toggle",
+            "rule_store": "chat",
+            "rule_id": "accidental-kill-word",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            dashboard.api_economy_rule()
+
+        self.assertFalse(configs["guild-1"]["chat_rules"][0]["enabled"])
+        self.assertEqual([], configs["guild-1"]["server_profiles"]["sakhal"]["chat_rules"])
+
     def test_stack_watch_preset_selection_replaces_stale_default_objects(self):
         payload = {
             "stack_watch_enabled": True,

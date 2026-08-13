@@ -33,6 +33,38 @@ class RestartTimezoneTests(unittest.TestCase):
         self.assertTrue(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 13, 0, tzinfo=UTC), 17, 4))
         self.assertFalse(self.bot._restart_schedule_matches(datetime(2026, 7, 1, 14, 0, tzinfo=UTC), 17, 4))
 
+    def test_console_shop_pauses_inside_final_fifteen_minutes(self):
+        config = {
+            "restart_schedule_enabled": True,
+            "restart_schedule_confirmed": True,
+            "restart_interval_hours": 4,
+            "restart_start_hour": 13,
+            "restart_timezone": "UTC",
+        }
+
+        message = self.bot.console_shop_restart_lockout_message(
+            config, datetime(2026, 7, 1, 12, 50, tzinfo=UTC)
+        )
+
+        self.assertIn("not charged", message)
+        self.assertIn("10 minute", message)
+
+    def test_console_shop_remains_available_outside_restart_guard(self):
+        config = {
+            "restart_schedule_enabled": True,
+            "restart_schedule_confirmed": True,
+            "restart_interval_hours": 4,
+            "restart_start_hour": 13,
+            "restart_timezone": "UTC",
+        }
+
+        self.assertEqual(
+            "",
+            self.bot.console_shop_restart_lockout_message(
+                config, datetime(2026, 7, 1, 12, 44, tzinfo=UTC)
+            ),
+        )
+
     def test_restart_schedule_has_a_bounded_catch_up_window(self):
         due = self.bot._restart_schedule_due_slot(datetime(2026, 7, 1, 13, 7, tzinfo=UTC), 1, 4, 10)
 
