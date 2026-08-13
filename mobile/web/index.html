@@ -11,109 +11,122 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <button class="brand" type="button" data-section="home" aria-label="Open home">
+      <button class="brand" type="button" data-section="home" aria-label="Open home" data-i18n-aria-label="Open home">
         <img src="./icon.png" alt="">
-        <span><strong>Wandering Bot</strong><small>DayZ companion</small></span>
+        <span><strong>Wandering Bot</strong><small data-i18n="DayZ companion">DayZ companion</small></span>
       </button>
-      <div class="connection" aria-live="polite">
-        <span id="connection-dot" class="connection-dot" aria-hidden="true"></span>
-        <span id="connection-label">Checking</span>
+      <div class="topbar-actions">
+        <label class="language-control">
+          <span data-i18n="Language">Language</span>
+          <select id="language-select" aria-label="Language" data-i18n-aria-label="Language">
+            <option value="en" data-i18n="English">English</option>
+            <option value="de" data-i18n="German">German</option>
+            <option value="fr" data-i18n="French">French</option>
+            <option value="es" data-i18n="Spanish">Spanish</option>
+            <option value="pl" data-i18n="Polish">Polish</option>
+          </select>
+        </label>
+        <div class="connection" aria-live="polite">
+          <span id="connection-dot" class="connection-dot" aria-hidden="true"></span>
+          <span id="connection-label" data-i18n="Checking">Checking</span>
+        </div>
       </div>
     </header>
 
     <div id="offline-banner" class="offline-banner" hidden>
-      <strong>Offline mode</strong>
-      <span>Your saved DayZ guides still work. Live dashboard tools will return when you reconnect.</span>
+      <strong data-i18n="Offline mode">Offline mode</strong>
+      <span data-i18n="Your saved DayZ guides still work. Live dashboard tools will return when you reconnect.">Your saved DayZ guides still work. Live dashboard tools will return when you reconnect.</span>
     </div>
 
     <main>
       <section id="section-home" class="page active" data-page="home">
         <div class="hero-card">
-          <p class="eyebrow">DayZ help in your pocket</p>
-          <h1>Learn offline.<br>Control online.</h1>
-          <p class="lead">Crafting, illnesses, server-file explanations and official-map loot tiers are stored inside this app. Live server controls stay protected online.</p>
+          <p class="eyebrow" data-i18n="DayZ help in your pocket">DayZ help in your pocket</p>
+          <h1><span data-i18n="Learn offline.">Learn offline.</span><br><span data-i18n="Control online.">Control online.</span></h1>
+          <p class="lead" data-i18n="Crafting, illnesses, server-file explanations and official-map loot tiers are stored inside this app. Live server controls stay protected online.">Crafting, illnesses, server-file explanations and official-map loot tiers are stored inside this app. Live server controls stay protected online.</p>
           <div class="hero-actions">
             <button id="open-dashboard" class="primary-action" type="button">
-              <span>Open live dashboard</span><small>Internet required</small>
+              <span data-i18n="Open live dashboard">Open live dashboard</span><small data-i18n="Internet required">Internet required</small>
             </button>
-            <button class="secondary-action" type="button" data-section="crafting">Browse offline guides</button>
+            <button class="secondary-action" type="button" data-section="crafting" data-i18n="Browse offline guides">Browse offline guides</button>
           </div>
         </div>
 
         <div class="mode-grid" aria-label="App availability">
           <article class="mode-card offline-ready">
-            <span class="mode-label">Works offline</span>
-            <strong>DayZ reference library</strong>
-            <p>Crafting, treatments, file relationships, technical terms and tier maps.</p>
+            <span class="mode-label" data-i18n="Works offline">Works offline</span>
+            <strong data-i18n="DayZ reference library">DayZ reference library</strong>
+            <p data-i18n="Crafting, treatments, file relationships, technical terms and tier maps.">Crafting, treatments, file relationships, technical terms and tier maps.</p>
           </article>
           <article class="mode-card online-only">
-            <span class="mode-label">Online only</span>
-            <strong>Live server services</strong>
-            <p>Discord login, feeds, Nitrado controls, payments, file uploads and AI Sandbox.</p>
+            <span class="mode-label" data-i18n="Online only">Online only</span>
+            <strong data-i18n="Live server services">Live server services</strong>
+            <p data-i18n="Discord login, feeds, Nitrado controls, payments, file uploads and AI Sandbox.">Discord login, feeds, Nitrado controls, payments, file uploads and AI Sandbox.</p>
           </article>
         </div>
 
         <div class="library-grid">
-          <button type="button" data-section="crafting"><span>🧰</span><strong>Crafting</strong><small>Recipes and build paths</small></button>
-          <button type="button" data-section="illnesses"><span>🩺</span><strong>Health</strong><small>Symptoms and treatments</small></button>
-          <button type="button" data-section="files"><span>🗂️</span><strong>DayZ files</strong><small>Files, links and terms</small></button>
-          <button type="button" data-section="tiers"><span>🗺️</span><strong>Loot tiers</strong><small>Chernarus, Livonia, Sakhal</small></button>
+          <button type="button" data-section="crafting"><span>🧰</span><strong data-i18n="Crafting">Crafting</strong><small data-i18n="Recipes and build paths">Recipes and build paths</small></button>
+          <button type="button" data-section="illnesses"><span>🩺</span><strong data-i18n="Health">Health</strong><small data-i18n="Symptoms and treatments">Symptoms and treatments</small></button>
+          <button type="button" data-section="files"><span>🗂️</span><strong data-i18n="DayZ files">DayZ files</strong><small data-i18n="Files, links and terms">Files, links and terms</small></button>
+          <button type="button" data-section="tiers"><span>🗺️</span><strong data-i18n="Loot tiers">Loot tiers</strong><small data-i18n="Chernarus, Livonia, Sakhal">Chernarus, Livonia, Sakhal</small></button>
         </div>
       </section>
 
       <section id="section-library" class="page" data-page="library" aria-live="polite">
         <div class="library-heading">
           <div>
-            <p id="library-eyebrow" class="eyebrow">Offline DayZ library</p>
+            <p id="library-eyebrow" class="eyebrow" data-i18n="Offline DayZ library">Offline DayZ library</p>
             <h2 id="library-title">Crafting</h2>
             <p id="library-note" class="library-note"></p>
           </div>
-          <span id="release-badge" class="release-badge">Bundled reference</span>
+          <span id="release-badge" class="release-badge" data-i18n="Bundled reference">Bundled reference</span>
         </div>
 
         <div id="library-controls" class="library-controls">
           <label class="search-field">
-            <span>Search</span>
-            <input id="library-search" type="search" placeholder="Search the offline library" autocomplete="off">
+            <span data-i18n="Search">Search</span>
+            <input id="library-search" type="search" placeholder="Search the offline library" data-i18n-placeholder="Search the offline library" autocomplete="off">
           </label>
           <label id="platform-filter-wrap">
-            <span>Platform</span>
+            <span data-i18n="Platform">Platform</span>
             <select id="platform-filter">
-              <option value="all">All platforms</option>
-              <option value="console">Console</option>
+              <option value="all" data-i18n="All platforms">All platforms</option>
+              <option value="console" data-i18n="Console">Console</option>
               <option value="pc">PC</option>
             </select>
           </label>
           <label id="map-filter-wrap">
-            <span>Map</span>
+            <span data-i18n="Map">Map</span>
             <select id="map-filter">
-              <option value="all">All maps</option>
+              <option value="all" data-i18n="All maps">All maps</option>
               <option value="chernarus">Chernarus</option>
               <option value="livonia">Livonia</option>
               <option value="sakhal">Sakhal</option>
             </select>
           </label>
           <label id="category-filter-wrap">
-            <span>Category</span>
-            <select id="category-filter"><option value="all">All categories</option></select>
+            <span data-i18n="Category">Category</span>
+            <select id="category-filter"><option value="all" data-i18n="All categories">All categories</option></select>
           </label>
         </div>
 
         <div id="library-summary" class="library-summary"></div>
         <div id="library-content" class="card-list">
-          <div class="loading-card">Loading the bundled guide…</div>
+          <div class="loading-card" data-i18n="Loading the bundled guide…">Loading the bundled guide…</div>
         </div>
       </section>
     </main>
 
     <nav class="bottom-nav" aria-label="Main navigation">
-      <button class="active" type="button" data-section="home"><span>⌂</span><small>Home</small></button>
-      <button type="button" data-section="crafting"><span>🧰</span><small>Craft</small></button>
-      <button type="button" data-section="illnesses"><span>🩺</span><small>Health</small></button>
-      <button type="button" data-section="files"><span>🗂️</span><small>Files</small></button>
-      <button type="button" data-section="tiers"><span>🗺️</span><small>Tiers</small></button>
+      <button class="active" type="button" data-section="home"><span>⌂</span><small data-i18n="Home">Home</small></button>
+      <button type="button" data-section="crafting"><span>🧰</span><small data-i18n="Craft">Craft</small></button>
+      <button type="button" data-section="illnesses"><span>🩺</span><small data-i18n="Health">Health</small></button>
+      <button type="button" data-section="files"><span>🗂️</span><small data-i18n="Files">Files</small></button>
+      <button type="button" data-section="tiers"><span>🗺️</span><small data-i18n="Tiers">Tiers</small></button>
     </nav>
   </div>
+  <script src="./translations.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

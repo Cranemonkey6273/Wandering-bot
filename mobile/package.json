@@ -1,6 +1,6 @@
 {
   "name": "wandering-bot-mobile",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Native iPhone and Android shell for the Wandering Bot dashboard app.",
   "type": "module",
