@@ -42388,15 +42388,33 @@ def console_ce_records_for_event(event, map_key=""):
         "mapgroupproto_tags": scenario_mapgroupproto_loot_tags(event, map_key=map_key) if event_type in {"airdrop", "loot_crate"} or use_eventgroup else {},
     }
     if event_type == "shop_delivery":
-        # One fixed CE parent produces the requested item quantity once. The
-        # managed definition is removed from the server files after the RPT
-        # confirms that restart, so it cannot repeat on later restarts.
+        # DayZ CE produces one selected child at each active event position.
+        # Keep the parent/child population and position pool in lockstep so a
+        # bundle (including PileOfWoodenPlanks) can actually reach its target
+        # instead of asking one fixed position to satisfy the entire order.
+        shop_positions = console_shop_delivery_spawn_positions(
+            event.get("x"),
+            event.get("z"),
+            count,
+            class_name,
+        )
+        shop_count = max(1, len(shop_positions))
+        shop_children = [{
+            "type": class_name,
+            "count": shop_count,
+            "min": shop_count,
+            "max": shop_count,
+            "lootmin": 0,
+            "lootmax": 0,
+        }]
         record.update({
-            "nominal": 1,
-            "min_count": 1,
-            "max_count": 1,
+            "count": shop_count,
+            "nominal": shop_count,
+            "min_count": shop_count,
+            "max_count": shop_count,
             "limit_type": "custom",
-            "child_records": child_records,
+            "child_records": shop_children,
+            "spawn_positions": shop_positions,
             "deletable": True,
         })
     if event_type == "gas_zone":
@@ -42899,7 +42917,7 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
                 angle=position.get("angle", position.get("a", record.get("angle", 0))),
                 y=record.get("y"),
                 count=record["count"],
-                radius=record.get("radius") or 45,
+                radius=record.get("radius") if record.get("radius") is not None else 45,
                 group_name=record["name"] if record.get("use_eventgroup") else "",
                 empty=bool(record.get("empty_spawn")),
                 vehicle_exclusion_center=record.get("vehicle_exclusion_center"),
@@ -47958,6 +47976,44 @@ def shop_delivery_size_error(item_counts):
     return ""
 
 
+def console_shop_delivery_spawn_positions(x_value, z_value, count, class_name=""):
+    """Build deterministic CE positions for every object in a ground order.
+
+    A fixed DayZ CE event spawns one child instance at each selected event
+    position.  A single position with ``child min/max`` set to the entire
+    order quantity is not equivalent and can leave the event permanently
+    below its requested population.  Keep the requested coordinate at the
+    centre and lay larger orders out in a compact grid that DayZ can resolve
+    on terrain at mission start.
+    """
+    x = parse_dayz_map_number(x_value)
+    z = parse_dayz_map_number(z_value)
+    total = max(1, min(MAX_SHOP_DELIVERY_ITEMS_PER_ORDER, safe_int(count, 1)))
+    if x is None or z is None:
+        return []
+    if total == 1:
+        return [{"x": x, "z": z, "angle": 0.0}]
+
+    class_key = str(class_name or "").strip().lower()
+    spacing = 4.0 if class_key == "pileofwoodenplanks" else 1.5
+    columns = max(1, int(math.ceil(math.sqrt(total))))
+    rows = max(1, int(math.ceil(total / columns)))
+    width = (columns - 1) * spacing
+    depth = (rows - 1) * spacing
+    start_x = min(max(float(x) - (width / 2.0), 0.0), max(0.0, 30000.0 - width))
+    start_z = min(max(float(z) - (depth / 2.0), 0.0), max(0.0, 30000.0 - depth))
+    positions = []
+    for index in range(total):
+        row = index // columns
+        column = index % columns
+        positions.append({
+            "x": round(start_x + (column * spacing), 3),
+            "z": round(start_z + (row * spacing), 3),
+            "angle": 0.0,
+        })
+    return positions
+
+
 def create_console_shop_delivery_events(config, item_counts, x_value, z_value, order_id, player, discord_id):
     """Create one-time native CE Item events for a console ground delivery."""
     created_events = []
@@ -48288,12 +48344,26 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
 
     map_link = build_izurvive_link(f"{x_value},{z_value}", guild_id) or f"https://dayz.ginfo.gg/#location={x_value};{z_value}"
 
+    console_ground_delivery = platform_key in {"xbox", "playstation"} and not y_supplied
+    delivery_eta = (
+        "After the next restart, then allow DayZ Central Economy time to process it "
+        "(commonly 5-20 minutes)."
+        if console_ground_delivery
+        else "Next server restart"
+    )
+    delivery_explanation = (
+        "Your order has been written to the correct server delivery route for the next restart. "
+        + (
+            "Console ground orders are created by DayZ Central Economy and may not appear immediately "
+            "when the server comes online. Do not buy it again while CE is still processing the order."
+            if console_ground_delivery
+            else "PC RCon remains the live control/status route; the mission bridge performs the DayZ spawn."
+        )
+    )
+
     embed = discord.Embed(
         title="📦 DELIVERY QUEUED",
-        description=(
-                "Your order has been written to the correct server delivery route for the next restart. "
-                "PC RCon remains the live control/status route; the mission bridge performs the DayZ spawn."
-        ),
+        description=delivery_explanation,
         color=0x3498DB
     )
 
@@ -48329,7 +48399,7 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
 
     embed.add_field(
         name="⏰ Delivery ETA",
-        value="Next server restart",
+        value=delivery_eta,
         inline=False
     )
 

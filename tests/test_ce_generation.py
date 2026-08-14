@@ -158,11 +158,16 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertEqual(1, len(records))
         record = records[0]
         self.assertTrue(record["name"].startswith("ItemWanderingBot_"))
-        self.assertEqual(1, record["nominal"])
-        self.assertEqual(1, record["min_count"])
-        self.assertEqual(1, record["max_count"])
+        self.assertEqual(3, record["nominal"])
+        self.assertEqual(3, record["min_count"])
+        self.assertEqual(3, record["max_count"])
         self.assertEqual("Hacksaw", record["child_records"][0]["type"])
         self.assertEqual(3, record["child_records"][0]["count"])
+        self.assertEqual(3, len(record["spawn_positions"]))
+        self.assertEqual(3, len({
+            (position["x"], position["z"])
+            for position in record["spawn_positions"]
+        }))
 
         spawns = ET.Element("eventposdef")
         bot.add_console_ce_event_spawn(
@@ -175,6 +180,62 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         position = spawns.find("event/pos")
         self.assertIsNotNone(position)
         self.assertNotIn("y", position.attrib)
+
+    def test_console_lumber_pile_delivery_uses_separate_ce_positions(self):
+        config = {}
+        created = bot.create_console_shop_delivery_events(
+            config,
+            {"PileOfWoodenPlanks": 4},
+            8194,
+            9092,
+            "order-lumber",
+            "Player",
+            "123",
+        )
+
+        records, warnings = bot.console_ce_records_for_event(created[0])
+        self.assertFalse(warnings)
+        record = records[0]
+        self.assertEqual(4, record["nominal"])
+        self.assertEqual(4, record["child_records"][0]["max"])
+        self.assertEqual(4, len(record["spawn_positions"]))
+        self.assertEqual(4.0, record["spawn_positions"][1]["x"] - record["spawn_positions"][0]["x"])
+
+        events_root = ET.Element("events")
+        bot.add_console_ce_event_definition(
+            events_root,
+            record["name"],
+            record["class_name"],
+            record["count"],
+            record["lifetime"],
+            nominal=record["nominal"],
+            min_count=record["min_count"],
+            max_count=record["max_count"],
+            limit_type=record["limit_type"],
+            child_records=record["child_records"],
+        )
+        event_node = events_root.find("event")
+        self.assertEqual("4", event_node.findtext("nominal"))
+        self.assertEqual("4", event_node.find("children/child").get("max"))
+
+        spawns_root = ET.Element("eventposdef")
+        for index, position in enumerate(record["spawn_positions"]):
+            bot.add_console_ce_event_spawn(
+                spawns_root,
+                record["name"],
+                position["x"],
+                position["z"],
+                angle=position["angle"],
+                count=record["count"],
+                radius=record["radius"],
+                clear_existing=index == 0,
+            )
+        positions = spawns_root.findall("event/pos")
+        self.assertEqual(4, len(positions))
+        self.assertEqual(4, len({
+            (position.get("x"), position.get("z"))
+            for position in positions
+        }))
 
     def test_completed_native_shop_delivery_requests_xml_cleanup(self):
         config = {
