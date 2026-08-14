@@ -22965,12 +22965,13 @@ def dashboard_effective_features(access: Any) -> dict[str, bool]:
     access = access if isinstance(access, dict) else {}
     stored = access.get("features") if isinstance(access.get("features"), dict) else {}
     if str(access.get("feature_mode") or "").strip().lower() == "manual" and stored:
-        return {key: safe_bool(stored.get(key), False) for key in DASHBOARD_FEATURE_KEYS}
-    effective = {key: False for key in DASHBOARD_FEATURE_KEYS}
-    effective.update(dashboard_plan_features_for_access(access))
-    for key in DASHBOARD_FEATURE_KEYS:
-        if key in stored:
-            effective[key] = safe_bool(stored.get(key), False)
+        effective = {key: safe_bool(stored.get(key), False) for key in DASHBOARD_FEATURE_KEYS}
+    else:
+        effective = {key: False for key in DASHBOARD_FEATURE_KEYS}
+        effective.update(dashboard_plan_features_for_access(access))
+        for key in DASHBOARD_FEATURE_KEYS:
+            if key in stored:
+                effective[key] = safe_bool(stored.get(key), False)
     for key in DASHBOARD_GUARANTEED_PLAN_FEATURES.get(dashboard_access_tier(access), set()):
         effective[key] = True
     return effective

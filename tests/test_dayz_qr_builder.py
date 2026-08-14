@@ -145,17 +145,18 @@ class DayZQRBuilderTests(unittest.TestCase):
 
     def test_stale_paid_plan_features_cannot_remove_qr_entitlement(self):
         for tier in ("dashboard_ai", "dashboard_ultimate"):
-            access = {
-                "enabled": True,
-                "tier": tier,
-                "plan_status": "subscription",
-                "feature_mode": "preset",
-                "features": {"xml_workshop": True, "qr_builder": False},
-            }
-            with self.subTest(tier=tier):
-                self.assertTrue(dashboard.dashboard_effective_features(access)["qr_builder"])
-                self.assertTrue(dashboard.dashboard_access_feature_allowed(access, "qr_builder"))
-                self.assertTrue(dashboard.dashboard_access({"dashboard": access})["features"]["qr_builder"])
+            for feature_mode in ("preset", "manual"):
+                access = {
+                    "enabled": True,
+                    "tier": tier,
+                    "plan_status": "subscription",
+                    "feature_mode": feature_mode,
+                    "features": {"xml_workshop": True, "qr_builder": False},
+                }
+                with self.subTest(tier=tier, feature_mode=feature_mode):
+                    self.assertTrue(dashboard.dashboard_effective_features(access)["qr_builder"])
+                    self.assertTrue(dashboard.dashboard_access_feature_allowed(access, "qr_builder"))
+                    self.assertTrue(dashboard.dashboard_access({"dashboard": access})["features"]["qr_builder"])
 
     def test_basic_plan_does_not_inherit_qr_entitlement(self):
         access = {
