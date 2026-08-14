@@ -7571,6 +7571,20 @@ PAGE_TEMPLATE = """
 
     {% if active_section == "leaderboards" %}
     <section class="section-panel" id="leaderboards">
+      {% if server and server.dayz_profiles %}
+      <div class="admin-panel" id="leaderboard-server-picker" style="margin-bottom:1rem">
+        <h3>Pick DayZ Server</h3>
+        <p class="tool-note">Leaderboards and statistics are kept separately for each DayZ server.</p>
+        <div class="command-server-grid">
+          {% for option in server.dayz_profiles %}
+          <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=leaderboards&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#leaderboard-server-picker">
+            <strong>{{ option.name }}</strong>
+            <span>{{ option.platform_label }} / {{ option.map }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
       <div class="discord-board">
         <h2>{{ server.guild_name if server else 'Server' }} — Server Leaderboard</h2>
         <p><em>Top 10 per category — dashboard live view.</em></p>
@@ -7594,6 +7608,23 @@ PAGE_TEMPLATE = """
           {% endfor %}
         </div>
       </div>
+      {% if mode in ["admin", "owner"] and server %}
+      <article class="admin-panel" id="statistics-maintenance" style="margin-top:1rem">
+        <h3>Statistics Maintenance</h3>
+        <p class="tool-note"><strong>Selected server:</strong> {{ selected_dayz_profile.name if selected_dayz_profile else server.dayz_name }}</p>
+        <p class="tool-note">This clears leaderboard totals and tracked player performance for this DayZ server only. It does not remove the bot, Discord channels, linked gamertags, shop balances, subscriptions, live-feed/audit history, or server settings.</p>
+        <form method="post" action="/api/admin/player-statistics-reset" class="panel-grid" onsubmit="return confirm('Reset player statistics for the selected DayZ server? This cannot be undone.');">
+          <input class="hidden-field" name="guild_id" value="{{ server.guild_id }}">
+          <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
+          <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+          <input class="hidden-field" name="return_to" value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=leaderboards&guild_id={{ server.guild_id }}{% if selected_dayz_profile %}&server_profile_id={{ selected_dayz_profile_id }}{% endif %}#statistics-maintenance">
+          <label class="full">Type <code>RESET STATS</code> to confirm
+            <input name="confirmation" required autocomplete="off" pattern="RESET STATS" placeholder="RESET STATS">
+          </label>
+          <div class="full"><button type="submit" class="danger">Reset selected server statistics</button></div>
+        </form>
+      </article>
+      {% endif %}
     </section>
     {% endif %}
 
@@ -20315,6 +20346,7 @@ PAGE_TEMPLATE = """
 """
 
 ADMIN_ROUTES = [
+    "/api/admin/player-statistics-reset",
     "/api/admin/embed-template",
     "/api/admin/embed-template-action",
     "/api/admin/dashboard-record-action",
@@ -20404,6 +20436,7 @@ ADMIN_CENTER_TOOL_FEATURES = {
 }
 
 ADMIN_ROUTE_FEATURES = {
+    "/api/admin/player-statistics-reset": "leaderboards",
     "/api/admin/embed-template": "embeds",
     "/api/admin/embed-template-action": "embeds",
     "/api/admin/dashboard-record-action": "embeds",
@@ -33692,6 +33725,7 @@ def dashboard_audit_title(path: str, payload: dict[str, Any]) -> str:
         "link-server": "Linked server settings updated",
         "unlink-server": "Linked server removed",
         "leaderboard": "Leaderboard settings updated",
+        "player-statistics-reset": "Player statistics reset",
         "member-action": "Member moderation action queued",
         "member-onboarding": "Member onboarding gate saved",
         "moderation-guard": "Moderation guard updated",
@@ -39193,6 +39227,48 @@ def leaderboard_categories(players: list[dict[str, Any]], longshot_records: Any,
     ]
 
 
+def reset_player_statistics_for_runtime(
+    player_stats: Any,
+    longshot_records: Any,
+    runtime_id: Any,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
+    """Remove only leaderboard/player-performance data for one DayZ runtime.
+
+    Processed ADM markers, live-feed evidence, linked identities, wallets and
+    configuration live in separate stores and are intentionally untouched.
+    Records without a guild/runtime ID are preserved because assigning legacy
+    global data to a specific server would be unsafe.
+    """
+    target = normalize_guild_id(runtime_id)
+    source_stats = player_stats if isinstance(player_stats, dict) else {}
+    kept_stats: dict[str, Any] = {}
+    removed_players = 0
+    legacy_skipped = 0
+    for key, stats in source_stats.items():
+        stat_runtime = str(stats.get("guild_id") or "").strip() if isinstance(stats, dict) else ""
+        if stat_runtime == target:
+            removed_players += 1
+            continue
+        if isinstance(stats, dict) and not stat_runtime:
+            legacy_skipped += 1
+        kept_stats[key] = stats
+
+    kept_longshots = dict(longshot_records) if isinstance(longshot_records, dict) else {}
+    longshot_block = kept_longshots.pop(target, None)
+    if isinstance(longshot_block, list):
+        removed_longshots = len(longshot_block)
+    elif isinstance(longshot_block, dict):
+        removed_longshots = 1 if longshot_block else 0
+    else:
+        removed_longshots = 1 if longshot_block is not None else 0
+
+    return kept_stats, kept_longshots, {
+        "players_removed": removed_players,
+        "longshots_removed": removed_longshots,
+        "legacy_records_skipped": legacy_skipped,
+    }
+
+
 def dashboard_access(config: dict[str, Any]) -> dict[str, Any]:
     access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
     features = dashboard_effective_features(access)
@@ -41744,6 +41820,29 @@ def page(mode: str, auth: dict[str, Any]):
                 selected_server["map_image_available"] = map_image_available_for(profile_map)
                 selected_server["platform"] = profile_platform
                 selected_server["platform_label"] = dashboard_server_platform_label(profile_platform)
+                if active_section == "leaderboards":
+                    profile_runtime_id = str(
+                        matched_profile.get("runtime_id")
+                        or dashboard_server_profile_runtime_id(
+                            selected_server.get("guild_id", ""),
+                            selected_dayz_profile_id,
+                        )
+                    )
+                    profile_player_stats = load_store("player_stats", {})
+                    profile_longshots = load_store("longshot_records", {})
+                    profile_players = guild_players(profile_player_stats, profile_runtime_id)
+                    selected_server["leaders"] = profile_players
+                    selected_server["leaderboards"] = leaderboard_categories(
+                        profile_players,
+                        profile_longshots,
+                        profile_runtime_id,
+                    )
+                    selected_server["totals"] = {
+                        "kills": sum(safe_int(row.get("kills")) for row in profile_players),
+                        "deaths": sum(safe_int(row.get("deaths")) for row in profile_players),
+                        "builds": sum(safe_int(row.get("builds")) for row in profile_players),
+                        "players": len(profile_players),
+                    }
                 if active_section == "heatmaps":
                     profile_runtime_id = str(
                         matched_profile.get("runtime_id")
@@ -43919,6 +44018,79 @@ def api_admin_index():
         return jsonify({"ok": False, "error": "dashboard login required"}), 401
     routes = ADMIN_ROUTES if auth.get("kind") == "owner" else [route for route in ADMIN_ROUTES if route != "/api/admin/guild-access"]
     return jsonify({"ok": True, "routes": routes})
+
+
+@APP.post("/api/admin/player-statistics-reset")
+def api_player_statistics_reset():
+    """Reset one DayZ server's performance statistics without touching setup."""
+    raw_payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = raw_payload or {}
+    if str(raw_payload.get("confirmation") or "").strip() != "RESET STATS":
+        return jsonify({"ok": False, "error": "Type RESET STATS exactly to confirm."}), 400
+
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    target_config, runtime_id, target_error = dashboard_target_config_for_profile(
+        guild_configs,
+        guild_id,
+        profile_id,
+    )
+    if target_error or target_config is None:
+        return jsonify({"ok": False, "error": target_error or "DayZ server profile was not found."}), 404
+
+    player_stats = load_store("player_stats", {})
+    longshot_records = load_store("longshot_records", {})
+    kept_stats, kept_longshots, counts = reset_player_statistics_for_runtime(
+        player_stats,
+        longshot_records,
+        runtime_id,
+    )
+    if counts["players_removed"]:
+        save_store("player_stats", kept_stats)
+    if isinstance(longshot_records, dict) and runtime_id in longshot_records:
+        save_store("longshot_records", kept_longshots)
+
+    profile_name = (
+        dashboard_server_profile_name(profile_id, target_config)
+        if profile_id
+        else dashboard_base_server_profile_name(target_config)
+    )
+    note = (
+        f"Reset player statistics for {profile_name}. Removed "
+        f"{counts['players_removed']} player record(s) and "
+        f"{counts['longshots_removed']} long-shot record(s)."
+    )
+    if counts["legacy_records_skipped"]:
+        note += (
+            f" Preserved {counts['legacy_records_skipped']} legacy record(s) "
+            "without a server ID."
+        )
+    g.dashboard_audit_payload = {
+        "action": "reset",
+        "guild_id": guild_id,
+        "server_profile_id": profile_id,
+        "runtime_id": runtime_id,
+        "server_name": profile_name,
+        **counts,
+    }
+    body = {
+        "ok": True,
+        "runtime_id": runtime_id,
+        "server_profile_id": profile_id,
+        "counts": counts,
+        "note": note,
+    }
+    return dashboard_api_response(
+        raw_payload,
+        body,
+        "leaderboards",
+        "#statistics-maintenance",
+    )
 
 
 @APP.post("/api/admin/embed-template")

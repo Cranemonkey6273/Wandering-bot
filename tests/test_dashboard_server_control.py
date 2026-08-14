@@ -92,6 +92,110 @@ class FakeResponse:
 
 
 class DashboardServerControlTests(unittest.TestCase):
+    def test_leaderboard_statistics_reset_has_server_picker_and_guard(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn('id="leaderboard-server-picker"', template)
+        self.assertIn('action="/api/admin/player-statistics-reset"', template)
+        self.assertIn('name="server_profile_id"', template)
+        self.assertIn('name="confirmation"', template)
+        self.assertIn('pattern="RESET STATS"', template)
+        self.assertIn("does not remove the bot", template)
+        self.assertIn("/api/admin/player-statistics-reset", dashboard.ADMIN_ROUTES)
+
+    def test_player_statistics_reset_is_server_scoped_and_preserves_legacy(self):
+        player_stats = {
+            "cherno-player": {"guild_id": "guild-1:cherno", "kills": 3},
+            "sakhal-player": {"guild_id": "guild-1:sakhal", "kills": 5},
+            "legacy-player": {"kills": 7},
+        }
+        longshots = {
+            "guild-1:cherno": [{"killer": "Cherno", "distance": 500}],
+            "guild-1:sakhal": {"killer": "Sakhal", "distance": 600},
+        }
+
+        kept_stats, kept_longshots, counts = dashboard.reset_player_statistics_for_runtime(
+            player_stats,
+            longshots,
+            "guild-1:cherno",
+        )
+
+        self.assertNotIn("cherno-player", kept_stats)
+        self.assertIn("sakhal-player", kept_stats)
+        self.assertIn("legacy-player", kept_stats)
+        self.assertNotIn("guild-1:cherno", kept_longshots)
+        self.assertIn("guild-1:sakhal", kept_longshots)
+        self.assertEqual(1, counts["players_removed"])
+        self.assertEqual(1, counts["longshots_removed"])
+        self.assertEqual(1, counts["legacy_records_skipped"])
+
+    def test_player_statistics_reset_endpoint_saves_only_selected_runtime(self):
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmation": "RESET STATS",
+        }
+        guild_configs = {
+            "guild-1": {
+                "channels": {},
+                "server_profiles": {
+                    "cherno": {"server_profile_name": "Cherno PVE", "server_map": "chernarus"},
+                    "sakhal": {"server_profile_name": "Sakhal PVE", "server_map": "sakhal"},
+                },
+            }
+        }
+        player_stats = {
+            "remove": {"guild_id": "guild-1:cherno", "kills": 4},
+            "keep": {"guild_id": "guild-1:sakhal", "kills": 8},
+        }
+        longshots = {
+            "guild-1:cherno": [{"distance": 500}],
+            "guild-1:sakhal": [{"distance": 700}],
+        }
+
+        def load_store(name, default):
+            return {
+                "guild_configs": guild_configs,
+                "player_stats": player_stats,
+                "longshot_records": longshots,
+            }.get(name, default)
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", side_effect=load_store),
+            patch.object(dashboard, "save_store") as save_store,
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_player_statistics_reset()
+
+        saved = {call.args[0]: call.args[1] for call in save_store.call_args_list}
+        self.assertNotIn("remove", saved["player_stats"])
+        self.assertIn("keep", saved["player_stats"])
+        self.assertNotIn("guild-1:cherno", saved["longshot_records"])
+        self.assertIn("guild-1:sakhal", saved["longshot_records"])
+        body = response["args"][0]
+        self.assertTrue(body["ok"])
+        self.assertEqual("guild-1:cherno", body["runtime_id"])
+        self.assertEqual(1, body["counts"]["players_removed"])
+
+    def test_player_statistics_reset_rejects_missing_exact_confirmation(self):
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmation": "reset stats",
+        }
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store") as load_store,
+            patch.object(dashboard, "save_store") as save_store,
+        ):
+            response, status = dashboard.api_player_statistics_reset()
+
+        self.assertEqual(400, status)
+        self.assertFalse(response["args"][0]["ok"])
+        load_store.assert_not_called()
+        save_store.assert_not_called()
+
     def test_economy_rule_panel_separates_chat_from_verified_adm_events(self):
         template = dashboard.PAGE_TEMPLATE
 
