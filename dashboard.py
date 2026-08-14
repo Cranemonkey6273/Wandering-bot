@@ -53,6 +53,7 @@ WANDERING_DELIVERY_BRIDGE_VERSION = 6
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
 PUBLIC_FEED_PREVIEW_FOLDER = os.path.join(APP_ROOT, "public_feed_previews")
+QR_MAKER_PREVIEW_FILE = os.path.join(PUBLIC_FEED_PREVIEW_FOLDER, "qr-maker-finished.png")
 DAYZ_ITEM_CATALOG_FILE = os.getenv("WANDERING_DAYZ_ITEM_CATALOG_FILE", os.path.join(APP_ROOT, "dayz_item_catalog.json"))
 DAYZ_CRAFTING_LIBRARY_FILE = os.getenv(
     "WANDERING_DAYZ_CRAFTING_LIBRARY_FILE",
@@ -1679,6 +1680,8 @@ DASHBOARD_SERVER_PROFILE_INHERITED_KEYS = (
     "server_timezone",
     "adm_timezone",
     "restart_timezone",
+    "cheat_check",
+    "stack_watch",
 )
 DEFAULT_BILLING_PLANS = [
     {
@@ -6579,6 +6582,10 @@ PAGE_TEMPLATE = """
     .xml-tool-layout > * { min-width: 0; }
     .xml-output-panel { display: grid; gap: .65rem; align-content: start; position: sticky; top: .75rem; min-width: 0; }
     .xml-output-panel .save-preview { min-height: 18rem; max-height: 34rem; }
+    .qr-result-preview { margin: 0; display: grid; gap: .55rem; padding: .6rem; border: 1px solid var(--line); border-radius: .65rem; background: #070b08; overflow: hidden; }
+    .qr-result-preview img { width: 100%; height: auto; display: block; border-radius: .45rem; border: 1px solid rgba(255,255,255,.1); }
+    .qr-result-preview figcaption { display: grid; gap: .2rem; color: var(--muted); line-height: 1.45; }
+    .qr-result-preview figcaption strong { color: var(--gold); }
     .xml-file-tabs { display: flex; gap: .35rem; flex-wrap: wrap; }
     .xml-file-tabs button { min-height: 2.2rem; padding: .45rem .6rem; font-size: .78rem; background: #070b08; color: var(--muted); }
     .xml-file-tabs button.active { background: var(--panel-2); color: var(--gold); border-color: var(--accent); }
@@ -11709,6 +11716,13 @@ PAGE_TEMPLATE = """
               </div>
             </form>
             <aside class="xml-output-panel">
+              <figure class="qr-result-preview">
+                <img src="/qr-maker-preview" alt="Finished in-game DayZ QR code frame" loading="lazy">
+                <figcaption>
+                  <strong>Finished in-game result</strong>
+                  <span>This is how the generated low-object QR frame appears after its ObjectSpawner JSON is installed and the DayZ server restarts.</span>
+                </figcaption>
+              </figure>
               <div class="mini-grid">
                 <div class="mini-card"><span class="muted">Frame</span><strong>29 exact objects</strong></div>
                 <div class="mini-card"><span class="muted">QR cells</span><strong>Dark cells only</strong></div>
@@ -12291,16 +12305,31 @@ PAGE_TEMPLATE = """
       <div class="section-head">
         <div>
           <h2>Moderation Guard</h2>
-          <p class="tool-note">Guild-scoped protection for spam, Discord invite adverts, scam phrases, mass mentions and PC cheat-check alerts. These settings only affect the selected server.</p>
+          <p class="tool-note">Discord spam, scam and advert protection applies across this Discord. PC Cheat Guard and Stack Watch are saved separately for the selected DayZ server.</p>
         </div>
       </div>
+      {% if server and server.dayz_profiles %}
+      <article class="admin-panel full" id="moderation-profile-picker">
+        <h3>Pick DayZ Server</h3>
+        <p class="tool-note">Choose the server before changing PC Cheat Guard or Stack Watch. The highlighted profile is the only DayZ server those two forms will update.</p>
+        <div class="command-server-grid compact">
+          {% for option in server.dayz_profiles %}
+          <a class="command-server-card {{ 'active' if selected_dayz_profile and option.id == selected_dayz_profile.id else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=moderation&guild_id={{ server.guild_id }}&server_profile_id={{ option.id }}#moderation-profile-picker">
+            <strong>{{ option.name }}</strong>
+            <span>{{ option.map|title }} · {{ option.platform_label }}</span>
+            {% if selected_dayz_profile and option.id == selected_dayz_profile.id %}<small>Selected moderation target</small>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </article>
+      {% endif %}
       <div class="panel-grid">
         <article class="admin-panel">
           <h3>Spam, Scam & Advert Guard</h3>
           <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
-            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
-            <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <input class="hidden-field" name="moderation_section" value="discord_guard">
+            <div class="server-lock"><span>Scope</span><input value="Entire Discord · all DayZ server profiles" readonly></div>
             <label>Guard enabled
               <select name="enabled"><option value="false" {{ 'selected' if not guard.enabled else '' }}>Off</option><option value="true" {{ 'selected' if guard.enabled else '' }}>On</option></select>
             </label>
@@ -12351,6 +12380,8 @@ PAGE_TEMPLATE = """
           <form class="admin-form" method="post" action="/api/admin/moderation-guard" data-route="/api/admin/moderation-guard">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
+            <input class="hidden-field" name="moderation_section" value="cheat_check">
+            <div class="server-lock"><span>DayZ server</span><input value="{{ selected_dayz_profile.name if selected_dayz_profile else (server.guild_name if server else 'No server selected') }}" readonly></div>
             <label>PC cheat checks
               <select name="cheat_check_enabled"><option value="true" {{ 'selected' if cheat.enabled is not defined or cheat.enabled else '' }}>On</option><option value="false" {{ 'selected' if cheat.enabled is defined and not cheat.enabled else '' }}>Off</option></select>
             </label>
@@ -12370,6 +12401,7 @@ PAGE_TEMPLATE = """
           <form class="admin-form" method="post" action="/api/admin/stack-watch" data-route="/api/admin/stack-watch">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
+            <div class="server-lock"><span>DayZ server</span><input value="{{ selected_dayz_profile.name if selected_dayz_profile else (server.guild_name if server else 'No server selected') }}" readonly></div>
             <label>Watch placements
               <select name="stack_watch_enabled"><option value="true" {{ 'selected' if stack.enabled is not defined or stack.enabled else '' }}>On</option><option value="false" {{ 'selected' if stack.enabled is defined and not stack.enabled else '' }}>Off</option></select>
             </label>
@@ -41616,6 +41648,7 @@ def page(mode: str, auth: dict[str, Any]):
         if focused:
             state["servers"] = focused + others
     selected_server = state["servers"][0] if state.get("servers") else {}
+    selected_base_server_config = copy.deepcopy(selected_server.get("config") or {}) if isinstance(selected_server, dict) else {}
     selected_dayz_profile_id = normalize_server_profile_id(request.args.get("server_profile_id"), "")
     selected_dayz_profile: dict[str, Any] = {}
     if isinstance(selected_server, dict):
@@ -41693,6 +41726,28 @@ def page(mode: str, auth: dict[str, Any]):
         selected_server["config"] = selected_dayz_profile.get("server_control_config") or selected_dayz_profile.get("config") or {}
         selected_server["channels"] = selected_dayz_profile.get("server_control_channels") or selected_dayz_profile.get("channels") or []
         selected_server["server_control_runtime_id"] = selected_dayz_profile.get("runtime_id") or ""
+        state = dict(state)
+        server_rows = list(state.get("servers") or [])
+        if server_rows:
+            server_rows[0] = selected_server
+            state["servers"] = server_rows
+    if (
+        isinstance(selected_server, dict)
+        and selected_dayz_profile
+        and (active_section == "moderation" or (active_section == "access" and setup_tool == "moderation"))
+    ):
+        selected_server = dict(selected_server)
+        moderation_config = copy.deepcopy(
+            selected_dayz_profile.get("server_control_config")
+            or selected_dayz_profile.get("config")
+            or {}
+        )
+        # Discord message protection is shared by the guild; the game-facing
+        # cheat and placement rules above stay inside the selected DayZ profile.
+        moderation_config["moderation_guard"] = copy.deepcopy(selected_base_server_config.get("moderation_guard") or {})
+        moderation_config["moderation_guard_strikes"] = copy.deepcopy(selected_base_server_config.get("moderation_guard_strikes") or {})
+        selected_server["config"] = moderation_config
+        selected_server["channels"] = selected_dayz_profile.get("server_control_channels") or selected_dayz_profile.get("channels") or []
         state = dict(state)
         server_rows = list(state.get("servers") or [])
         if server_rows:
@@ -42452,6 +42507,13 @@ def feed_preview_image(filename: str):
     if not os.path.isfile(path):
         return Response("Not found", status=404)
     return send_file(path)
+
+
+@APP.get("/qr-maker-preview")
+def qr_maker_preview_image():
+    if not os.path.isfile(QR_MAKER_PREVIEW_FILE):
+        return Response("Not found", status=404)
+    return send_file(QR_MAKER_PREVIEW_FILE)
 
 
 @APP.get("/translation-preview/<filename>")
@@ -47163,65 +47225,96 @@ def api_moderation_guard():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
-    base_config, config, profile_id = moderation_target_config(guild_configs, guild_id, payload)
-    guard_previous = config.get("moderation_guard", {})
+    moderation_section = str(payload.get("moderation_section") or "").strip().lower()
+    if moderation_section not in {"", "discord_guard", "cheat_check"}:
+        return jsonify({"ok": False, "error": "Unknown moderation settings section."}), 400
+    requested_profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    base_config, profile_config, profile_id = moderation_target_config(guild_configs, guild_id, payload)
+    if moderation_section == "cheat_check" and requested_profile_id and not profile_id:
+        return jsonify({"ok": False, "error": "The selected DayZ server profile was not found. Refresh the page and choose it again."}), 404
+    config = profile_config if moderation_section != "discord_guard" else base_config
+
+    guard_previous = base_config.get("moderation_guard", {})
     if not isinstance(guard_previous, dict):
         guard_previous = {}
-    guard = {
-        "enabled": safe_bool(payload.get("enabled"), safe_bool(guard_previous.get("enabled"), False)),
-        "delete_messages": safe_bool(payload.get("delete_messages"), safe_bool(guard_previous.get("delete_messages"), True)),
-        "admin_bypass": safe_bool(payload.get("admin_bypass"), safe_bool(guard_previous.get("admin_bypass"), True)),
-        "staff_bypass": safe_bool(payload.get("staff_bypass"), safe_bool(guard_previous.get("staff_bypass"), True)),
-        "watch_discord_invites": safe_bool(payload.get("watch_discord_invites"), safe_bool(guard_previous.get("watch_discord_invites"), True)),
-        "watch_external_links": safe_bool(payload.get("watch_external_links"), safe_bool(guard_previous.get("watch_external_links"), False)),
-        "watch_scam_words": safe_bool(payload.get("watch_scam_words"), safe_bool(guard_previous.get("watch_scam_words"), True)),
-        "watch_blocked_phrases": safe_bool(payload.get("watch_blocked_phrases"), safe_bool(guard_previous.get("watch_blocked_phrases"), True)),
-        "watch_spam": safe_bool(payload.get("watch_spam"), safe_bool(guard_previous.get("watch_spam"), True)),
-        "watch_cross_channel_spam": safe_bool(payload.get("watch_cross_channel_spam"), safe_bool(guard_previous.get("watch_cross_channel_spam"), True)),
-        "watch_repeated_messages": safe_bool(payload.get("watch_repeated_messages"), safe_bool(guard_previous.get("watch_repeated_messages"), True)),
-        "watch_mass_mentions": safe_bool(payload.get("watch_mass_mentions"), safe_bool(guard_previous.get("watch_mass_mentions"), True)),
-        "spam_message_count": max(1, min(50, safe_int(payload.get("spam_message_count"), safe_int(guard_previous.get("spam_message_count"), 5)))),
-        "spam_window_seconds": max(2, min(600, safe_int(payload.get("spam_window_seconds"), safe_int(guard_previous.get("spam_window_seconds"), 12)))),
-        "cross_channel_count": max(2, min(50, safe_int(payload.get("cross_channel_count"), safe_int(guard_previous.get("cross_channel_count"), 3)))),
-        "repeat_message_count": max(2, min(20, safe_int(payload.get("repeat_message_count"), safe_int(guard_previous.get("repeat_message_count"), 3)))),
-        "repeat_window_seconds": max(5, min(3600, safe_int(payload.get("repeat_window_seconds"), safe_int(guard_previous.get("repeat_window_seconds"), 30)))),
-        "mass_mention_limit": max(1, min(100, safe_int(payload.get("mass_mention_limit"), safe_int(guard_previous.get("mass_mention_limit"), 5)))),
-        "timeout_minutes": max(1, min(10080, safe_int(payload.get("timeout_minutes"), safe_int(guard_previous.get("timeout_minutes"), 10)))),
-        "action_first": moderation_action(payload.get("action_first"), str(guard_previous.get("action_first") or "warn")),
-        "action_second": moderation_action(payload.get("action_second"), str(guard_previous.get("action_second") or "timeout")),
-        "action_third": moderation_action(payload.get("action_third"), str(guard_previous.get("action_third") or "timeout")),
-        "invite_allowlist": lines_or_csv(payload.get("invite_allowlist"), guard_previous.get("invite_allowlist") or ["dayzwanderingbot.com"]),
-        "blocked_phrases": lines_or_csv(payload.get("blocked_phrases"), guard_previous.get("blocked_phrases") or []),
-        "scam_phrases": lines_or_csv(payload.get("scam_phrases"), guard_previous.get("scam_phrases") or MODERATION_DEFAULT_SCAM_PHRASES),
-        "updated_at": datetime.now(UTC).isoformat(),
-    }
-    config["moderation_guard"] = guard
+    guard = dict(guard_previous)
+    if moderation_section in {"", "discord_guard"}:
+        guard = {
+            "enabled": safe_bool(payload.get("enabled"), safe_bool(guard_previous.get("enabled"), False)),
+            "delete_messages": safe_bool(payload.get("delete_messages"), safe_bool(guard_previous.get("delete_messages"), True)),
+            "admin_bypass": safe_bool(payload.get("admin_bypass"), safe_bool(guard_previous.get("admin_bypass"), True)),
+            "staff_bypass": safe_bool(payload.get("staff_bypass"), safe_bool(guard_previous.get("staff_bypass"), True)),
+            "watch_discord_invites": safe_bool(payload.get("watch_discord_invites"), safe_bool(guard_previous.get("watch_discord_invites"), True)),
+            "watch_external_links": safe_bool(payload.get("watch_external_links"), safe_bool(guard_previous.get("watch_external_links"), False)),
+            "watch_scam_words": safe_bool(payload.get("watch_scam_words"), safe_bool(guard_previous.get("watch_scam_words"), True)),
+            "watch_blocked_phrases": safe_bool(payload.get("watch_blocked_phrases"), safe_bool(guard_previous.get("watch_blocked_phrases"), True)),
+            "watch_spam": safe_bool(payload.get("watch_spam"), safe_bool(guard_previous.get("watch_spam"), True)),
+            "watch_cross_channel_spam": safe_bool(payload.get("watch_cross_channel_spam"), safe_bool(guard_previous.get("watch_cross_channel_spam"), True)),
+            "watch_repeated_messages": safe_bool(payload.get("watch_repeated_messages"), safe_bool(guard_previous.get("watch_repeated_messages"), True)),
+            "watch_mass_mentions": safe_bool(payload.get("watch_mass_mentions"), safe_bool(guard_previous.get("watch_mass_mentions"), True)),
+            "spam_message_count": max(1, min(50, safe_int(payload.get("spam_message_count"), safe_int(guard_previous.get("spam_message_count"), 5)))),
+            "spam_window_seconds": max(2, min(600, safe_int(payload.get("spam_window_seconds"), safe_int(guard_previous.get("spam_window_seconds"), 12)))),
+            "cross_channel_count": max(2, min(50, safe_int(payload.get("cross_channel_count"), safe_int(guard_previous.get("cross_channel_count"), 3)))),
+            "repeat_message_count": max(2, min(20, safe_int(payload.get("repeat_message_count"), safe_int(guard_previous.get("repeat_message_count"), 3)))),
+            "repeat_window_seconds": max(5, min(3600, safe_int(payload.get("repeat_window_seconds"), safe_int(guard_previous.get("repeat_window_seconds"), 30)))),
+            "mass_mention_limit": max(1, min(100, safe_int(payload.get("mass_mention_limit"), safe_int(guard_previous.get("mass_mention_limit"), 5)))),
+            "timeout_minutes": max(1, min(10080, safe_int(payload.get("timeout_minutes"), safe_int(guard_previous.get("timeout_minutes"), 10)))),
+            "action_first": moderation_action(payload.get("action_first"), str(guard_previous.get("action_first") or "warn")),
+            "action_second": moderation_action(payload.get("action_second"), str(guard_previous.get("action_second") or "timeout")),
+            "action_third": moderation_action(payload.get("action_third"), str(guard_previous.get("action_third") or "timeout")),
+            "invite_allowlist": lines_or_csv(payload.get("invite_allowlist"), guard_previous.get("invite_allowlist") or ["dayzwanderingbot.com"]),
+            "blocked_phrases": lines_or_csv(payload.get("blocked_phrases"), guard_previous.get("blocked_phrases") or []),
+            "scam_phrases": lines_or_csv(payload.get("scam_phrases"), guard_previous.get("scam_phrases") or MODERATION_DEFAULT_SCAM_PHRASES),
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        base_config["moderation_guard"] = guard
 
-    cheat_previous = config.get("cheat_check", {})
+    cheat_previous = config.get("cheat_check")
+    if (not isinstance(cheat_previous, dict) or not cheat_previous) and profile_id:
+        cheat_previous = base_config.get("cheat_check", {})
     if not isinstance(cheat_previous, dict):
         cheat_previous = {}
     cheat = dict(cheat_previous)
-    cheat["enabled"] = safe_bool(payload.get("cheat_check_enabled"), safe_bool(cheat_previous.get("enabled"), True))
-    cheat["auto_ban"] = safe_bool(payload.get("cheat_check_auto_ban"), safe_bool(cheat_previous.get("auto_ban"), False))
-    cheat["clear_chain_on_teleport"] = safe_bool(payload.get("cheat_clear_chain_on_teleport"), safe_bool(cheat_previous.get("clear_chain_on_teleport"), True))
-    cheat["chain_window_seconds"] = max(10, min(900, safe_int(payload.get("cheat_chain_window_seconds"), safe_int(cheat_previous.get("chain_window_seconds"), 200))))
-    cheat["cluster_window_seconds"] = max(10, min(900, safe_int(payload.get("cheat_cluster_window_seconds"), safe_int(cheat_previous.get("cluster_window_seconds"), 180))))
-    cheat["cluster_min_kills"] = max(2, min(20, safe_int(payload.get("cheat_cluster_min_kills"), safe_int(cheat_previous.get("cluster_min_kills"), 3))))
-    cheat["cluster_max_radius"] = max(5, min(1000, safe_int(payload.get("cheat_cluster_max_radius"), safe_int(cheat_previous.get("cluster_max_radius"), 50))))
-    cheat["updated_at"] = datetime.now(UTC).isoformat()
-    config["cheat_check"] = cheat
+    if moderation_section in {"", "cheat_check"}:
+        cheat["enabled"] = safe_bool(payload.get("cheat_check_enabled"), safe_bool(cheat_previous.get("enabled"), True))
+        cheat["auto_ban"] = safe_bool(payload.get("cheat_check_auto_ban"), safe_bool(cheat_previous.get("auto_ban"), False))
+        cheat["clear_chain_on_teleport"] = safe_bool(payload.get("cheat_clear_chain_on_teleport"), safe_bool(cheat_previous.get("clear_chain_on_teleport"), True))
+        cheat["chain_window_seconds"] = max(10, min(900, safe_int(payload.get("cheat_chain_window_seconds"), safe_int(cheat_previous.get("chain_window_seconds"), 200))))
+        cheat["cluster_window_seconds"] = max(10, min(900, safe_int(payload.get("cheat_cluster_window_seconds"), safe_int(cheat_previous.get("cluster_window_seconds"), 180))))
+        cheat["cluster_min_kills"] = max(2, min(20, safe_int(payload.get("cheat_cluster_min_kills"), safe_int(cheat_previous.get("cluster_min_kills"), 3))))
+        cheat["cluster_max_radius"] = max(5, min(1000, safe_int(payload.get("cheat_cluster_max_radius"), safe_int(cheat_previous.get("cluster_max_radius"), 50))))
+        cheat["updated_at"] = datetime.now(UTC).isoformat()
+        config["cheat_check"] = cheat
 
-    stack = stack_watch_config_from_payload(payload, config.get("stack_watch"))
-    config["stack_watch"] = stack
+    stack_previous = config.get("stack_watch")
+    if (not isinstance(stack_previous, dict) or not stack_previous) and profile_id:
+        stack_previous = base_config.get("stack_watch")
+    stack = stack_previous if isinstance(stack_previous, dict) else {}
+    if moderation_section == "":
+        stack = stack_watch_config_from_payload(payload, stack_previous)
+        config["stack_watch"] = stack
 
     config["updated_at"] = datetime.now(UTC).isoformat()
-    if profile_id:
+    if profile_id and config is not base_config:
         base_config["updated_at"] = config["updated_at"]
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
     return dashboard_api_response(
         raw_payload,
-        {"ok": True, "moderation_guard": guard, "cheat_check": cheat, "stack_watch": stack, "note": "Moderation guard saved for this server only."},
+        {
+            "ok": True,
+            "moderation_guard": guard,
+            "cheat_check": cheat,
+            "stack_watch": stack,
+            "server_profile_id": profile_id,
+            "note": (
+                "Discord moderation guard saved for the whole Discord."
+                if moderation_section == "discord_guard"
+                else "PC Cheat Guard saved for the selected DayZ server."
+                if moderation_section == "cheat_check"
+                else "Moderation settings saved."
+            ),
+        },
         "moderation",
         "#moderation-guard",
     )
@@ -48036,8 +48129,14 @@ def api_stack_watch():
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
         guild_configs = {}
+    requested_profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
     base_config, config, profile_id = moderation_target_config(guild_configs, guild_id, payload)
-    stack = stack_watch_config_from_payload(payload, config.get("stack_watch"))
+    if requested_profile_id and not profile_id:
+        return jsonify({"ok": False, "error": "The selected DayZ server profile was not found. Refresh the page and choose it again."}), 404
+    stack_previous = config.get("stack_watch")
+    if (not isinstance(stack_previous, dict) or not stack_previous) and profile_id:
+        stack_previous = base_config.get("stack_watch")
+    stack = stack_watch_config_from_payload(payload, stack_previous)
     config["stack_watch"] = stack
     config["updated_at"] = datetime.now(UTC).isoformat()
     if profile_id:

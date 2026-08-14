@@ -214,7 +214,18 @@ class DayZQRBuilderTests(unittest.TestCase):
         self.assertIn(b"Generate Validated QR Package", response.data)
         self.assertIn(b'action="/api/admin/qr-code-generate" data-html-submit="true"', response.data)
         self.assertIn(b'name="dashboard_mode" value="owner"', response.data)
+        self.assertIn(b'src="/qr-maker-preview"', response.data)
+        self.assertIn(b"Finished in-game result", response.data)
         self.assertNotIn(b"Compare plans", response.data)
+
+    def test_qr_maker_finished_result_image_is_served(self):
+        response = dashboard.APP.test_client().get("/qr-maker-preview")
+        try:
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("image/png", response.mimetype)
+            self.assertGreater(len(response.data), 100_000)
+        finally:
+            response.close()
 
 
 if __name__ == "__main__":

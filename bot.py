@@ -1045,6 +1045,8 @@ SERVER_PROFILE_INHERITED_KEYS = (
     "server_timezone",
     "adm_timezone",
     "restart_timezone",
+    "cheat_check",
+    "stack_watch",
 )
 SERVER_PROFILE_PERSIST_KEYS = (
     "adm_reward_rules",

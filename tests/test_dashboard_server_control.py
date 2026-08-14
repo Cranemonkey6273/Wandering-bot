@@ -278,6 +278,15 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertNotIn('name="stack_watch_object_presets" multiple', template)
         self.assertIn("Ticked means watched. Unticked means ignored.", template)
 
+    def test_moderation_page_has_an_explicit_dayz_server_picker(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn('id="moderation-profile-picker"', template)
+        self.assertIn('server_profile_id={{ option.id }}#moderation-profile-picker', template)
+        self.assertIn('name="moderation_section" value="discord_guard"', template)
+        self.assertIn('name="moderation_section" value="cheat_check"', template)
+        self.assertIn("Selected moderation target", template)
+
     def test_stack_watch_route_persists_only_garden_plot(self):
         configs = {
             "guild-1": {
@@ -349,6 +358,85 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(["GardenPlot"], configs["guild-1"]["server_profiles"]["cherno"]["stack_watch"]["objects"])
         self.assertEqual(["WatchtowerKit"], configs["guild-1"]["server_profiles"]["sakhal"]["stack_watch"]["objects"])
         self.assertEqual(["FenceKit"], configs["guild-1"]["stack_watch"]["objects"])
+
+    def test_discord_guard_stays_guild_scoped_when_profiles_exist(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "moderation_guard": {"enabled": False},
+                "server_profiles": {
+                    "cherno": {"moderation_guard": {"enabled": False, "marker": "keep"}},
+                    "sakhal": {"moderation_guard": {"enabled": False, "marker": "keep-too"}},
+                },
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "moderation_section": "discord_guard",
+            "enabled": True,
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, data, *_args: data),
+        ):
+            response = dashboard.api_moderation_guard()
+
+        self.assertTrue(configs["guild-1"]["moderation_guard"]["enabled"])
+        self.assertEqual(
+            {"enabled": False, "marker": "keep"},
+            configs["guild-1"]["server_profiles"]["cherno"]["moderation_guard"],
+        )
+        self.assertEqual(
+            {"enabled": False, "marker": "keep-too"},
+            configs["guild-1"]["server_profiles"]["sakhal"]["moderation_guard"],
+        )
+        self.assertEqual("cherno", response["server_profile_id"])
+
+    def test_pc_cheat_guard_saves_only_to_selected_dayz_profile(self):
+        configs = {
+            "guild-1": {
+                "channels": {},
+                "moderation_guard": {"enabled": True, "marker": "guild-wide"},
+                "cheat_check": {"enabled": False, "marker": "legacy"},
+                "server_profiles": {
+                    "cherno": {"cheat_check": {"enabled": False, "marker": "cherno"}},
+                    "sakhal": {"cheat_check": {"enabled": False, "marker": "sakhal"}},
+                },
+            }
+        }
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "moderation_section": "cheat_check",
+            "cheat_check_enabled": True,
+            "cheat_check_auto_ban": True,
+            "cheat_cluster_min_kills": 4,
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_api_response", side_effect=lambda _raw, data, *_args: data),
+        ):
+            response = dashboard.api_moderation_guard()
+
+        self.assertEqual("cherno", response["server_profile_id"])
+        self.assertTrue(configs["guild-1"]["server_profiles"]["cherno"]["cheat_check"]["enabled"])
+        self.assertTrue(configs["guild-1"]["server_profiles"]["cherno"]["cheat_check"]["auto_ban"])
+        self.assertEqual(4, configs["guild-1"]["server_profiles"]["cherno"]["cheat_check"]["cluster_min_kills"])
+        self.assertEqual(
+            {"enabled": False, "marker": "sakhal"},
+            configs["guild-1"]["server_profiles"]["sakhal"]["cheat_check"],
+        )
+        self.assertEqual({"enabled": False, "marker": "legacy"}, configs["guild-1"]["cheat_check"])
+        self.assertEqual({"enabled": True, "marker": "guild-wide"}, configs["guild-1"]["moderation_guard"])
 
     def test_stack_watch_allows_only_genuine_custom_classes_in_custom_field(self):
         payload = {
