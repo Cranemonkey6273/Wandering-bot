@@ -34,8 +34,10 @@ https://dayzwanderingbot.com/.well-known/assetlinks.json
 ```
 
 8. Paste the reviewed copy from `PLAY_STORE_LISTING.md` into the Play listing and upload final screenshots with matching captions.
+   The ready-to-upload portrait phone screenshots are in `mobile/store-assets/phone/`.
 9. Use `PRODUCTION_ACCESS_ANSWERS.md` when the production-access questionnaire opens. Keep every answer factual for the build being submitted.
 10. Confirm the first-use tour, dashboard review form, Google Play rating link and support links work in the uploaded closed-test build.
+11. Upload Android version `1.0.4` (version code `5`) so the In-Game QR entry and newest offline guides reach existing users.
 
 The Android Play build opens:
 

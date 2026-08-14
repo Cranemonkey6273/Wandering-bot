@@ -2,6 +2,7 @@ import hashlib
 import json
 import pathlib
 import re
+import struct
 import unittest
 
 
@@ -49,8 +50,13 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         self.assertIn("DayZ files explained", script)
         self.assertIn("Loot tiers & maps", script)
         self.assertIn("navigator.onLine", script)
+        self.assertIn('get("store") === "1"', script)
         self.assertNotIn("window.location.replace", script)
         self.assertIn("open-dashboard", html)
+        self.assertIn("open-qr-builder", html)
+        self.assertIn("xml_tool=qr-code", script)
+        self.assertIn("source=native_android", script)
+        self.assertIn("qr-maker-preview.png", html)
 
     def test_mobile_shell_has_reviewed_offline_language_catalogue(self):
         html = (WEB / "index.html").read_text(encoding="utf-8")
@@ -58,7 +64,7 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         translations = (WEB / "translations.js").read_text(encoding="utf-8")
 
         self.assertIn('id="language-select"', html)
-        self.assertIn('src="./translations.js"', html)
+        self.assertIn('src="./translations.js?v=1.0.4"', html)
         self.assertIn("wanderingUiLanguage", script)
         self.assertIn("localStorage.setItem", script)
         self.assertIn("navigator.language", script)
@@ -82,7 +88,7 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         translations = (WEB / "translations.js").read_text(encoding="utf-8")
         phrases = set(
             re.findall(
-                r'data-i18n(?:-placeholder|-aria-label)?="([^"]+)"',
+                r'data-i18n(?:-placeholder|-aria-label|-alt)?="([^"]+)"',
                 html,
             )
         )
@@ -90,6 +96,36 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         self.assertGreaterEqual(len(phrases), 45)
         for phrase in phrases:
             self.assertEqual(4, translations.count(f'"{phrase}":'), phrase)
+
+    def test_mobile_qr_preview_matches_the_reviewed_dashboard_example(self):
+        source = ROOT / "public_feed_previews" / "qr-maker-finished.png"
+        bundled = WEB / "qr-maker-preview.png"
+        self.assertTrue(source.is_file())
+        self.assertTrue(bundled.is_file())
+        self.assertEqual(
+            hashlib.sha256(source.read_bytes()).digest(),
+            hashlib.sha256(bundled.read_bytes()).digest(),
+        )
+
+    def test_play_store_phone_screenshots_are_valid_portrait_rgb_pngs(self):
+        screenshot_dir = MOBILE / "store-assets" / "phone"
+        expected = {
+            "01-home.png",
+            "02-crafting.png",
+            "03-health.png",
+            "04-files.png",
+            "05-tiers.png",
+            "06-qr-builder.png",
+        }
+        self.assertEqual(expected, {path.name for path in screenshot_dir.glob("*.png")})
+        for filename in expected:
+            payload = (screenshot_dir / filename).read_bytes()
+            self.assertEqual(b"\x89PNG\r\n\x1a\n", payload[:8], filename)
+            width, height = struct.unpack(">II", payload[16:24])
+            self.assertGreaterEqual(width, 320, filename)
+            self.assertGreater(height, width, filename)
+            self.assertLessEqual(height, width * 2, filename)
+            self.assertEqual(2, payload[25], f"{filename} must be RGB PNG without alpha")
 
     def test_translated_mobile_assets_are_copied_into_android_package(self):
         android_public = MOBILE / "android" / "app" / "src" / "main" / "assets" / "public"

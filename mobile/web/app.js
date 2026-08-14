@@ -1,4 +1,5 @@
 const DASHBOARD_URL = "https://dayzwanderingbot.com/app?source=native_android";
+const QR_BUILDER_URL = "https://dayzwanderingbot.com/admin?section=xml-workshop&xml_tool=qr-code&source=native_android";
 const LANGUAGE_STORAGE_KEY = "wanderingUiLanguage";
 const SUPPORTED_LANGUAGES = new Set(["en", "de", "fr", "es", "pl"]);
 const TRANSLATIONS = globalThis.WANDERING_MOBILE_TRANSLATIONS || {en: {}};
@@ -52,6 +53,9 @@ function translateStaticInterface() {
   document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
     element.setAttribute("aria-label", t(element.dataset.i18nAriaLabel));
   });
+  document.querySelectorAll("[data-i18n-alt]").forEach((element) => {
+    element.setAttribute("alt", t(element.dataset.i18nAlt));
+  });
   const selector = byId("language-select");
   if (selector) selector.value = state.language;
 }
@@ -79,8 +83,14 @@ const list = (items, ordered = false) => {
   return `<${tag}>${items.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : item.name || "")}</li>`).join("")}</${tag}>`;
 };
 
+const STORE_PREVIEW = new URLSearchParams(window.location.search).get("store") === "1";
+
+function isOnline() {
+  return STORE_PREVIEW || navigator.onLine !== false;
+}
+
 function updateConnection() {
-  const online = navigator.onLine !== false;
+  const online = isOnline();
   byId("connection-label").textContent = online ? t("Online") : t("Offline");
   byId("connection-dot").classList.toggle("offline", !online);
   byId("offline-banner").hidden = online;
@@ -88,15 +98,22 @@ function updateConnection() {
   dashboard.disabled = !online;
   dashboard.setAttribute("aria-disabled", String(!online));
   dashboard.querySelector("small").textContent = online ? t("Secure online access") : t("Reconnect to continue");
+  const qrBuilder = byId("open-qr-builder");
+  qrBuilder.disabled = !online;
+  qrBuilder.setAttribute("aria-disabled", String(!online));
+  qrBuilder.querySelector("small").textContent = online ? t("Secure dashboard sign-in required") : t("Reconnect to continue");
 }
 
-function openDashboard() {
-  if (navigator.onLine === false) {
+function openOnlineUrl(url) {
+  if (!isOnline()) {
     updateConnection();
     return;
   }
-  window.location.assign(DASHBOARD_URL);
+  window.location.assign(url);
 }
+
+function openDashboard() { openOnlineUrl(DASHBOARD_URL); }
+function openQrBuilder() { openOnlineUrl(QR_BUILDER_URL); }
 
 async function getLibrary(name) {
   if (state.libraries[name]) return state.libraries[name];
@@ -286,6 +303,7 @@ window.addEventListener("load", () => {
   document.querySelectorAll("[data-section]").forEach((button) => button.addEventListener("click", () => showSection(button.dataset.section)));
   byId("language-select").addEventListener("change", (event) => setLanguage(event.target.value));
   byId("open-dashboard").addEventListener("click", openDashboard);
+  byId("open-qr-builder").addEventListener("click", openQrBuilder);
   byId("library-search").addEventListener("input", (event) => { state.search = event.target.value; renderLibrary(); });
   byId("platform-filter").addEventListener("change", (event) => { state.platform = event.target.value; renderLibrary(); });
   byId("map-filter").addEventListener("change", (event) => { state.map = event.target.value; renderLibrary(); });

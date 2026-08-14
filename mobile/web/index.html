@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#020706">
   <meta name="color-scheme" content="dark">
   <title>Wandering Bot</title>
-  <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles.css?v=1.0.4">
 </head>
 <body>
   <div class="app-shell">
@@ -71,6 +71,23 @@
           <button type="button" data-section="files"><span>🗂️</span><strong data-i18n="DayZ files">DayZ files</strong><small data-i18n="Files, links and terms">Files, links and terms</small></button>
           <button type="button" data-section="tiers"><span>🗺️</span><strong data-i18n="Loot tiers">Loot tiers</strong><small data-i18n="Chernarus, Livonia, Sakhal">Chernarus, Livonia, Sakhal</small></button>
         </div>
+
+        <section class="online-tool-card" aria-labelledby="qr-tool-title">
+          <img src="./qr-maker-preview.png" alt="A completed scannable QR code scene inside DayZ" data-i18n-alt="A completed scannable QR code scene inside DayZ">
+          <div class="online-tool-copy">
+            <div class="tool-badges">
+              <span data-i18n="Online tool">Online tool</span>
+              <span data-i18n="Pro or Ultimate">Pro or Ultimate</span>
+            </div>
+            <p class="eyebrow" data-i18n="Server-owner tool">Server-owner tool</p>
+            <h2 id="qr-tool-title" data-i18n="In-Game QR Builder">In-Game QR Builder</h2>
+            <p data-i18n="Turn a website or Discord invite into a validated, low-object QR scene for your DayZ map.">Turn a website or Discord invite into a validated, low-object QR scene for your DayZ map.</p>
+            <button id="open-qr-builder" class="qr-action" type="button">
+              <span data-i18n="Open QR builder">Open QR builder</span>
+              <small data-i18n="Secure dashboard sign-in required">Secure dashboard sign-in required</small>
+            </button>
+          </div>
+        </section>
       </section>
 
       <section id="section-library" class="page" data-page="library" aria-live="polite">
@@ -126,7 +143,7 @@
       <button type="button" data-section="tiers"><span>🗺️</span><small data-i18n="Tiers">Tiers</small></button>
     </nav>
   </div>
-  <script src="./translations.js"></script>
-  <script src="./app.js"></script>
+  <script src="./translations.js?v=1.0.4"></script>
+  <script src="./app.js?v=1.0.4"></script>
 </body>
 </html>

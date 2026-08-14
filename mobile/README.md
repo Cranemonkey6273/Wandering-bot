@@ -12,6 +12,7 @@ Crafting, illness, DayZ-file and official loot-tier reference data is bundled fo
 
 - The installed app opens its packaged home and offline DayZ guide library.
 - The **Open live dashboard** button opens `https://dayzwanderingbot.com/app` when a connection is available.
+- The **In-Game QR Builder** card opens the authenticated `xml-workshop` QR tool for eligible Pro, Ultimate and owner accounts. QR generation remains online because it is account-, plan- and server-scoped.
 - The app allows Wandering Bot dashboard pages, Discord, and Wandering Bot subdomains. Stripe checkout stays outside the Android Play app.
 - The Android Play build uses `https://dayzwanderingbot.com/app?source=native_android` for its online dashboard so checkout buttons stay hidden inside the native app.
 - Android deep links are registered for `wanderingbot://`, `/app`, `/login`, `/admin`, and `/owner`.
@@ -87,7 +88,7 @@ Store-ready public links now exist at:
 - `https://dayzwanderingbot.com/support`
 - `https://dayzwanderingbot.com/terms`
 
-The Play Store release still needs final screenshots and Play Console listing setup.
+The Play Store release assets live in `store-assets/phone`. Upload the current portrait PNG set when publishing version 1.0.4 or later.
 
 Detailed release steps live in:
 

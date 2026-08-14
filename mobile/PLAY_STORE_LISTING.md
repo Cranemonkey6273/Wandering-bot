@@ -25,6 +25,10 @@ Key features include:
 - Restart, raid-damage and vehicle-reset controls
 - Guidance for types.xml, events.xml, cfgeventspawns.xml, cfgspawnabletypes.xml, cfggameplay.json and other common DayZ files
 - Linked-file explanations, validation advice, backup reminders and restart guidance
+- An offline crafting library with ingredients, tools and build steps
+- Offline illness, symptom, treatment and prevention guidance
+- Offline Chernarus, Livonia and Sakhal loot-tier maps
+- A secured in-game QR builder for eligible Pro and Ultimate server owners
 - Support for separate Chernarus, Livonia and Sakhal server profiles
 - Translation, dashboard and automation features according to the connected plan
 
@@ -54,10 +58,12 @@ Use these naturally in the listing, screenshot captions and release notes. Do no
 
 ## Screenshot caption ideas
 
-1. Your DayZ server command centre
-2. Live ADM activity and server feeds
-3. Create and track guarded server events
-4. Adjust economy and shop settings
-5. Restart and server control safeguards
-6. Learn how linked DayZ files work
+1. DayZ help and live control in your pocket
+2. Crafting recipes that work offline
+3. Symptoms, causes and treatments
+4. Understand linked DayZ server files
+5. Chernarus, Livonia and Sakhal loot tiers
+6. Build a scannable in-game QR scene
+7. Your live DayZ server command centre
+8. ADM feeds, events, economy and safeguards
 
