@@ -1970,6 +1970,14 @@ async def get_or_create_feed_channel(
                     pass
             return existing
 
+        channels.pop(key, None)
+
+    # Owners who choose their own channel layout must map routes explicitly
+    # in Dashboard -> Feed Routing. Even a forced feed repair must not create
+    # or guess a channel in this mode.
+    if str(config.get("channel_delivery_mode") or "managed").lower() == "existing":
+        return None
+
     if preferred_existing:
         channels[key] = preferred_existing.id
         category = await target_category() if repair_existing else None
@@ -8262,6 +8270,7 @@ def normalize_discord_name(name):
 
 
 def new_guild_config(guild):
+    created_at = datetime.now(UTC).isoformat()
     return {
         "guild_name": guild.name,
         "guild_owner": str(guild.owner),
@@ -8286,6 +8295,16 @@ def new_guild_config(guild):
         "channel_setup_keys": [],
         "channel_setup_restore_queue": [],
         "setup_channel_id": None,
+        # Discord installation onboarding is deliberately separate from
+        # member onboarding. This state lets an administrator resume setup
+        # without creating feed channels before the final confirmation.
+        "setup_draft": {},
+        "onboarding": {
+            "status": "awaiting_setup",
+            "stage": "bot_added",
+            "created_at": created_at,
+            "updated_at": created_at,
+        },
     }
 
 
@@ -18366,6 +18385,38 @@ async def on_guild_join(guild):
             except Exception as error:
                 print(f"BILLING REJOIN BLOCK ERROR {guild_id}: {error}")
             return
+        existing_config = guild_configs[guild_id]
+        onboarding = existing_config.get("onboarding") if isinstance(existing_config.get("onboarding"), dict) else {}
+        last_stage = str(onboarding.get("previous_stage") or onboarding.get("stage") or "")
+        if last_stage and last_stage not in {"connected", "completed"}:
+            setup_channel = guild.get_channel(_safe_channel_id(existing_config.get("setup_channel_id")))
+            if setup_channel is None:
+                setup_category = await ensure_bot_category(guild, "wandering_hq")
+                setup_channel = next(
+                    (
+                        channel for channel in getattr(guild, "text_channels", []) or []
+                        if normalize_discord_name(getattr(channel, "name", "")) in {"botsetup", "wanderingbotsetup"}
+                    ),
+                    None,
+                )
+                if setup_channel is None:
+                    setup_channel = await guild.create_text_channel("wandering-bot-setup", category=setup_category)
+                existing_config["setup_channel_id"] = setup_channel.id
+            update_install_onboarding(existing_config, status="awaiting_setup", stage=last_stage)
+            save_guild_configs()
+            resume_embed = discord.Embed(
+                title="Welcome back — resume private setup",
+                description=(
+                    "Your unfinished choices were saved without storing any password or token from the wizard. "
+                    "Press **Resume private setup** to continue. No feed channels will be created until confirmation."
+                ),
+                color=0xF39C12,
+            )
+            resume_embed.set_thumbnail(url=BOT_IMAGE)
+            try:
+                await setup_channel.send(embed=style_embed(resume_embed), view=OnboardingStartView())
+            except Exception as setup_error:
+                print(f"SETUP RESUME INTRO ERROR {guild_id}: {setup_error}")
         synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
         await announce_slash_sync_status(guild, synced_commands)
         return
@@ -18380,9 +18431,9 @@ async def on_guild_join(guild):
         await announce_slash_sync_status(guild, synced_commands)
         return
 
-    # Do not flood a newly-added server with every optional feed.  The owner
-    # chooses a channel pack during /setup; until then keep the setup location
-    # plus a small five-channel starter set so the bot is useful immediately.
+    # A new installation gets exactly one channel. Feed channels are created
+    # only after an administrator reviews and confirms the private setup
+    # wizard, so adding the bot can never flood a customer's Discord.
     join_config = new_guild_config(guild)
     setup_category = await ensure_bot_category(guild, "wandering_hq")
     setup_channel = None
@@ -18392,40 +18443,28 @@ async def on_guild_join(guild):
             break
     if setup_channel is None:
         setup_channel = await guild.create_text_channel("wandering-bot-setup", category=setup_category)
-    # Keep the first impression useful but quiet: five main feeds are enough
-    # for a new owner to see the bot working before choosing a larger pack.
-    for starter_key in CHANNEL_SETUP_PACKS["essentials"]:
-        if not channel_key_allowed_for_server_mode(starter_key, join_config):
-            continue
-        desired_name = default_channel_name_for_config(starter_key, join_config)
-        existing = preferred_existing_feed_channel(guild, starter_key)
-        if existing is None:
-            try:
-                existing = await guild.create_text_channel(desired_name, category=setup_category)
-            except Exception as starter_error:
-                print(f"STARTER CHANNEL CREATE ERROR {guild_id} {starter_key}: {starter_error}")
-                continue
-        join_config.setdefault("channels", {})[starter_key] = existing.id
+    join_config["channel_setup_initialized"] = True
+    join_config["channel_setup_keys"] = []
+    join_config["disabled_channels"] = sorted(DEFAULT_CHANNEL_NAMES.keys())
     join_config["setup_channel_id"] = setup_channel.id
     guild_configs[guild_id] = join_config
     save_guild_configs()
 
     setup_embed = discord.Embed(
-        title="Wandering Bot is ready — choose your channels",
+        title="Wandering Bot is ready — start your private setup",
         description=(
-            "Five starter feeds are ready now: welcome, general chat, killfeed, online, and help. "
-            "The bot will not create the full channel tree automatically. Run `/setup` "
-            "when you are ready, then choose **Essentials**, **Live feeds**, **Community**, "
-            "**Staff**, **PVE**, **Full**, or **Custom**.\n\n"
-            "For Custom, enter channel keys such as `killfeed,online,radar`. "
-            "You can add more packs later without deleting your existing channels."
+            "Nothing else has been created. Press **Start private setup** (or run `/setup`) "
+            "to choose Xbox, PlayStation or PC, connect Nitrado, and select the exact feeds "
+            "you want. Use a recommended group or pick feeds individually.\n\n"
+            "Your choices remain private, nothing changes until **Confirm**, and unfinished "
+            "setup can be resumed later. Existing channels are never deleted by this wizard."
         ),
         color=0xF39C12,
     )
     setup_embed.set_thumbnail(url=BOT_IMAGE)
-    setup_embed.set_footer(text="Wandering Bot • channel setup")
+    setup_embed.set_footer(text="Wandering Bot • one-channel guided setup")
     try:
-        await setup_channel.send(embed=style_embed(setup_embed))
+        await setup_channel.send(embed=style_embed(setup_embed), view=OnboardingStartView())
     except Exception as setup_error:
         print(f"SETUP CHANNEL INTRO ERROR {guild_id}: {setup_error}")
 
@@ -18629,6 +18668,32 @@ async def on_guild_join(guild):
     synced_commands = await sync_slash_commands_for_guild(guild, sync_global=True)
     await announce_slash_sync_status(guild, synced_commands)
 
+
+@bot.event
+async def on_guild_remove(guild):
+    """Keep a resumable audit record when an installation is removed."""
+    guild_id = str(guild.id)
+    config = guild_configs.get(guild_id)
+    if not isinstance(config, dict):
+        return
+    previous_stage = str((config.get("onboarding") or {}).get("stage") or "unknown")
+    update_install_onboarding(
+        config,
+        status="removed",
+        stage="bot_removed",
+        removed_at=datetime.now(UTC).isoformat(),
+        previous_stage=previous_stage,
+    )
+    save_guild_configs()
+    try:
+        await send_owner_notification(
+            "Bot Removed from Server",
+            f"Server: **{guild.name}** (`{guild.id}`)\nLast onboarding stage: **{previous_stage}**\n"
+            "The saved setup record was retained so the owner can resume safely after reinstalling.",
+        )
+    except Exception as error:
+        print(f"BOT REMOVE OWNER NOTICE ERROR {guild_id}: {error}")
+
 # =========================================================
 # /SETUP COMMAND
 # =========================================================
@@ -18708,14 +18773,110 @@ SETUP_WIZARD_MODE_CHOICES = [
 SETUP_WIZARD_CHANNEL_CHOICES = [
     ("Essentials (recommended)", "essentials", "A small starter set; add more later"),
     ("Live feeds", "live", "Killfeed and live server activity"),
+    ("Server information", "info", "Status, restart alerts and leaderboards"),
     ("Community", "community", "Welcome, links, clips and community"),
     ("Staff", "staff", "Private staff and audit routes"),
     ("Economy", "economy", "Shop, purchases and rentals"),
     ("Factions", "factions", "Faction chat, tickets and staff"),
     ("PVE", "pve", "Quests, hunting and expeditions"),
     ("Full", "full", "Every channel included by the plan"),
-    ("Custom list", "custom", "Enter exact channel keys in Advanced"),
+    ("No feeds yet", "none", "Connect the server without creating feed channels"),
+    ("Custom selection", "custom", "Choose exact feeds with the individual picker"),
 ]
+SETUP_WIZARD_DELIVERY_CHOICES = [
+    (
+        "Wandering-managed channels",
+        "managed",
+        "Create only the feeds you select, in a tidy Wandering layout",
+    ),
+    (
+        "Use my existing channels",
+        "existing",
+        "Create no feed channels; map selected feeds in Dashboard Feed Routing",
+    ),
+]
+
+ONBOARDING_START_BUTTON_CUSTOM_ID = "wandering:onboarding:start"
+ONBOARDING_PERMISSIONS_BUTTON_CUSTOM_ID = "wandering:onboarding:permissions"
+SETUP_FEED_PAGE_SIZE = 20
+
+
+class OnboardingStartView(discord.ui.View):
+    """Persistent buttons for the single channel created on first install."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(discord.ui.Button(
+            label="Start private setup",
+            emoji="🚀",
+            style=discord.ButtonStyle.success,
+            custom_id=ONBOARDING_START_BUTTON_CUSTOM_ID,
+        ))
+        self.add_item(discord.ui.Button(
+            label="Why these permissions?",
+            emoji="🔐",
+            style=discord.ButtonStyle.secondary,
+            custom_id=ONBOARDING_PERMISSIONS_BUTTON_CUSTOM_ID,
+        ))
+
+
+def update_install_onboarding(config, *, status=None, stage=None, actor_id=None, **details):
+    """Persist compact installation progress without storing wizard secrets."""
+    if not isinstance(config, dict):
+        return
+    now = datetime.now(UTC).isoformat()
+    onboarding = config.setdefault("onboarding", {})
+    if not isinstance(onboarding, dict):
+        onboarding = {}
+        config["onboarding"] = onboarding
+    onboarding.setdefault("created_at", now)
+    onboarding["updated_at"] = now
+    if status:
+        onboarding["status"] = str(status)
+    if stage:
+        onboarding["stage"] = str(stage)
+    if actor_id:
+        onboarding["actor_id"] = str(actor_id)
+    for key, value in details.items():
+        if value is not None:
+            onboarding[str(key)] = value
+
+
+def persist_setup_wizard_draft(guild_id, values, *, stage, actor_id=None):
+    config = guild_configs.get(str(guild_id))
+    if not isinstance(config, dict):
+        return
+    safe_fields = (
+        "server_platform",
+        "server_map",
+        "server_mode",
+        "channel_delivery_mode",
+        "channel_bundle",
+        "channel_selection",
+    )
+    config["setup_draft"] = {
+        key: values.get(key, "")
+        for key in safe_fields
+    }
+    config["setup_draft"]["stage"] = str(stage)
+    config["setup_draft"]["updated_at"] = datetime.now(UTC).isoformat()
+    update_install_onboarding(
+        config,
+        status="in_progress",
+        stage=stage,
+        actor_id=actor_id,
+    )
+    save_guild_configs()
+
+
+def setup_feed_display_name(key, config):
+    fallback = str(key).replace("_", " ").title()
+    try:
+        configured = unstyled_channel_name(default_channel_name_for_config(key, config))
+    except Exception:
+        configured = ""
+    configured = re.sub(r"^[#\s]+", "", str(configured or "")).strip()
+    return (configured or fallback)[:100]
 
 
 def setup_wizard_initial_values(existing_config):
@@ -18738,10 +18899,11 @@ def setup_wizard_initial_values(existing_config):
         else:
             channel_bundle = "custom"
             channel_selection = ", ".join(saved_keys)
-    return {
+    values = {
         "server_platform": platform,
         "server_map": server_map,
         "server_mode": server_mode,
+        "channel_delivery_mode": str(config.get("channel_delivery_mode") or "managed"),
         "channel_bundle": channel_bundle,
         "channel_selection": channel_selection,
         "nitrado_token": "",
@@ -18754,6 +18916,19 @@ def setup_wizard_initial_values(existing_config):
         "rcon_port": "",
         "rcon_password": "",
     }
+    draft = config.get("setup_draft") if isinstance(config.get("setup_draft"), dict) else {}
+    if draft:
+        for key in (
+            "server_platform",
+            "server_map",
+            "server_mode",
+            "channel_delivery_mode",
+            "channel_bundle",
+            "channel_selection",
+        ):
+            if key in draft:
+                values[key] = draft.get(key) or ("" if key == "channel_selection" else values[key])
+    return values
 
 
 def setup_wizard_channel_status(values, existing_config, language="en"):
@@ -18808,12 +18983,15 @@ class SetupWizardChoiceSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         self.wizard.values[self.field] = self.values[0]
+        if self.field == "channel_bundle" and self.values[0] != "custom":
+            self.wizard.values["channel_selection"] = ""
         if self.field == "server_platform" and getattr(self.wizard, "step", 1) == 1:
             self.wizard.step = 2
             self.wizard.notice = setup_text(self.wizard.language, "platform_saved")
             self.wizard.rebuild_items()
         else:
             self.wizard.notice = setup_text(self.wizard.language, "selection_updated")
+        self.wizard.persist_draft(f"step_{self.wizard.step}")
         await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
 
 
@@ -18852,6 +19030,7 @@ class SetupCredentialsModal(discord.ui.Modal):
             if value:
                 self.wizard.values[key] = value if key in {"ftp_password"} else value.strip()
         self.wizard.notice = setup_text(self.wizard.language, "credentials_saved")
+        self.wizard.persist_draft("connection_details_entered")
         await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
 
 
@@ -18907,6 +19086,7 @@ class SetupAdvancedModal(discord.ui.Modal):
             if value or key == "channel_selection":
                 self.wizard.values[key] = value
         self.wizard.notice = setup_text(self.wizard.language, "advanced_saved")
+        self.wizard.persist_draft("advanced_details_entered")
         await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
 
 
@@ -18927,6 +19107,142 @@ class SetupWizardOwnedView(discord.ui.View):
         return True
 
 
+class SetupFeedPageSelect(discord.ui.Select):
+    def __init__(self, picker):
+        self.picker = picker
+        self.page_keys = picker.current_page_keys()
+        options = []
+        for key in self.page_keys:
+            privacy = "Private staff route" if key in PRIVATE_FEED_CHANNEL_KEYS else "Public/community route"
+            options.append(discord.SelectOption(
+                label=setup_feed_display_name(key, picker.wizard.existing_config),
+                value=key,
+                description=f"{key} • {privacy}"[:100],
+                default=key in picker.selected,
+            ))
+        super().__init__(
+            placeholder=f"Page {picker.page + 1}: tick the feeds you want",
+            min_values=0,
+            max_values=max(1, len(options)),
+            options=options,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        self.picker.selected.difference_update(self.page_keys)
+        self.picker.selected.update(self.values)
+        self.picker.notice = "Selection saved for this page. Continue browsing or press Use these feeds."
+        self.picker.rebuild_items()
+        await interaction.response.edit_message(embed=self.picker.build_embed(), view=self.picker)
+
+
+class SetupFeedPickerButton(discord.ui.Button):
+    def __init__(self, picker, *, action, label, style, row=1):
+        super().__init__(label=label, style=style, row=row)
+        self.picker = picker
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        picker = self.picker
+        if self.action == "previous":
+            picker.page = max(0, picker.page - 1)
+        elif self.action == "next":
+            picker.page = min(picker.page_count - 1, picker.page + 1)
+        elif self.action == "recommended":
+            recommended = set(CHANNEL_SETUP_PACKS["essentials"])
+            picker.selected = recommended.intersection(picker.allowed_keys)
+            picker.notice = "Recommended essentials selected. You can still add or remove individual feeds."
+        elif self.action == "clear":
+            picker.selected.clear()
+            picker.notice = "All feed routes cleared. The setup channel will remain available."
+        elif self.action == "back":
+            picker.wizard.notice = "Individual feed changes were not applied."
+            await interaction.response.edit_message(embed=picker.wizard.build_embed(), view=picker.wizard)
+            return
+        elif self.action == "apply":
+            ordered = [key for key in picker.allowed_keys if key in picker.selected]
+            picker.wizard.values["channel_bundle"] = "custom" if ordered else "none"
+            picker.wizard.values["channel_selection"] = ", ".join(ordered)
+            picker.wizard.notice = (
+                f"Exact feed selection saved: {len(ordered)} route(s)."
+                if ordered
+                else "No feed channels selected. You can still connect the server now."
+            )
+            picker.wizard.persist_draft("feeds_selected")
+            picker.wizard.rebuild_items()
+            await interaction.response.edit_message(embed=picker.wizard.build_embed(), view=picker.wizard)
+            return
+        picker.rebuild_items()
+        await interaction.response.edit_message(embed=picker.build_embed(), view=picker)
+
+
+class SetupFeedPickerView(SetupWizardOwnedView):
+    """Paged exact-feed picker; Discord limits each select menu to 25 options."""
+
+    def __init__(self, wizard):
+        super().__init__(owner_id=wizard.owner_id, guild_id=wizard.guild_id, language=wizard.language)
+        self.wizard = wizard
+        candidate_config = dict(wizard.existing_config)
+        candidate_config["server_mode"] = wizard.values.get("server_mode") or "hybrid"
+        self.allowed_keys = [
+            key for key in channel_setup_tier_keys(wizard.existing_config)
+            if key not in GUILD_LOCAL_CHANNEL_KEYS and channel_key_allowed_for_server_mode(key, candidate_config)
+        ]
+        selected, error = setup_wizard_channel_status(wizard.values, wizard.existing_config, wizard.language)
+        self.selected = set(selected or []).intersection(self.allowed_keys) if not error else set()
+        self.page = 0
+        self.notice = "Tick any included feed. Private staff routes are clearly marked."
+        self.rebuild_items()
+
+    @property
+    def page_count(self):
+        return max(1, (len(self.allowed_keys) + SETUP_FEED_PAGE_SIZE - 1) // SETUP_FEED_PAGE_SIZE)
+
+    def current_page_keys(self):
+        start = self.page * SETUP_FEED_PAGE_SIZE
+        return self.allowed_keys[start:start + SETUP_FEED_PAGE_SIZE]
+
+    def rebuild_items(self):
+        self.clear_items()
+        if self.current_page_keys():
+            self.add_item(SetupFeedPageSelect(self))
+        self.add_item(SetupFeedPickerButton(self, action="previous", label="Previous", style=discord.ButtonStyle.secondary))
+        self.add_item(SetupFeedPickerButton(self, action="next", label="Next", style=discord.ButtonStyle.secondary))
+        self.add_item(SetupFeedPickerButton(self, action="recommended", label="Recommended", style=discord.ButtonStyle.primary))
+        self.add_item(SetupFeedPickerButton(self, action="clear", label="Clear", style=discord.ButtonStyle.danger))
+        self.add_item(SetupFeedPickerButton(self, action="apply", label="Use these feeds", style=discord.ButtonStyle.success, row=2))
+        self.add_item(SetupFeedPickerButton(self, action="back", label="Back without applying", style=discord.ButtonStyle.secondary, row=2))
+        for item in self.children:
+            if isinstance(item, SetupFeedPickerButton):
+                if item.action == "previous":
+                    item.disabled = self.page <= 0
+                elif item.action == "next":
+                    item.disabled = self.page >= self.page_count - 1
+
+    def build_embed(self):
+        all_public_keys = [key for key in DEFAULT_CHANNEL_NAMES if key not in GUILD_LOCAL_CHANNEL_KEYS]
+        locked_count = max(0, len(all_public_keys) - len(self.allowed_keys))
+        embed = discord.Embed(
+            title="CHOOSE YOUR EXACT DISCORD FEEDS",
+            description=(
+                f"Page **{self.page + 1} of {self.page_count}** • "
+                f"**{len(self.selected)}** selected • **{len(self.allowed_keys)}** included in this plan\n\n"
+                "Only channels confirmed here will be created. Unticked feeds stay disabled."
+            ),
+            color=0xF39C12,
+        )
+        embed.add_field(name="CURRENT PAGE", value=self.notice, inline=False)
+        if locked_count:
+            embed.add_field(
+                name="PLAN LIMIT",
+                value=f"{locked_count} other routes are outside this plan and remain locked.",
+                inline=False,
+            )
+        embed.set_thumbnail(url=BOT_IMAGE)
+        embed.set_footer(text="No Discord channels change until the final setup confirmation")
+        return style_embed(embed)
+
+
 class SetupWizardActionButton(discord.ui.Button):
     def __init__(self, wizard, *, action, label, style, row=0):
         super().__init__(label=label, style=style, row=row)
@@ -18940,12 +19256,14 @@ class SetupWizardActionButton(discord.ui.Button):
         if self.action == "back":
             self.wizard.step = max(1, self.wizard.step - 1)
             self.wizard.notice = setup_text(self.wizard.language, "previous_step")
+            self.wizard.persist_draft(f"step_{self.wizard.step}")
             self.wizard.rebuild_items()
             await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
             return
         if self.action == "next":
             self.wizard.step = min(4, self.wizard.step + 1)
             self.wizard.notice = self.wizard.step_instructions()
+            self.wizard.persist_draft(f"step_{self.wizard.step}")
             self.wizard.rebuild_items()
             await interaction.response.edit_message(embed=self.wizard.build_embed(), view=self.wizard)
             return
@@ -18955,8 +19273,14 @@ class SetupWizardActionButton(discord.ui.Button):
         if self.action == "advanced":
             await interaction.response.send_modal(SetupAdvancedModal(self.wizard))
             return
+        if self.action == "feeds":
+            picker = SetupFeedPickerView(self.wizard)
+            self.wizard.persist_draft("choosing_feeds")
+            await interaction.response.edit_message(embed=picker.build_embed(), view=picker)
+            return
         if self.action == "review":
             self.wizard.notice = setup_text(self.wizard.language, "review_notice")
+            self.wizard.persist_draft("review")
             await interaction.response.edit_message(
                 embed=self.wizard.build_embed(review=True),
                 view=SetupWizardConfirmView(self.wizard),
@@ -18970,13 +19294,30 @@ class SetupWizardView(SetupWizardOwnedView):
         self.guild_name = interaction.guild.name
         self.existing_config = existing_config if isinstance(existing_config, dict) else {}
         self.values = setup_wizard_initial_values(self.existing_config)
-        self.step = 1
+        draft = self.existing_config.get("setup_draft") if isinstance(self.existing_config.get("setup_draft"), dict) else {}
+        saved_stage = str(draft.get("stage") or "")
+        if saved_stage in {"connection_details_entered", "advanced_details_entered", "review", "step_4"}:
+            self.step = 4
+        elif saved_stage in {"choosing_feeds", "feeds_selected", "step_3"}:
+            self.step = 3
+        elif saved_stage == "step_2":
+            self.step = 2
+        else:
+            self.step = 1
         self.notice = self.step_instructions()
         self.channel_choices = self.allowed_channel_choices()
         allowed_values = {value for _label, value, _description in self.channel_choices}
         if self.values["channel_bundle"] not in allowed_values:
             self.values["channel_bundle"] = "custom" if self.values.get("channel_selection") else "essentials"
         self.rebuild_items()
+
+    def persist_draft(self, stage):
+        persist_setup_wizard_draft(
+            self.guild_id,
+            self.values,
+            stage=stage,
+            actor_id=self.owner_id,
+        )
 
     def allowed_channel_choices(self):
         tier_keys = set(channel_setup_tier_keys(self.existing_config))
@@ -19017,10 +19358,17 @@ class SetupWizardView(SetupWizardOwnedView):
             button_row = 2
         elif self.step == 3:
             self.add_item(SetupWizardChoiceSelect(
-                self, field="channel_bundle", label=setup_text(self.language, "choose_channels"),
-                choices=setup_wizard_localized_choices(self.channel_choices, self.language, "channel"), row=0,
+                self, field="channel_delivery_mode", label="Choose where feeds should be delivered",
+                choices=SETUP_WIZARD_DELIVERY_CHOICES, row=0,
             ))
-            button_row = 1
+            self.add_item(SetupWizardChoiceSelect(
+                self, field="channel_bundle", label=setup_text(self.language, "choose_channels"),
+                choices=setup_wizard_localized_choices(self.channel_choices, self.language, "channel"), row=1,
+            ))
+            self.add_item(SetupWizardActionButton(
+                self, action="feeds", label="Choose individual feeds", style=discord.ButtonStyle.secondary, row=2,
+            ))
+            button_row = 3
         else:
             self.add_item(SetupWizardActionButton(
                 self, action="credentials", label=setup_text(self.language, "credentials_button"), style=discord.ButtonStyle.primary, row=0,
@@ -19107,6 +19455,13 @@ class SetupWizardView(SetupWizardOwnedView):
             embed.add_field(
                 name=setup_text(self.language, "discord_channels"),
                 value=(
+                    "Delivery: **"
+                    + (
+                        "existing Discord channels (no automatic creation)"
+                        if values.get("channel_delivery_mode") == "existing"
+                        else "Wandering-managed channels"
+                    )
+                    + "**\n"
                     f"{setup_text(self.language, 'pack')}: **{bundle_label}**\n"
                     + (
                         setup_text(self.language, "will_enable", count=len(channel_keys))
@@ -19114,7 +19469,12 @@ class SetupWizardView(SetupWizardOwnedView):
                         else f"{setup_text(self.language, 'warning')}: **{channel_error}**"
                     )
                     + "\n"
-                    + setup_text(self.language, "more_feeds")
+                    + (
+                        "After confirmation, map each enabled feed under Dashboard → Feed Routing. "
+                        "Unmapped feeds remain safely paused."
+                        if values.get("channel_delivery_mode") == "existing"
+                        else setup_text(self.language, "more_feeds")
+                    )
                 ),
                 inline=False,
             )
@@ -19159,6 +19519,14 @@ class SetupWizardView(SetupWizardOwnedView):
         return style_embed(embed)
 
     async def cancel(self, interaction):
+        config = guild_configs.get(str(self.guild_id), {})
+        update_install_onboarding(
+            config,
+            status="paused",
+            stage=f"step_{self.step}",
+            actor_id=self.owner_id,
+        )
+        save_guild_configs()
         embed = discord.Embed(
             title=setup_text(self.language, "cancelled_title"),
             description=setup_text(self.language, "cancelled_desc"),
@@ -19180,6 +19548,14 @@ class SetupWizardConfirmButton(discord.ui.Button):
             await interaction.response.edit_message(embed=wizard.build_embed(), view=wizard)
             return
         if self.action == "cancel":
+            config = guild_configs.get(str(wizard.guild_id), {})
+            update_install_onboarding(
+                config,
+                status="paused",
+                stage="review",
+                actor_id=wizard.owner_id,
+            )
+            save_guild_configs()
             embed = discord.Embed(
                 title=setup_text(wizard.language, "cancelled_title"),
                 description=setup_text(wizard.language, "cancelled_desc"),
@@ -19202,6 +19578,7 @@ class SetupWizardConfirmButton(discord.ui.Button):
             server_platform=values.get("server_platform", ""),
             server_map=values.get("server_map", ""),
             server_mode=values.get("server_mode", ""),
+            channel_delivery_mode=values.get("channel_delivery_mode", "managed"),
             channel_bundle=values.get("channel_bundle", ""),
             channel_selection=values.get("channel_selection", ""),
             restore_deleted_channels=False,
@@ -19238,9 +19615,7 @@ class SetupWizardConfirmView(SetupWizardOwnedView):
         ))
 
 
-@bot.tree.command(name="setup", description="Open the private Wandering Bot setup wizard")
-@app_commands.default_permissions(administrator=True)
-async def setup_command(interaction: discord.Interaction):
+async def start_setup_wizard(interaction: discord.Interaction):
     language = setup_interaction_language(interaction)
     if not interaction.guild:
         await interaction.response.send_message(setup_text(language, "guild_only"), ephemeral=True)
@@ -19254,7 +19629,14 @@ async def setup_command(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     existing_config = guild_configs.get(guild_id, {}) if isinstance(guild_configs.get(guild_id), dict) else {}
     wizard = SetupWizardView(interaction, existing_config)
+    wizard.persist_draft(f"step_{wizard.step}")
     await interaction.response.send_message(embed=wizard.build_embed(), view=wizard, ephemeral=True)
+
+
+@bot.tree.command(name="setup", description="Open the private Wandering Bot setup wizard")
+@app_commands.default_permissions(administrator=True)
+async def setup_command(interaction: discord.Interaction):
+    await start_setup_wizard(interaction)
 
 
 async def apply_setup_configuration(
@@ -19270,6 +19652,7 @@ async def apply_setup_configuration(
     server_platform: str = "",
     server_map: str = "",
     server_mode: str = "",
+    channel_delivery_mode: str = "managed",
     channel_bundle: str = "",
     channel_selection: str = "",
     restore_deleted_channels: bool = False,
@@ -19303,6 +19686,11 @@ async def apply_setup_configuration(
         server_map=server_map,
         server_mode=server_mode,
     )
+    selected_delivery_mode = str(
+        channel_delivery_mode or existing_config.get("channel_delivery_mode") or "managed"
+    ).strip().lower()
+    if selected_delivery_mode not in {"managed", "existing"}:
+        selected_delivery_mode = "managed"
     explicit_channel_selection = bool(str(channel_bundle or "").strip() or str(channel_selection or "").strip())
     if explicit_channel_selection:
         selected_channel_keys, channel_selection_error = resolve_channel_setup_selection(
@@ -19441,6 +19829,7 @@ async def apply_setup_configuration(
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
+    guild_configs[guild_id]["channel_delivery_mode"] = selected_delivery_mode
     if selected_channel_keys is not None:
         selected_channel_keys = list(dict.fromkeys(selected_channel_keys))
         guild_configs[guild_id]["channel_setup_keys"] = selected_channel_keys
@@ -19492,18 +19881,19 @@ async def apply_setup_configuration(
             return True
         return any(key in set(selected_channel_keys) for key in keys)
 
-    category = await ensure_bot_category(interaction.guild, "wandering_hq") if wants_any("help_channel") else None
-    live_category = await ensure_bot_category(interaction.guild, "live_feeds") if wants_any(*CHANNEL_RESTORE_PACKS["live"]) else None
-    info_category = await ensure_bot_category(interaction.guild, "server_info") if wants_any(*CHANNEL_RESTORE_PACKS["info"]) else None
-    community_category = await ensure_bot_category(interaction.guild, "survivor_comms") if wants_any(*CHANNEL_RESTORE_PACKS["community"]) else None
-    staff_category = await ensure_bot_category(interaction.guild, "staff_ops") if wants_any(*CHANNEL_RESTORE_PACKS["staff"]) else None
-    economy_category = await ensure_bot_category(interaction.guild, "economy") if wants_any(*CHANNEL_RESTORE_PACKS["economy"]) else None
-    faction_category = await ensure_bot_category(interaction.guild, "factions") if wants_any(*CHANNEL_RESTORE_PACKS["factions"]) else None
-    support_category = await ensure_bot_category(interaction.guild, "support") if wants_any("help_channel") else None
-    bot_updates_category = await ensure_bot_category(interaction.guild, "bot_updates") if wants_any("bot_updates") else None
-    radar_category = await ensure_bot_category(interaction.guild, "radar_pings") if wants_any("radar") else None
+    managed_delivery = selected_delivery_mode == "managed"
+    category = await ensure_bot_category(interaction.guild, "wandering_hq") if managed_delivery and wants_any("help_channel") else None
+    live_category = await ensure_bot_category(interaction.guild, "live_feeds") if managed_delivery and wants_any(*CHANNEL_RESTORE_PACKS["live"]) else None
+    info_category = await ensure_bot_category(interaction.guild, "server_info") if managed_delivery and wants_any(*CHANNEL_RESTORE_PACKS["info"]) else None
+    community_category = await ensure_bot_category(interaction.guild, "survivor_comms") if managed_delivery and wants_any(*CHANNEL_RESTORE_PACKS["community"]) else None
+    staff_category = await ensure_bot_category(interaction.guild, "staff_ops") if managed_delivery and wants_any(*CHANNEL_RESTORE_PACKS["staff"]) else None
+    economy_category = await ensure_bot_category(interaction.guild, "economy") if managed_delivery and wants_any(*CHANNEL_RESTORE_PACKS["economy"]) else None
+    faction_category = await ensure_bot_category(interaction.guild, "factions") if managed_delivery and wants_any(*CHANNEL_RESTORE_PACKS["factions"]) else None
+    support_category = await ensure_bot_category(interaction.guild, "support") if managed_delivery and wants_any("help_channel") else None
+    bot_updates_category = await ensure_bot_category(interaction.guild, "bot_updates") if managed_delivery and wants_any("bot_updates") else None
+    radar_category = await ensure_bot_category(interaction.guild, "radar_pings") if managed_delivery and wants_any("radar") else None
     pve_category = None
-    if server_allows_pve(guild_configs[guild_id]) and wants_any(*CHANNEL_RESTORE_PACKS["pve"]):
+    if managed_delivery and server_allows_pve(guild_configs[guild_id]) and wants_any(*CHANNEL_RESTORE_PACKS["pve"]):
         pve_category = await ensure_bot_category(interaction.guild, "pve")
 
     channel_aliases = {
@@ -19590,6 +19980,8 @@ async def apply_setup_configuration(
         if existing_id:
             existing_channel = interaction.guild.get_channel(existing_id)
             if existing_channel:
+                if selected_delivery_mode == "existing":
+                    return existing_channel
                 try:
                     await existing_channel.edit(name=name, category=target_category)
                     if overwrites:
@@ -19599,6 +19991,12 @@ async def apply_setup_configuration(
                 return existing_channel
 
             channels.pop(key, None)
+
+        # Existing-channel mode is deliberately strict. It never guesses by
+        # channel name and never creates a replacement. Owners explicitly map
+        # each feed in Dashboard -> Feed Routing; until then it stays paused.
+        if selected_delivery_mode == "existing":
+            return None
 
         for existing_channel in interaction.guild.text_channels:
             if channel_matches_key(existing_channel, key, name):
@@ -19667,7 +20065,7 @@ async def apply_setup_configuration(
     await ensure_channel("vehicle_rentals", clean_name("vehicle_rentals"), cat=economy_category)
     await ensure_channel("rental_logs", clean_name("rental_logs"), cat=economy_category)
     pve_channels = {}
-    if server_allows_pve(guild_configs[guild_id]):
+    if managed_delivery and server_allows_pve(guild_configs[guild_id]):
         pve_channels = await ensure_pve_channels(
             interaction.guild,
             guild_configs[guild_id],
@@ -19686,6 +20084,7 @@ async def apply_setup_configuration(
     guild_configs[guild_id]["server_mode"] = selected_server_mode
     guild_configs[guild_id]["server_platform"] = selected_server_platform
     guild_configs[guild_id]["server_map"] = selected_server_map
+    guild_configs[guild_id]["channel_delivery_mode"] = selected_delivery_mode
     if supplied_ftp_host:
         guild_configs[guild_id]["ftp_host"] = supplied_ftp_host
     else:
@@ -19696,6 +20095,16 @@ async def apply_setup_configuration(
         interaction.guild.name,
     )
 
+    guild_configs[guild_id]["setup_draft"] = {}
+    update_install_onboarding(
+        guild_configs[guild_id],
+        status="completed",
+        stage="connected",
+        actor_id=getattr(interaction.user, "id", None),
+        channel_delivery_mode=selected_delivery_mode,
+        enabled_feed_count=len(selected_channel_keys or []),
+        completed_at=datetime.now(UTC).isoformat(),
+    )
     save_guild_configs()
 
     try:
@@ -58817,9 +59226,13 @@ async def on_interaction(interaction: discord.Interaction):
     try:
         custom_id = (interaction.data or {}).get("custom_id", "") if interaction.type == discord.InteractionType.component else ""
         is_support_button = custom_id == SUPPORT_TICKET_BUTTON_CUSTOM_ID
+        is_onboarding_button = custom_id in {
+            ONBOARDING_START_BUTTON_CUSTOM_ID,
+            ONBOARDING_PERMISSIONS_BUTTON_CUSTOM_ID,
+        }
         # Support remains reachable while billing is paused so an owner can
         # resolve subscription or account problems instead of being locked out.
-        if interaction.guild and not is_support_button and not billing_bot_service_is_active(guild_configs.get(str(interaction.guild.id), {})):
+        if interaction.guild and not (is_support_button or is_onboarding_button) and not billing_bot_service_is_active(guild_configs.get(str(interaction.guild.id), {})):
             if interaction.type == discord.InteractionType.component:
                 try:
                     if not interaction.response.is_done():
@@ -58836,6 +59249,19 @@ async def on_interaction(interaction: discord.Interaction):
                     await interaction.response.send_message("Server administrators only.", ephemeral=True)
                 else:
                     await interaction.response.send_modal(SupportTicketIssueModal())
+            elif custom_id == ONBOARDING_START_BUTTON_CUSTOM_ID:
+                await start_setup_wizard(interaction)
+            elif custom_id == ONBOARDING_PERMISSIONS_BUTTON_CUSTOM_ID:
+                await interaction.response.send_message(
+                    "**Why Wandering Bot asks for these permissions**\n\n"
+                    "• **Manage channels** — only to create the feed channels you explicitly confirm, or to route feeds you configure.\n"
+                    "• **Manage roles** — onboarding, factions and optional member tools.\n"
+                    "• **Send messages / embeds / files** — server feeds, maps, reports and generated DayZ files.\n"
+                    "• **Read message history** — refresh managed feed posts and operate support panels.\n\n"
+                    "Choose **Use my existing channels** during setup if you want zero automatic feed-channel creation. "
+                    "The bot does not delete unrelated channels or roles.",
+                    ephemeral=True,
+                )
             elif custom_id.startswith("pve_submit:"):
                 quest_code = custom_id.split(":", 1)[1]
                 await _handle_pve_submit_button(interaction, quest_code)

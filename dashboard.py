@@ -1511,6 +1511,15 @@ DASHBOARD_FEATURE_LABELS = {
     "qr_builder": "In-game QR builder",
 }
 DASHBOARD_FEATURE_KEYS = tuple(DASHBOARD_FEATURE_LABELS)
+# These are advertised as included plan entitlements, rather than optional
+# owner-selected add-ons.  Older guild access records can contain a complete
+# feature dictionary saved before the entitlement existed (and therefore a
+# stale ``False`` value).  Keep the paid-plan promise authoritative while
+# leaving genuinely manual features configurable as before.
+DASHBOARD_GUARANTEED_PLAN_FEATURES = {
+    "dashboard_ai": {"qr_builder"},
+    "dashboard_ultimate": {"qr_builder"},
+}
 FEED_ROUTE_GROUPS = {
     "live": {
         "label": "Live Feeds",
@@ -22962,6 +22971,8 @@ def dashboard_effective_features(access: Any) -> dict[str, bool]:
     for key in DASHBOARD_FEATURE_KEYS:
         if key in stored:
             effective[key] = safe_bool(stored.get(key), False)
+    for key in DASHBOARD_GUARANTEED_PLAN_FEATURES.get(dashboard_access_tier(access), set()):
+        effective[key] = True
     return effective
 
 

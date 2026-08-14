@@ -1680,6 +1680,7 @@ class ChannelMatchingTests(unittest.TestCase):
         values = bot.setup_wizard_initial_values({})
 
         self.assertEqual("xbox", values["server_platform"])
+        self.assertEqual("managed", values["channel_delivery_mode"])
         self.assertEqual("essentials", values["channel_bundle"])
         keys, error = bot.setup_wizard_channel_status(values, {"dashboard": {"tier": "dashboard_ultimate"}})
         self.assertEqual("", error)
@@ -1702,6 +1703,79 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual("sakhal", values["server_map"])
         self.assertEqual("pve", values["server_mode"])
         self.assertEqual("essentials", values["channel_bundle"])
+
+    def test_setup_wizard_resumes_existing_channel_delivery_draft(self):
+        config = {
+            "channel_delivery_mode": "managed",
+            "setup_draft": {
+                "stage": "feeds_selected",
+                "channel_delivery_mode": "existing",
+                "channel_bundle": "custom",
+                "channel_selection": "killfeed, online",
+            },
+        }
+
+        values = bot.setup_wizard_initial_values(config)
+
+        self.assertEqual("existing", values["channel_delivery_mode"])
+        self.assertEqual("custom", values["channel_bundle"])
+        self.assertEqual("killfeed, online", values["channel_selection"])
+
+    def test_new_install_config_tracks_resumable_onboarding(self):
+        guild = mock.Mock(name="guild")
+        guild.name = "Test DayZ"
+        guild.owner = "Owner"
+
+        config = bot.new_guild_config(guild)
+
+        self.assertEqual("awaiting_setup", config["onboarding"]["status"])
+        self.assertEqual("bot_added", config["onboarding"]["stage"])
+        self.assertEqual([], config["channel_setup_keys"])
+        self.assertEqual({}, config["setup_draft"])
+
+    def test_onboarding_offers_managed_or_existing_channel_delivery(self):
+        choices = {value: description for _label, value, description in bot.SETUP_WIZARD_DELIVERY_CHOICES}
+        wizard_source = inspect.getsource(bot.SetupWizardView.rebuild_items)
+        feed_source = inspect.getsource(bot.get_or_create_feed_channel)
+
+        self.assertEqual({"managed", "existing"}, set(choices))
+        self.assertIn('field="channel_delivery_mode"', wizard_source)
+        self.assertIn('config.get("channel_delivery_mode")', feed_source)
+        self.assertIn("return None", feed_source)
+
+    def test_existing_channel_delivery_never_creates_or_guesses_a_feed(self):
+        guild = mock.Mock()
+        guild.text_channels = []
+        guild.get_channel.return_value = None
+        guild.create_text_channel = mock.AsyncMock()
+        guild.create_category = mock.AsyncMock()
+        config = {
+            "channel_delivery_mode": "existing",
+            "channels": {},
+            "disabled_channels": [],
+        }
+
+        result = asyncio.run(
+            bot.get_or_create_feed_channel(
+                guild,
+                config,
+                "killfeed",
+                "killfeed",
+                force=True,
+                repair_existing=True,
+            )
+        )
+
+        self.assertIsNone(result)
+        guild.create_text_channel.assert_not_awaited()
+        guild.create_category.assert_not_awaited()
+
+    def test_onboarding_start_button_is_routed_persistently(self):
+        source = inspect.getsource(bot.on_interaction)
+
+        self.assertEqual("wandering:onboarding:start", bot.ONBOARDING_START_BUTTON_CUSTOM_ID)
+        self.assertIn("start_setup_wizard(interaction)", source)
+        self.assertIn("ONBOARDING_PERMISSIONS_BUTTON_CUSTOM_ID", source)
 
     def test_setup_command_opens_wizard_without_exposing_credentials_as_options(self):
         import inspect
