@@ -3761,6 +3761,11 @@ APP_DASHBOARD_TEMPLATE = """
     .bottom-nav a { min-width: 0; padding: .5rem .1rem; border-radius: .4rem; color: var(--muted); text-align: center; font-size: .68rem; font-weight: 850; }
     .bottom-nav a.active { background: var(--forest); color: #fff; }
     @media (max-width: 430px) {
+      .app-header { flex-wrap: wrap; align-items: center; }
+      .app-header .brand { flex: 1 1 100%; }
+      .header-actions { flex: 1 1 100%; justify-content: flex-end; }
+      .header-actions a { white-space: nowrap; }
+      .header-actions .ui-language-control { margin-left: 0; }
       .learn-flow { grid-template-columns: 1fr; }
     }
     @media (min-width: 700px) {
@@ -6259,6 +6264,28 @@ PAGE_TEMPLATE = """
         height: min(17rem, 96%);
         max-height: 17rem;
       }
+      body[data-theme="command"][data-app-embed="true"] > header,
+      body[data-theme="command"][data-app-embed="true"] > .command-sidebar,
+      body[data-theme="command"][data-app-embed="true"] > .command-logo-watermark,
+      body[data-theme="command"][data-app-embed="true"] .google-play-launch {
+        display: none;
+      }
+      body[data-theme="command"][data-app-embed="true"] main {
+        padding-top: .55rem;
+      }
+    }
+    .app-embed-back {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2.6rem;
+      margin: 0 0 .65rem;
+      padding: .55rem .8rem;
+      border: 1px solid var(--line);
+      border-radius: .5rem;
+      background: var(--panel-2);
+      color: var(--gold);
+      font-weight: 850;
+      text-decoration: none;
     }
     .admin-panel form { margin-top: .75rem; }
     .result { min-height: 1.25rem; }
@@ -6928,7 +6955,7 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}">
+<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}" data-app-embed="{{ 'true' if request.args.get('app_embed') == '1' else 'false' }}">
   {% set server = servers[0] if servers else none %}
   {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
   {% set profile_qs = '&server_profile_id=' ~ selected_dayz_profile.id if selected_dayz_profile else '' %}
@@ -7088,6 +7115,9 @@ PAGE_TEMPLATE = """
   </aside>
   <img class="command-logo-watermark" src="/brand-image" alt="Wandering Bot logo" width="64" height="64" loading="lazy" decoding="async">
   <main>
+    {% if request.args.get('app_embed') == '1' %}
+    <a class="app-embed-back" href="/app?source={{ request.args.get('source', 'native_android')|urlencode }}&view=home{{ server_qs }}{{ profile_qs }}">&larr; Back to mobile app</a>
+    {% endif %}
     {% if android_play_store_url %}
     <aside class="google-play-launch" aria-label="Wandering Bot Android app">
       <span class="google-play-launch__badge">Android app live</span>
@@ -31915,8 +31945,7 @@ def ai_agent_llm_reply_for_task(
         "When a scenario plan is supplied, explain that the dashboard's event engine creates the linked CE package from current server files, not isolated replacement snippets. "
         "The supplied format_guide describes the stable vanilla layout. When reference_base_available is true and reference_content is not truncated, "
         "you may use that validated vanilla/preset file as the complete structure for a custom full_file draft; otherwise a full_file draft needs a valid complete current file, except for a new recognised custom JSON structure. "
-        "Never delete or omit untouched sections from a reference-based full file. A fragment is never a full replacement. Return a patch only for supported "
-        "named-record XML files, wrap it in its real XML root, and label it as merge-only. "
+        "Never delete or omit untouched sections from a reference-based full file. A fragment is never a full replacement. When source_mode is fragment, snippet, or merge-only, never return kind=full_file: repair the requested named record and return kind=patch for a supported named-record XML target, wrapped in its real XML root and labelled merge-only. If a fragment cannot be represented as a supported safe patch, explain what complete current file is required and do not invent the remainder. "
         "Never claim a DayZ draft was uploaded; protected live upload requires a backup, diff and explicit owner confirmation. "
         "Schema: {\"reply\": string, \"steps\": [{\"agent\": string, \"title\": string, \"detail\": string}], "
         "\"suggested_commands\": [{\"label\": string, \"command\": string, \"reason\": string, \"project_path\": string, \"risk\": string}], "
@@ -31980,7 +32009,8 @@ def ai_agent_llm_reply_for_task(
             "reason": dayz_draft_error or "The first answer omitted dayz_draft/dayz_drafts.",
             "instruction": (
                 "Return the same JSON response schema again, but this time include the complete requested "
-                "dayz_draft or linked dayz_drafts. Correct the stated validator failure. Do not merely describe the file."
+                "dayz_draft or linked dayz_drafts. Correct the stated validator failure. Do not merely describe the file. "
+                "If dayz_file_context.source_mode is fragment, return a corrected merge-only kind=patch for a supported named-record XML file; never pad or relabel the fragment as a full_file replacement."
             ),
         }
         retry_ok, retry_data, retry_error = ai_agent_llm_json(system_message, retry_payload)
@@ -32083,11 +32113,19 @@ def ai_agent_llm_reply_for_task(
         # XML that fails our protected validator.  Never leave that successful
         # sounding prose beside the rejection: it could be mistaken for a
         # downloadable, safe-to-use server file.
-        reply = (
-            "No usable DayZ draft was created or saved. Do not use or upload the proposed file: "
-            "it failed the protected validator and is not available for download.\n\n"
-            f"Reason: {dayz_draft_error}"
-        )
+        dayz_context = task.get("dayz_context") if isinstance(task.get("dayz_context"), dict) else {}
+        if str(dayz_context.get("source_mode") or "").lower() == "fragment":
+            reply = (
+                "The supplied DayZ snippet was checked, but the assistant did not return a safe merge patch. "
+                "Nothing was saved, offered for download, or uploaded. The guard correctly refused to treat a short snippet as the complete live file.\n\n"
+                f"Validator detail: {dayz_draft_error}"
+            )
+        else:
+            reply = (
+                "No usable DayZ draft was created or saved. Do not use or upload the proposed file: "
+                "it failed the protected validator and is not available for download.\n\n"
+                f"Reason: {dayz_draft_error}"
+            )
     return ai_agent_append_command_summary(reply, merged_suggestions)
 
 
@@ -43409,7 +43447,11 @@ def mobile_app():
         mobile_ai_agent_access.get("allowed")
         and mobile_ai_agent_access.get("permissions", {}).get("read")
     )
-    mobile_ai_agent_query = {"section": "ai-agent"}
+    mobile_ai_agent_query = {
+        "section": "ai-agent",
+        "app_embed": "1",
+        "source": str(request.args.get("source") or "native_android"),
+    }
     if selected_guild_id:
         mobile_ai_agent_query["guild_id"] = selected_guild_id
     if selected_profile_id:

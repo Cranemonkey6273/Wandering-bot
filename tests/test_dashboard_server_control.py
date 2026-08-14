@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import copy
 import importlib.util
+import inspect
 import io
 import json
 import os
@@ -1276,6 +1277,10 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("{% if mobile_ai_agent_allowed %}", template)
         self.assertIn("mobile_ai_agent_url", template)
         self.assertIn("DayZ AI agent", template)
+        self.assertIn(".app-header { flex-wrap: wrap", template)
+        self.assertIn('"app_embed": "1"', inspect.getsource(dashboard.mobile_app))
+        self.assertIn('data-app-embed=', dashboard.PAGE_TEMPLATE)
+        self.assertIn('class="app-embed-back"', dashboard.PAGE_TEMPLATE)
         self.assertIn("restart_warning_values|join(',')", template)
         self.assertIn("Airdrop builder", template)
         self.assertIn("Live from latest RPT", template)
@@ -4808,6 +4813,53 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("No usable DayZ draft", reply)
         self.assertIn("no DayZ file draft", reply)
         self.assertNotIn("I repaired the XML", reply)
+
+    def test_fragment_repair_retry_requires_merge_patch_and_explains_guard_cleanly(self):
+        objective = "Repair this malformed events.xml snippet and return a safe merge patch."
+        context = dashboard.ai_agent_dayz_file_context(
+            {
+                "project_type": "dayz_files",
+                "dayz_support_mode": "fix_error",
+                "dayz_file_target": "db/events.xml",
+                "dayz_map": "chernarus",
+                "dayz_source_mode": "fragment",
+                "dayz_file_source": (
+                    '<events><event name="VehicleQATest"><children>'
+                    '<child type="OffroadHatchback"></children></event></events>'
+                ),
+            },
+            objective,
+        )
+        task = {
+            "id": "qa-fragment-repair",
+            "dayz_context": context,
+            "project_type": "dayz_files",
+            "steps": [],
+            "suggested_commands": [],
+        }
+        model_reply = {
+            "reply": "The fragment is fixed.",
+            "summary": "Fragment repair.",
+            "next_action": "Review it.",
+        }
+
+        with patch.object(dashboard, "ai_agent_llm_is_configured", return_value=True), patch.object(
+            dashboard,
+            "ai_agent_llm_json",
+            side_effect=[(True, model_reply, ""), (True, model_reply, "")],
+        ) as llm:
+            reply = dashboard.ai_agent_llm_reply_for_task(
+                {}, {}, {"label": "QA owner"}, {}, task, None, objective, False,
+            )
+
+        system_message = llm.call_args_list[0].args[0]
+        retry_payload = llm.call_args_list[1].args[1]
+        self.assertIn("source_mode is fragment", system_message)
+        self.assertIn("kind=patch", retry_payload["draft_retry"]["instruction"])
+        self.assertIn("did not return a safe merge patch", reply)
+        self.assertIn("Nothing was saved", reply)
+        self.assertNotIn("The fragment is fixed", reply)
+        self.assertFalse(dashboard.ai_agent_answer_is_chargeable(task))
 
     def test_ai_agent_llm_uses_short_connect_and_production_safe_read_timeout(self):
         response = types.SimpleNamespace(
