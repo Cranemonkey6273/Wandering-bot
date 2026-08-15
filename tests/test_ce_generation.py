@@ -1954,6 +1954,87 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
 
+    def test_unrelated_static_airplanecrate_without_spawn_does_not_block_airdrop(self):
+        """A legacy live-file mismatch must not be mistaken for a generated event."""
+        base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
+        proto_root = ET.Element("prototype")
+        proto_root.append(bot.dayz_reference_mapgroupproto_group("chernarus", "Wreck_Mi8_Crashed"))
+        live_events = (
+            '<events>'
+            '<event name="StaticAirplaneCrate"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>2100</lifetime><restock>0</restock><saferadius>1000</saferadius>'
+            '<distanceradius>1000</distanceradius><cleanupradius>1000</cleanupradius>'
+            '<flags deletable="1" init_random="0" remove_damaged="0" />'
+            '<position>fixed</position><limit>child</limit><active>1</active>'
+            '<children><child type="StaticObj_Misc_SupplyBox3_DE" lootmin="4" lootmax="8" min="2" max="4" /></children>'
+            '</event>'
+            '</events>'
+        )
+        sources = {
+            "events_path": (live_events, f"{base_path}/db/events.xml"),
+            # This reproduces the production failure: the unrelated vanilla
+            # event exists, but its spawn block is absent from the live file.
+            "spawns_path": ("<eventposdef></eventposdef>", f"{base_path}/cfgeventspawns.xml"),
+            "eventgroups_path": ("<eventgroupdef></eventgroupdef>", f"{base_path}/cfgeventgroups.xml"),
+            "mapgroupproto_path": (bot.xml_text_from_root(proto_root), f"{base_path}/mapgroupproto.xml"),
+            "cfgenvironment_path": ("<env><territories /></env>", f"{base_path}/cfgenvironment.xml"),
+            "spawnabletypes_path": ("<spawnabletypes></spawnabletypes>", f"{base_path}/cfgspawnabletypes.xml"),
+        }
+
+        def fake_download(_config, _guild_id, key, _requested_path=""):
+            if key == "types_path" and key not in sources:
+                return "<types></types>", f"{base_path}/db/types.xml", f"{key} source"
+            text, path = sources[key]
+            return text, path, f"{key} source"
+
+        def fake_download_text(_config, remote_path):
+            if str(remote_path or "").endswith("/env/zombie_territories.xml"):
+                return True, "zombie_territories source", '<territory-type><territory color="1291845632" /></territory-type>'
+            return False, "missing", ""
+
+        bot.download_console_ce_source = fake_download
+        bot.download_text_file_from_nitrado = fake_download_text
+        config = {
+            "guild_name": "Test Cherno",
+            "server_map": "chernarus",
+            "server_platform": "xbox",
+            "scenario_events": [
+                _base_event(
+                    16,
+                    "airdrop",
+                    "WoodenCrate",
+                    event_name="Shumnoye airdrop",
+                    visual_marker=True,
+                    scene_type="helicopter_crash",
+                    loot_preset="military_high",
+                    x=14277,
+                    z=8606,
+                )
+            ],
+        }
+        bot.guild_configs[self.guild_id] = config
+
+        with patch.dict(os.environ, {"WANDERING_ALLOW_UNOWNED_CE_REPAIRS": "false"}):
+            built = bot.build_console_ce_event_files(self.guild_id, config)
+
+        events_root = ET.fromstring(built["events_text"])
+        spawns_root = ET.fromstring(built["spawns_text"])
+        self.assertIsNotNone(events_root.find("./event[@name='StaticAirplaneCrate']"))
+        self.assertIsNone(spawns_root.find("./event[@name='StaticAirplaneCrate']"))
+        self.assertTrue(bot.is_stale_spawn_only_event_name("StaticAirplaneCrate"))
+        self.assertFalse(bot.is_wandering_managed_name("StaticAirplaneCrate"))
+
+        generated_names = set(built.get("managed_event_names") or [])
+        generated_spawn_names = set(built.get("managed_spawn_names") or [])
+        self.assertTrue(generated_names)
+        self.assertEqual(generated_names, generated_spawn_names)
+        for name in generated_names:
+            self.assertIsNotNone(events_root.find(f"./event[@name='{name}']"))
+            self.assertIsNotNone(spawns_root.find(f"./event[@name='{name}']"))
+
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        self.assertTrue(ok, "\n".join(messages))
+
     def test_native_airdrop_location_pool_emits_all_candidates_in_one_spawn_block(self):
         base_path = "/dayzxb_missions/dayzOffline.chernarusplus"
         proto_root = ET.Element("prototype")

@@ -38572,13 +38572,16 @@ def is_wandering_managed_name(value):
     text = str(value or "").strip()
     if not text:
         return False
+    # STALE_SPAWN_ONLY_EVENT_NAMES are known third-party/legacy cleanup
+    # candidates, not records owned by Wandering Bot.  Treating them as
+    # managed made an unrelated live StaticAirplaneCrate definition fail every
+    # new upload when its old cfgeventspawns block was absent.
     return (
         text in LEGACY_WANDERING_CE_NAMES
         or CONSOLE_CE_EVENT_MARKER in text
         or text.startswith(CONSOLE_CE_EVENT_PREFIX)
         or "wanderingbot" in normalize_discord_name(text)
         or is_cherno_revamp_backup_event_name(text)
-        or is_stale_spawn_only_event_name(text)
     )
 
 
@@ -38590,6 +38593,10 @@ def is_wandering_scope_node(node):
     for attr in ("name", "path", "usable"):
         if is_wandering_managed_name(node.get(attr)):
             return True
+    # Owner-approved repair mode may remove these known orphaned spawn blocks,
+    # even though they must not be validated as Wandering Bot generated events.
+    if is_stale_spawn_only_event_name(node.get("name")):
+        return True
     if getattr(node, "tag", None) == "event" and is_legacy_revamp_wooden_crate_event_name(node.get("name")):
         return True
     if "wanderingbot" in normalize_discord_name(ET.tostring(node, encoding="unicode")):
