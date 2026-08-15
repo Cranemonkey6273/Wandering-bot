@@ -19206,11 +19206,12 @@ PAGE_TEMPLATE = """
     document.querySelectorAll("[data-scenario-edit]").forEach((button) => {
       button.addEventListener("click", (event) => {
         const form = document.getElementById("scenario-event-form");
-        // The Live Events page carries a hidden copy of the builder form for
-        // shared rendering.  Do not swallow the Edit link there: let its real
-        // href navigate to the Builder first.  Only perform an in-place
-        // prefill when the form is actually visible on the current page.
-        if (!form || form.getClientRects().length === 0) return;
+        // The Live Events page carries the builder markup too, and it can have
+        // layout boxes even though this is not the active tool. Never swallow
+        // the real Edit link there: navigate to pve_tool=builder first.
+        // In-place prefill is only valid once the Builder is the active tool.
+        const activePveTool = new URLSearchParams(window.location.search).get("pve_tool") || "events";
+        if (!form || activePveTool !== "builder") return;
         event.preventDefault();
         form.elements.event_id.value = button.dataset.id || "";
         form.elements.name.value = button.dataset.name || "";

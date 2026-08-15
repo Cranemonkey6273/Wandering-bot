@@ -5893,9 +5893,10 @@ class DashboardServerControlTests(unittest.TestCase):
 
     def test_live_event_edit_link_is_not_intercepted_by_hidden_builder_form(self):
         self.assertIn(
-            'if (!form || form.getClientRects().length === 0) return;',
+            'const activePveTool = new URLSearchParams(window.location.search).get("pve_tool") || "events";',
             dashboard.PAGE_TEMPLATE,
         )
+        self.assertIn('if (!form || activePveTool !== "builder") return;', dashboard.PAGE_TEMPLATE)
 
 
 if __name__ == "__main__":
