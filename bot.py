@@ -39861,45 +39861,50 @@ def scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupr
         "class_name": guard_class,
         "event_child_type": guard_class,
         "count": guard_count,
-        "lifetime": max(180, min(3888000, safe_int(lifetime, 1800))),
+        # Match the vanilla InfectedArmy secondary-event shape.  A secondary
+        # event is selected at the parent Static event's chosen position and
+        # therefore must not own an independent cfgeventspawns coordinate.
+        "lifetime": 3,
         "x": (event or {}).get("x"),
         "y": (event or {}).get("y"),
         "z": (event or {}).get("z"),
         "radius": guard_radius,
         "use_eventgroup": False,
-        "limit_type": "child",
+        "limit_type": "custom",
+        "position": "player",
+        "skip_spawn": True,
+        "empty_spawn": True,
         "child_lootmin": 0,
         "child_lootmax": 5,
         "child_records": [{
             "type": guard_class,
             "count": guard_count,
             "min": guard_count,
-            "max": guard_count,
+            "max": 0,
             "lootmin": 0,
             "lootmax": 5,
         }],
         "secondary": "",
         "eventgroup_children": None,
         "empty_event_children": False,
-        "nominal": guard_count,
-        "min_count": guard_count,
-        "max_count": guard_count,
-        "restock": max(0, min(3888000, safe_int(restock, 0))),
-        "saferadius": max(0, min(5000, safe_int(saferadius, 0))),
-        "distanceradius": 0,
-        "cleanupradius": max(0, min(30000, safe_int(cleanupradius, 100))),
+        "nominal": max(50, guard_count),
+        "min_count": min(25, max(1, guard_count)),
+        "max_count": max(250, guard_count),
+        "restock": 0,
+        "saferadius": 100,
+        "distanceradius": max(5, min(500, guard_radius)),
+        "cleanupradius": max(100, min(5000, guard_radius)),
         "start_speed": scenario_start_speed_key(event or {}),
         "visual_marker": False,
         "scene_clearance_radius": 0,
-        "remove_damaged": False,
-        "deletable": True,
+        "remove_damaged": True,
+        "deletable": False,
         "stable_definition": False,
         "use_existing_definition": False,
         "patch_existing_definition": False,
         "mapgroupproto_classes": [],
         "mapgroupproto_tags": {},
     }
-    apply_zombie_territory_fields(record, event)
     return record, ""
 
 
@@ -39972,9 +39977,14 @@ def scenario_airdrop_uses_eventgroup(event):
 
 
 def scenario_airdrop_secondary_infected(event):
-    # Guard hordes are emitted as separate Infected CE events. Keeping them
-    # out of the Static airdrop child list avoids mixed-family spawn failures.
-    return ""
+    guard_class = str((event or {}).get("guard_class") or "").strip()
+    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0))
+    if not guard_class.startswith(("ZmbM_", "ZmbF_")) or guard_count <= 0:
+        return ""
+    # Vanilla helicopter crashes attach InfectedArmy through <secondary>.
+    # Use the same relationship so pooled drops and their guards always share
+    # the one position DayZ CE selected for the parent Static event.
+    return ce_event_name(event or {}, suffix="guards", family="Infected")
 
 
 def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
@@ -42474,29 +42484,23 @@ def console_ce_records_for_event(event, map_key=""):
         )
     records.append(record)
 
-    if event_type == "airdrop":
-        # A separate infected CE event would choose independently from the
-        # airdrop's location pool, so it could put guards at a different
-        # candidate.  Omit guards rather than producing a misleading scene.
-        if location_pool and safe_int(event.get("guard_count"), 0) > 0:
+    if event_type in {"airdrop", "loot_crate"}:
+        guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
+        if guard_warning:
+            warnings.append(guard_warning)
+        if guard_record:
+            record["secondary"] = guard_record["name"]
+            records.append(guard_record)
             warnings.append(
-                f"`{event.get('id')}` uses a native random location pool; infected guards were not generated because separate CE events cannot reliably share the selected pool position."
+                f"`{event.get('id')}` attaches infected guard definition `{guard_record['name']}` through `<secondary>`, "
+                "so the guards follow the Static airdrop position selected by DayZ CE, including random location pools."
             )
-        elif not location_pool:
-            guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
-            if guard_warning:
-                warnings.append(guard_warning)
-            if guard_record:
-                records.append(guard_record)
-                warnings.append(
-                    f"`{event.get('id')}` creates infected guard event `{guard_record['name']}` separate from the Static airdrop loot event."
-                )
         marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
             warnings.append(
                 f"`{event.get('id')}` requested `{scene_label}` visual object `{marker_class}`. "
-                "Native CE will deploy the terrain-aligned scene, direct ground loot, and any infected guards through one fixed Static dynamic event."
+                "Native CE will deploy the terrain-aligned scene, direct ground loot, and any infected guards at the selected Static event position."
             )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
@@ -43607,6 +43611,30 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 environment_herd_names[territory_name] = territory_node
 
     allowed_families = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Static", "Trajectory", "Vehicle")
+    all_event_names = {
+        str(event_node.get("name") or "").strip()
+        for event_node in events_root.findall("event")
+        if str(event_node.get("name") or "").strip()
+    }
+    secondary_event_names = set()
+    for parent_node in events_root.findall("event"):
+        parent_name = str(parent_node.get("name") or "").strip()
+        for secondary_node in parent_node.findall("secondary"):
+            secondary_name = str(secondary_node.text or "").strip()
+            if not secondary_name:
+                if is_wandering_managed_name(parent_name):
+                    messages.append(f"`{parent_name}` has an empty `<secondary>` event reference.")
+                continue
+            secondary_event_names.add(secondary_name)
+            if is_wandering_managed_name(parent_name):
+                if secondary_name not in all_event_names:
+                    messages.append(
+                        f"`{parent_name}` references secondary event `{secondary_name}`, but that definition is missing from events.xml."
+                    )
+                if not secondary_name.startswith("Infected"):
+                    messages.append(
+                        f"`{parent_name}` secondary event `{secondary_name}` must use the `Infected` CE family."
+                    )
     generated_events = {}
     for event_node in events_root.findall("event"):
         name = str(event_node.get("name") or "")
@@ -43617,8 +43645,13 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 f"`{name}` uses an invalid DayZ CE event prefix. Use one of: {', '.join(allowed_families)}."
             )
         is_zombie_territory_event = name in zombie_territory_event_names
+        is_attached_secondary_event = name in secondary_event_names
         position_text = (event_node.findtext("position") or "").strip()
-        if position_text != "fixed" and not (is_zombie_territory_event and position_text == "player"):
+        if is_attached_secondary_event and position_text != "player":
+            messages.append(
+                f"`{name}` is attached through `<secondary>` and must use `<position>player</position>` so it follows its parent event."
+            )
+        elif position_text != "fixed" and not (is_zombie_territory_event and position_text == "player") and not is_attached_secondary_event:
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
         if limit_text not in {"child", "custom", "mixed", "parent"}:
@@ -43674,7 +43707,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     for name in generated_events:
         spawn_node = generated_spawns.get(name)
         if spawn_node is None:
-            if name in zombie_territory_event_names:
+            if name in zombie_territory_event_names or name in secondary_event_names:
                 continue
             messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
             continue

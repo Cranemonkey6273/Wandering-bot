@@ -5891,6 +5891,12 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("pve_quests", dashboard.DASHBOARD_FEED_PACKS["full"]["keys"])
         self.assertIn("/api/admin/feed-pack", dashboard.PAGE_TEMPLATE)
 
+    def test_live_event_edit_link_is_not_intercepted_by_hidden_builder_form(self):
+        self.assertIn(
+            'if (!form || form.getClientRects().length === 0) return;',
+            dashboard.PAGE_TEMPLATE,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

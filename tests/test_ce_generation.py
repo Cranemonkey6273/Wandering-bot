@@ -702,14 +702,18 @@ class AirdropEventGroupTests(unittest.TestCase):
 
         records, warnings = bot.console_ce_records_for_event(event)
 
-        self.assertEqual(1, len(records), "pool guards must not become a second independently-random event")
+        self.assertEqual(2, len(records), "pool guards need one attached secondary definition")
         record = records[0]
+        guard_record = records[1]
         self.assertEqual(3, len(record["spawn_positions"]))
         self.assertEqual(1, record["count"], "each selected location must receive one airdrop scene")
         self.assertEqual(2, record["nominal"])
         self.assertEqual(2, record["min_count"])
         self.assertEqual(2, record["max_count"])
-        self.assertTrue(any("cannot reliably share" in warning for warning in warnings))
+        self.assertEqual(guard_record["name"], record["secondary"])
+        self.assertEqual("player", guard_record["position"])
+        self.assertTrue(guard_record["skip_spawn"])
+        self.assertTrue(any("through `<secondary>`" in warning for warning in warnings))
         self.assertTrue(any("one nominal-2 airdrop definition" in warning for warning in warnings))
 
         spawns_root = ET.Element("eventposdef")
@@ -902,7 +906,7 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertEqual("Wreck_Mi8_Crashed", records[0]["event_child_type"])
         self.assertTrue(any("drop-style event" in message for message in warnings))
 
-    def test_airdrop_guards_are_zombie_territory_zones(self):
+    def test_airdrop_guards_are_attached_secondary_events(self):
         event = _base_event(
             32,
             "airdrop",
@@ -920,11 +924,10 @@ class AirdropEventGroupTests(unittest.TestCase):
         guard_record = records[1]
         self.assertTrue(static_record["name"].startswith("StaticWanderingBot_"))
         self.assertTrue(guard_record["name"].startswith("InfectedWanderingBot_"))
-        self.assertTrue(guard_record.get("zombie_territory"))
-        self.assertTrue(guard_record.get("skip_definition"))
         self.assertTrue(guard_record.get("skip_spawn"))
-        self.assertEqual("InfectedArmy", guard_record.get("zombie_territory_name"))
-        self.assertEqual("", static_record.get("secondary"))
+        self.assertEqual("player", guard_record.get("position"))
+        self.assertEqual("custom", guard_record.get("limit_type"))
+        self.assertEqual(guard_record["name"], static_record.get("secondary"))
         self.assertFalse(any(
             child.get("type") == "ZmbM_SoldierNormal"
             for child in static_record["child_records"]
@@ -932,7 +935,8 @@ class AirdropEventGroupTests(unittest.TestCase):
         self.assertTrue(any(
             child.get("type") == "ZmbM_SoldierNormal"
             and child.get("lootmax") == 5
-            and child.get("max") == 3
+            and child.get("min") == 3
+            and child.get("max") == 0
             for child in guard_record["child_records"]
         ))
 
@@ -969,6 +973,10 @@ class AirdropEventGroupTests(unittest.TestCase):
                 saferadius=record.get("saferadius", 0),
                 distanceradius=record.get("distanceradius", 0),
                 cleanupradius=record.get("cleanupradius", 100),
+                remove_damaged=bool(record.get("remove_damaged")),
+                deletable=bool(record.get("deletable", True)),
+                secondary=record.get("secondary", ""),
+                position=record.get("position", "fixed"),
             )
             if record.get("skip_spawn"):
                 continue
@@ -980,9 +988,6 @@ class AirdropEventGroupTests(unittest.TestCase):
                 count=record["count"],
                 radius=record.get("radius") or 45,
             )
-        for record in records:
-            if record.get("zombie_territory"):
-                bot.add_zombie_territory_zone(zombie_root, record)
         proto_root = ET.Element("prototype")
         for record in records:
             for class_name in record.get("mapgroupproto_classes") or []:
@@ -1002,6 +1007,19 @@ class AirdropEventGroupTests(unittest.TestCase):
         }
         ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
         self.assertTrue(ok, "\n".join(messages))
+
+        guard_name = records[1]["name"]
+        for event_node in list(events_root.findall("event")):
+            if event_node.get("name") == guard_name:
+                events_root.remove(event_node)
+        missing_guard_bundle = dict(built)
+        missing_guard_bundle["events_text"] = bot.xml_text_from_root(events_root)
+        ok, messages = bot.validate_console_ce_xml_bundle(missing_guard_bundle, check_scope=False)
+        self.assertFalse(ok)
+        self.assertTrue(any(
+            guard_name in message and "missing from events.xml" in message
+            for message in messages
+        ), "\n".join(messages))
 
     def test_convoy_airdrop_uses_direct_child_not_eventgroup(self):
         event = _base_event(
@@ -1686,11 +1704,10 @@ class MapGroupProtoTests(unittest.TestCase):
         records, _ = bot.console_ce_records_for_event(event)
 
         self.assertEqual(2, len(records))
-        self.assertEqual("", records[0].get("secondary"))
-        self.assertTrue(records[1].get("zombie_territory"))
-        self.assertTrue(records[1].get("skip_definition"))
+        self.assertEqual(records[1]["name"], records[0].get("secondary"))
         self.assertTrue(records[1].get("skip_spawn"))
-        self.assertEqual("InfectedArmy", records[1].get("zombie_territory_name"))
+        self.assertEqual("player", records[1].get("position"))
+        self.assertEqual("custom", records[1].get("limit_type"))
         self.assertTrue(any(child.get("type") == "ZmbM_SoldierNormal" for child in records[1]["child_records"]))
         self.assertNotIn("ZmbM_SoldierNormal", records[0].get("mapgroupproto_classes") or [])
         self.assertEqual([], records[1].get("mapgroupproto_classes") or [])

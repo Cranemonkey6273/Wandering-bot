@@ -19206,7 +19206,11 @@ PAGE_TEMPLATE = """
     document.querySelectorAll("[data-scenario-edit]").forEach((button) => {
       button.addEventListener("click", (event) => {
         const form = document.getElementById("scenario-event-form");
-        if (!form) return;
+        // The Live Events page carries a hidden copy of the builder form for
+        // shared rendering.  Do not swallow the Edit link there: let its real
+        // href navigate to the Builder first.  Only perform an in-place
+        // prefill when the form is actually visible on the current page.
+        if (!form || form.getClientRects().length === 0) return;
         event.preventDefault();
         form.elements.event_id.value = button.dataset.id || "";
         form.elements.name.value = button.dataset.name || "";
