@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
 from dayz_qr_builder import DayZQRBuilderError, build_dayz_qr_scene
 from ui_localization import UI_LOCALIZATION_CSS, ui_localization_javascript
 
@@ -27277,6 +27277,7 @@ def ai_agent_dayz_file_context(payload: dict[str, Any] | None, objective: str = 
         "expected_root": spec.xml_root if spec and spec.kind == "xml" else "",
         "description": spec.description if spec else "",
         "format_guide": ai_agent_dayz_format_guide(target_path) if target_path else "",
+        "general_knowledge": dayz_agent_general_knowledge(),
         "knowledge": dayz_agent_file_knowledge(target_path) if target_path else {},
         "dependency_plan": dayz_dependency_plan_for_request(objective, target_path),
         "is_custom_json": dayz_is_supported_custom_json_path(target_path),
@@ -27318,6 +27319,7 @@ def ai_agent_dayz_context_for_model(context: Any) -> dict[str, Any]:
         "expected_root": context.get("expected_root"),
         "description": context.get("description"),
         "format_guide": context.get("format_guide"),
+        "general_knowledge": context.get("general_knowledge", {}),
         "knowledge": context.get("knowledge", {}),
         "dependency_plan": context.get("dependency_plan", {}),
         "is_custom_json": bool(context.get("is_custom_json")),
@@ -31957,7 +31959,7 @@ def ai_agent_llm_reply_for_task(
         "When dayz_file_context is supplied, act as a careful DayZ server-file specialist for users who may be new to development. "
         "Explain terms and lines in plain English first, then give the exact safe next step. Use only the selected target file; "
         "do not invent a file path, a DayZ version-specific setting, class name, or live server result. State uncertainty instead. "
-        "Use dayz_file_context.knowledge as the concise file-specific source of truth, and use dayz_file_context.dependency_plan before proposing any file output. The plan distinguishes changed, checked, conditional and preserved files: report that distinction explicitly, generate every genuinely linked file/snippet, and never promote a conditional file to changed without evidence from the selected current file. Use the selected map's validated active DayZ reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
+        "Use dayz_file_context.general_knowledge for stable cross-file concepts and owner-documented dashboard conversions, use dayz_file_context.knowledge as the concise file-specific source of truth, and use dayz_file_context.dependency_plan before proposing any file output. The plan distinguishes changed, checked, conditional and preserved files: report that distinction explicitly, generate every genuinely linked file/snippet, and never promote a conditional file to changed without evidence from the selected current file. Use the selected map's validated active DayZ reference or the customer's complete current file for exact structure, spelling, ordering and whitespace. "
         "For a new custom/ or pra/ JSON file, create a complete file only when it is clearly one of the recognised vanilla schemas: ObjectSpawner, spawning gear, player restricted area, effect area or underground triggers. State the schema and the matching cfggameplay.json reference that the customer must add. ObjectSpawner entries are {name, pos:[x,y,z], ypr:[yaw,pitch,roll], optional scale/enableCEPersistency}; never replace name/pos/ypr with invented keys. Restricted-area PRABoxes is an array whose every box is exactly [sizeTriplet, orientationTriplet, positionTriplet], and safePositions3D contains coordinate triplets. Effect-area files use an Areas array and map-specific AreaName/Type/TriggerType/Data fields; for Sakhal copy the matching vanilla Type record and replace only requested values. Underground files use a Triggers array with Position, Orientation, Size, EyeAccommodation, Breadcrumbs and applicable vanilla InterpolationSpeed/AmbientSoundSet fields. Never invent missing coordinates: ask for them. "
         "Do not infer a mod JSON schema from its filename. PC mods, custom scripts and console server access can differ: vanilla mission XML/JSON is generally portable, but mod/script files require the exact current mod, version and configuration. "
         "types.xml controls CE loot values such as nominal, min, lifetime and restock; cfgspawnabletypes.xml controls attachments/cargo rather than world loot quantities; "

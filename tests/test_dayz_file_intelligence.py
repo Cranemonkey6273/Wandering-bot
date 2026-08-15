@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from _bot_loader import import_bot_module  # noqa: E402
-from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
+from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
 
 bot = import_bot_module()
 
@@ -576,6 +576,51 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         )
         self.assertIn('<ce folder="foldername">', economy_core_knowledge)
         self.assertIn('<file name="my_changes_to_types.xml" type="types" />', economy_core_knowledge)
+
+    def test_general_daynight_and_central_economy_knowledge_is_available(self):
+        general = dayz_agent_general_knowledge()
+        daynight = " ".join(
+            [
+                str(general["daynight_duration_converter"].get("scope") or ""),
+                *map(str, general["daynight_duration_converter"].get("examples", [])),
+                str(general["daynight_duration_converter"].get("conversion") or ""),
+                str(general["daynight_duration_converter"].get("server_config_distinction") or ""),
+            ]
+        )
+        self.assertIn("/daynight day:2 night:0.50", daynight)
+        self.assertIn("30 minute night", daynight)
+        self.assertIn("serverTimeAcceleration", daynight)
+        self.assertIn("not raw DayZ acceleration multipliers", daynight)
+
+        tiers = " ".join(map(str, general["loot_tiers"].get("rules", [])))
+        self.assertIn("Chernarus uses four", tiers)
+        self.assertIn("Livonia uses three", tiers)
+        self.assertIn("Sakhal", tiers)
+
+        # Callers receive an isolated copy and cannot mutate global prompt knowledge.
+        general["loot_tiers"]["rules"].append("unsafe mutation")
+        self.assertNotIn(
+            "unsafe mutation",
+            dayz_agent_general_knowledge()["loot_tiers"]["rules"],
+        )
+
+        types_knowledge = str(dayz_agent_file_knowledge("types.xml").get("variants") or "")
+        self.assertIn("quantmin/quantmax", types_knowledge)
+        self.assertIn("count_in_hoarder", types_knowledge)
+
+        events_knowledge = str(dayz_agent_file_knowledge("events.xml").get("variants") or "")
+        self.assertIn("saferadius", events_knowledge)
+        self.assertIn("lootmin/lootmax", events_knowledge)
+
+        globals_knowledge = str(dayz_agent_file_knowledge("globals.xml").get("variants") or "")
+        self.assertIn("LootProxyPlacement", globals_knowledge)
+
+        economy_knowledge = str(dayz_agent_file_knowledge("economy.xml").get("variants") or "")
+        self.assertIn("init controls", economy_knowledge)
+        self.assertIn("save controls", economy_knowledge)
+
+        economy_core_knowledge = str(dayz_agent_file_knowledge("cfgeconomycore.xml").get("variants") or "")
+        self.assertIn("backup_period", economy_core_knowledge)
 
     def test_cfggameplay_references_reject_unsafe_paths(self):
         unsafe_paths = [

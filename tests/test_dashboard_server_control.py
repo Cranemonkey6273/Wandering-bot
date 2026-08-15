@@ -2836,6 +2836,11 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("changed", files["mapgrouppos.xml"]["action"])
         self.assertEqual("changed", files["mapgroupproto.xml"]["action"])
         self.assertEqual("conditional", files["cfglimitsdefinition.xml"]["action"])
+        self.assertIn("daynight_duration_converter", model_context["general_knowledge"])
+        self.assertIn(
+            "/daynight day:2 night:0.50",
+            " ".join(model_context["general_knowledge"]["daynight_duration_converter"]["examples"]),
+        )
 
     def test_owner_server_readiness_distinguishes_ready_attention_and_stale_records(self):
         ready = dashboard.owner_server_readiness(

@@ -8,6 +8,7 @@ guardrails.
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 import os
@@ -95,6 +96,52 @@ DAYZ_UNSAFE_OBJECT_SPAWNER_CLASS_KEYS = {
     "shockpistolblack",
 }
 
+# Stable cross-file knowledge supplied to every DayZ sandbox conversation.
+# Values in a customer's current file and the selected active vanilla release
+# remain authoritative; these notes explain concepts and safe conversions.
+DAYZ_AGENT_GENERAL_KNOWLEDGE: dict[str, dict[str, Any]] = {
+    "daynight_duration_converter": {
+        "scope": (
+            "The Wandering Bot /daynight helper accepts the owner's desired real-world day and night durations in hours. "
+            "Decimal hours are converted with hours x 60 = minutes. These duration inputs are not raw DayZ acceleration multipliers."
+        ),
+        "examples": [
+            "/daynight day:1 night:0.50 -> 1 hour day, 30 minute night",
+            "/daynight day:4 night:0.25 -> 4 hour day, 15 minute night",
+            "/daynight day:4 night:1 -> 4 hour day, 1 hour night",
+            "/daynight day:2 night:0.50 -> 2 hour day, 30 minute night",
+        ],
+        "conversion": "0.25 hours = 15 minutes; 0.50 hours = 30 minutes; 0.75 hours = 45 minutes.",
+        "server_config_distinction": (
+            "Raw serverDZ.cfg uses serverTimeAcceleration as a 0.1-64 time multiplier and "
+            "serverNightTimeAcceleration as a second 0.1-64 multiplier applied on top of it at night. "
+            "Use the dashboard converter for requested durations; never paste duration hours directly into those raw settings without conversion."
+        ),
+    },
+    "central_economy_guardrails": {
+        "rules": [
+            "Use the customer's complete current file or the selected active vanilla map/version as the value and structure authority.",
+            "A guide's defaults, cleanup times and persistence examples can be version- or map-specific; explain them before proposing a change.",
+            "Event-name families such as Vehicle, Static, Loot, Item, Infected and Animal are not types.xml category names.",
+            "Validate XML/JSON and audit linked files before returning a complete replacement or merge patch.",
+        ],
+    },
+    "persistence_and_cleanup": {
+        "rules": [
+            "Persistence means eligible entity state can survive restarts; it does not mean an object can never expire, move, become ruined or be wiped.",
+            "Interaction can refresh an applicable item lifetime, while ruined entities remain subject to cleanup rules.",
+            "604800 seconds is 7 days and 3888000 seconds is 45 days, but the selected current record is authoritative for each classname.",
+            "Never apply an old cleanup chart globally; inspect types.xml, globals.xml, economy switches, storage/persistence state and the entity family together.",
+        ],
+    },
+    "loot_tiers": {
+        "rules": [
+            "Chernarus uses four broad CE loot tiers and Livonia uses three; Sakhal and PC custom terrains must use their own current tier/value definitions and reference maps.",
+            "Tier/value tags in types.xml restrict eligible CE areas; they do not guarantee an item will spawn if nominal/min, available points or other limiters prevent it.",
+        ],
+    },
+}
+
 # Concise, version-aware working knowledge supplied to the DayZ AI sandbox.
 # This is deliberately guidance rather than a copied third-party file library:
 # a customer's complete current mission file and the bundled DayZ 1.29 vanilla
@@ -158,7 +205,12 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
             "cfgeventspawns.xml position records must use the same event name.",
             "Item/vehicle/infected/animal child classnames should be checked against the selected version's types.xml; a Static scene child can instead be an engine/static object whose supporting prototype or exact source must be verified.",
         ],
-        "variants": "Vehicle, Static, Loot, Item, Infected and Animal events have different CE semantics; choose the appropriate current event pattern.",
+        "variants": (
+            "Vehicle, Static, Loot, Item, Infected and Animal events have different CE semantics; choose the appropriate current event pattern. "
+            "nominal is the desired event count, min is the lower threshold, max constrains possible instances, lifetime/restock are seconds, and saferadius/distanceradius/cleanupradius are spatial controls. "
+            "limit values child, mixed, parent and custom have different child-counting/spawn behaviour, so copy the matching selected-map vanilla event family instead of changing limit by guesswork. "
+            "A child record's min/max controls that child at an event position, while lootmin/lootmax controls compatible spawned-object loot."
+        ),
         "safety": "Treat a linked event package as multiple files. Merge named records instead of replacing a live events.xml.",
     },
     "cfgeventspawns.xml": {
@@ -210,8 +262,19 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     "types.xml": {
         "purpose": "Central Economy item quantities, lifetime, restock, tiers, categories, usages and flags.",
         "dependencies": ["cfgspawnabletypes.xml controls spawned attachments/cargo.", "cfglimitsdefinition XML and map group prototypes must agree on categories/usages."],
-        "variants": "Use the matching vanilla class name and selected map/version item record as the base.",
-        "safety": "Never guess classnames or mass-rewrite loot. Explain the impact of nominal/min/restock/lifetime before changing it. A custom hidden category/usage can keep a proxy-only class out of ordinary loot, but existing vanilla records such as Bonfire or Wreck_UH1Y must be diffed rather than blindly replaced.",
+        "variants": (
+            "Use the matching vanilla class name and selected map/version item record as the base. "
+            "nominal is the desired CE world count and must be at least min; min is the lower threshold that prompts replenishment; lifetime and restock are seconds; cost is CE spawn priority. "
+            "restock 0 allows bulk replenishment toward nominal, while a positive restock is the interval for replenishing additional units. "
+            "quantmin/quantmax are percentages from 0 to 100 for quantity-bearing items such as magazines, bottles or food, or both -1 when quantity is not applicable; never mix a normal percentage with -1. "
+            "count_in_cargo, count_in_hoarder, count_in_map and count_in_player decide which locations count toward nominal; crafted marks crafted items and deloot marks dynamic-event loot. "
+            "Category, usage, tag and value records are separate CE limiters, and the selected file's ordering should be preserved."
+        ),
+        "safety": (
+            "Never guess classnames or mass-rewrite loot. Explain the impact of nominal/min/restock/lifetime before changing it. "
+            "Do not confuse Vehicle/Static/Loot/Item/Infected/Animal event-name prefixes with category names. "
+            "A custom hidden category/usage can keep a proxy-only class out of ordinary loot, but existing vanilla records such as Bonfire or Wreck_UH1Y must be diffed rather than blindly replaced."
+        ),
     },
     "cfgspawnabletypes.xml": {
         "purpose": "Central Economy attachments, cargo, presets, nested item content, quantity and damage behaviour.",
@@ -228,20 +291,41 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     "cfgeconomycore.xml": {
         "purpose": "Central Economy root configuration, persistence/backup settings and optional custom CE XML include folders.",
         "dependencies": ["The official custom CE include shape is <ce folder=\"foldername\"><file name=\"my_changes_to_types.xml\" type=\"types\" /></ce>; use the exact supported file type.", "Included partial files follow override/append rules rather than replacing the full vanilla mission file."],
-        "variants": "The official mission-file modding schema uses a ce element with a folder attribute and nested file elements with name/type attributes. Core settings remain map/mission-specific.",
-        "safety": "Do not use a partial include as a full-file replacement. Keep every file type and include path exact, then validate the resulting mission after restart.",
+        "variants": (
+            "The official mission-file modding schema uses a ce element with a folder attribute and nested file elements with name/type attributes. "
+            "Root classes define which entity families CE manages; act=character and act=car must be used for the applicable roots, while omitted/none is treated as loot. "
+            "world_segments affects segmented CE processing; backup_period is minutes, backup_count is the retained backup count, and backup_startup requests a backup after startup load. "
+            "dyn_radius/dyn_smin/dyn_smax/dyn_dmin/dyn_dmax set dynamic infected defaults, while save_* and log_* switches control startup stores and CE diagnostics. Core settings remain map/mission-specific."
+        ),
+        "safety": (
+            "Do not use a partial include as a full-file replacement. Keep every file type and include path exact, then validate the resulting mission after restart. "
+            "Do not copy Chernarus world_segments or backup examples blindly to another terrain; compare its active cfgEconomyCore.xml and performance needs."
+        ),
     },
     "globals.xml": {
         "purpose": "Global Central Economy limits and cleanup behaviour, including broader infected/animal and persistence-related limits.",
         "dependencies": ["Event and territory populations remain constrained by applicable global limits."],
-        "variants": "Existing variable types are part of the schema and must be preserved; selected-map values may differ.",
-        "safety": "A higher event/territory count will not override an incompatible global maximum. Change one scoped value at a time and measure server performance.",
+        "variants": (
+            "Existing variable types are part of the schema and must be preserved; selected-map values may differ. "
+            "AnimalMaxCount and ZombieMaxCount are global population caps; CleanupAvoidance and CleanupLifetime* govern cleanup; FlagRefreshFrequency/FlagRefreshMaxDuration govern flag refresh; "
+            "InitialSpawn/RestartSpawn and RespawnAttempt/RespawnLimit/RespawnTypes govern CE spawn work; LootProxyPlacement permits dispatch-container loot; "
+            "TimeHopping/TimeLogin/TimeLogout/TimePenalty govern connection timers; ZoneSpawnDist invokes nearby dynamic infected zones; "
+            "WorldWetTempUpdate enables world wetness/temperature updates and FoodDecay depends on it; LootDamageMin/LootDamageMax set CE-spawned item damage ranges."
+        ),
+        "safety": (
+            "A higher event/territory count will not override an incompatible global maximum. Change one scoped value at a time and measure server performance. "
+            "Keep an existing variable's type unchanged and take the exact value/default from the selected active file rather than an older guide."
+        ),
     },
     "economy.xml": {
         "purpose": "Central Economy switches controlling initialisation, loading, respawning and saving for entity groups.",
         "dependencies": ["The enabled economy groups determine whether corresponding CE data can initialise, load, respawn and persist."],
-        "variants": "Dynamic loot, animals, zombies, vehicles, custom objects, buildings and player data have separate switches.",
-        "safety": "All flags for an edited economy element must be retained. Treat a persistence change as a server-wide behaviour change and back up first.",
+        "variants": (
+            "Dynamic loot/events, animals, zombies, vehicles, random events, custom objects, buildings and player data have separate elements. "
+            "init controls initial setup, load controls loading stored objects, respawn controls CE replenishment, and save controls persistence storage. "
+            "A value of 1 enables the switch and 0 disables it, but the correct combination differs by entity family and must follow the selected mission's current file."
+        ),
+        "safety": "All init/load/respawn/save flags for an edited economy element must be retained. Treat a persistence change as a server-wide behaviour change and back up first.",
     },
     "territories": {
         "purpose": "Animal and infected spawn zone definitions, including ambient living-entity zones.",
@@ -556,6 +640,11 @@ def dayz_dependency_plan_for_request(objective: Any, target_path: Any = "") -> d
 def dayz_xml_root_for_path(target_path: Any) -> str:
     spec = dayz_file_spec_for_path(target_path)
     return spec.xml_root if spec and spec.kind == "xml" else ""
+
+
+def dayz_agent_general_knowledge() -> dict[str, dict[str, Any]]:
+    """Return a copy of stable cross-file DayZ guidance for the sandbox."""
+    return copy.deepcopy(DAYZ_AGENT_GENERAL_KNOWLEDGE)
 
 
 def dayz_agent_file_knowledge(target_path: Any) -> dict[str, Any]:
