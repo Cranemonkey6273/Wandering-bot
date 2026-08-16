@@ -3494,6 +3494,69 @@ class BuildConsoleCeEventFilesTests(unittest.TestCase):
         self.assertTrue(ok, "\n".join(messages))
 
 
+class CeValidationDiagnosticsTests(unittest.TestCase):
+    def _base_bundle(self):
+        return {
+            "events_path": "/dayzxb_missions/dayzOffline.sakhal/db/events.xml",
+            "events_text": "<events />",
+            "spawns_path": "/dayzxb_missions/dayzOffline.sakhal/cfgeventspawns.xml",
+            "spawns_text": "<eventposdef />",
+        }
+
+    def test_malformed_mapgroupproto_reports_exact_file_path_and_line(self):
+        built = self._base_bundle()
+        built.update({
+            "mapgroupproto_context_path": "/dayzxb_missions/dayzOffline.sakhal/mapgroupproto.xml",
+            "mapgroupproto_context_text": (
+                "<prototype>\n"
+                '  <group name="Wreck_Mi8_Crashed">\n'
+                "    <!-- broken managed point\n"
+                "  </group>\n"
+                "</prototype>\n"
+            ),
+        })
+
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        diagnostic = "\n".join(messages)
+
+        self.assertFalse(ok)
+        self.assertIn("`mapgroupproto.xml` validation failed before upload", diagnostic)
+        self.assertIn("`/dayzxb_missions/dayzOffline.sakhal/mapgroupproto.xml`", diagnostic)
+        self.assertIn("ParseError", diagnostic)
+        self.assertIn("line 3", diagnostic)
+        self.assertIn("Failing line: `<!-- broken managed point`", diagnostic)
+
+    def test_malformed_events_reports_events_instead_of_generic_ce_xml(self):
+        built = self._base_bundle()
+        built["events_text"] = "<events>\n  <event name=\"Broken\">\n</events>"
+
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        diagnostic = "\n".join(messages)
+        public_error = bot._scenario_notice_public_error(messages)
+
+        self.assertFalse(ok)
+        self.assertIn("`events.xml` validation failed before upload", diagnostic)
+        self.assertIn("`/dayzxb_missions/dayzOffline.sakhal/db/events.xml`", diagnostic)
+        self.assertNotIn("CE file validation failed", diagnostic)
+        self.assertIn("events.xml", public_error)
+        self.assertIn("/dayzxb_missions/dayzOffline.sakhal/db/events.xml", public_error)
+
+    def test_malformed_effect_area_json_reports_file_path_and_source_line(self):
+        built = self._base_bundle()
+        built.update({
+            "cfgeffectarea_path": "/dayzxb_missions/dayzOffline.sakhal/cfgEffectArea.json",
+            "cfgeffectarea_text": '{\n  "Areas": [\n    {"Name": "Broken",}\n  ]\n}',
+        })
+
+        ok, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+        diagnostic = "\n".join(messages)
+
+        self.assertFalse(ok)
+        self.assertIn("`cfgEffectArea.json` validation failed before upload", diagnostic)
+        self.assertIn("line 3", diagnostic)
+        self.assertIn('Failing line: `{"Name": "Broken",}`', diagnostic)
+
+
 class CeUploadAuthorizationAndBackupTests(unittest.TestCase):
     def _backup_build(self):
         return {

@@ -1523,6 +1523,30 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("com.dayzwanderingbot.app", statement["target"]["package_name"])
         self.assertEqual([fingerprint], statement["target"]["sha256_cert_fingerprints"])
 
+    def test_android_verified_links_only_claim_live_apex_domain(self):
+        manifest_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "mobile",
+            "android",
+            "app",
+            "src",
+            "main",
+            "AndroidManifest.xml",
+        )
+        root = ET.parse(manifest_path).getroot()
+        android_ns = "{http://schemas.android.com/apk/res/android}"
+        verified_data = []
+        for intent_filter in root.findall(".//intent-filter"):
+            if intent_filter.get(f"{android_ns}autoVerify") != "true":
+                continue
+            verified_data.extend(intent_filter.findall("data"))
+
+        hosts = {node.get(f"{android_ns}host") for node in verified_data}
+        paths = {node.get(f"{android_ns}pathPrefix") for node in verified_data}
+
+        self.assertEqual({"dayzwanderingbot.com"}, hosts)
+        self.assertEqual({"/app", "/login", "/admin", "/owner"}, paths)
+
     def test_dashboard_feature_allowed_uses_tier_when_features_missing(self):
         plans = list(dashboard.default_billing_plan_map().values())
         config = {"dashboard": {"enabled": True, "tier": "dashboard_ultimate", "plan_status": "lifetime"}}

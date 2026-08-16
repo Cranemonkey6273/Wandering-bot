@@ -107,10 +107,9 @@ The app has intent filters for:
 - `https://dayzwanderingbot.com/login`
 - `https://dayzwanderingbot.com/admin`
 - `https://dayzwanderingbot.com/owner`
-- the same paths on `www.dayzwanderingbot.com`
 - `wanderingbot://`
 
-After the release or upload certificate SHA-256 fingerprint is known, set:
+After the Play App Signing certificate SHA-256 fingerprint is known, set:
 
 ```text
 WANDERING_ANDROID_SHA256_FINGERPRINTS=AA:BB:CC:...
@@ -123,6 +122,11 @@ https://dayzwanderingbot.com/.well-known/assetlinks.json
 ```
 
 Until that fingerprint is set, the endpoint returns a setup error instead of publishing an invalid verification file.
+
+Use the **App signing key certificate** fingerprint shown by Google Play, not the
+upload or local debug certificate. The app intentionally declares only
+`dayzwanderingbot.com`; do not add `www.dayzwanderingbot.com` unless that host has
+working DNS, HTTPS, and its own accessible `/.well-known/assetlinks.json` file.
 
 ## Screenshot Checklist
 

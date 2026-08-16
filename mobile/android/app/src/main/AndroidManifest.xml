@@ -38,16 +38,6 @@
                 <data android:scheme="https" android:host="dayzwanderingbot.com" android:pathPrefix="/admin" />
                 <data android:scheme="https" android:host="dayzwanderingbot.com" android:pathPrefix="/owner" />
             </intent-filter>
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="www.dayzwanderingbot.com" android:pathPrefix="/app" />
-                <data android:scheme="https" android:host="www.dayzwanderingbot.com" android:pathPrefix="/login" />
-                <data android:scheme="https" android:host="www.dayzwanderingbot.com" android:pathPrefix="/admin" />
-                <data android:scheme="https" android:host="www.dayzwanderingbot.com" android:pathPrefix="/owner" />
-            </intent-filter>
-
         </activity>
 
         <provider

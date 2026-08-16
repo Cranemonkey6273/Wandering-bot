@@ -33,6 +33,11 @@ WANDERING_SUPPORT_EMAIL=dayzwanderingbot@gmail.com
 https://dayzwanderingbot.com/.well-known/assetlinks.json
 ```
 
+Use the SHA-256 fingerprint from Google Play's **App signing key certificate**,
+not the upload/debug certificate. The Android manifest verifies only the apex
+`dayzwanderingbot.com` host; `www.dayzwanderingbot.com` is deliberately excluded
+unless it is later given working DNS, HTTPS and its own association response.
+
 8. Paste the reviewed copy from `PLAY_STORE_LISTING.md` into the Play listing and upload final screenshots with matching captions.
    The ready-to-upload portrait phone screenshots are in `mobile/store-assets/phone/`.
 9. Use `PRODUCTION_ACCESS_ANSWERS.md` when the production-access questionnaire opens. Keep every answer factual for the build being submitted.

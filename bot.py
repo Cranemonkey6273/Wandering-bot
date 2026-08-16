@@ -43495,6 +43495,57 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     return output
 
 
+def _ce_validation_line_excerpt(text, error, limit=220):
+    """Return the failing source line without flooding Discord/dashboard errors."""
+    position = getattr(error, "position", None)
+    line_number = position[0] if isinstance(position, tuple) and position else None
+    if not line_number:
+        line_number = safe_int(getattr(error, "lineno", None), 0)
+    if not line_number:
+        return ""
+    lines = str(text or "").splitlines()
+    if line_number < 1 or line_number > len(lines):
+        return ""
+    source_line = lines[line_number - 1].strip()
+    if not source_line:
+        return "(blank line)"
+    if len(source_line) > limit:
+        source_line = source_line[: max(1, limit - 1)] + "…"
+    return source_line.replace("`", "'")
+
+
+def _parse_named_ce_xml(label, path, text):
+    """Parse one CE XML document and retain its identity in any error."""
+    try:
+        return ET.fromstring(str(text or "").encode("utf-8")), ""
+    except Exception as error:
+        remote_path = str(path or "").strip()
+        location = f" at `{remote_path}`" if remote_path else ""
+        excerpt = _ce_validation_line_excerpt(text, error)
+        excerpt_text = f" Failing line: `{excerpt}`" if excerpt else ""
+        error_text = str(error).rstrip(".")
+        return None, (
+            f"`{label}` validation failed before upload{location}: "
+            f"{type(error).__name__}: {error_text}.{excerpt_text}"
+        )
+
+
+def _parse_named_ce_json(label, path, text):
+    """Parse one linked JSON document and retain its identity in any error."""
+    try:
+        return json.loads(str(text or "")), ""
+    except Exception as error:
+        remote_path = str(path or "").strip()
+        location = f" at `{remote_path}`" if remote_path else ""
+        excerpt = _ce_validation_line_excerpt(text, error)
+        excerpt_text = f" Failing line: `{excerpt}`" if excerpt else ""
+        error_text = str(error).rstrip(".")
+        return None, (
+            f"`{label}` validation failed before upload{location}: "
+            f"{type(error).__name__}: {error_text}.{excerpt_text}"
+        )
+
+
 def validate_console_ce_xml_bundle(built, check_scope=True):
     messages = []
     scope_messages = []
@@ -43518,22 +43569,60 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         or built.get("mapgroupproto_source_text")
         or "<prototype></prototype>"
     )
-    try:
-        events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
-        spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
-        types_root = ET.fromstring(str(built.get("types_text") or "<types></types>").encode("utf-8"))
-        eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
-        mapgroupproto_root = ET.fromstring(mapgroupproto_context_text.encode("utf-8"))
-        cfgenvironment_root = ET.fromstring(str(
+    xml_documents = [
+        ("events_root", "events.xml", built.get("events_path"), built.get("events_text") or ""),
+        ("spawns_root", "cfgeventspawns.xml", built.get("spawns_path"), built.get("spawns_text") or ""),
+        ("types_root", "types.xml", built.get("types_path"), built.get("types_text") or "<types></types>"),
+        (
+            "eventgroups_root",
+            "cfgeventgroups.xml",
+            built.get("eventgroups_path"),
+            built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>",
+        ),
+        (
+            "mapgroupproto_root",
+            "mapgroupproto.xml",
+            built.get("mapgroupproto_path") or built.get("mapgroupproto_context_path"),
+            mapgroupproto_context_text,
+        ),
+        (
+            "cfgenvironment_root",
+            "cfgenvironment.xml",
+            built.get("cfgenvironment_path"),
             built.get("cfgenvironment_text")
             or built.get("cfgenvironment_source_text")
-            or "<env><territories /></env>"
-        ).encode("utf-8"))
-        zombie_territories_root = ET.fromstring(str(built.get("zombie_territories_text") or "<territory-type></territory-type>").encode("utf-8"))
-        if built.get("cfgeffectarea_text"):
-            json.loads(str(built.get("cfgeffectarea_text") or ""))
-    except Exception as error:
-        return False, scope_messages + [f"CE file validation failed before upload: {error}"]
+            or "<env><territories /></env>",
+        ),
+        (
+            "zombie_territories_root",
+            "zombie_territories.xml",
+            built.get("zombie_territories_path"),
+            built.get("zombie_territories_text") or "<territory-type></territory-type>",
+        ),
+    ]
+    parsed_roots = {}
+    for root_key, label, path, text in xml_documents:
+        parsed_root, parse_message = _parse_named_ce_xml(label, path, text)
+        if parsed_root is None:
+            return False, scope_messages + [parse_message]
+        parsed_roots[root_key] = parsed_root
+
+    events_root = parsed_roots["events_root"]
+    spawns_root = parsed_roots["spawns_root"]
+    types_root = parsed_roots["types_root"]
+    eventgroups_root = parsed_roots["eventgroups_root"]
+    mapgroupproto_root = parsed_roots["mapgroupproto_root"]
+    cfgenvironment_root = parsed_roots["cfgenvironment_root"]
+    zombie_territories_root = parsed_roots["zombie_territories_root"]
+
+    if built.get("cfgeffectarea_text"):
+        _parsed_effect_area, parse_message = _parse_named_ce_json(
+            "cfgEffectArea.json",
+            built.get("cfgeffectarea_path"),
+            built.get("cfgeffectarea_text"),
+        )
+        if parse_message:
+            return False, scope_messages + [parse_message]
 
     map_key = normalize_dayz_reference_map_key(
         built.get("map_key")
@@ -43582,10 +43671,15 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         if is_wandering_managed_name(zone_node.get("name") or "")
     }
     for territory_file in territory_files:
-        try:
-            territory_root = ET.fromstring(str(territory_file.get("text") or "").encode("utf-8"))
-        except Exception as error:
-            return False, [f"XML validation failed for `{territory_file.get('path')}`: {error}"]
+        territory_path = str(territory_file.get("path") or "").strip()
+        territory_label = os.path.basename(territory_path) or "animal_territories.xml"
+        territory_root, parse_message = _parse_named_ce_xml(
+            territory_label,
+            territory_path,
+            territory_file.get("text") or "",
+        )
+        if territory_root is None:
+            return False, scope_messages + [parse_message]
         if territory_root.tag != "territory-type":
             messages.append(f"`{territory_file.get('path')}` must use `<territory-type>` as the root tag.")
         if not territory_root.findall(".//zone"):
@@ -44807,20 +44901,26 @@ def _scenario_notice_tracker_summary(text):
 
 def _scenario_notice_public_error(messages):
     for message in messages or []:
-        text = _compact_discord_line(message, 420)
+        text = _compact_discord_line(message, 820)
         lowered = text.lower()
         file_match = re.search(
-            r"\b(events\.xml|cfgeventspawns\.xml|eventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|zombie_territories\.xml)\b",
+            r"\b(events\.xml|cfgeventspawns\.xml|cfgeventgroups\.xml|eventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|cfgenvironment\.xml|[a-z0-9_-]+_territories\.xml|cfgeffectarea\.json)\b",
             text,
             re.IGNORECASE,
         )
         file_name = file_match.group(1) if file_match else "CE XML"
         token_match = re.search(r"unclosed token: line \d+, column \d+", text, re.IGNORECASE)
         if token_match:
+            if "validation failed before upload" in lowered:
+                return (
+                    f"{text} Fix or re-upload `{file_name}`, then retry the event upload."
+                )
             return (
                 f"{file_name} looks malformed or incomplete ({token_match.group(0)}). "
                 "Fix or re-upload that XML, then retry the event upload."
             )
+        if "validation failed before upload" in lowered:
+            return f"{text} Fix or re-upload `{file_name}`, then retry the event upload."
         if "could not compare existing xml records" in lowered:
             return f"The bot could not compare the existing {file_name} before upload. Check that file, then retry."
         if "could not download existing" in lowered or "native ce source required" in lowered:
