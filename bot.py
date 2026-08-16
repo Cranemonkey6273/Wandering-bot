@@ -105,6 +105,9 @@ PLAYER_AUDIT_FILE = data_path("player_audit.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
+BAN_ANNOUNCEMENT_MEDIA_FOLDER = data_path("ban_announcement_media")
+BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES = 8 * 1024 * 1024
+BAN_ANNOUNCEMENT_MEDIA_EXTENSIONS = {".gif", ".mp4", ".webm"}
 RECORDED_PVP_DEATHS_FILE = data_path("recorded_pvp_deaths.json")
 ONLINE_PLAYERS_FILE = data_path("online_players.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
@@ -28047,7 +28050,10 @@ def add_player_to_nitrado_banlist(config, gamertag):
             return True, "Already banned."
         # Upgrade a differently-cased legacy entry to the exact ADM spelling.
         current[matching_index] = gamertag
-        return push_nitrado_banlist(config, current)
+        ok, message = push_nitrado_banlist(config, current)
+        if ok:
+            return True, f"Already banned; exact ADM spelling corrected. {message}"
+        return ok, message
     current.append(gamertag)
     return push_nitrado_banlist(config, current)
 
@@ -28128,6 +28134,98 @@ async def post_nitrado_banlist_log(
         print(f"[NITRADO BAN FEED] log failed: {error}")
 
 
+def ban_announcement_media_absolute_path(relative_path):
+    clean = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+    if not clean:
+        return ""
+    root = os.path.abspath(BAN_ANNOUNCEMENT_MEDIA_FOLDER)
+    candidate = os.path.abspath(os.path.join(DATA_ROOT, *clean.split("/")))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return ""
+    except ValueError:
+        return ""
+    if not os.path.isfile(candidate):
+        return ""
+    extension = os.path.splitext(candidate)[1].lower()
+    if extension not in BAN_ANNOUNCEMENT_MEDIA_EXTENSIONS:
+        return ""
+    try:
+        if os.path.getsize(candidate) > BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES:
+            return ""
+    except OSError:
+        return ""
+    return candidate
+
+
+async def post_confirmed_game_ban_announcement(
+    guild_id,
+    config,
+    *,
+    gamertag,
+    ban_type="",
+    reason="",
+    source="",
+    minutes=None,
+):
+    settings = config.get("ban_announcement") if isinstance(config, dict) else None
+    if not isinstance(settings, dict) or not safe_bool(settings.get("enabled"), False):
+        return False
+    guild = discord_guild_for_runtime_id(guild_id)
+    if not guild:
+        return False
+
+    channel = None
+    channel_id = _safe_channel_id(settings.get("channel_id"))
+    if channel_id:
+        channel = guild.get_channel(channel_id) or bot.get_channel(channel_id)
+    channel_key = str(settings.get("channel_key") or "moderation_logs").strip()
+    if not channel and channel_key:
+        channel = resolve_feed_channel(guild_id, config, channel_key, required=False, allow_name_repair=False)
+    if not channel:
+        for fallback_key in ("moderation_logs", "admin_logs", "nitrado_ban_logs"):
+            channel = resolve_feed_channel(guild_id, config, fallback_key, required=False, allow_name_repair=False)
+            if channel:
+                break
+    if not channel:
+        print(f"[BAN ANNOUNCEMENT] {guild_id} has no configured announcement channel; skipped.")
+        return False
+
+    clean_name = normalize_nitrado_banlist_name(gamertag)
+    headline = re.sub(r"[\r\n]+", " ", str(settings.get("headline") or "PLAYER BANNED")).strip()[:80] or "PLAYER BANNED"
+    embed = discord.Embed(
+        title=f"🔨 {headline}",
+        description=f"**{discord_escape_mentions(clean_name or 'Unknown player')}** has been added to the game ban list.",
+        color=0xE74C3C,
+    )
+    embed.add_field(name="DayZ server", value=dayz_server_display_name(guild_id, config), inline=False)
+    try:
+        duration_minutes = int(minutes) if minutes is not None else 0
+    except (TypeError, ValueError):
+        duration_minutes = 0
+    duration = f"Temporary — {duration_minutes} minute(s)" if duration_minutes > 0 else "Permanent"
+    embed.add_field(name="Ban", value=duration, inline=True)
+    embed.add_field(name="Source", value=str(source or ban_type or "moderation").replace("_", " ")[:120], inline=True)
+    if safe_bool(settings.get("include_reason"), True) and reason:
+        embed.add_field(name="Reason", value=discord_safe_content(discord_escape_mentions(reason), 900), inline=False)
+    embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
+
+    media_path = ban_announcement_media_absolute_path(settings.get("media_path"))
+    send_kwargs = {"embed": style_embed(embed)}
+    if media_path:
+        extension = os.path.splitext(media_path)[1].lower()
+        attachment_name = f"ban-announcement{extension}"
+        if extension == ".gif":
+            embed.set_image(url=f"attachment://{attachment_name}")
+        send_kwargs["file"] = discord.File(media_path, filename=attachment_name)
+    try:
+        await channel.send(**send_kwargs)
+        return True
+    except Exception as error:
+        print(f"[BAN ANNOUNCEMENT] post failed for {guild_id}: {error}")
+        return False
+
+
 async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     if str(source or "").strip().lower() == "discord_link_enforcement" and link_enforcement_protected_gamertag_record(guild_id, clean_name):
@@ -28146,6 +28244,16 @@ async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban
         ok=ok,
         minutes=minutes,
     )
+    if ok and "already banned" not in str(message or "").lower():
+        await post_confirmed_game_ban_announcement(
+            guild_id,
+            config,
+            gamertag=clean_name,
+            ban_type=ban_type,
+            reason=reason,
+            source=source,
+            minutes=minutes,
+        )
     return ok, message
 
 

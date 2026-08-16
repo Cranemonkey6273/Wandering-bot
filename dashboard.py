@@ -49,6 +49,13 @@ DATA_ROOT = (
     or "."
 )
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
+BAN_ANNOUNCEMENT_MEDIA_FOLDER = os.path.join(DATA_ROOT, "ban_announcement_media")
+BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES = 8 * 1024 * 1024
+BAN_ANNOUNCEMENT_MEDIA_TYPES = {
+    ".gif": "image/gif",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+}
 WANDERING_DELIVERY_BRIDGE_VERSION = 6
 BOT_IMAGE_FILE = os.getenv("WANDERING_BOT_IMAGE_FILE", os.path.join(APP_ROOT, "wanderingbot.png"))
 BOT_CHARACTER_FILE = os.getenv("WANDERING_BOT_CHARACTER_FILE", os.path.join(APP_ROOT, "wanderingbot_character.png"))
@@ -6810,8 +6817,8 @@ PAGE_TEMPLATE = """
     .zone-dot:hover, .zone-dot:focus-visible, .zone-dot.editing { outline: 2px solid #fff; outline-offset: 2px; filter: brightness(1.2); }
     .zone-dot small { position: absolute; left: calc(100% + .35rem); top: 50%; transform: translateY(-50%); max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid color-mix(in srgb, var(--zone-colour, var(--gold)) 74%, rgba(255,255,255,.35)); border-radius: .35rem; padding: .22rem .42rem; background: rgba(5,8,6,.86); color: var(--text); font-size: .74rem; font-weight: 900; text-align: left; pointer-events: none; }
     .zone-dot.editing small { color: #fff; border-color: #fff; }
-    .zone-map-popover { position: absolute; z-index: 12; width: min(25rem, calc(100% - 1rem)); max-height: min(32rem, calc(100% - 1rem)); overflow: auto; transform: translate(.7rem, -50%); border: 1px solid color-mix(in srgb, var(--zone-colour, var(--accent)) 74%, var(--line)); border-radius: .6rem; padding: .75rem; background: color-mix(in srgb, var(--panel) 88%, #000); box-shadow: 0 18px 40px rgba(0,0,0,.42); color: var(--text); }
-    .zone-map-popover[data-side="left"] { transform: translate(calc(-100% - .7rem), -50%); }
+    .zone-map-popover { position: fixed; z-index: 1200; left: 50%; top: max(4.75rem, env(safe-area-inset-top)); width: min(32rem, calc(100vw - 2rem)); max-height: calc(100dvh - 9rem); overflow: auto; overscroll-behavior: contain; transform: translateX(-50%); border: 1px solid color-mix(in srgb, var(--zone-colour, var(--accent)) 74%, var(--line)); border-radius: .6rem; padding: .75rem; background: color-mix(in srgb, var(--panel) 94%, #000); box-shadow: 0 18px 40px rgba(0,0,0,.58); color: var(--text); }
+    .zone-map-popover[data-side="left"] { transform: translateX(-50%); }
     .zone-map-popover[hidden] { display: none; }
     .zone-map-popover strong { display: block; margin-bottom: .18rem; color: var(--zone-colour, var(--accent)); font-size: 1rem; }
     .zone-map-popover span { display: block; color: var(--muted); font-size: .86rem; line-height: 1.35; }
@@ -6821,6 +6828,9 @@ PAGE_TEMPLATE = """
     .zone-popover-grid label:first-child { grid-column: 1 / -1; }
     .zone-map-popover .zone-popover-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .65rem; }
     .zone-map-popover button { min-height: 2.15rem; padding: .35rem .55rem; font-size: .84rem; }
+    @media (max-width: 720px), (max-height: 640px) {
+      .zone-map-popover { top: max(.75rem, env(safe-area-inset-top)); width: calc(100vw - 1.5rem); max-height: calc(100dvh - 1.5rem); }
+    }
     .zone-dot.safe { --zone-colour: #22c55e; }
     .zone-dot.pvp { --zone-colour: #ef4444; }
     .zone-dot.radar { --zone-colour: #38bdf8; }
@@ -11143,6 +11153,7 @@ PAGE_TEMPLATE = """
         {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("qr-code", "In-Game QR"), ("saved", "Saved Recipes")] %}
         <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}{{ profile_qs }}">{{ label }}</a>
         {% endfor %}
+        <a href="/admin?section=dayz-converter{{ server_qs }}{{ profile_qs }}">Event Format Exchange</a>
       </nav>
       <div class="panel-grid">
         {% if xml_tool == "loot" %}
@@ -11889,8 +11900,8 @@ PAGE_TEMPLATE = """
     <section class="section-panel" id="dayz-converter">
       <div class="section-head">
         <div>
-          <h2>DayZ Map JSON Converter</h2>
-          <p class="tool-note">Upload a DayZ Editor JSON export and convert it into the three matching CE snippets: events, event spawns and event groups. Generate first, then use guarded merge upload when you are ready to update the live server files.</p>
+          <h2>Event Groups Format Exchange</h2>
+          <p class="tool-note">Convert between DayZ Editor JSON and linked Central Economy event XML. JSON to XML creates matching <code>events.xml</code>, <code>cfgeventspawns.xml</code> and <code>cfgeventgroups.xml</code> snippets for custom scenes, drops and event builds.</p>
         </div>
       </div>
       <form class="xml-tool-form" data-local-generator-form data-route="/api/admin/convert-dayz-xml" enctype="multipart/form-data">
@@ -11898,45 +11909,75 @@ PAGE_TEMPLATE = """
         <div class="full xml-converter-grid">
           <div class="stack">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
-            <label>Event Name
-              <input name="event_name" value="Event_MyCustomBase" placeholder="Event_MyCustomBase">
+            <fieldset>
+              <legend>Conversion direction</legend>
+              <div class="toolbar">
+                <label class="check"><input type="radio" name="direction" value="auto" checked> Auto-detect</label>
+                <label class="check"><input type="radio" name="direction" value="json_to_xml"> JSON to XML</label>
+                <label class="check"><input type="radio" name="direction" value="xml_to_json"> XML to JSON</label>
+              </div>
+            </fieldset>
+            <div class="mini-grid">
+              <label>Scene / event name
+                <input name="base_name" value="MyCustomAirdrop" placeholder="MyCustomAirdrop">
+              </label>
+              <label>Event name prefix
+                <input name="event_prefix" value="Static_" placeholder="Static_">
+              </label>
+              <label>Group name prefix
+                <input name="group_prefix" value="Injector_" placeholder="Injector_">
+              </label>
+            </div>
+            <label>Upload JSON or XML
+              <input type="file" name="dayz_input" accept=".json,.xml,.txt,application/json,text/xml,application/xml,text/plain">
             </label>
-            <label>DayZ Editor JSON file
-              <input type="file" name="dayz_json" accept=".json,application/json">
-            </label>
-            <label>Or paste JSON
-              <textarea name="json_text" placeholder='{"EditorObjects":[{"Type":"Land_Mil_Barracks_i","Position":[2500.5,120.2,5000.1],"Orientation":[45,0,0]}]}'></textarea>
+            <label>Or paste JSON / XML
+              <textarea name="input_text" placeholder='JSON: {"Objects":[{"name":"Land_Mil_Barracks_i","pos":[2500.5,120.2,5000.1],"ypr":[45,0,0]}]}&#10;&#10;XML: paste the matching event, spawn and event-group snippets here'></textarea>
             </label>
             <div class="toolbar">
-              <button type="submit">Generate DayZ XML</button>
+              <button type="submit">Convert &amp; Validate</button>
               <span class="result muted" data-tool-result></span>
             </div>
           </div>
           <aside class="xml-output-panel">
             <div class="mini-grid">
-              <div class="mini-card"><span class="muted">Input</span><strong>Editor JSON</strong></div>
+              <div class="mini-card"><span class="muted">Input</span><strong>JSON or XML</strong></div>
               <div class="mini-card"><span class="muted">Anchor</span><strong>First valid object</strong></div>
-              <div class="mini-card"><span class="muted">Coords</span><strong>6 decimals max</strong></div>
-              <div class="mini-card"><span class="muted">Live</span><strong>Backup then merge</strong></div>
+              <div class="mini-card"><span class="muted">Checks</span><strong>Names + XML schema</strong></div>
+              <div class="mini-card"><span class="muted">Live merge</span><strong>Backup protected</strong></div>
             </div>
-            <div class="embed-preview"><strong>Output files</strong><span>Copy each generated block or merge the named event/group into the matching live file. Invalid objects are skipped with warnings instead of crashing the converter.</span></div>
+            <div class="embed-preview"><strong>Linked output</strong><span>The event name is identical in events and spawns. The spawn references the generated group name exactly. Invalid or unsupported input is rejected before output is offered.</span></div>
           </aside>
         </div>
         <div class="full xml-snippet-grid" data-tool-output-group hidden>
-          <div class="xml-snippet-box">
-            <div class="row-between"><strong>events.xml Snippet</strong><button type="button" data-tool-copy="events_xml">Copy to Clipboard</button></div>
+          <div class="xml-snippet-box" data-output-panel hidden>
+            <div class="row-between"><strong>events.xml snippet</strong><span><button type="button" data-tool-copy="events_xml">Copy</button> <button type="button" data-tool-download="events_xml" data-filename="events_snippet.xml">Download</button></span></div>
             <textarea readonly data-tool-output="events_xml"></textarea>
           </div>
-          <div class="xml-snippet-box">
-            <div class="row-between"><strong>eventspawns.xml Snippet</strong><button type="button" data-tool-copy="eventspawns_xml">Copy to Clipboard</button></div>
+          <div class="xml-snippet-box" data-output-panel hidden>
+            <div class="row-between"><strong>cfgeventspawns.xml snippet</strong><span><button type="button" data-tool-copy="eventspawns_xml">Copy</button> <button type="button" data-tool-download="eventspawns_xml" data-filename="cfgeventspawns_snippet.xml">Download</button></span></div>
             <textarea readonly data-tool-output="eventspawns_xml"></textarea>
           </div>
-          <div class="xml-snippet-box">
-            <div class="row-between"><strong>eventgroups.xml Snippet</strong><button type="button" data-tool-copy="eventgroups_xml">Copy to Clipboard</button></div>
+          <div class="xml-snippet-box" data-output-panel hidden>
+            <div class="row-between"><strong>cfgeventgroups.xml snippet</strong><span><button type="button" data-tool-copy="eventgroups_xml">Copy</button> <button type="button" data-tool-download="eventgroups_xml" data-filename="cfgeventgroups_snippet.xml">Download</button></span></div>
             <textarea readonly data-tool-output="eventgroups_xml"></textarea>
           </div>
+          <div class="xml-snippet-box" data-output-panel hidden>
+            <div class="row-between"><strong>DayZ Editor JSON</strong><span><button type="button" data-tool-copy="json_output">Copy</button> <button type="button" data-tool-download="json_output" data-filename="dayz_editor_event.json" data-mime="application/json">Download</button></span></div>
+            <textarea readonly data-tool-output="json_output"></textarea>
+          </div>
         </div>
-        <article class="admin-panel full" data-converter-inject-panel>
+        <article class="admin-panel full">
+          <h3>Conversion Notes</h3>
+          <ul class="tool-note">
+            <li>All JSON objects are grouped into one event group; the first valid object supplies the world X/Z spawn anchor.</li>
+            <li>Children use X/Z offsets relative to that anchor. Child <code>a</code> is JSON yaw normalised to 0–359.999 degrees.</li>
+            <li>The first child receives <code>deloot="0" lootmax="3" lootmin="1"</code>; remaining children receive <code>spawnsecondary="false"</code>.</li>
+            <li>Pitch, roll, height and scale are JSON-only and cannot be stored by this event-group format. XML to JSON therefore restores them as zero/default values and reports a warning.</li>
+            <li>Use a <code>Static_</code>, <code>Vehicle_</code>, <code>Loot_</code>, <code>Item_</code>, <code>Infected_</code> or <code>Animal_</code> event prefix appropriate to what is being spawned.</li>
+          </ul>
+        </article>
+        <article class="admin-panel full" data-converter-inject-panel hidden>
           <h3>Guarded Merge Upload</h3>
           <p class="tool-note">This downloads each live XML file, backs it up, replaces any matching event/group name, then uploads the merged file. It does not replace the whole file with a snippet.</p>
           <div class="mini-grid">
@@ -12359,6 +12400,7 @@ PAGE_TEMPLATE = """
     {% set strikes = (server.config.moderation_guard_strikes if server and server.config and server.config.moderation_guard_strikes else {}) %}
     {% set cheat = (server.config.cheat_check if server and server.config and server.config.cheat_check else {}) %}
     {% set stack = (server.config.stack_watch if server and server.config and server.config.stack_watch else {}) %}
+    {% set ban_announce = (server.config.ban_announcement if server and server.config and server.config.ban_announcement else {}) %}
     {% set stack_defaults = ['GardenPlot', 'Fireplace', 'FireplaceIndoor', 'OvenIndoor', 'FenceKit', 'WatchtowerKit', 'TerritoryFlagKit'] %}
     {% set stack_objects = stack.objects if stack.objects is defined else stack_defaults %}
     {% set stack_preset_values = stack_watch_object_presets | map(attribute='value') | list %}
@@ -12434,6 +12476,36 @@ PAGE_TEMPLATE = """
               <button type="submit">Save Moderation Guard</button>
               <span class="result muted"></span>
             </div>
+          </form>
+        </article>
+        <article class="admin-panel">
+          <h3>Game Ban Announcement</h3>
+          <p class="tool-note">Optionally announce a newly confirmed Nitrado game ban. Failed, duplicate, expired and removed bans never trigger this announcement.</p>
+          <form class="admin-form" method="post" action="/api/admin/ban-announcement" enctype="multipart/form-data" data-html-submit="true">
+            <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
+            <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id }}">
+            <input class="hidden-field" name="dashboard_mode" value="{{ mode }}">
+            <input class="hidden-field" name="return_to" value="moderation">
+            <div class="server-lock"><span>DayZ server</span><input value="{{ selected_dayz_profile.name if selected_dayz_profile else (server.guild_name if server else 'No server selected') }}" readonly></div>
+            <label>Announcement
+              <select name="enabled"><option value="false" {{ 'selected' if not ban_announce.enabled else '' }}>Off</option><option value="true" {{ 'selected' if ban_announce.enabled else '' }}>On</option></select>
+            </label>
+            <label>Announcement channel
+              <select name="channel_key">
+                {% for channel in (server.channels if server else []) %}<option value="{{ channel.key or channel.value }}" data-channel-id="{{ channel.id }}" {% if (ban_announce.channel_key or 'moderation_logs') == channel.key or (ban_announce.channel_key or 'moderation_logs') == channel.value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+              </select>
+            </label>
+            <label class="full">Headline <input name="headline" maxlength="80" value="{{ ban_announce.headline or 'PLAYER BANNED' }}"></label>
+            <label>Show reason
+              <select name="include_reason"><option value="true" {{ 'selected' if ban_announce.include_reason is not defined or ban_announce.include_reason else '' }}>Yes</option><option value="false" {{ 'selected' if ban_announce.include_reason is defined and not ban_announce.include_reason else '' }}>No</option></select>
+            </label>
+            <label>Custom GIF/video
+              <input type="file" name="ban_announcement_media" accept=".gif,.mp4,.webm,image/gif,video/mp4,video/webm">
+              <small class="field-help">Optional GIF, MP4 or WebM, up to 8 MB.</small>
+            </label>
+            {% if ban_announce.media_name %}<div class="embed-preview full"><strong>Current media</strong><span>{{ ban_announce.media_name }}</span></div>{% endif %}
+            <label class="check full"><input type="checkbox" name="clear_media" value="true"> Remove the current custom media</label>
+            <div class="full"><button type="submit">Save Ban Announcement</button></div>
           </form>
         </article>
         <article class="admin-panel">
@@ -16498,8 +16570,8 @@ PAGE_TEMPLATE = """
         link.remove();
         URL.revokeObjectURL(url);
       }
-      function downloadTextFile(text, filename) {
-        const blob = new Blob([text || ""], {type: "text/xml"});
+      function downloadTextFile(text, filename, mimeType) {
+        const blob = new Blob([text || ""], {type: mimeType || "text/xml"});
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -16774,6 +16846,8 @@ PAGE_TEMPLATE = """
           if (!key) return;
           const value = outputs[key] ?? body[key] ?? "";
           output.value = value;
+          const panel = output.closest("[data-output-panel]");
+          if (panel) panel.hidden = !String(value || "").trim();
           if (value) filled += 1;
         });
         form.querySelectorAll("[data-result-field]").forEach((node) => {
@@ -16807,6 +16881,10 @@ PAGE_TEMPLATE = """
           }
         }
         if (outputGroup) outputGroup.hidden = filled === 0;
+        const converterInjectPanel = form.querySelector("[data-converter-inject-panel]");
+        if (converterInjectPanel) {
+          converterInjectPanel.hidden = !String(outputs.events_xml ?? body.events_xml ?? "").trim();
+        }
         const warnings = Array.isArray(body.warnings) && body.warnings.length ? ` ${body.warnings.length} warning${body.warnings.length === 1 ? "" : "s"}.` : "";
         setToolResult(form, `${body.note || "Generated."}${warnings}`, true);
       } catch (error) {
@@ -16929,6 +17007,23 @@ PAGE_TEMPLATE = """
         if (output && output.value) {
           await navigator.clipboard.writeText(output.value).catch(() => {});
           setToolResult(root, "Copied output.", true);
+        } else {
+          setToolResult(root, "Generate output first.", false);
+        }
+        return;
+      }
+      const toolDownload = event.target.closest("[data-tool-download]");
+      if (toolDownload) {
+        event.preventDefault();
+        const root = toolDownload.closest("[data-local-generator-form]") || document;
+        const output = toolOutputFor(root, toolDownload.dataset.toolDownload || "");
+        if (output && output.value) {
+          downloadTextFile(
+            output.value,
+            toolDownload.dataset.filename || "dayz_event_output.xml",
+            toolDownload.dataset.mime || "text/xml"
+          );
+          setToolResult(root, "Downloaded output.", true);
         } else {
           setToolResult(root, "Generate output first.", false);
         }
@@ -17414,6 +17509,7 @@ PAGE_TEMPLATE = """
       "/api/admin/shop-bulk",
       "/api/admin/moderation-guard",
       "/api/admin/stack-watch",
+      "/api/admin/ban-announcement",
       "/api/admin/link-enforcement",
       "/api/admin/on-screen-message",
       "/api/admin/server-control",
@@ -19796,7 +19892,12 @@ PAGE_TEMPLATE = """
       }
 
       function hideZonePopover() {
-        if (popover) popover.hidden = true;
+        if (!popover) return;
+        popover.hidden = true;
+        popover.removeAttribute("role");
+        popover.removeAttribute("aria-modal");
+        popover.removeAttribute("aria-label");
+        if (popover.parentElement !== map) map.appendChild(popover);
       }
 
       function saveZoneFromPopover() {
@@ -19843,10 +19944,12 @@ PAGE_TEMPLATE = """
         const enabled = zone.enabled === false ? "false" : (zoneFields.enabled ? zoneFields.enabled.value : "true");
         const action = zone.action || (zoneFields.action ? zoneFields.action.value : "none");
         const option = (value, label, selected) => `<option value="${escapeHtml(value)}" ${String(selected) === String(value) ? "selected" : ""}>${escapeHtml(label)}</option>`;
+        if (popover.parentElement !== document.body) document.body.appendChild(popover);
         popover.style.setProperty("--zone-colour", colour);
-        popover.style.left = `${clampPercent(point.xPercent)}%`;
-        popover.style.top = `${Math.max(8, Math.min(92, point.yPercent))}%`;
         popover.dataset.side = point.xPercent > 62 ? "left" : "right";
+        popover.setAttribute("role", "dialog");
+        popover.setAttribute("aria-modal", "true");
+        popover.setAttribute("aria-label", `${title} editor`);
         popover.innerHTML = `
           <strong>${escapeHtml(title)}</strong>
           <span>Edit this zone here, then save or close.</span>
@@ -19873,6 +19976,7 @@ PAGE_TEMPLATE = """
             <button type="button" data-popover-close>Close</button>
           </div>`;
         popover.hidden = false;
+        popover.scrollTop = 0;
         popover.querySelector("[data-popover-close]")?.addEventListener("click", hideZonePopover);
         popover.querySelector("[data-popover-save]")?.addEventListener("click", saveZoneFromPopover);
         popover.querySelectorAll("[data-zone-popover-field]").forEach((field) => {
@@ -19891,7 +19995,12 @@ PAGE_TEMPLATE = """
             dashboard_mode: "{{ mode }}",
           }, event.currentTarget);
         });
+        window.requestAnimationFrame(() => popover.querySelector('[data-zone-popover-field="name"]')?.focus({preventScroll: true}));
       }
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && popover && !popover.hidden) hideZonePopover();
+      });
 
       function syncZoneColour(colour) {
         const value = /^#[0-9a-f]{6}$/i.test(String(colour || "")) ? colour : zonePalette[0];
@@ -20393,6 +20502,7 @@ ADMIN_ROUTES = [
     "/api/admin/member-action",
     "/api/admin/moderation-guard",
     "/api/admin/stack-watch",
+    "/api/admin/ban-announcement",
     "/api/admin/link-enforcement",
     "/api/admin/on-screen-message",
     "/api/admin/server-control",
@@ -20462,6 +20572,7 @@ ADMIN_ROUTE_FEATURES = {
     "/api/admin/member-action": "members",
     "/api/admin/moderation-guard": "moderation",
     "/api/admin/stack-watch": "moderation",
+    "/api/admin/ban-announcement": "moderation",
     "/api/admin/link-enforcement": "server_rules",
     "/api/admin/on-screen-message": "server_rules",
     "/api/admin/server-control": "server_control",
@@ -34500,29 +34611,89 @@ def extract_dayz_vector(raw: Any) -> tuple[float, float, float] | None:
         return None
 
 
-def convert_dayz_editor_json(data: Any, event_name_value: Any) -> dict[str, Any]:
-    event_name = sanitize_dayz_classname(event_name_value)
-    if not event_name:
-        raise ValueError("Event Name must be a valid DayZ classname style value, for example Event_MyCustomBase.")
-    if isinstance(data, dict):
-        objects = data.get("EditorObjects")
-    else:
-        objects = data
-    if not isinstance(objects, list):
-        raise ValueError("Invalid DayZ Editor JSON format: missing EditorObjects array.")
+DAYZ_EVENT_NAME_PREFIXES = ("Static_", "Vehicle_", "Loot_", "Item_", "Infected_", "Animal_")
 
+
+def normalize_dayz_heading(value: Any) -> float:
+    try:
+        heading = float(value) % 360.0
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"Invalid DayZ heading value: {value!r}.") from error
+    return 0.0 if abs(heading) < 0.0000005 or abs(heading - 360.0) < 0.0000005 else heading
+
+
+def compose_dayz_event_exchange_names(base_name_value: Any, event_prefix_value: Any, group_prefix_value: Any) -> tuple[str, str]:
+    base_name = sanitize_dayz_classname(base_name_value)
+    if not base_name:
+        raise ValueError("Scene / event name must contain only letters, numbers and underscores.")
+
+    event_name = base_name
+    if not any(base_name.lower().startswith(prefix.lower()) for prefix in DAYZ_EVENT_NAME_PREFIXES):
+        requested_prefix = sanitize_dayz_classname(event_prefix_value or "Static_")
+        canonical_prefix = next(
+            (prefix for prefix in DAYZ_EVENT_NAME_PREFIXES if requested_prefix.lower() == prefix.lower()),
+            "",
+        )
+        if not canonical_prefix:
+            allowed = ", ".join(DAYZ_EVENT_NAME_PREFIXES)
+            raise ValueError(f"Event prefix must be one of: {allowed}")
+        event_name = f"{canonical_prefix}{base_name}"
+
+    group_prefix = sanitize_dayz_classname(group_prefix_value or "Injector_")
+    if not group_prefix:
+        raise ValueError("Group name prefix must contain only letters, numbers and underscores.")
+    group_suffix = event_name
+    for prefix in DAYZ_EVENT_NAME_PREFIXES:
+        if event_name.lower().startswith(prefix.lower()):
+            group_suffix = event_name[len(prefix):]
+            break
+    group_name = group_suffix if group_suffix.lower().startswith(group_prefix.lower()) else f"{group_prefix}{group_suffix}"
+    return event_name, group_name
+
+
+def dayz_editor_objects(data: Any) -> tuple[list[Any], str]:
+    if isinstance(data, dict):
+        if isinstance(data.get("Objects"), list):
+            return data["Objects"], "objects"
+        if isinstance(data.get("EditorObjects"), list):
+            return data["EditorObjects"], "editor_objects"
+    if isinstance(data, list):
+        return data, "array"
+    raise ValueError("Invalid DayZ Editor JSON: expected an Objects or EditorObjects array.")
+
+
+def convert_dayz_editor_json(
+    data: Any,
+    base_name_value: Any,
+    event_prefix_value: Any = "Static_",
+    group_prefix_value: Any = "Injector_",
+) -> dict[str, Any]:
+    event_name, group_name = compose_dayz_event_exchange_names(
+        base_name_value,
+        event_prefix_value,
+        group_prefix_value,
+    )
+    objects, source_format = dayz_editor_objects(data)
     warnings: list[str] = []
     valid_objects: list[dict[str, Any]] = []
     for index, item in enumerate(objects):
         if not isinstance(item, dict):
-            warnings.append(f"Skipped row {index + 1}: object entry is not a JSON object.")
+            warnings.append(f"Skipped object {index + 1}: entry is not a JSON object.")
             continue
-        item_type = sanitize_dayz_classname(item.get("Type"))
-        position = extract_dayz_vector(item.get("Position"))
-        orientation = extract_dayz_vector(item.get("Orientation"))
-        if not item_type or position is None or orientation is None:
-            warnings.append(f"Skipped row {index + 1}: missing or invalid Type, Position or Orientation.")
+        if source_format == "editor_objects":
+            item_type = sanitize_dayz_classname(item.get("Type"))
+            position = extract_dayz_vector(item.get("Position"))
+            orientation = extract_dayz_vector(item.get("Orientation"))
+        else:
+            item_type = sanitize_dayz_classname(item.get("name") or item.get("type") or item.get("Type"))
+            position = extract_dayz_vector(item.get("pos") or item.get("position") or item.get("Position"))
+            orientation = extract_dayz_vector(item.get("ypr") or item.get("orientation") or item.get("Orientation"))
+        if not item_type or position is None:
+            warnings.append(f"Skipped object {index + 1}: missing or invalid classname/name or three-number position.")
             continue
+        if orientation is None:
+            orientation = (0.0, 0.0, 0.0)
+            warnings.append(f"Object {index + 1} had no valid ypr/orientation; yaw, pitch and roll defaulted to zero.")
         valid_objects.append({
             "source_index": index,
             "type": item_type,
@@ -34530,14 +34701,11 @@ def convert_dayz_editor_json(data: Any, event_name_value: Any) -> dict[str, Any]
             "orientation": orientation,
         })
     if not valid_objects:
-        raise ValueError("Invalid DayZ Editor JSON format: no valid objects were found.")
+        raise ValueError("Invalid DayZ Editor JSON: no valid objects were found.")
     if valid_objects[0]["source_index"] != 0:
-        warnings.append("The first exported object was invalid, so the first valid object was used as the parent anchor.")
+        warnings.append("The first source object was invalid, so the first valid object became the X/Z anchor.")
 
-    parent = valid_objects[0]
-    parent_position = parent["position"]
-    parent_orientation = parent["orientation"]
-
+    anchor = valid_objects[0]["position"]
     events_xml = "\n".join([
         f'<event name="{xml_attr(event_name)}">',
         "    <nominal>1</nominal>",
@@ -34557,44 +34725,131 @@ def convert_dayz_editor_json(data: Any, event_name_value: Any) -> dict[str, Any]
     ])
     eventspawns_xml = "\n".join([
         f'<event name="{xml_attr(event_name)}">',
-        f'    <zone pos="{xml_attr(xml_vector(parent_position))}" r="10" />',
+        f'    <pos x="{dayz_xml_float(anchor[0])}" z="{dayz_xml_float(anchor[2])}" a="0" group="{xml_attr(group_name)}"/>',
         "</event>",
     ])
-    group_lines = [
-        f'<group name="{xml_attr(event_name)}">',
-        "    <!-- Parent Anchor (always zero offsets, original parent rotation) -->",
-        f'    <child type="{xml_attr(parent["type"])}" offset="0 0 0" rpy="{xml_attr(xml_vector(parent_orientation))}" a="0" />',
-    ]
-    if len(valid_objects) > 1:
-        group_lines.append("    <!-- Child items use offsets from the parent anchor and relative rotation -->")
-    for child in valid_objects[1:]:
-        position = child["position"]
-        orientation = child["orientation"]
-        offset = (
-            position[0] - parent_position[0],
-            position[1] - parent_position[1],
-            position[2] - parent_position[2],
-        )
-        relative_rotation = (
-            normalize_dayz_angle(orientation[0] - parent_orientation[0]),
-            normalize_dayz_angle(orientation[1] - parent_orientation[1]),
-            normalize_dayz_angle(orientation[2] - parent_orientation[2]),
-        )
-        group_lines.append(
-            f'    <child type="{xml_attr(child["type"])}" offset="{xml_attr(xml_vector(offset))}" rpy="{xml_attr(xml_vector(relative_rotation))}" a="0" />'
-        )
+    group_lines = [f'<group name="{xml_attr(group_name)}">']
+    for index, item in enumerate(valid_objects):
+        position = item["position"]
+        x_offset = position[0] - anchor[0]
+        z_offset = position[2] - anchor[2]
+        heading = normalize_dayz_heading(item["orientation"][0])
+        attributes = [
+            f'type="{xml_attr(item["type"])}"',
+            f'x="{dayz_xml_float(x_offset)}"',
+            f'z="{dayz_xml_float(z_offset)}"',
+            f'a="{dayz_xml_float(heading)}"',
+        ]
+        if index == 0:
+            attributes.extend(['deloot="0"', 'lootmax="3"', 'lootmin="1"'])
+        else:
+            attributes.append('spawnsecondary="false"')
+        group_lines.append(f"    <child {' '.join(attributes)}/>")
     group_lines.append("</group>")
     eventgroups_xml = "\n".join(group_lines)
 
     validate_xml_fragment("events.xml", events_xml)
-    validate_xml_fragment("eventspawns.xml", eventspawns_xml)
-    validate_xml_fragment("eventgroups.xml", eventgroups_xml)
+    validate_xml_fragment("cfgeventspawns.xml", eventspawns_xml)
+    validate_xml_fragment("cfgeventgroups.xml", eventgroups_xml)
+    warnings.append(
+        "DayZ event groups preserve world X/Z and child yaw only; Editor height, pitch, roll and scale are not represented in these CE snippets."
+    )
     return {
         "events_xml": events_xml,
         "eventspawns_xml": eventspawns_xml,
         "eventgroups_xml": eventgroups_xml,
+        "json_output": "",
         "warnings": warnings,
         "object_count": len(valid_objects),
+        "event_name": event_name,
+        "group_name": group_name,
+        "direction": "json_to_xml",
+    }
+
+
+def parse_dayz_event_exchange_xml(xml_text: str) -> ET.Element:
+    cleaned = str(xml_text or "").lstrip("\ufeff").strip()
+    if not cleaned:
+        raise ValueError("Upload or paste the linked CE XML snippets first.")
+    cleaned = re.sub(r"<\?xml[^>]*\?>", "", cleaned, flags=re.IGNORECASE).strip()
+    try:
+        return ET.fromstring(f"<exchange>{cleaned}</exchange>")
+    except ET.ParseError as error:
+        raise ValueError(f"Linked CE XML failed validation: {error}") from error
+
+
+def required_dayz_xml_number(element: ET.Element, attribute: str, label: str, default: float | None = None) -> float:
+    raw_value = element.get(attribute)
+    if raw_value in (None, "") and default is not None:
+        return default
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} has an invalid {attribute}= value.") from error
+
+
+def convert_dayz_event_xml_to_json(xml_text: str) -> dict[str, Any]:
+    root = parse_dayz_event_exchange_xml(xml_text)
+    groups = [element for element in root.iter("group") if element.get("name")]
+    spawn_events = [
+        (event, position)
+        for event in root.iter("event")
+        for position in list(event)
+        if position.tag == "pos"
+    ]
+    if not groups:
+        raise ValueError("No <group name=...> entry was found in the supplied CE XML.")
+
+    warnings: list[str] = []
+    spawn_event: ET.Element | None = None
+    spawn_position: ET.Element | None = None
+    group: ET.Element | None = None
+    if spawn_events:
+        spawn_event, spawn_position = spawn_events[0]
+        requested_group = str(spawn_position.get("group") or "").strip()
+        if requested_group:
+            group = next((candidate for candidate in groups if candidate.get("name") == requested_group), None)
+            if group is None:
+                raise ValueError(f'cfgeventspawns.xml references group "{requested_group}", but that group is missing.')
+        else:
+            warnings.append("The spawn position has no group= reference; the first supplied event group was used.")
+    if group is None:
+        group = groups[0]
+        warnings.append("No event spawn entry was supplied; world X/Z anchor defaulted to 0, 0.")
+
+    anchor_x = required_dayz_xml_number(spawn_position, "x", "Event spawn", 0.0) if spawn_position is not None else 0.0
+    anchor_z = required_dayz_xml_number(spawn_position, "z", "Event spawn", 0.0) if spawn_position is not None else 0.0
+    children = [child for child in list(group) if child.tag == "child"]
+    if not children:
+        raise ValueError(f'Event group "{group.get("name")}" contains no <child> entries.')
+
+    objects: list[dict[str, Any]] = []
+    for index, child in enumerate(children):
+        item_type = sanitize_dayz_classname(child.get("type"))
+        if not item_type:
+            raise ValueError(f"Event-group child {index + 1} has a missing or invalid type= classname.")
+        x_offset = required_dayz_xml_number(child, "x", f"Event-group child {index + 1}", 0.0)
+        y_offset = required_dayz_xml_number(child, "y", f"Event-group child {index + 1}", 0.0)
+        z_offset = required_dayz_xml_number(child, "z", f"Event-group child {index + 1}", 0.0)
+        heading = normalize_dayz_heading(required_dayz_xml_number(child, "a", f"Event-group child {index + 1}", 0.0))
+        objects.append({
+            "name": item_type,
+            "pos": [anchor_x + x_offset, y_offset, anchor_z + z_offset],
+            "ypr": [heading, 0.0, 0.0],
+        })
+    warnings.append(
+        "The CE event-group format does not retain the original world height, pitch, roll or scale; unavailable values were restored as zero/default values."
+    )
+    return {
+        "events_xml": "",
+        "eventspawns_xml": "",
+        "eventgroups_xml": "",
+        "json_output": json.dumps({"Objects": objects}, indent=2, ensure_ascii=False),
+        "warnings": warnings,
+        "object_count": len(objects),
+        "event_name": str(spawn_event.get("name") or "") if spawn_event is not None else "",
+        "group_name": str(group.get("name") or ""),
+        "direction": "xml_to_json",
     }
 
 
@@ -44877,18 +45132,52 @@ def api_convert_dayz_xml():
         return error
     payload = payload or {}
     try:
+        direction = str(payload.get("direction") or "auto").strip().lower()
+        if direction not in {"auto", "json_to_xml", "xml_to_json"}:
+            raise ValueError("Conversion direction must be auto, json_to_xml or xml_to_json.")
+
         if isinstance(payload.get("editor_json"), (dict, list)):
-            data = payload.get("editor_json")
+            source_data: Any = payload.get("editor_json")
+            source_text = json.dumps(source_data)
         else:
-            data = parse_json_payload_text(read_uploaded_or_pasted_text("dayz_json", "json_text", payload))
-        result = convert_dayz_editor_json(data, payload.get("event_name"))
+            source_text = read_uploaded_or_pasted_text("dayz_input", "input_text", payload)
+            if not source_text:
+                source_text = read_uploaded_or_pasted_text("dayz_json", "json_text", payload)
+            source_data = None
+
+        if direction == "auto":
+            first_character = source_text.lstrip()[:1]
+            if first_character in {"{", "["}:
+                direction = "json_to_xml"
+            elif first_character == "<":
+                direction = "xml_to_json"
+            else:
+                raise ValueError("Could not auto-detect input. Paste DayZ Editor JSON or linked CE XML.")
+
+        if direction == "json_to_xml":
+            data = source_data if source_data is not None else parse_json_payload_text(source_text)
+            result = convert_dayz_editor_json(
+                data,
+                payload.get("base_name") or payload.get("event_name"),
+                payload.get("event_prefix") or "Static_",
+                payload.get("group_prefix") or "Injector_",
+            )
+            note = f"Generated and validated three linked CE XML snippets for {result.get('object_count', 0)} object(s)."
+        else:
+            result = convert_dayz_event_xml_to_json(source_text)
+            note = f"Reconstructed and validated DayZ Editor JSON for {result.get('object_count', 0)} object(s)."
     except ValueError as error:
         return jsonify({"ok": False, "success": False, "error": str(error)}), 400
+    outputs = {
+        key: result.get(key, "")
+        for key in ("events_xml", "eventspawns_xml", "eventgroups_xml", "json_output")
+    }
     return jsonify({
         "ok": True,
         "success": True,
         **result,
-        "note": f"Generated XML for {result.get('object_count', 0)} object(s).",
+        "outputs": outputs,
+        "note": note,
     })
 
 
@@ -47433,6 +47722,141 @@ def stack_watch_config_from_payload(payload: dict[str, Any], previous: Any = Non
     stack["max_height"] = str(payload.get("stack_watch_max_height") if payload.get("stack_watch_max_height") is not None else previous.get("max_height", "")).strip()[:40]
     stack["updated_at"] = datetime.now(UTC).isoformat()
     return stack
+
+
+def ban_announcement_config_from_payload(payload: dict[str, Any], previous: Any = None) -> dict[str, Any]:
+    previous = previous if isinstance(previous, dict) else {}
+    config = dict(previous)
+    config["enabled"] = safe_bool(payload.get("enabled"), safe_bool(previous.get("enabled"), False))
+    config["channel_key"] = str(payload.get("channel_key") or previous.get("channel_key") or "moderation_logs").strip()[:80]
+    headline = re.sub(r"[\r\n]+", " ", str(payload.get("headline") or previous.get("headline") or "PLAYER BANNED")).strip()
+    config["headline"] = (headline or "PLAYER BANNED")[:80]
+    config["include_reason"] = safe_bool(payload.get("include_reason"), safe_bool(previous.get("include_reason"), True))
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    return config
+
+
+def ban_announcement_media_absolute_path(relative_path: Any) -> str:
+    clean = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+    if not clean:
+        return ""
+    root = os.path.abspath(BAN_ANNOUNCEMENT_MEDIA_FOLDER)
+    candidate = os.path.abspath(os.path.join(DATA_ROOT, *clean.split("/")))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return ""
+    except ValueError:
+        return ""
+    return candidate
+
+
+def validated_ban_announcement_upload() -> tuple[bytes, str, str, str] | None:
+    uploaded = request.files.get("ban_announcement_media")
+    if not uploaded or not uploaded.filename:
+        return None
+    original_name = os.path.basename(str(uploaded.filename)).strip()[:160]
+    extension = os.path.splitext(original_name)[1].lower()
+    mime_type = BAN_ANNOUNCEMENT_MEDIA_TYPES.get(extension)
+    if not mime_type:
+        raise ValueError("Ban announcement media must be a GIF, MP4 or WebM file.")
+    content = uploaded.read(BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES + 1)
+    if not content:
+        raise ValueError("The selected ban announcement media file is empty.")
+    if len(content) > BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES:
+        raise ValueError("Ban announcement media must be 8 MB or smaller.")
+    valid_signature = (
+        (extension == ".gif" and content[:6] in {b"GIF87a", b"GIF89a"})
+        or (extension == ".mp4" and len(content) >= 12 and content[4:8] == b"ftyp")
+        or (extension == ".webm" and content.startswith(b"\x1a\x45\xdf\xa3"))
+    )
+    if not valid_signature:
+        raise ValueError(f"The uploaded {extension[1:].upper()} file signature is invalid.")
+    return content, extension, mime_type, original_name
+
+
+def remove_ban_announcement_media(relative_path: Any) -> None:
+    candidate = ban_announcement_media_absolute_path(relative_path)
+    if candidate and os.path.isfile(candidate):
+        try:
+            os.remove(candidate)
+        except OSError:
+            pass
+
+
+@APP.post("/api/admin/ban-announcement")
+def api_ban_announcement():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    payload = strip_dashboard_control_fields(raw_payload)
+    guild_id = normalize_guild_id(payload.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    requested_profile_id = normalize_server_profile_id(payload.get("server_profile_id"), "")
+    base_config, config, profile_id = moderation_target_config(guild_configs, guild_id, payload)
+    if requested_profile_id and not profile_id:
+        return jsonify({"ok": False, "error": "The selected DayZ server profile was not found. Refresh the page and choose it again."}), 404
+
+    previous = config.get("ban_announcement")
+    if (not isinstance(previous, dict) or not previous) and profile_id:
+        previous = base_config.get("ban_announcement")
+    previous = previous if isinstance(previous, dict) else {}
+    announcement = ban_announcement_config_from_payload(payload, previous)
+    channel_key, channel_id = resolve_channel_selection(
+        config,
+        payload.get("channel_key") or previous.get("channel_id") or previous.get("channel_key") or "moderation_logs",
+    )
+    announcement["channel_key"] = channel_key
+    announcement["channel_id"] = channel_id
+    previous_media_path = str(previous.get("media_path") or "").strip()
+
+    try:
+        uploaded = validated_ban_announcement_upload()
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    remove_previous = safe_bool(payload.get("clear_media"), False)
+    if uploaded:
+        content, extension, mime_type, original_name = uploaded
+        guild_folder = re.sub(r"[^A-Za-z0-9_-]+", "_", guild_id) or "guild"
+        profile_folder = re.sub(r"[^A-Za-z0-9_-]+", "_", profile_id or "default") or "default"
+        destination_folder = os.path.join(BAN_ANNOUNCEMENT_MEDIA_FOLDER, guild_folder, profile_folder)
+        os.makedirs(destination_folder, exist_ok=True)
+        destination = os.path.join(destination_folder, f"{secrets.token_hex(12)}{extension}")
+        with open(destination, "wb") as handle:
+            handle.write(content)
+        relative_path = os.path.relpath(destination, DATA_ROOT).replace("\\", "/")
+        announcement["media_path"] = relative_path
+        announcement["media_name"] = original_name
+        announcement["media_mime"] = mime_type
+        remove_previous = bool(previous_media_path and previous_media_path != relative_path)
+    elif remove_previous:
+        announcement.pop("media_path", None)
+        announcement.pop("media_name", None)
+        announcement.pop("media_mime", None)
+
+    config["ban_announcement"] = announcement
+    config["updated_at"] = datetime.now(UTC).isoformat()
+    if profile_id and config is not base_config:
+        base_config["updated_at"] = config["updated_at"]
+    save_store("guild_configs", guild_configs)
+    sync_runtime_store("guild_configs", guild_configs)
+    if remove_previous:
+        remove_ban_announcement_media(previous_media_path)
+
+    return dashboard_api_response(
+        raw_payload,
+        {
+            "ok": True,
+            "ban_announcement": announcement,
+            "server_profile_id": profile_id,
+            "note": "Game-ban announcement settings saved for the selected DayZ server.",
+        },
+        "moderation",
+        "#ban-announcement",
+    )
 
 
 @APP.post("/api/admin/moderation-guard")
