@@ -209,15 +209,21 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
             "Vehicle, Static, Loot, Item, Infected and Animal events have different CE semantics; choose the appropriate current event pattern. "
             "nominal is the desired event count, min is the lower threshold, max constrains possible instances, lifetime/restock are seconds, and saferadius/distanceradius/cleanupradius are spatial controls. "
             "limit values child, mixed, parent and custom have different child-counting/spawn behaviour, so copy the matching selected-map vanilla event family instead of changing limit by guesswork. "
-            "A child record's min/max controls that child at an event position, while lootmin/lootmax controls compatible spawned-object loot."
+            "A child record's min/max controls that child at an event position, while lootmin/lootmax controls compatible spawned-object loot. "
+            "A C130 wreck can be added as another child of an existing StaticHeliCrash only when Land_Wreck_C130J is valid for the selected build and a matching mapgroupproto.xml loot prototype is present. "
+            "A deliberately scripted-looking ExplosionTest runway sequence instead uses many exactly matched events.xml and cfgeventspawns.xml records and is not an ordinary airdrop or heli-crash pattern."
         ),
-        "safety": "Treat a linked event package as multiple files. Merge named records instead of replacing a live events.xml.",
+        "safety": (
+            "Treat a linked event package as multiple files. Merge named records instead of replacing a live events.xml. "
+            "Do not replace the complete StaticHeliCrash record merely to add one child; preserve the server's current nominal, lifetime, radii and other children unless the owner explicitly requests those changes. "
+            "ExplosionTest availability and behaviour must be verified for the exact platform/version, and second-scale lifetime/restock chains can cause damage, repeated effects and severe server load."
+        ),
     },
     "cfgeventspawns.xml": {
         "purpose": "Central Economy event positions and optional named event-group references.",
         "dependencies": ["Each <event name=...> must exactly match a db/events.xml event name.", "A pos group=... reference must match a cfgeventgroups.xml group name."],
         "variants": "Direct vehicle, infected and animal events normally use positions without a group reference. Static scenes may use a group, depending on the selected vanilla pattern.",
-        "safety": "Coordinates belong here, not in events.xml. Use X/Z map coordinates and a six-decimal rotation; do not add a group= attribute unless the matching group is present.",
+        "safety": "Coordinates belong here, not in events.xml. Use X/Z map coordinates and a six-decimal rotation; do not add a group= attribute unless the matching group is present. A multi-record bombing/strafing sequence must have every event name matched in events.xml and must be treated as an experimental, destructive performance test rather than a production-safe template.",
     },
     "cfgeventgroups.xml": {
         "purpose": "Reusable Central Economy static event-group definitions.",
@@ -240,11 +246,13 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
             "A container/group lootmax is the maximum simultaneous loot assigned there, not a rule that it must equal every candidate point: vanilla groups commonly have more points than lootmax because each point can hold at most one item. "
             "The separate proxy method uses <dispatch><proxy type=\"Classname\" pos=\"localX localY localZ\" rpy=\"roll pitch yaw\"/></dispatch> for deliberately displayed CE items such as wall-mounted or elevated loot. "
             "For a fixed one-item-per-proxy custom layout, set the intended lootmax consistently with the number of active proxy items, while still comparing with the selected vanilla pattern. "
+            "A large static wreck such as Land_Wreck_C130J can use many model-local point records on its right side, centre and left side; each point remains local X/Y/Z and its usable capacity must support the requested lootmax. "
             "A fire/smoke scene can use proxy groups such as a Bonfire or smoke-producing wreck placed through matching MapGroupPos groups; this is a proxy-visual workflow, not cfgEffectArea.json."
         ),
         "safety": (
             "Do not confuse prototypes with world placements or ObjectSpawner JSON. Preserve existing groups and use a merge patch for one custom group. "
             "Confirm the object/model origin and orientation in game; local positive/negative directions rotate with the placed group, so a flat screen-grid description is only a starting guide. "
+            "A fully custom loot taxonomy is possible only as a coordinated, server-wide design: every category/usage referenced here must be defined in cfglimitsdefinition.xml and must match the intended types.xml records exactly. Never remove all existing prototype tags automatically. Aircraft examples often contain broad category lists such as vehiclesparts; reject or remove any name that the active cfglimitsdefinition.xml does not actually define. "
             "Fire/smoke proxy classes and their CE records vary by map/version. Bonfire and Wreck_UH1Y already have vanilla records in current bundled missions, so never overwrite them with example values without an explicit diff and user approval. "
             "Use DayZ CE Loot Spawn Edit / Spawn Volume Vis / Re-Trace Group Points for final point placement when those tools are available."
         ),
@@ -268,19 +276,21 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
             "restock 0 allows bulk replenishment toward nominal, while a positive restock is the interval for replenishing additional units. "
             "quantmin/quantmax are percentages from 0 to 100 for quantity-bearing items such as magazines, bottles or food, or both -1 when quantity is not applicable; never mix a normal percentage with -1. "
             "count_in_cargo, count_in_hoarder, count_in_map and count_in_player decide which locations count toward nominal; crafted marks crafted items and deloot marks dynamic-event loot. "
-            "Category, usage, tag and value records are separate CE limiters, and the selected file's ordering should be preserved."
+            "Category, usage, tag and value records are separate CE limiters, and the selected file's ordering should be preserved. "
+            "Advanced servers can split type records into several custom CE include files or deliberately replace vanilla categories/usages with a custom taxonomy, but every reference must remain exact across cfgeconomycore.xml, cfglimitsdefinition.xml and mapgroupproto.xml."
         ),
         "safety": (
             "Never guess classnames or mass-rewrite loot. Explain the impact of nominal/min/restock/lifetime before changing it. "
             "Do not confuse Vehicle/Static/Loot/Item/Infected/Animal event-name prefixes with category names. "
+            "Removing all tier values or changing every deloot flag alters map progression and dynamic-event rarity globally; do it only when the owner explicitly requests that economy design after a complete backup and diff. "
             "A custom hidden category/usage can keep a proxy-only class out of ordinary loot, but existing vanilla records such as Bonfire or Wreck_UH1Y must be diffed rather than blindly replaced."
         ),
     },
     "cfgspawnabletypes.xml": {
         "purpose": "Central Economy attachments, cargo, presets, nested item content, quantity and damage behaviour.",
-        "dependencies": ["types.xml determines whether and how the parent item enters the loot economy."],
-        "variants": "Nested cargo and attachment structures are supported in modern DayZ; preserve the current schema and use matching item class names.",
-        "safety": "Do not confuse attachment/cargo definitions with types.xml nominal world-loot settings.",
+        "dependencies": ["types.xml determines whether and how the parent item enters the loot economy.", "Every parent and nested cargo classname must exist in the selected active DayZ release."],
+        "variants": "Nested cargo and attachment structures are supported in modern DayZ; preserve the current schema and use matching item class names. An infected entry can retain its existing food/ammo/preset cargo while additional independent cargo blocks give it a chance to carry FlashGrenade or Grenade_ChemGas. Chance values are decimal probabilities from 0 to 1: an outer cargo/attachments chance gates evaluation of that block, and each nested item chance is conditional inside it. In current vanilla-style records, 1, 1.0, 1.00 or an omitted chance commonly means always, but preserve the selected file's established form.",
+        "safety": "Do not confuse attachment/cargo definitions with types.xml nominal world-loot settings. Append requested infected cargo without replacing existing cargo or attachments. A top-level <type name=\"FlashGrenade\"> or Grenade_ChemGas damage rule applies to every occurrence produced through this file, not only infected; damage min=\"1.0\" max=\"1.0\" is therefore a deliberate global ruined-item behaviour and must be disclosed. Separate sibling cargo/attachment blocks are evaluated independently and can both succeed. Do not teach that multiple item children in one block are always mutually exclusive: attachment-slot conflicts, cargo capacity and the selected schema/preset determine the real result.",
     },
     "cfgignorelist.xml": {
         "purpose": "Excludes listed classnames from Central Economy persistence/storage handling; it is not a keep-forever cleanup whitelist.",
@@ -293,12 +303,14 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
         "dependencies": ["The official custom CE include shape is <ce folder=\"foldername\"><file name=\"my_changes_to_types.xml\" type=\"types\" /></ce>; use the exact supported file type.", "Included partial files follow override/append rules rather than replacing the full vanilla mission file."],
         "variants": (
             "The official mission-file modding schema uses a ce element with a folder attribute and nested file elements with name/type attributes. "
+            "Several type=\"types\" include files can be used to organise weapons, ammunition, food, medical items and other deliberate groups, provided their records remain valid and non-conflicting. "
             "Root classes define which entity families CE manages; act=character and act=car must be used for the applicable roots, while omitted/none is treated as loot. "
             "world_segments affects segmented CE processing; backup_period is minutes, backup_count is the retained backup count, and backup_startup requests a backup after startup load. "
             "dyn_radius/dyn_smin/dyn_smax/dyn_dmin/dyn_dmax set dynamic infected defaults, while save_* and log_* switches control startup stores and CE diagnostics. Core settings remain map/mission-specific."
         ),
         "safety": (
-            "Do not use a partial include as a full-file replacement. Keep every file type and include path exact, then validate the resulting mission after restart. "
+            "Do not use a partial include as a full-file replacement and do not duplicate the same classname across active type sources unless the selected CE override behaviour is intentional and verified. "
+            "Keep every file type and include path exact, then validate the resulting mission after restart. "
             "Do not copy Chernarus world_segments or backup examples blindly to another terrain; compare its active cfgEconomyCore.xml and performance needs."
         ),
     },
@@ -336,8 +348,8 @@ DAYZ_AGENT_FILE_KNOWLEDGE: dict[str, dict[str, Any]] = {
     "cfglimitsdefinition.xml": {
         "purpose": "Central Economy category, tag and usage definitions used by types.xml and map-group loot rules.",
         "dependencies": ["types.xml and mapgroupproto.xml can only refer to category/usage/tag names that are defined for the mission."],
-        "variants": "This <lists> file defines the actual category, tag, usage and value names. cfglimitsdefinitionuser.xml does not define new limiter names; it creates shorter named combinations from definitions that already exist here.",
-        "safety": "Adding a new loot item does not automatically require a new category or usage. Add one only when the requested loot logic genuinely needs a new named definition.",
+        "variants": "This <lists> file defines the actual category, tag, usage and value names. cfglimitsdefinitionuser.xml does not define new limiter names; it creates shorter named combinations from definitions that already exist here. A deliberately custom taxonomy can define names such as Medical, Ammo or HeliLoot and use them consistently in types.xml and mapgroupproto.xml.",
+        "safety": "Adding a new loot item does not automatically require a new category or usage. Add one only when the requested loot logic genuinely needs a new named definition. Never remove all vanilla definitions or replace them with a one-category scheme automatically: that is a server-wide economy redesign, exact spellings must match everywhere, and the owner must explicitly approve it after a complete backup and selected-version diff.",
     },
     "cfglimitsdefinitionuser.xml": {
         "purpose": "Named user aliases that combine limiter flags already defined by cfglimitsdefinition.xml, such as TownVillage or Tier234.",

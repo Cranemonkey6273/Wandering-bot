@@ -1082,9 +1082,9 @@ class AirdropEventGroupTests(unittest.TestCase):
             scene = bot.SCENARIO_AIRDROP_SCENES[scene_key]
             self.assertEqual([], scene.get("props"))
 
-    def test_vehicle_spawn_positions_skip_exact_center_and_scene_exclusion(self):
+    def test_vehicle_spawn_position_spread_helper_is_explicit_only(self):
         positions = bot.console_ce_vehicle_spawn_positions(5000, 5000, radius=45)
-        self.assertGreaterEqual(len(positions), 8)
+        self.assertEqual(8, len(positions))
         self.assertNotIn((5000, 5000), [(x, z) for x, z, _angle in positions])
 
         protected = bot.console_ce_vehicle_spawn_positions(
@@ -1094,7 +1094,7 @@ class AirdropEventGroupTests(unittest.TestCase):
             exclusion_center=(5000, 5000),
             exclusion_radius=125,
         )
-        self.assertGreaterEqual(len(protected), 8)
+        self.assertEqual(8, len(protected))
         for pos_x, pos_z, _angle in protected:
             self.assertGreaterEqual(math.hypot(pos_x - 5000, pos_z - 5000), 125)
 
@@ -1253,14 +1253,122 @@ class VehicleAndZombieSpawnTests(unittest.TestCase):
         self.assertEqual(child.get("type"), "Hatchback_02")
 
         positions = spawns_root.findall("event/pos")
-        self.assertGreaterEqual(
+        self.assertEqual(
+            1,
             len(positions),
-            5,
-            "vehicle events need several nearby candidate positions so DayZ can recover from one blocked spot",
+            "fixed vehicle events must not invent backup/ring coordinates around the requested point",
         )
-        self.assertGreater(len({(pos.get("x"), pos.get("z")) for pos in positions}), 1)
+        self.assertEqual("5000", positions[0].get("x"))
+        self.assertEqual("5000", positions[0].get("z"))
         for pos in positions:
             self.assertNotIn("y", pos.attrib)
+
+    def test_fixed_vehicle_quantity_does_not_create_extra_positions(self):
+        event = _base_event(50, "vehicle_spawn", "Truck_01_Covered", x=1396, z=4004, count=10)
+        record, _events_root, spawns_root = self._build_event(event)
+
+        self.assertEqual(1, record["count"])
+        positions = spawns_root.findall("event/pos")
+        self.assertEqual(1, len(positions))
+        self.assertEqual("1396", positions[0].get("x"))
+        self.assertEqual("4004", positions[0].get("z"))
+        self.assertEqual("0", positions[0].get("a"))
+
+    def test_vehicle_radius_spread_mode_generates_candidate_positions(self):
+        event = _base_event(
+            50,
+            "vehicle_spawn",
+            "Truck_01_Covered",
+            x=1396,
+            z=4004,
+            count=10,
+            radius=45,
+            location_mode="radius_spread",
+        )
+        records, warnings = bot.console_ce_records_for_event(event)
+        record = records[0]
+
+        self.assertEqual(10, record["count"])
+        positions = record.get("spawn_positions")
+        self.assertEqual(10, len(positions))
+        self.assertNotIn((1396, 4004), [(position["x"], position["z"]) for position in positions])
+        self.assertTrue(any("10 generated radius" in warning for warning in warnings))
+
+    def test_vehicle_manual_mode_uses_one_supplied_position_per_vehicle(self):
+        manual_positions = [
+            {"name": f"Truck {index + 1}", "x": 1396 + (index * 12), "z": 4004 + (index * 7), "angle": index * 20}
+            for index in range(10)
+        ]
+        event = _base_event(
+            50,
+            "vehicle_spawn",
+            "Truck_01_Covered",
+            x=1396,
+            z=4004,
+            count=10,
+            location_mode="manual_positions",
+            location_pool=manual_positions,
+        )
+
+        records, warnings = bot.console_ce_records_for_event(event)
+
+        self.assertEqual(1, len(records))
+        self.assertEqual(10, records[0]["count"])
+        self.assertEqual(manual_positions, records[0]["spawn_positions"])
+        self.assertTrue(any("10 manual" in warning for warning in warnings))
+
+    def test_explicit_vehicle_candidate_positions_are_not_rewritten(self):
+        spawns_root = ET.Element("eventposdef")
+        event_name = "VehicleWanderingBot_50_vehicle_spawn"
+        for index, position in enumerate(
+            [
+                {"x": 1396, "z": 4004, "angle": 0},
+                {"x": 1410.5, "z": 4015.25, "angle": 90},
+                {"x": 1420, "z": 4025, "angle": 180},
+            ]
+        ):
+            bot.add_console_ce_event_spawn(
+                spawns_root,
+                event_name,
+                position["x"],
+                position["z"],
+                angle=position["angle"],
+                count=10,
+                radius=45,
+                clear_existing=index == 0,
+            )
+
+        positions = spawns_root.findall("event/pos")
+        self.assertEqual(3, len(positions))
+        self.assertEqual(
+            [("1396", "4004", "0"), ("1410.5", "4015.25", "90"), ("1420", "4025", "180")],
+            [(pos.get("x"), pos.get("z"), pos.get("a")) for pos in positions],
+        )
+
+    def test_fixed_vehicle_retry_does_not_duplicate_or_touch_unrelated_spawns(self):
+        spawns_root = ET.Element("eventposdef")
+        unrelated = ET.SubElement(spawns_root, "event", {"name": "VehicleSedan02"})
+        ET.SubElement(unrelated, "pos", {"x": "100", "z": "200", "a": "45"})
+        event_name = "VehicleWanderingBot_50_vehicle_spawn"
+
+        for _attempt in range(2):
+            bot.add_console_ce_event_spawn(
+                spawns_root,
+                event_name,
+                1396,
+                4004,
+                angle=0,
+                count=10,
+                radius=45,
+                clear_existing=True,
+            )
+
+        positions = spawns_root.findall(f"./event[@name='{event_name}']/pos")
+        self.assertEqual(1, len(positions))
+        self.assertEqual(("1396", "4004", "0"), (positions[0].get("x"), positions[0].get("z"), positions[0].get("a")))
+        unrelated_after = spawns_root.find("./event[@name='VehicleSedan02']/pos")
+        self.assertIsNotNone(unrelated_after)
+        self.assertEqual(("100", "200", "45"), (unrelated_after.get("x"), unrelated_after.get("z"), unrelated_after.get("a")))
 
     def test_vehicle_start_speed_normal_keeps_cautious_distances(self):
         event = _base_event(31, "vehicle_spawn", "Hatchback_02", start_speed="normal")

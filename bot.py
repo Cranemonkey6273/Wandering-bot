@@ -37420,6 +37420,39 @@ def scenario_event_pool_active_count(event, locations=None):
     return max(1, min(len(locations), 50, requested))
 
 
+def scenario_vehicle_spawn_positions(event):
+    """Return the exact stored position set for a multi-vehicle event."""
+    if not isinstance(event, dict) or str(event.get("event_type") or "").strip().lower() != "vehicle_spawn":
+        return []
+    mode = str(event.get("location_mode") or "fixed").strip().lower()
+    if mode not in {"radius_spread", "spread_radius", "manual_positions", "manual", "exact_positions"}:
+        return []
+    raw_locations = event.get("location_pool")
+    if not isinstance(raw_locations, list):
+        return []
+    locations = []
+    seen = set()
+    for raw in raw_locations[:80]:
+        if not isinstance(raw, dict):
+            continue
+        x = parse_dayz_map_number(raw.get("x"))
+        z = parse_dayz_map_number(raw.get("z"))
+        if x is None or z is None or x < 0 or z < 0 or x > 30000 or z > 30000:
+            continue
+        angle = parse_dayz_map_number(raw.get("angle", raw.get("a", 0))) or 0
+        key = (round(x, 3), round(z, 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        locations.append({
+            "name": str(raw.get("name") or f"{ce_decimal(x)}, {ce_decimal(z)}")[:80],
+            "x": x,
+            "z": z,
+            "angle": angle % 360,
+        })
+    return locations
+
+
 def is_economy_vehicle_reset_event(event):
     return (
         str(event.get("event_type") or "") == "vehicle_reset_all"
@@ -41167,13 +41200,14 @@ def console_ce_event_is_static_gas_zone(event_name):
     )
 
 
-def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, exclusion_center=None, exclusion_radius=0):
+def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, count=8, exclusion_center=None, exclusion_radius=0):
     base_x = parse_dayz_map_number(x)
     base_z = parse_dayz_map_number(z)
     base_angle = parse_dayz_map_number(angle) or 0
     if base_x is None or base_z is None:
         return [(x, z, base_angle)]
 
+    count = max(1, min(80, safe_int(count, 8)))
     spread = max(35, min(250, safe_int(radius, 45) or 45))
     exclude_x = None
     exclude_z = None
@@ -41184,25 +41218,20 @@ def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, exclusion_cente
     if exclude_x is not None and exclude_z is not None and exclusion_radius:
         spread = max(spread, min(300, exclusion_radius + 25))
 
-    candidate_angles = (0, 45, 90, 135, 180, 225, 270, 315, 22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5)
     positions = []
-    seen = set()
-    for ring in (spread, min(350, spread + 35), min(400, spread + 70)):
-        for offset_angle in candidate_angles:
-            radians = math.radians(offset_angle)
-            pos_x = round(base_x + (math.cos(radians) * ring), 3)
-            pos_z = round(base_z + (math.sin(radians) * ring), 3)
-            if exclude_x is not None and exclude_z is not None and exclusion_radius:
-                distance = math.hypot(pos_x - exclude_x, pos_z - exclude_z)
-                if distance < exclusion_radius:
-                    continue
-            key = (pos_x, pos_z)
-            if key in seen:
-                continue
-            seen.add(key)
-            positions.append((pos_x, pos_z, base_angle))
-        if len(positions) >= 8:
-            break
+    minimum_distance = 0.0
+    if exclude_x is not None and exclude_z is not None and exclusion_radius:
+        minimum_distance = float(exclusion_radius)
+    for index in range(count):
+        fraction = (index + 1) / count
+        distance = minimum_distance + ((spread - minimum_distance) * math.sqrt(fraction))
+        offset_angle = (base_angle + (index * 137.50776405)) % 360
+        radians = math.radians(offset_angle)
+        positions.append((
+            round(base_x + (math.cos(radians) * distance), 3),
+            round(base_z + (math.sin(radians) * distance), 3),
+            round(base_angle % 360, 3),
+        ))
     return positions
 
 
@@ -41326,20 +41355,12 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
             "r": str(max(1, radius or 45)),
         })
     if event_name.startswith("Vehicle") and CONSOLE_CE_EVENT_MARKER in event_name:
-        for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(
-            x,
-            z,
-            angle=angle,
-            radius=radius or 45,
-            exclusion_center=vehicle_exclusion_center,
-            exclusion_radius=vehicle_exclusion_radius,
-        ):
-            append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
-            ET.SubElement(event_node, "pos", {
-                "x": ce_decimal(pos_x),
-                "z": ce_decimal(pos_z),
-                "a": ce_decimal(pos_angle),
-            })
+        append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
+        ET.SubElement(event_node, "pos", {
+            "x": ce_decimal(x),
+            "z": ce_decimal(z),
+            "a": ce_decimal(angle),
+        })
         return event_node
     if event_name.startswith("Animal") and CONSOLE_CE_EVENT_MARKER in event_name:
         for pos_x, pos_z, pos_angle in console_ce_spread_positions(x, z, angle=angle, radius=radius or 45, count=count):
@@ -42233,6 +42254,7 @@ def console_ce_records_for_event(event, map_key=""):
     warnings = []
     location_pool = scenario_event_location_pool(event)
     pool_active_count = scenario_event_pool_active_count(event, location_pool)
+    vehicle_positions = scenario_vehicle_spawn_positions(event)
 
     if event_type in {"vehicle_reset_all", "vehicle_reset_point"}:
         warnings.append(
@@ -42247,7 +42269,29 @@ def console_ce_records_for_event(event, map_key=""):
     count = ce_event_nominal_count(event)
     lifetime = 3600
     if event_type == "vehicle_spawn":
-        count = 1
+        vehicle_location_mode = str(event.get("location_mode") or "fixed").strip().lower()
+        if vehicle_location_mode == "fixed" and count > 1:
+            warnings.append(
+                f"`{event.get('id')}` requested {count} vehicles at one exact coordinate; the fixed event was limited to one. "
+                "Choose radius spread or enter one manual coordinate per vehicle."
+            )
+            count = 1
+        elif vehicle_location_mode in {"manual_positions", "manual", "exact_positions"}:
+            if not vehicle_positions:
+                warnings.append(f"`{event.get('id')}` has manual vehicle placement selected but no valid coordinates, so it was skipped.")
+                return records, warnings
+            if len(vehicle_positions) != count:
+                warnings.append(
+                    f"`{event.get('id')}` requested {count} vehicles but stored {len(vehicle_positions)} manual coordinates; "
+                    f"the event count was aligned to {len(vehicle_positions)}."
+                )
+                count = len(vehicle_positions)
+        elif vehicle_location_mode in {"radius_spread", "spread_radius"} and vehicle_positions and len(vehicle_positions) != count:
+            warnings.append(
+                f"`{event.get('id')}` requested {count} vehicles but stored {len(vehicle_positions)} generated coordinates; "
+                f"the event count was aligned to {len(vehicle_positions)}."
+            )
+            count = len(vehicle_positions)
         lifetime = 3888000
     elif event_type in {"airdrop", "loot_crate"}:
         count = 1
@@ -42463,6 +42507,20 @@ def console_ce_records_for_event(event, map_key=""):
         )
 
     record_name = event_name_override or ce_event_name(event, family=family)
+    generated_spawn_positions = []
+    if event_type == "vehicle_spawn" and str(event.get("location_mode") or "").strip().lower() in {"radius_spread", "spread_radius"}:
+        generated_spawn_positions = vehicle_positions or [
+            {"x": pos_x, "z": pos_z, "angle": pos_angle}
+            for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(
+                event.get("x"),
+                event.get("z"),
+                angle=event.get("angle", 0),
+                radius=event.get("radius") or 45,
+                count=count,
+            )
+        ]
+    elif event_type == "vehicle_spawn" and str(event.get("location_mode") or "").strip().lower() in {"manual_positions", "manual", "exact_positions"}:
+        generated_spawn_positions = vehicle_positions
     record = {
         "name": record_name,
         "source_id": event.get("id"),
@@ -42477,7 +42535,7 @@ def console_ce_records_for_event(event, map_key=""):
         # A single CE definition with several candidate positions keeps each
         # child scene at one.  Nominal/min/max below controls how many of
         # those airdrop scenes DayZ CE maintains concurrently.
-        "spawn_positions": location_pool,
+        "spawn_positions": generated_spawn_positions or location_pool,
         "radius": event.get("radius"),
         "use_eventgroup": use_eventgroup,
         "limit_type": limit_type,
@@ -42623,6 +42681,13 @@ def console_ce_records_for_event(event, map_key=""):
     if event_type == "vehicle_spawn" and event.get("vehicle_condition") and event.get("vehicle_condition") != "no_parts":
         warnings.append(
             f"`{event.get('id')}` spawns the vehicle event, but exact fuel/parts condition is not guaranteed by events.xml/cfgeventspawns.xml alone."
+        )
+    if event_type == "vehicle_spawn" and generated_spawn_positions:
+        position_mode = str(event.get("location_mode") or "").strip().lower()
+        position_label = "generated radius" if position_mode in {"radius_spread", "spread_radius"} else "manual"
+        warnings.append(
+            f"`{event.get('id')}` uses {len(generated_spawn_positions)} {position_label} `cfgeventspawns.xml` positions "
+            f"for {count} vehicle(s)."
         )
 
     return records, warnings

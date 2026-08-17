@@ -576,6 +576,37 @@ class DayZFileIntelligenceTests(unittest.TestCase):
         )
         self.assertIn('<ce folder="foldername">', economy_core_knowledge)
         self.assertIn('<file name="my_changes_to_types.xml" type="types" />', economy_core_knowledge)
+        self.assertIn("non-conflicting", economy_core_knowledge)
+
+        spawnable = dayz_agent_file_knowledge("cfgspawnabletypes.xml")
+        spawnable_knowledge = " ".join(
+            [str(spawnable.get("safety") or ""), str(spawnable.get("variants") or ""), *map(str, spawnable.get("dependencies", []))]
+        )
+        self.assertIn("FlashGrenade", spawnable_knowledge)
+        self.assertIn("Grenade_ChemGas", spawnable_knowledge)
+        self.assertIn("retain its existing", spawnable_knowledge)
+        self.assertIn("every occurrence", spawnable_knowledge)
+        self.assertIn("outer cargo/attachments chance", spawnable_knowledge)
+        self.assertIn("not teach that multiple item children", spawnable_knowledge)
+
+        types_knowledge = dayz_agent_file_knowledge("types.xml")
+        types_safety = str(types_knowledge.get("safety") or "")
+        self.assertIn("Removing all tier values", types_safety)
+        self.assertIn("deloot", types_safety)
+
+        limits_knowledge = dayz_agent_file_knowledge("cfglimitsdefinition.xml")
+        limits_safety = str(limits_knowledge.get("safety") or "")
+        self.assertIn("Never remove all vanilla definitions", limits_safety)
+        self.assertIn("explicitly approve", limits_safety)
+
+        event_knowledge = dayz_agent_file_knowledge("events.xml")
+        event_text = " ".join(
+            [str(event_knowledge.get("safety") or ""), str(event_knowledge.get("variants") or ""), *map(str, event_knowledge.get("dependencies", []))]
+        )
+        self.assertIn("Land_Wreck_C130J", event_text)
+        self.assertIn("matching mapgroupproto.xml", event_text)
+        self.assertIn("ExplosionTest", event_text)
+        self.assertIn("severe server load", event_text)
 
     def test_general_daynight_and_central_economy_knowledge_is_available(self):
         general = dayz_agent_general_knowledge()

@@ -724,6 +724,108 @@ class DashboardServerControlTests(unittest.TestCase):
             [row["itemType"] for row in cargo["complexChildrenTypes"]],
         )
 
+    def test_player_loadout_full_json_is_validated_against_selected_reference(self):
+        payload = dashboard.build_player_loadout_json({
+            "name": "Reference QA",
+            "items": [
+                {"item": "M4A1", "quantity": 1, "quantity_percent": -1, "slot": "Left Shoulder"},
+                {"item": "BandageDressing", "quantity": 2, "quantity_percent": -1, "slot": ""},
+            ],
+        })
+
+        self.assertEqual([], dashboard.validate_player_loadout_json(payload, "./custom/reference_qa.json", "chernarus"))
+        missing_payload = dashboard.build_player_loadout_json({
+            "name": "Missing QA",
+            "items": [{"item": "Definitely_Not_A_DayZ_Class", "quantity": 1, "slot": ""}],
+        })
+        warnings = dashboard.validate_player_loadout_json(missing_payload, "./custom/missing_qa.json", "chernarus")
+        self.assertIn("Definitely_Not_A_DayZ_Class", warnings[0])
+
+    def test_vehicle_loadout_preserves_reference_attachment_slot_groups(self):
+        detail = dashboard.vehicle_reference_detail("chernarus", "Truck_01_Covered")
+        self.assertTrue(detail["available"])
+        self.assertGreater(len(detail["groups"]), 8)
+
+        generated = dashboard.build_vehicle_workshop_xml(
+            {
+                "vehicle_class": "Truck_01_Covered",
+                "vehicle_mode": "full_with_cargo",
+                "part_battery": True,
+                "part_sparkplug": True,
+                "part_radiator": True,
+                "part_wheels": True,
+                "part_doors": True,
+            },
+            [{"item": "WoodenPlank", "quantity": 2}],
+            map_key="chernarus",
+        )
+        root = ET.fromstring(f"<spawnabletypes>{generated}</spawnabletypes>")
+        attachment_groups = root.findall("./type/attachments")
+        self.assertEqual(len(detail["groups"]), len(attachment_groups))
+        self.assertTrue(all(len(group.findall("item")) == 1 for group in attachment_groups))
+        self.assertEqual(["WoodenPlank", "WoodenPlank"], [item.get("name") for item in root.findall("./type/cargo/item")])
+
+        without_wheels = dashboard.build_vehicle_workshop_xml(
+            {
+                "vehicle_class": "Truck_01_Covered",
+                "vehicle_mode": "full_no_cargo",
+                "part_battery": True,
+                "part_sparkplug": True,
+                "part_radiator": True,
+                "part_wheels": False,
+                "part_doors": True,
+            },
+            [],
+            map_key="chernarus",
+        )
+        self.assertNotIn('name="Truck_01_Wheel"', without_wheels)
+        self.assertNotIn("<cargo", without_wheels)
+
+    def test_vehicle_loadout_download_returns_valid_complete_spawnabletypes_xml(self):
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "recipe_name": "Builder Truck",
+            "vehicle_class": "Truck_01_Covered",
+            "vehicle_mode": "full_with_cargo",
+            "part_battery": True,
+            "part_sparkplug": True,
+            "part_radiator": True,
+            "part_wheels": True,
+            "part_doors": True,
+            "items": "WoodenPlank, 2, -1, pristine",
+        }
+        captured = {}
+
+        def fake_send_file(stream, **kwargs):
+            captured["text"] = stream.getvalue().decode("utf-8")
+            captured.update(kwargs)
+            return captured
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value={"guild-1": {"channels": {}}}),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=({"server_map": "chernarus"}, "guild-1:cherno", "")),
+            patch.object(dashboard, "send_file", side_effect=fake_send_file),
+        ):
+            result = dashboard.api_xml_workshop_vehicle_download()
+
+        root = ET.fromstring(result["text"])
+        self.assertEqual("spawnabletypes", root.tag)
+        self.assertEqual("Truck_01_Covered", root.find("type").get("name"))
+        self.assertEqual(2, len(root.findall("./type/cargo/item")))
+        self.assertEqual("Builder_Truck_cfgspawnabletypes.xml", result["download_name"])
+
+    def test_loadout_templates_expose_visual_reference_driven_controls(self):
+        template = dashboard.PAGE_TEMPLATE
+        self.assertIn('id="player-loadout-builder"', template)
+        self.assertIn("data-loadout-card-search", template)
+        self.assertIn("Unavailable for selected reference", template)
+        self.assertIn('id="vehicle-loadout-builder"', template)
+        self.assertIn("data-vehicle-card-search", template)
+        self.assertIn("data-vehicle-reference-catalog", template)
+        self.assertIn("Compatible cargo cards", template)
+
     def test_xml_workshop_legacy_state_only_falls_back_to_matching_map_profile(self):
         base_config = {
             "server_map": "chernarus",
@@ -976,6 +1078,142 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(1800, event["lifetime"])
         self.assertFalse(event["use_delivery_bridge"], "the delivery bridge would spawn every candidate")
         self.assertEqual((4481, 10355), (event["x"], event["z"]))
+
+    def test_fixed_vehicle_event_stores_one_exact_location(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "vehicle_spawn",
+            "spawn_preset": "m3s",
+            "x": "1396",
+            "z": "4004",
+            "count": "1",
+            "location_mode": "fixed",
+            "radius": "45",
+            "permanent": "true",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_runtime_scenario_uploader_error", return_value=""),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload", return_value=True),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event()
+
+        body = response["args"][0]
+        self.assertTrue(body["ok"])
+        event = profile["scenario_events"][0]
+        self.assertEqual("fixed", event["location_mode"])
+        self.assertEqual((1396, 4004), (event["x"], event["z"]))
+        self.assertEqual(1, event["count"])
+        self.assertEqual([], event["location_pool"])
+
+    def test_fixed_vehicle_rejects_multiple_vehicles_at_one_coordinate(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "vehicle_spawn",
+            "spawn_preset": "m3s",
+            "x": "1396",
+            "z": "4004",
+            "count": "10",
+            "location_mode": "fixed",
+            "radius": "45",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+        ):
+            response, status = dashboard.api_scenario_event()
+
+        self.assertEqual(400, status)
+        self.assertIn("one vehicle", response["args"][0]["error"].lower())
+        self.assertEqual([], profile["scenario_events"])
+
+    def test_vehicle_radius_spread_mode_is_preserved_for_generator(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "vehicle_spawn",
+            "spawn_preset": "m3s",
+            "x": "1396",
+            "z": "4004",
+            "count": "10",
+            "location_mode": "radius_spread",
+            "radius": "45",
+            "permanent": "true",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_runtime_scenario_uploader_error", return_value=""),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload", return_value=True),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event()
+
+        body = response["args"][0]
+        self.assertTrue(body["ok"])
+        event = profile["scenario_events"][0]
+        self.assertEqual("radius_spread", event["location_mode"])
+        self.assertEqual(45, event["radius"])
+        self.assertEqual((1396, 4004), (event["x"], event["z"]))
+        self.assertEqual(10, event["count"])
+        self.assertEqual(10, len(event["location_pool"]))
+        self.assertEqual(10, len({(row["x"], row["z"]) for row in event["location_pool"]}))
+
+    def test_vehicle_manual_positions_must_match_quantity(self):
+        configs = {"guild-1": {"channels": {}}}
+        profile = {"server_map": "chernarus", "scenario_events": []}
+        payload = {
+            "guild_id": "guild-1",
+            "server_profile_id": "cherno",
+            "confirmed_profile": True,
+            "event_type": "vehicle_spawn",
+            "spawn_preset": "m3s",
+            "count": "3",
+            "location_mode": "manual_positions",
+            "location_pool": "Truck A, 1396, 4004, 0\nTruck B, 1410, 4018, 90\nTruck C, 1430, 4040, 180",
+            "radius": "45",
+        }
+
+        with (
+            patch.object(dashboard, "require_admin", return_value=(payload, None)),
+            patch.object(dashboard, "load_store", return_value=configs),
+            patch.object(dashboard, "dashboard_target_config_for_profile", return_value=(profile, "guild-1:cherno", "")),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "dashboard_runtime_scenario_uploader_error", return_value=""),
+            patch.object(dashboard, "schedule_runtime_scenario_xml_upload", return_value=True),
+            patch.object(dashboard, "wants_json_response", return_value=True),
+        ):
+            response = dashboard.api_scenario_event()
+
+        self.assertTrue(response["args"][0]["ok"])
+        event = profile["scenario_events"][0]
+        self.assertEqual("manual_positions", event["location_mode"])
+        self.assertEqual(3, event["count"])
+        self.assertEqual([(1396, 4004), (1410, 4018), (1430, 4040)], [(row["x"], row["z"]) for row in event["location_pool"]])
 
     def test_random_airdrop_pool_rejects_more_active_drops_than_locations(self):
         configs = {"guild-1": {"channels": {}}}
@@ -5877,8 +6115,35 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("iPhone coming soon", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Activate, monitor and control your server from your phone", dashboard.PUBLIC_LANDING_TEMPLATE)
         self.assertIn("Let your community speak its own language", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Wandering Bot support Discord", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("iZurvive maps", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Bohemia monetisation registration", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Application submitted; approval is not yet claimed", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("not affiliated with or endorsed by Bohemia Interactive or iZurvive", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("/child-safety", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("/delete-account", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("/community-rules", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertIn("Apple App Store", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertNotIn("Service online", dashboard.PUBLIC_LANDING_TEMPLATE)
+        self.assertTrue(dashboard.PUBLIC_IZURVIVE_URL)
+        self.assertTrue(dashboard.PUBLIC_BOHEMIA_MONETIZATION_URL)
         self.assertIn("Stripe promotion codes and discounts", dashboard.PAGE_TEMPLATE)
+        self.assertIn('class="dashboard-footer"', dashboard.PAGE_TEMPLATE)
+        self.assertIn("Apple App Store coming soon", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Support Discord", dashboard.PAGE_TEMPLATE)
         self.assertTrue(dashboard.PUBLIC_SUPPORT_EMAIL)
+
+    def test_footer_legal_and_safety_pages_are_public_routes(self):
+        self.assertTrue(callable(dashboard.public_child_safety))
+        self.assertTrue(callable(dashboard.public_delete_account))
+        self.assertTrue(callable(dashboard.public_community_rules))
+        with (
+            patch.object(dashboard, "public_page_url", side_effect=lambda path: f"https://dayzwanderingbot.com{path}"),
+            patch.object(dashboard, "Response", side_effect=lambda body, **_kwargs: body),
+        ):
+            sitemap = dashboard.sitemap_xml()
+        for path in ("/child-safety", "/delete-account", "/community-rules"):
+            self.assertIn(f"https://dayzwanderingbot.com{path}", sitemap)
 
     def test_pro_plan_includes_automatic_translation_and_anonymised_examples(self):
         plans = {plan["id"]: plan for plan in dashboard.default_billing_plan_map().values()}

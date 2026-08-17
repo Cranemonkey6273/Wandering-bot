@@ -547,6 +547,11 @@ ANDROID_RELEASE_SHA256_FINGERPRINTS = (
     or ""
 ).strip()
 PUBLIC_SUPPORT_EMAIL = os.getenv("WANDERING_SUPPORT_EMAIL", "dayzwanderingbot@gmail.com").strip()
+PUBLIC_IZURVIVE_URL = os.getenv("WANDERING_IZURVIVE_URL", "https://www.izurvive.com/").strip()
+PUBLIC_BOHEMIA_MONETIZATION_URL = os.getenv(
+    "WANDERING_BOHEMIA_MONETIZATION_URL",
+    "https://www.bohemia.net/monetization/approved",
+).strip()
 NATIVE_APP_SOURCE_VALUES = {"native", "native_android", "native_ios", "android_app", "ios_app"}
 DASHBOARD_TIMEZONE = ZoneInfo(os.getenv("WANDERING_DASHBOARD_TIMEZONE", "Europe/Dublin"))
 FORCE_HTTPS = os.getenv("WANDERING_FORCE_HTTPS", "true").lower() not in {"0", "false", "off", "no"}
@@ -2609,9 +2614,71 @@ PUBLIC_LANDING_TEMPLATE = """
     .review-card strong { display: block; color: var(--text); margin-bottom: .25rem; overflow-wrap: anywhere; }
     .review-card blockquote { margin: .55rem 0 0; color: #d7e4dc; line-height: 1.5; overflow-wrap: anywhere; }
     .rating-text { color: var(--amber); font-weight: 950; }
-    .site-footer { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0 0; padding: 1rem 0; color: var(--muted); }
-    .site-footer a { color: var(--muted); font-weight: 850; text-decoration: none; }
-    .site-footer a:hover { color: var(--text); }
+    .site-footer {
+      position: relative;
+      margin: 1.25rem 0 0;
+      overflow: hidden;
+      border: 1px solid rgba(126, 204, 184, .18);
+      border-radius: .6rem;
+      background: #07100d;
+      color: var(--muted);
+      box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, .34);
+    }
+    .site-footer::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 2px;
+      background: linear-gradient(90deg, var(--amber), var(--teal), transparent 86%);
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: minmax(15rem, 1.35fr) repeat(3, minmax(0, .8fr));
+      gap: 1.5rem;
+      padding: 1.5rem;
+    }
+    .footer-brand { min-width: 0; }
+    .footer-brand-lockup { display: flex; align-items: center; gap: .7rem; margin-bottom: .8rem; }
+    .footer-brand-lockup img { width: 3.35rem; height: 3.35rem; border: 1px solid var(--line-warm); border-radius: .55rem; object-fit: cover; }
+    .footer-brand-lockup strong { display: block; color: var(--text); font-size: 1.16rem; }
+    .footer-status { display: inline-flex; color: var(--teal); font-size: .76rem; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; }
+    .footer-brand > p { max-width: 23rem; margin: 0; }
+    .footer-apps { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+    .footer-app-link {
+      display: inline-grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: .55rem;
+      min-height: 2.8rem;
+      border: 1px solid rgba(126, 204, 184, .25);
+      border-radius: .45rem;
+      padding: .5rem .7rem;
+      background: rgba(0, 0, 0, .28);
+      color: var(--text);
+      text-decoration: none;
+    }
+    .footer-app-link:hover { border-color: var(--amber); background: rgba(236, 161, 64, .08); }
+    .footer-app-link.is-muted { opacity: .66; cursor: default; }
+    .footer-app-icon { display: grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: .38rem; background: rgba(53, 212, 194, .14); color: var(--teal); font-size: .75rem; font-weight: 950; }
+    .footer-app-link small, .footer-app-link strong { display: block; line-height: 1.15; }
+    .footer-app-link small { color: var(--muted); font-size: .64rem; text-transform: uppercase; }
+    .footer-app-link strong { color: inherit; font-size: .82rem; }
+    .footer-column { min-width: 0; }
+    .footer-column h2 { margin: 0 0 .75rem; color: var(--amber); font-size: .78rem; letter-spacing: .08em; }
+    .footer-links { display: grid; gap: .58rem; }
+    .site-footer a { color: var(--muted); font-weight: 800; text-decoration: none; }
+    .site-footer a:hover, .site-footer a:focus-visible { color: var(--text); }
+    .footer-trust-list { display: grid; gap: .65rem; }
+    .footer-trust-card { display: grid; gap: .22rem; border-bottom: 1px solid rgba(126, 204, 184, .12); padding: 0 0 .72rem; }
+    .footer-trust-card:last-child { border-bottom: 0; padding-bottom: 0; }
+    .footer-trust-card strong { color: var(--text); font-size: .88rem; }
+    .footer-trust-card span { font-size: .76rem; }
+    .footer-chip { display: inline-flex; width: max-content; border: 1px solid rgba(236, 161, 64, .28); border-radius: 999px; padding: .12rem .42rem; color: var(--amber); font-size: .68rem; font-weight: 950; text-transform: uppercase; }
+    .footer-chip.external { border-color: rgba(53, 212, 194, .3); color: var(--teal); }
+    .footer-disclaimer { margin: 0 1.5rem; border-top: 1px solid rgba(126, 204, 184, .13); padding: .85rem 0; font-size: .76rem; line-height: 1.5; }
+    .footer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid rgba(126, 204, 184, .13); padding: .9rem 1.5rem; background: rgba(0, 0, 0, .2); }
+    .footer-bottom-copy { color: #d7e4dc; font-size: .78rem; font-weight: 800; }
+    .footer-legal { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .8rem; font-size: .76rem; }
     .muted { color: var(--muted); }
     @media (max-width: 900px) {
       body { background: linear-gradient(180deg, rgba(7, 18, 15, .96), rgba(5, 8, 6, 1)); }
@@ -2620,6 +2687,7 @@ PUBLIC_LANDING_TEMPLATE = """
       .topbar { position: relative; align-items: flex-start; }
       .top-actions { flex-wrap: wrap; justify-content: flex-end; }
       .feed-preview-head, .pricing-head, .review-head { align-items: start; flex-direction: column; }
+      .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 560px) {
       main { width: min(100vw - 1rem, 42rem); padding-top: .75rem; }
@@ -2629,6 +2697,11 @@ PUBLIC_LANDING_TEMPLATE = """
       .button { width: 100%; }
       .top-actions { width: 100%; }
       .pricing-features { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr; padding: 1.1rem; }
+      .footer-apps, .footer-app-link { width: 100%; }
+      .footer-disclaimer { margin: 0 1.1rem; }
+      .footer-bottom { align-items: flex-start; flex-direction: column; padding: .9rem 1.1rem; }
+      .footer-legal { justify-content: flex-start; }
     }
   </style>
 </head>
@@ -2924,11 +2997,62 @@ PUBLIC_LANDING_TEMPLATE = """
       </div>
     </section>
     {% endif %}
-    <footer class="site-footer" aria-label="Wandering Bot legal and support links">
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
-      <a href="/support">Support</a>
-      <a href="/manifest.webmanifest">App manifest</a>
+    <footer class="site-footer" aria-label="Wandering Bot footer">
+      <div class="footer-grid">
+        <section class="footer-brand" aria-label="Wandering Bot">
+          <div class="footer-brand-lockup">
+            <img src="/brand-image" alt="Wandering Bot logo">
+            <div><strong>Wandering Bot</strong><span class="footer-status">Independent DayZ tooling</span></div>
+          </div>
+          <p>DayZ server control, Discord community tools and guided file intelligence for console and PC server owners.</p>
+          <div class="footer-apps" aria-label="Wandering Bot mobile apps">
+            {% if android_play_store_url %}<a class="footer-app-link" href="{{ android_play_store_url }}" target="_blank" rel="external noopener noreferrer"><span class="footer-app-icon">▶</span><span><small>Available now</small><strong>Google Play</strong></span></a>{% endif %}
+            <span class="footer-app-link is-muted"><span class="footer-app-icon">iOS</span><span><small>Coming soon</small><strong>Apple App Store</strong></span></span>
+          </div>
+        </section>
+        <nav class="footer-column" aria-label="Product links">
+          <h2>Product</h2>
+          <div class="footer-links">
+            <a href="/">Wandering Bot</a>
+            <a href="/#pricing">Plans &amp; pricing</a>
+            <a href="/agent">DayZ AI sandbox</a>
+            <a href="/login">Owner dashboard</a>
+            <a href="/setup-guide">Add the bot</a>
+          </div>
+        </nav>
+        <nav class="footer-column" aria-label="DayZ guides">
+          <h2>DayZ guides</h2>
+          <div class="footer-links">
+            <a href="/crafting">Crafting guide</a>
+            <a href="/crafting?tab=illnesses">Illnesses &amp; treatment</a>
+            <a href="/crafting?tab=files">DayZ files explained</a>
+            <a href="/crafting?tab=tiers">Loot tier maps</a>
+            <a href="/setup-guide">Server setup guide</a>
+          </div>
+        </nav>
+        <section class="footer-column" aria-label="Support and external resources">
+          <h2>Support &amp; status</h2>
+          <div class="footer-trust-list">
+            {% if support_url %}<a class="footer-trust-card" href="{{ support_url }}" target="_blank" rel="external noopener noreferrer"><strong>Wandering Bot support Discord</strong><span>Setup help, support tickets and community guidance</span><span class="footer-chip external">Official support</span></a>{% endif %}
+            {% if izurvive_url %}<a class="footer-trust-card" href="{{ izurvive_url }}" target="_blank" rel="external noopener noreferrer"><strong>iZurvive maps</strong><span>Open the independent DayZ map resource</span><span class="footer-chip external">External resource</span></a>{% endif %}
+            {% if bohemia_monetization_url %}<a class="footer-trust-card" href="{{ bohemia_monetization_url }}" target="_blank" rel="external noopener noreferrer"><strong>Bohemia monetisation registration</strong><span>Application submitted; approval is not yet claimed</span><span class="footer-chip">Application submitted</span></a>{% endif %}
+          </div>
+        </section>
+      </div>
+      <p class="footer-disclaimer">Wandering Bot is an independent service and is not affiliated with or endorsed by Bohemia Interactive or iZurvive. DayZ names and trademarks belong to their respective owners.</p>
+      <div class="footer-bottom">
+        <span class="footer-bottom-copy">&copy; {{ current_year }} Wandering Bot · Built for DayZ server owners</span>
+        <nav class="footer-legal" aria-label="Legal links">
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+          <a href="/child-safety">Child Safety</a>
+          <a href="/delete-account">Delete Account</a>
+          <a href="/community-rules">Community Rules</a>
+          <a href="/support">Support</a>
+          {% if support_email %}<a href="mailto:{{ support_email }}">Email</a>{% endif %}
+          <a href="/manifest.webmanifest">App manifest</a>
+        </nav>
+      </div>
     </footer>
   </main>
 </body>
@@ -3130,6 +3254,9 @@ PUBLIC_INFO_TEMPLATE = """
     <a href="/">Home</a>
     <a href="/privacy">Privacy</a>
     <a href="/terms">Terms</a>
+    <a href="/child-safety">Child Safety</a>
+    <a href="/delete-account">Delete Account</a>
+    <a href="/community-rules">Community Rules</a>
     <a href="/support">Support</a>
   </footer>
 </body>
@@ -5948,6 +6075,29 @@ PAGE_TEMPLATE = """
     body[data-theme="command"] .command-status-bar strong { color: var(--orange); }
     body[data-theme="command"] .command-status-bar .ok { color: #8ded63; }
     body[data-theme="command"] .command-status-meta { display: none; }
+    .dashboard-footer {
+      max-width: 1440px;
+      margin: 0 auto 2.8rem;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid rgba(255,255,255,.04);
+      padding: 1.15rem clamp(1rem, 4vw, 2rem);
+      background: #071014;
+      color: var(--muted);
+    }
+    body[data-theme="command"] .dashboard-footer { margin-left: var(--sidebar-w); }
+    .dashboard-footer-grid { display: grid; grid-template-columns: minmax(15rem, 1.4fr) repeat(2, minmax(11rem, .7fr)); gap: 1.25rem; }
+    .dashboard-footer-brand { display: grid; grid-template-columns: 2.8rem minmax(0, 1fr); gap: .7rem; align-items: start; }
+    .dashboard-footer-brand img { width: 2.8rem; height: 2.8rem; border: 1px solid var(--orange-line); border-radius: .45rem; object-fit: cover; }
+    .dashboard-footer-brand strong, .dashboard-footer h2 { color: var(--text); }
+    .dashboard-footer-brand p { margin: .25rem 0 0; max-width: 34rem; font-size: .82rem; line-height: 1.5; }
+    .dashboard-footer h2 { margin: 0 0 .55rem; font-size: .78rem; text-transform: uppercase; }
+    .dashboard-footer-links { display: grid; gap: .42rem; }
+    .dashboard-footer a { color: var(--muted); font-size: .8rem; font-weight: 800; }
+    .dashboard-footer a:hover, .dashboard-footer a:focus-visible { color: var(--orange); }
+    .dashboard-footer-apps { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .65rem; }
+    .dashboard-footer-apps a, .dashboard-footer-apps span { border: 1px solid rgba(103,245,231,.2); border-radius: .4rem; padding: .42rem .58rem; background: #0b171b; }
+    .dashboard-footer-apps span { color: var(--dim); font-size: .78rem; font-weight: 800; }
+    .dashboard-footer-bottom { display: flex; justify-content: space-between; gap: 1rem; margin-top: 1rem; border-top: 1px solid rgba(103,245,231,.12); padding-top: .75rem; font-size: .74rem; }
     body[data-theme="command"][data-section="visual-loadout"] .visual-loadout-layout {
       grid-template-columns: minmax(18rem, .7fr) minmax(34rem, 1.5fr) minmax(22rem, .85fr);
     }
@@ -6206,6 +6356,7 @@ PAGE_TEMPLATE = """
       body[data-theme="command"] { --sidebar-w: 0rem; }
       body[data-theme="command"] header { left: 0; }
       body[data-theme="command"] main { margin-left: 0; padding-top: 4.8rem; }
+      body[data-theme="command"] .dashboard-footer { margin-left: 0; }
       body[data-theme="command"] .command-status-bar {
         flex-wrap: wrap;
         justify-content: flex-start;
@@ -6256,11 +6407,15 @@ PAGE_TEMPLATE = """
       .command-paperdoll img { max-height: 13rem; }
       .command-table { min-width: 46rem; }
       .command-card { overflow-x: auto; }
-      .command-status-bar { position: static; margin-inline: -.55rem; }
+      body[data-theme="command"] .command-status-bar { position: static; margin-inline: 0; }
       body[data-theme="command"] .command-page-head { padding: .85rem; }
+      .dashboard-footer { margin-bottom: 0; padding: 1rem .7rem; }
+      .dashboard-footer-grid { grid-template-columns: 1fr; }
+      .dashboard-footer-bottom { flex-direction: column; }
       body[data-theme="command"] .command-page-meta span { width: 100%; }
       body[data-theme="command"] .section-panel > :not(.section-head) { margin: .65rem; }
       body[data-theme="command"] .panel-grid { grid-template-columns: 1fr; }
+      .vehicle-part-groups { grid-template-columns: 1fr; }
       body[data-theme="command"][data-section="visual-loadout"] .loadout-slot-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll { min-height: 18rem; }
       body[data-theme="command"][data-section="visual-loadout"] .command-loadout-stage .command-paperdoll img:not(.command-character-portrait) { max-height: 17rem; }
@@ -6383,8 +6538,8 @@ PAGE_TEMPLATE = """
     .stack-watch-preset-grid .check span { display: grid; gap: .1rem; }
     .stack-watch-preset-grid .check small { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
     .mini-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem; }
-    .mini-card { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
-    .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; }
+    .mini-card { min-width: 0; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; }
+    .mini-card strong { display: block; color: var(--gold); font-size: 1.25rem; overflow-wrap: anywhere; }
     .scenario-location-list { display: grid; grid-template-columns: 1fr; gap: .6rem; }
     .scenario-location-card { min-width: 0; border: 1px solid var(--line); border-radius: .55rem; padding: .72rem; background: color-mix(in srgb, var(--panel-3) 86%, #0e3037); }
     .scenario-location-card-head { display: flex; align-items: center; justify-content: space-between; gap: .65rem; margin-bottom: .6rem; }
@@ -6644,13 +6799,19 @@ PAGE_TEMPLATE = """
     .visual-picker { display: grid; gap: .45rem; }
     .visual-picker input { width: 100%; }
     .visual-picker-grid { max-height: 22rem; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .5rem; padding: .15rem; }
-    .visual-picker-card { display: grid; grid-template-rows: 3.5rem auto auto; gap: .25rem; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; min-width: 0; }
+    .visual-picker-card { display: grid; grid-auto-rows: min-content; gap: .25rem; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: .5rem; background: var(--panel-2); color: var(--muted); padding: .45rem; min-width: 0; overflow: hidden; }
     a.visual-picker-card { text-decoration: none; }
     .visual-picker-card:hover, .visual-picker-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
     .visual-picker-card::after { content: "Select"; display: inline-flex; justify-content: center; align-items: center; min-height: 2rem; border: 1px solid var(--line); border-radius: .35rem; color: var(--text); font-weight: 800; background: #070b08; }
     .visual-picker-card img { width: 100%; height: 3.5rem; object-fit: contain; background: #050806; border-radius: .4rem; }
     .visual-picker-card strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .visual-picker-card small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .visual-picker-card code { display: block; max-width: 100%; overflow: hidden; color: var(--gold); font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+    .vehicle-picker-grid { max-height: 31rem; overflow-y: auto; padding: .15rem; }
+    .vehicle-reference-panel { display: grid; gap: .55rem; border: 1px solid var(--line); border-radius: .5rem; padding: .7rem; background: rgba(0,0,0,.2); }
+    .vehicle-part-groups { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .45rem; }
+    .vehicle-part-groups .mini-card { padding: .55rem; }
+    .vehicle-part-groups .mini-card strong { font-size: .78rem; overflow-wrap: anywhere; }
     .shop-picker-list { max-height: 18rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .5rem; background: #070b08; display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .35rem; }
     .shop-picker-card { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: .45rem; align-items: center; text-align: left; background: #0a0f0b; border: 1px solid var(--line); border-radius: .45rem; padding: .35rem; color: var(--muted); min-width: 0; }
     .shop-picker-card img, .item-thumb { width: 2rem; height: 2rem; border-radius: .4rem; object-fit: cover; border: 1px solid var(--line); background: var(--panel-2); }
@@ -6963,6 +7124,239 @@ PAGE_TEMPLATE = """
       .zone-map { min-height: 0; aspect-ratio: 1 / 1; }
       .pill { font-size: .76rem; }
     }
+
+    /* Command dashboard: grouped, keyboard-accessible top navigation. */
+    .command-top-nav {
+      display: flex;
+      flex: 1 1 auto;
+      align-items: center;
+      gap: .35rem;
+      min-width: 0;
+    }
+    .command-top-nav > a,
+    .command-top-nav summary {
+      display: inline-flex;
+      min-height: 2.55rem;
+      align-items: center;
+      gap: .35rem;
+      padding: .55rem .75rem;
+      border: 1px solid transparent;
+      border-radius: .55rem;
+      color: var(--muted);
+      font-weight: 850;
+      line-height: 1.1;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: border-color .16s ease, background .16s ease, color .16s ease;
+    }
+    .command-top-nav > a:hover,
+    .command-top-nav > a:focus-visible,
+    .command-top-nav details:hover > summary,
+    .command-top-nav details:focus-within > summary,
+    .command-top-nav details[open] > summary {
+      border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+      color: var(--text);
+      outline: none;
+    }
+    .command-top-nav details { position: relative; }
+    .command-top-nav summary { cursor: pointer; list-style: none; }
+    .command-top-nav summary::-webkit-details-marker { display: none; }
+    .command-top-nav summary::after {
+      content: "\u2304";
+      margin-left: .15rem;
+      color: var(--accent);
+      font-size: .88rem;
+      transition: transform .16s ease;
+    }
+    .command-top-nav details[open] > summary::after { transform: rotate(180deg); }
+    .command-top-nav .nav-menu {
+      position: absolute;
+      top: calc(100% + .5rem);
+      left: 0;
+      z-index: 140;
+      display: grid;
+      min-width: 16rem;
+      gap: .2rem;
+      padding: .55rem;
+      border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+      border-radius: .7rem;
+      background: color-mix(in srgb, var(--panel) 96%, #000);
+      box-shadow: 0 22px 55px rgba(0,0,0,.62);
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(-.35rem);
+      transition: opacity .16s ease, transform .16s ease, visibility .16s ease;
+    }
+    .command-top-nav details:last-of-type .nav-menu { right: 0; left: auto; }
+    .command-top-nav details:hover .nav-menu,
+    .command-top-nav details:focus-within .nav-menu,
+    .command-top-nav details[open] .nav-menu {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+    .command-top-nav .nav-menu a {
+      display: grid;
+      gap: .12rem;
+      padding: .65rem .7rem;
+      border: 1px solid transparent;
+      border-radius: .5rem;
+      color: var(--text);
+      font-weight: 800;
+      text-decoration: none;
+    }
+    .command-top-nav .nav-menu a:hover,
+    .command-top-nav .nav-menu a:focus-visible {
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+      background: color-mix(in srgb, var(--accent) 11%, var(--panel-2));
+      color: var(--accent);
+      outline: none;
+    }
+
+    /* The grouped navigation replaces the old permanently open command sidebar. */
+    body[data-theme="command"] { --sidebar-w: 0rem; }
+    body[data-theme="command"] header { left: 0; }
+    body[data-theme="command"] header .brand { display: flex; }
+    body[data-theme="command"] header > nav.command-top-nav { display: flex; }
+    body[data-theme="command"] .command-sidebar { display: none; }
+    body[data-theme="command"] main { margin-left: 0; }
+
+    /* Large, useful desktop previews without changing the selected classname. */
+    @media (hover: hover) and (pointer: fine) {
+      .visual-picker-card { position: relative; overflow: visible; }
+      .visual-picker-card img,
+      .loadout-item-card img {
+        position: relative;
+        z-index: 1;
+        transform-origin: center;
+        transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+      }
+      .visual-picker-card:hover img,
+      .visual-picker-card:focus-visible img,
+      .visual-picker-card:focus-within img,
+      .loadout-item-card:hover img,
+      .loadout-item-card:focus-visible img,
+      .loadout-item-card:focus-within img {
+        z-index: 25;
+        transform: scale(1.08);
+        background: #050909;
+        box-shadow: 0 20px 48px rgba(0,0,0,.76), 0 0 0 2px var(--accent);
+      }
+    }
+
+    .dashboard-image-preview {
+      position: fixed;
+      z-index: 260;
+      width: min(22rem, calc(100vw - 2rem));
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(6px) scale(.98);
+      transition: opacity .14s ease, transform .14s ease;
+      background: rgba(3, 10, 10, .98);
+      border: 1px solid var(--accent);
+      border-radius: 14px;
+      padding: .75rem;
+      box-shadow: 0 22px 60px rgba(0, 0, 0, .78);
+    }
+    .dashboard-image-preview.is-visible {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    .dashboard-image-preview img {
+      display: block;
+      width: 100%;
+      height: 15rem;
+      object-fit: contain;
+      background: #020606;
+      border-radius: 10px;
+    }
+    .dashboard-image-preview strong,
+    .dashboard-image-preview span { display: block; }
+    .dashboard-image-preview strong {
+      margin-top: .65rem;
+      color: var(--text);
+    }
+    .dashboard-image-preview span {
+      margin-top: .2rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    /* Editing a map zone stays usable instead of being constrained by the map pane. */
+    .zone-builder-form.dashboard-edit-modal {
+      z-index: 160;
+      width: min(48rem, calc(100vw - 2rem));
+      max-width: calc(100vw - 2rem);
+      max-height: min(46rem, calc(100vh - 3rem));
+      overflow: auto;
+      overscroll-behavior: contain;
+    }
+    .zone-builder-form.dashboard-edit-modal .field-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .zone-builder-form.dashboard-edit-modal .full { min-width: 0; }
+    .zone-builder-form.dashboard-edit-modal .form-actions,
+    .zone-builder-form.dashboard-edit-modal .button-row,
+    .zone-builder-form.dashboard-edit-modal .actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 3;
+      padding: .75rem 0 .15rem;
+      background: linear-gradient(180deg, transparent, var(--panel) 30%);
+    }
+
+    @media (max-width: 900px) {
+      body[data-theme="command"] header {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: .55rem;
+      }
+      body[data-theme="command"] header .theme-picker {
+        grid-column: 1 / -1;
+        justify-self: stretch;
+      }
+      .command-top-nav {
+        width: 100%;
+        overflow-x: auto;
+        padding: .1rem 0 .25rem;
+        scrollbar-width: thin;
+      }
+      .command-top-nav details { position: static; }
+      .command-top-nav .nav-menu {
+        position: fixed;
+        top: 7.1rem;
+        right: .75rem;
+        left: .75rem;
+        max-height: calc(100vh - 8rem);
+        overflow: auto;
+      }
+    }
+    @media (max-width: 760px) {
+      .dashboard-image-preview { display: none; }
+      .zone-map-viewport { max-height: none; overflow: visible; }
+      .zone-map-viewport .zone-map { width: 100%; min-width: 0; }
+      .zone-builder-form.dashboard-edit-modal {
+        position: fixed;
+        inset: 4.5rem .75rem .75rem;
+        width: auto;
+        max-width: none;
+        max-height: none;
+        transform: none;
+        overflow: auto;
+      }
+      .zone-builder-form.dashboard-edit-modal .field-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      body[data-theme="command"] header { grid-template-columns: 1fr; }
+      body[data-theme="command"] header .brand { justify-content: center; }
+      .command-top-nav { grid-column: 1; }
+      .command-top-nav > a,
+      .command-top-nav summary { min-height: 2.35rem; padding: .5rem .65rem; }
+      .command-top-nav .nav-menu { top: 9.8rem; }
+    }
   </style>
 </head>
 <body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}" data-app-embed="{{ 'true' if request.args.get('app_embed') == '1' else 'false' }}">
@@ -6980,17 +7374,80 @@ PAGE_TEMPLATE = """
       <img src="/brand-image" alt="Wandering Bot logo">
       <div><strong>Wandering Bot</strong><span>{{ view_title }}</span></div>
     </div>
-    <nav>
+    <nav class="command-top-nav" aria-label="Dashboard navigation">
       {% if auth.kind == "agent_account" %}
-      <a href="/agent?section=ai-agent">AI Agent</a>
+      <a class="nav-primary" href="/agent?section=ai-agent">AI Sandbox</a>
       <a href="{{ logout_path }}">Logout</a>
+      {% elif auth.kind == "owner" %}
+      <a class="nav-primary" href="/owner?section=overview">Home</a>
+      <details>
+        <summary>Servers</summary>
+        <div class="nav-menu">
+          <a href="/owner?section=servers">Server manager</a>
+          <a href="/owner?section=server-access">Server access</a>
+          <a href="/owner?section=vanilla-files">Vanilla reference files</a>
+          <a href="/owner?section=player-audit">Player audit</a>
+        </div>
+      </details>
+      <details>
+        <summary>Business</summary>
+        <div class="nav-menu">
+          <a href="/owner?section=billing">Billing &amp; plans</a>
+          <a href="/owner?section=reviews">Reviews</a>
+          <a href="/owner?section=help">Help &amp; guides</a>
+        </div>
+      </details>
+      <a href="/owner?section=ai-agent">AI Sandbox</a>
+      <details class="nav-account">
+        <summary>Account</summary>
+        <div class="nav-menu nav-menu-right">
+          <a href="{{ login_path }}">Switch login</a>
+          <a href="{{ logout_path }}">Logout</a>
+        </div>
+      </details>
       {% else %}
-      <a href="/">Overview</a>
-      <a href="/admin">Admin</a>
-      {% if auth.kind == "owner" %}<a href="/owner">Owner</a>{% endif %}
-      <a href="/api/summary">API</a>
-      <a href="{{ login_path }}">Switch Login</a>
-      <a href="{{ logout_path }}">Logout</a>
+      <a class="nav-primary" href="/admin?section=overview{{ server_qs }}">Home</a>
+      <details>
+        <summary>Server &amp; setup</summary>
+        <div class="nav-menu">
+          <a href="/admin?section=overview{{ server_qs }}">Start here</a>
+          <a href="/admin?section=access&amp;setup_tool=servers{{ server_qs }}">Admin center</a>
+          <a href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Feeds</a>
+        </div>
+      </details>
+      <details>
+        <summary>Live ops</summary>
+        <div class="nav-menu">
+          <a href="/admin?section=pve&amp;pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops &amp; events</a>
+          <a href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones &amp; radar</a>
+          <a href="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}">Player audit</a>
+          <a href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>
+        </div>
+      </details>
+      <details>
+        <summary>Files &amp; loadouts</summary>
+        <div class="nav-menu nav-menu-wide">
+          <a href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">XML &amp; loadouts</a>
+          <a href="/admin?section=presets{{ server_qs }}">Preset files</a>
+          <a href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop &amp; economy</a>
+        </div>
+      </details>
+      <details>
+        <summary>More</summary>
+        <div class="nav-menu nav-menu-right">
+          <a href="/admin?section=reviews{{ server_qs }}">Reviews</a>
+          <a href="/admin?section=help{{ server_qs }}">Help &amp; guides</a>
+          <a href="/admin?section=ai-agent{{ server_qs }}">AI Sandbox</a>
+          <a href="/api/summary">API status</a>
+        </div>
+      </details>
+      <details class="nav-account">
+        <summary>Account</summary>
+        <div class="nav-menu nav-menu-right">
+          <a href="{{ login_path }}">Switch login</a>
+          <a href="{{ logout_path }}">Logout</a>
+        </div>
+      </details>
       {% endif %}
     </nav>
     <div class="theme-picker" aria-label="Theme picker">
@@ -10370,32 +10827,35 @@ PAGE_TEMPLATE = """
             <label>X coordinate <input name="x" type="number" value="{{ edit_event.x }}"><small class="field-help">↔️ iZurvive/dashboard X.</small></label>
             <label>Z coordinate <input name="z" type="number" value="{{ edit_event.z }}"><small class="field-help">↕️ iZurvive/dashboard Z.</small></label>
             <label>Y height <input name="y" type="number" value="{{ edit_event.y }}" placeholder="ignored by console CE XML"><small class="field-help">⬆️ Usually 0 on console.</small></label>
-            <label>Quantity in event <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}"><small class="field-help">🔢 Animals/infected count. Drops use batch for multiples.</small></label>
+            <label>Quantity in event <input name="count" type="number" min="1" max="250" value="{{ edit_event.count }}" data-scenario-count><small class="field-help">🔢 For vehicles, quantity must match the generated or manually entered positions.</small></label>
             <label data-zombie-count-range>Minimum infected <input name="zombie_min_count" type="number" min="1" max="250" value="{{ edit_event.zombie_min_count or edit_event.count }}"><small class="field-help">☠️ Horde-only: lowest infected count at each territory zone.</small></label>
             <label data-zombie-count-range>Maximum infected <input name="zombie_max_count" type="number" min="1" max="250" value="{{ edit_event.zombie_max_count or edit_event.count }}"><small class="field-help">☠️ Horde-only: highest infected count at each territory zone.</small></label>
             <label>Spread radius <input name="radius" type="number" value="{{ edit_event.radius }}"><small class="field-help">⭕ Spread around the point.</small></label>
-            <label>Airdrop location plan
+            <label>Location plan
               <select name="location_mode" data-scenario-location-mode>
-                <option value="fixed" {% if edit_event.location_mode != 'random_pool' %}selected{% endif %}>One fixed location</option>
+                <option value="fixed" {% if edit_event.location_mode not in ['random_pool', 'radius_spread', 'manual_positions'] %}selected{% endif %}>One exact coordinate (one vehicle)</option>
+                <option value="radius_spread" {% if edit_event.location_mode == 'radius_spread' %}selected{% endif %}>Generate one position per vehicle inside radius</option>
+                <option value="manual_positions" {% if edit_event.location_mode == 'manual_positions' %}selected{% endif %}>Enter one exact position per vehicle</option>
                 <option value="random_pool" {% if edit_event.location_mode == 'random_pool' %}selected{% endif %}>Random location pool</option>
               </select>
-              <small class="field-help">Random pools are for airdrop loot only. Choose how many drops stay active below.</small>
+              <small class="field-help">Exact writes one coordinate. Radius mode generates exactly the vehicle quantity. Manual mode requires the same number of coordinates as vehicles.</small>
             </label>
-            <label class="full" data-scenario-location-pool-row>
-              <span>Random airdrop locations</span>
+            <label class="full" data-scenario-position-list-row>
+              <span data-scenario-position-list-label>Location coordinates</span>
               <input type="hidden" name="location_pool" data-scenario-location-pool value="{% for location in edit_event.location_pool %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}">
               <div class="scenario-location-list" data-scenario-location-pool-rows></div>
               <button type="button" data-add-scenario-location>Add location</button>
-              <small class="field-help">🗺️ Each card is one possible location: give it an optional name, X, Z and heading. Add at least two different locations.</small>
+              <small class="field-help" data-scenario-position-list-help>🗺️ Add a name, X, Z and heading for each position.</small>
             </label>
-            <label data-scenario-location-pool-row>Airdrops active at once
+            <label data-scenario-airdrop-pool-row>Airdrops active at once
               <input name="active_count" data-scenario-active-count type="number" min="1" max="50" value="{{ edit_event.active_count }}">
               <small class="field-help">For example: 10 active drops from 15 saved locations. This never exceeds the number of locations.</small>
             </label>
-            <label data-scenario-location-pool-row>Each drop stays for minutes
+            <label data-scenario-airdrop-pool-row>Each drop stays for minutes
               <input name="pool_duration_minutes" type="number" min="1" max="10080" value="{{ [1, (edit_event.lifetime|int // 60)]|max }}">
               <small class="field-help">After this CE lifetime, DayZ replaces the drop from the location pool. The default is 35 minutes.</small>
             </label>
+            <div class="full embed-preview" data-scenario-position-preview hidden><strong>Vehicle positions written to cfgeventspawns.xml</strong><pre class="save-preview" data-scenario-position-preview-text></pre></div>
             <div class="full" data-zombie-mix-builder>
               <h4>Zombie Horde Mix</h4>
               <input type="hidden" name="zombie_mix" data-zombie-mix-value>
@@ -10537,7 +10997,7 @@ PAGE_TEMPLATE = """
               {% for event in (server.scenario_events if server else []) %}
               {% set status_display = event.status_display or {} %}
               <tr class="{% if status_display.state %}status-{{ status_display.state }}{% endif %}" data-scenario-event-row="{{ event.id }}" data-event-row data-event-enabled="{{ 'true' if event.enabled else 'false' }}" data-event-permanent="{{ 'true' if event.permanent else 'false' }}" data-event-upload="{{ event.upload_status or '' }}" data-event-search="{{ event.id }} {{ event.event_type|lower }} {{ event.name|lower }} {{ event.class_name|lower }} {{ event.status|lower }}">
-                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{% if event.location_mode == 'random_pool' and event.location_pool %}<strong>Random pool</strong><br><small class="muted">{{ event.active_count or 1 }} active · {{ event.location_pool|length }} locations</small>{% else %}{{ event.x }}, {{ event.z }}{% endif %}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
+                <td>{{ event.id }}</td><td>{{ event.event_type }}</td><td>{{ event.name }}</td><td>{% if event.zombie_mix %}{% for item in event.zombie_mix[:3] %}{{ item.count }}x {{ item.class }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if event.zombie_mix|length > 3 %}<br><small class="muted">+ {{ event.zombie_mix|length - 3 }} more</small>{% endif %}{% else %}{{ event.class_name }}{% endif %}</td><td>{% if event.location_mode == 'random_pool' and event.location_pool %}<strong>Random pool</strong><br><small class="muted">{{ event.active_count or 1 }} active · {{ event.location_pool|length }} locations</small>{% elif event.location_mode == 'radius_spread' %}<strong>Radius spread</strong><br><small class="muted">{{ event.location_pool|length }} positions · centre {{ event.x }}, {{ event.z }} · r {{ event.radius }}</small>{% elif event.location_mode == 'manual_positions' %}<strong>Manual positions</strong><br><small class="muted">{{ event.location_pool|length }} exact coordinates</small>{% else %}{{ event.x }}, {{ event.z }}{% endif %}</td><td>{{ '∞' if event.permanent else event.remaining_restarts }}</td><td data-scenario-status><span class="scenario-status-title">{{ status_display.title or event.status or 'Queued' }}</span>{% if status_display.brief %}<small class="scenario-status-brief">{{ status_display.brief }}</small>{% endif %}{% if event.upload_error and status_display.details %}<details class="scenario-error-details"><summary>Technical details</summary><pre>{{ status_display.details }}</pre></details>{% endif %}</td>
                 <td>
                   <div class="scenario-actions">
                     <a class="button" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}&edit_event={{ event.id|urlencode }}#scenario-event-form" data-scenario-edit data-id="{{ event.id }}" data-type="{{ event.event_type }}" data-preset="{{ dashboard_scenario_preset(event) }}" data-name="{{ event.name }}" data-class="{{ event.class_name }}" data-x="{{ event.x }}" data-y="{{ event.y }}" data-z="{{ event.z }}" data-count="{{ event.count }}" data-radius="{{ event.radius }}" data-permanent="{{ 'true' if event.permanent else 'false' }}" data-restarts="{{ event.remaining_restarts }}" data-loot="{{ event.loot_preset }}" data-loot-range="{{ event.loot_count_range or 'default' }}" data-loot-mix-weapons="{{ (event.loot_mix or {}).get('weapons', 0) }}" data-loot-mix-ammo="{{ (event.loot_mix or {}).get('ammo', 0) }}" data-loot-mix-clothing="{{ (event.loot_mix or {}).get('clothing', 0) }}" data-loot-mix-bags="{{ (event.loot_mix or {}).get('bags', 0) }}" data-loot-mix-medical="{{ (event.loot_mix or {}).get('medical', 0) }}" data-loot-mix-food="{{ (event.loot_mix or {}).get('food', 0) }}" data-loot-mix-building="{{ (event.loot_mix or {}).get('building', 0) }}" data-loot-mix-utility="{{ (event.loot_mix or {}).get('utility', 0) }}" data-loot-mix-vehicle="{{ (event.loot_mix or {}).get('vehicle', 0) }}" data-marker="{{ 'true' if event.visual_marker else 'false' }}" data-scene="{{ event.scene_type or 'compact_crater' }}" data-guard="{{ event.guard_class }}" data-guard-count="{{ event.guard_count }}" data-guard-radius="{{ event.guard_radius }}" data-timing-preset="{{ event.timing_preset or 'custom' }}" data-lifetime="{{ event.lifetime or event.gas_lifetime or 7200 }}" data-restock="{{ event.restock if event.restock is not none else 3600 }}" data-saferadius="{{ event.saferadius if event.saferadius is not none else 0 }}" data-distanceradius="{{ event.distanceradius if event.distanceradius is not none else 1000 }}" data-cleanupradius="{{ event.cleanupradius if event.cleanupradius is not none else 1500 }}" data-gas-lifetime="{{ event.gas_lifetime or 1800 }}" data-gas-particle="{{ event.gas_particle or 'server_default' }}" data-location-mode="{{ event.location_mode or 'fixed' }}" data-active-count="{{ event.active_count or 1 }}" data-location-pool-text="{% for location in event.location_pool or [] %}{{ location.name }}, {{ location.x }}, {{ location.z }}{% if location.angle %}, {{ location.angle }}{% endif %}{% if not loop.last %}&#10;{% endif %}{% endfor %}">Edit</a>
@@ -10564,6 +11024,8 @@ PAGE_TEMPLATE = """
                     {% if event.native_ce_mission_folder %}<span><strong>Mission</strong> {{ event.native_ce_mission_folder }}</span>{% endif %}
                     {% if event.native_ce_restart_required %}<span class="event-chip-warn"><strong>Restart</strong> one server restart needed</span>{% endif %}
                     {% if event.native_ce_managed_event_names %}<span><strong>Definitions</strong> {{ event.native_ce_managed_event_names|length }} managed</span>{% endif %}
+                    {% if event.location_mode == 'radius_spread' %}<span class="event-chip-warn"><strong>Radius spread</strong> {{ event.location_pool|length }} generated positions for {{ event.count }} vehicles within r {{ event.radius }}</span>{% endif %}
+                    {% if event.location_mode == 'manual_positions' %}<span class="event-chip-ok"><strong>Manual placement</strong> {{ event.location_pool|length }} exact positions for {{ event.count }} vehicles</span>{% endif %}
                     {% if event.location_mode == 'random_pool' and event.location_pool %}<span class="event-chip-warn"><strong>Location pool</strong> {{ event.active_count or 1 }} active · {{ event.location_pool|length }} candidates · DayZ selects locations on respawn</span>{% endif %}
                     {% if event.native_ce_events_path or event.native_ce_spawns_path or event.native_ce_types_path or event.native_ce_spawnabletypes_path or event.native_ce_cfgenvironment_path or event.bridge_delivery_path or event.native_ce_territory_paths %}<span class="event-chip-path"><strong>Files</strong> open details</span>{% endif %}
                     {% if event.upload_error %}<span class="event-chip-bad"><strong>Error</strong> open details</span>{% endif %}
@@ -11563,8 +12025,12 @@ PAGE_TEMPLATE = """
         </article>
         {% endif %}
         {% if xml_tool == "player-loadout" %}
-        <article class="admin-panel full">
-          <h3>Player Loadout</h3>
+        <article class="admin-panel full" id="player-loadout-builder">
+          <div class="section-head">
+            <div><h3>Player Loadout</h3><p class="tool-note">Build a validated DayZ spawn-gear JSON using slot-compatible items from the selected reference library.</p></div>
+            <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
+          </div>
+          {% for warning in player_loadout_warnings %}<div class="notice warning"><strong>Reference warning</strong><span>{{ warning }}</span></div>{% endfor %}
           <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop" data-html-submit="true">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
@@ -11600,6 +12066,7 @@ PAGE_TEMPLATE = """
                 <div class="loadout-workbench">
                   <div class="embed-preview"><strong>Player loadout builder</strong><span>Pick a body slot, add items from the picker, then drag selected rows to reorder the generated loadout.</span></div>
                   <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="{{ player_loadout_active_slot }}">
+                    <label>Search compatible {{ player_loadout_active_slot }} items <input type="search" data-loadout-card-search placeholder="Display name or classname"></label>
                     <div class="item-picker-controls">
                       <label>Find item
                         <select class="picker-select" name="loadout_item" data-picker-item>
@@ -11624,10 +12091,12 @@ PAGE_TEMPLATE = """
                       <summary>{{ player_loadout_active_slot }} item cards</summary>
                       <div class="visual-picker-grid" data-visual-grid>
                         {% for item in player_loadout_slot_items[:72] %}
-                        <a class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}&loadout_item={{ item.name|urlencode }}#player-loadout-builder">
+                        <a class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}&loadout_item={{ item.name|urlencode }}#player-loadout-builder" data-loadout-card data-loadout-search="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
                           <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/General' }}';" alt="">
-                          <strong>{{ item.name }}</strong>
+                          <strong>{{ item.label or item.name }}</strong>
+                          <code>{{ item.name }}</code>
                           <small>{{ item.category }}{% if item.size %} - {{ item.size }} slots{% endif %}</small>
+                          {% if not item.reference_available %}<span class="pill bad">Unavailable for selected reference</span>{% endif %}
                         </a>
                         {% else %}
                         <p class="muted">No matching items for this slot yet.</p>
@@ -11672,21 +12141,43 @@ PAGE_TEMPLATE = """
         </article>
         {% endif %}
         {% if xml_tool == "vehicle-loadout" %}
-        <article class="admin-panel full">
-          <h3>Vehicle Loadout</h3>
-          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
+        <article class="admin-panel full" id="vehicle-loadout-builder">
+          <div class="section-head">
+            <div><h3>Vehicle Loadout</h3><p class="tool-note">Choose the exact vehicle variant, preserve its real attachment slots, then add compatible cargo.</p></div>
+            <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
+          </div>
+          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop" data-html-submit="true">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
-            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}#vehicle-loadout-builder">
+            <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&xml_tool=vehicle-loadout&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}&vehicle_class={{ vehicle_loadout_selected_class|urlencode }}#vehicle-loadout-builder">
             <input class="hidden-field" name="recipe_kind" value="vehicle_loadout">
+            <script type="application/json" data-vehicle-reference-catalog>{{ vehicle_reference_records|tojson }}</script>
             <div class="full xml-tool-layout">
               <div class="stack">
                 <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
+                <label>Search vehicles <input type="search" data-vehicle-card-search placeholder="Display name, classname or colour"></label>
+                <div class="visual-picker-grid vehicle-picker-grid" data-vehicle-card-grid>
+                  {% for item in vehicle_loadout_items[:36] %}
+                  <a class="visual-picker-card {{ 'active' if item.name == vehicle_loadout_selected_class else '' }}" href="/admin?section=xml-workshop&xml_tool=vehicle-loadout{{ server_qs }}{{ profile_qs }}&vehicle_class={{ item.name|urlencode }}#vehicle-loadout-builder" data-vehicle-card data-vehicle-search="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
+                    <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/Vehicles' }}';" alt="">
+                    <strong>{{ item.label or item.name }}</strong>
+                    <code>{{ item.name }}</code>
+                    <small>{{ item.category }}</small>
+                    {% if not item.reference_available %}<span class="pill bad">Not in selected cfgspawnabletypes</span>{% endif %}
+                  </a>
+                  {% else %}<p class="muted">No whole-vehicle classnames were found for this reference.</p>{% endfor %}
+                </div>
                 <label>Vehicle classname
                   <select class="picker-select" name="vehicle_class" data-visual-select="vehicles">
-                    {% for item in xml_picker_groups.vehicles %}<option value="{{ item.name }}" {{ 'selected' if item.name == 'Truck_01_Covered' else '' }}>{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                    {% for item in vehicle_loadout_items %}<option value="{{ item.name }}" {{ 'selected' if item.name == vehicle_loadout_selected_class else '' }}>{{ item.label or item.name }} - {{ item.name }}</option>{% endfor %}
                   </select>
                 </label>
+                <section class="vehicle-reference-panel" data-vehicle-reference-panel>
+                  <div class="row-between"><strong data-vehicle-parts-title>Compatible parts for {{ vehicle_loadout_reference.name }}</strong><span class="pill {{ 'ok' if vehicle_loadout_reference.available else 'bad' }}" data-vehicle-reference-status>{{ 'Active reference' if vehicle_loadout_reference.available else 'Fallback - verify classname' }}</span></div>
+                  <div class="vehicle-part-groups" data-vehicle-part-groups>
+                    {% for group in vehicle_loadout_reference.groups %}<div class="mini-card"><span class="muted">{{ group.kind|replace('sparkplug', 'ignition')|title }}</span><strong>{% for item in group['items'] %}{{ item.name }}{% if not loop.last %} / {% endif %}{% endfor %}</strong></div>{% endfor %}
+                  </div>
+                </section>
                 <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
                 <label>Inventory preset
                   <select name="vehicle_inventory_preset" data-vehicle-preset-select>
@@ -11719,6 +12210,7 @@ PAGE_TEMPLATE = """
                 </div>
                 <div class="vehicle-workbench">
                   <div class="item-picker" data-item-picker data-picker-mode="vehicle_cargo" data-picker-group="cargo">
+                    <label>Search compatible cargo <input type="search" data-vehicle-cargo-search placeholder="Display name or classname"></label>
                     <div class="item-picker-controls">
                       <label>Find cargo item
                         <select class="picker-select" data-picker-item>
@@ -11732,6 +12224,17 @@ PAGE_TEMPLATE = """
                       <button type="button" data-picker-add>Add</button>
                     </div>
                     <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Click cargo cards to add them, then drag the selected cargo rows into order.</span></div>
+                    <details class="loadout-html-picker" open>
+                      <summary>Compatible cargo cards</summary>
+                      <div class="visual-picker-grid" data-vehicle-cargo-grid>
+                        {% for item in xml_picker_groups.cargo[:72] %}
+                        <button type="button" class="visual-picker-card" data-vehicle-cargo-card data-item-name="{{ item.name }}" data-vehicle-cargo-search-text="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
+                          <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/General' }}';" alt="">
+                          <strong>{{ item.label or item.name }}</strong><code>{{ item.name }}</code><small>{{ item.category }}</small>
+                        </button>
+                        {% endfor %}
+                      </div>
+                    </details>
                   </div>
                   <label>Cargo items
                     <div class="selected-items vehicle-cargo-board" data-selected-items data-empty-text="No cargo items added yet"></div>
@@ -11744,6 +12247,11 @@ PAGE_TEMPLATE = """
                 <div class="mini-grid">
                   <div class="mini-card"><span class="muted">Output</span><strong>spawnabletypes</strong></div>
                   <div class="mini-card"><span class="muted">Vehicle</span><strong>cargo</strong></div>
+                </div>
+                <div class="toolbar">
+                  <button type="submit">Save Draft</button>
+                  <button type="submit" formaction="/api/admin/xml-workshop-vehicle-download" formmethod="post">Download XML</button>
+                  <button type="button" data-copy-live-output>Copy XML</button>
                 </div>
                 <pre class="save-preview" data-live-output></pre>
                 <div class="embed-preview"><strong>Where this goes</strong><span>This drafts the vehicle `cfgspawnabletypes.xml` cargo/attachment block. Parts and cargo should be previewed before live upload.</span></div>
@@ -14118,6 +14626,40 @@ PAGE_TEMPLATE = """
     </section>
     {% endif %}
   </main>
+  <footer class="dashboard-footer" aria-label="Wandering Bot support and legal links">
+    <div class="dashboard-footer-grid">
+      <section>
+        <div class="dashboard-footer-brand">
+          <img src="/brand-image" alt="Wandering Bot logo" loading="lazy" decoding="async">
+          <div><strong>Wandering Bot</strong><p>DayZ server control, Discord community tools and guided file intelligence for console and PC server owners.</p></div>
+        </div>
+        <div class="dashboard-footer-apps">
+          {% if android_play_store_url %}<a href="{{ android_play_store_url }}" target="_blank" rel="external noopener noreferrer">Google Play</a>{% endif %}
+          <span>Apple App Store coming soon</span>
+        </div>
+      </section>
+      <section>
+        <h2>Support</h2>
+        <div class="dashboard-footer-links">
+          {% if support_url %}<a href="{{ support_url }}" target="_blank" rel="external noopener noreferrer">Support Discord</a>{% endif %}
+          {% if support_email %}<a href="mailto:{{ support_email }}">Contact email</a>{% endif %}
+          <a href="/support">Help and support</a>
+          {% if izurvive_url %}<a href="{{ izurvive_url }}" target="_blank" rel="external noopener noreferrer">iZurvive maps</a>{% endif %}
+        </div>
+      </section>
+      <section>
+        <h2>Legal and safety</h2>
+        <div class="dashboard-footer-links">
+          <a href="/privacy">Privacy Policy</a>
+          <a href="/terms">Terms of Service</a>
+          <a href="/child-safety">Child Safety</a>
+          <a href="/delete-account">Delete Account</a>
+          <a href="/community-rules">Community Rules</a>
+        </div>
+      </section>
+    </div>
+    <div class="dashboard-footer-bottom"><span>&copy; {{ current_year }} Wandering Bot</span><span>Independent service; not affiliated with or endorsed by Bohemia Interactive or iZurvive.</span></div>
+  </footer>
   {% if dashboard_review_prompt.eligible %}
   <aside class="review-prompt" data-review-prompt data-review-guild="{{ dashboard_review_prompt.guild_id }}" hidden>
     <strong>Enjoying Wandering Bot?</strong>
@@ -14513,6 +15055,117 @@ PAGE_TEMPLATE = """
         }
       }, true);
     }
+    function installCommandNavigation() {
+      if (window.__wanderingCommandNavigation) return;
+      window.__wanderingCommandNavigation = true;
+      const nav = document.querySelector(".command-top-nav");
+      if (!nav) return;
+      const groups = [...nav.querySelectorAll("details")];
+
+      groups.forEach((group) => group.addEventListener("toggle", () => {
+        if (!group.open) return;
+        groups.forEach((other) => {
+          if (other !== group) other.open = false;
+        });
+      }));
+      nav.addEventListener("click", (event) => {
+        if (event.target.closest("a")) {
+          groups.forEach((group) => { group.open = false; });
+        }
+      });
+      document.addEventListener("pointerdown", (event) => {
+        if (!nav.contains(event.target)) {
+          groups.forEach((group) => { group.open = false; });
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        const openGroup = groups.find((group) => group.open);
+        if (!openGroup) return;
+        openGroup.open = false;
+        openGroup.querySelector("summary")?.focus();
+      });
+    }
+
+    function installDashboardImagePreview() {
+      if (window.__wanderingDashboardImagePreview) return;
+      window.__wanderingDashboardImagePreview = true;
+      if (!window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
+
+      const selector = ".visual-picker-card img, .loadout-item-card img";
+      const preview = document.createElement("aside");
+      preview.className = "dashboard-image-preview";
+      preview.setAttribute("aria-hidden", "true");
+      preview.innerHTML = "<img alt=\"\"><strong></strong><span></span>";
+      document.body.appendChild(preview);
+      const previewImage = preview.querySelector("img");
+      const previewTitle = preview.querySelector("strong");
+      const previewDetail = preview.querySelector("span");
+      let activeImage = null;
+
+      const hide = () => {
+        activeImage = null;
+        preview.classList.remove("is-visible");
+        preview.setAttribute("aria-hidden", "true");
+      };
+      const position = (image) => {
+        const rect = image.getBoundingClientRect();
+        const width = Math.min(352, window.innerWidth - 32);
+        const height = 330;
+        let left = rect.right + 16;
+        if (left + width > window.innerWidth - 16) left = rect.left - width - 16;
+        left = Math.max(16, Math.min(left, window.innerWidth - width - 16));
+        const top = Math.max(
+          16,
+          Math.min(rect.top + (rect.height / 2) - (height / 2), window.innerHeight - height - 16),
+        );
+        preview.style.left = `${Math.round(left)}px`;
+        preview.style.top = `${Math.round(top)}px`;
+      };
+      const show = (image) => {
+        const card = image.closest(".visual-picker-card, .loadout-item-card");
+        if (!card || !(image.currentSrc || image.src)) return;
+        activeImage = image;
+        const titleNode = card.querySelector(
+          "[data-item-name], .item-card-title, .visual-picker-label, strong, h3, h4",
+        );
+        const detailNode = card.querySelector(".item-classname, code");
+        previewImage.src = image.currentSrc || image.src;
+        previewImage.alt = image.alt || "";
+        previewTitle.textContent = titleNode?.textContent?.trim() || image.alt || "DayZ item";
+        previewDetail.textContent =
+          detailNode?.textContent?.trim() || card.dataset.itemName || card.dataset.classname || "";
+        position(image);
+        preview.classList.add("is-visible");
+        preview.setAttribute("aria-hidden", "false");
+      };
+
+      document.addEventListener("pointerover", (event) => {
+        const image = event.target.closest?.(selector);
+        if (image) show(image);
+      });
+      document.addEventListener("pointerout", (event) => {
+        if (!activeImage || event.target !== activeImage) return;
+        if (!event.relatedTarget?.closest?.(".visual-picker-card, .loadout-item-card")) hide();
+      });
+      document.addEventListener("focusin", (event) => {
+        const card = event.target.closest?.(".visual-picker-card, .loadout-item-card");
+        const image = card?.querySelector("img");
+        if (image?.matches(selector)) show(image);
+      });
+      document.addEventListener("focusout", (event) => {
+        const card = event.target.closest?.(".visual-picker-card, .loadout-item-card");
+        if (card && !card.contains(event.relatedTarget)) hide();
+      });
+      window.addEventListener("scroll", hide, true);
+      window.addEventListener("resize", hide);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hide();
+      });
+    }
+
+    installCommandNavigation();
+    installDashboardImagePreview();
     installDashboardCoreClicks();
     const DIRECT_DASHBOARD_SAVE_ROUTES = {
       "/api/admin/embed-template": {bodyKey: "template", message: "Saved embed template."},
@@ -14913,17 +15566,24 @@ PAGE_TEMPLATE = """
         card.type = "button";
         card.className = "visual-picker-card";
         card.dataset.visualItem = item.name || "";
+        if (picker.dataset.pickerMode === "loadout") {
+          card.dataset.loadoutCard = "true";
+          card.dataset.loadoutSearch = `${item.label || item.name || ""} ${item.name || ""} ${item.category || ""}`.toLowerCase();
+        }
         card.classList.toggle("active", selected && selected === String(item.name || "").toLowerCase());
         const img = document.createElement("img");
         img.src = imageForItem(item);
         img.alt = "";
         img.onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
         const title = document.createElement("strong");
-        title.textContent = item.name || "";
+        title.textContent = item.label || item.name || "";
+        const classname = document.createElement("code");
+        classname.textContent = item.name || "";
         const meta = document.createElement("small");
         meta.textContent = [item.category || "General", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
         card.appendChild(img);
         card.appendChild(title);
+        card.appendChild(classname);
         card.appendChild(meta);
         grid.appendChild(card);
       });
@@ -15139,15 +15799,35 @@ PAGE_TEMPLATE = """
     }
     function buildVehicleXmlPreview(form, items) {
       const vehicle = form.elements.vehicle_class?.value || "VehicleClass";
-      const lines = [`<type name="${xmlEscape(vehicle)}">`, `    <attachments chance="1.00">`];
-      vehiclePartItems(vehicle, form.elements.part_wheels?.checked, form.elements.part_doors?.checked).forEach((part) => {
-        lines.push(`        <item name="${xmlEscape(part)}" chance="1.00" />`);
+      const mode = String(form.elements.vehicle_mode?.value || "full_with_cargo");
+      const catalogNode = form.querySelector("[data-vehicle-reference-catalog]");
+      let catalog = {};
+      try { catalog = JSON.parse(catalogNode?.textContent || "{}"); } catch (error) { catalog = {}; }
+      const record = catalog[String(vehicle).toLowerCase()] || {};
+      let groups = Array.isArray(record.groups) ? record.groups : [];
+      if (!groups.length) {
+        groups = vehiclePartItems(vehicle, true, true).map((part) => ({chance: "1.00", items: [{name: part, chance: "1.00"}]}));
+        ["CarRadiator", "CarBattery", "SparkPlug"].forEach((part) => groups.push({chance: "1.00", items: [{name: part, chance: "1.00"}]}));
+      }
+      const groupKind = (group) => {
+        const names = (group.items || []).map((item) => String(item.name || "").toLowerCase());
+        if (names.length && names.every((name) => name.includes("wheel"))) return "wheels";
+        if (names.some((name) => ["door", "hood", "trunk"].some((term) => name.includes(term)))) return "doors";
+        if (names.some((name) => name.includes("battery"))) return "battery";
+        if (names.some((name) => name.includes("radiator"))) return "radiator";
+        if (names.some((name) => name.includes("sparkplug") || name.includes("glowplug"))) return "sparkplug";
+        return "other";
+      };
+      const groupEnabled = (kind) => kind === "other" || Boolean(form.elements[`part_${kind}`]?.checked);
+      const lines = [`<type name="${xmlEscape(vehicle)}">`];
+      groups.filter((group) => groupEnabled(groupKind(group))).forEach((group) => {
+        lines.push(`    <attachments chance="${xmlEscape(mode === "native" ? (group.chance || "1.00") : "1.00")}">`);
+        (group.items || []).forEach((part) => {
+          lines.push(`        <item name="${xmlEscape(part.name || "")}" chance="${xmlEscape(mode === "native" ? (part.chance || "1.00") : "1.00")}" />`);
+        });
+        lines.push(`    </attachments>`);
       });
-      if (form.elements.part_battery?.checked) lines.push(`        <item name="CarBattery" chance="1.00" />`);
-      if (form.elements.part_sparkplug?.checked) lines.push(`        <item name="SparkPlug" chance="1.00" />`);
-      if (form.elements.part_radiator?.checked) lines.push(`        <item name="CarRadiator" chance="1.00" />`);
-      lines.push(`    </attachments>`);
-      if (items.length && String(form.elements.vehicle_mode?.value || "") !== "full_no_cargo") {
+      if (items.length && mode === "full_with_cargo") {
         lines.push(`    <cargo chance="1.00">`);
         items.forEach((item) => {
           const qty = Math.max(1, Number(item.quantity || 1) || 1);
@@ -15159,6 +15839,45 @@ PAGE_TEMPLATE = """
       }
       lines.push(`</type>`);
       return lines.join("\\n");
+    }
+    function renderVehicleReference(form) {
+      const panel = form?.querySelector("[data-vehicle-reference-panel]");
+      if (!panel) return;
+      const vehicle = form.elements.vehicle_class?.value || "VehicleClass";
+      let catalog = {};
+      try { catalog = JSON.parse(form.querySelector("[data-vehicle-reference-catalog]")?.textContent || "{}"); } catch (error) { catalog = {}; }
+      const record = catalog[String(vehicle).toLowerCase()] || {};
+      const groups = Array.isArray(record.groups) ? record.groups : [];
+      const title = panel.querySelector("[data-vehicle-parts-title]");
+      const status = panel.querySelector("[data-vehicle-reference-status]");
+      const grid = panel.querySelector("[data-vehicle-part-groups]");
+      if (title) title.textContent = `Compatible parts for ${vehicle}`;
+      if (status) {
+        status.textContent = groups.length ? "Active reference" : "Fallback - verify classname";
+        status.classList.toggle("ok", Boolean(groups.length));
+        status.classList.toggle("bad", !groups.length);
+      }
+      if (!grid || !groups.length) return;
+      grid.replaceChildren();
+      groups.forEach((group) => {
+        const card = document.createElement("div");
+        card.className = "mini-card";
+        const names = (group.items || []).map((item) => String(item.name || "")).filter(Boolean);
+        const lower = names.map((name) => name.toLowerCase());
+        let kind = "Other";
+        if (lower.length && lower.every((name) => name.includes("wheel"))) kind = "Wheels";
+        else if (lower.some((name) => ["door", "hood", "trunk"].some((term) => name.includes(term)))) kind = "Doors / panels";
+        else if (lower.some((name) => name.includes("battery"))) kind = "Battery";
+        else if (lower.some((name) => name.includes("radiator"))) kind = "Radiator";
+        else if (lower.some((name) => name.includes("sparkplug") || name.includes("glowplug"))) kind = "Ignition";
+        const label = document.createElement("span");
+        label.className = "muted";
+        label.textContent = kind;
+        const value = document.createElement("strong");
+        value.textContent = names.join(" / ");
+        card.append(label, value);
+        grid.append(card);
+      });
     }
     function setVehiclePreset(form, presetKey) {
       if (!form || !presetKey || !VEHICLE_INVENTORY_PRESETS[presetKey]) return;
@@ -15457,6 +16176,19 @@ PAGE_TEMPLATE = """
         if (picker) syncPickerPreview(picker);
         return;
       }
+      const vehicleCargoCard = event.target.closest("[data-vehicle-cargo-card]");
+      if (vehicleCargoCard) {
+        event.preventDefault();
+        const picker = vehicleCargoCard.closest("[data-item-picker]");
+        const input = picker ? picker.querySelector("[data-picker-item]") : null;
+        if (input) input.value = vehicleCargoCard.dataset.itemName || "";
+        if (picker) {
+          syncPickerPreview(picker);
+          const form = picker.closest("form");
+          appendPickerLine(picker, form ? form.querySelector("[data-picker-output]") : null);
+        }
+        return;
+      }
       const visualCard = event.target.closest("[data-visual-item]");
       if (visualCard) {
         const picker = visualCard.closest("[data-item-picker]");
@@ -15597,6 +16329,24 @@ PAGE_TEMPLATE = """
         const select = event.target.closest("label")?.querySelector("select[data-visual-select]");
         renderVisualSelect(select);
       }
+      if (event.target.matches("[data-loadout-card-search]")) {
+        const query = String(event.target.value || "").trim().toLowerCase();
+        event.target.closest("[data-item-picker]")?.querySelectorAll("[data-loadout-card]").forEach((card) => {
+          card.hidden = Boolean(query) && !String(card.dataset.loadoutSearch || "").includes(query);
+        });
+      }
+      if (event.target.matches("[data-vehicle-card-search]")) {
+        const query = String(event.target.value || "").trim().toLowerCase();
+        event.target.closest("form")?.querySelectorAll("[data-vehicle-card]").forEach((card) => {
+          card.hidden = Boolean(query) && !String(card.dataset.vehicleSearch || "").includes(query);
+        });
+      }
+      if (event.target.matches("[data-vehicle-cargo-search]")) {
+        const query = String(event.target.value || "").trim().toLowerCase();
+        event.target.closest("[data-item-picker]")?.querySelectorAll("[data-vehicle-cargo-card]").forEach((card) => {
+          card.hidden = Boolean(query) && !String(card.dataset.vehicleCargoSearchText || "").includes(query);
+        });
+      }
       if (event.target.closest("form")) syncLiveOutput(event.target.closest("form"));
     });
     document.addEventListener("change", (event) => {
@@ -15618,7 +16368,10 @@ PAGE_TEMPLATE = """
           body: JSON.stringify({theme, guild_id: guildId})
         }).catch(() => {});
       }
-      if (event.target.matches("select[data-visual-select]")) renderVisualSelect(event.target);
+      if (event.target.matches("select[data-visual-select]")) {
+        renderVisualSelect(event.target);
+        if (event.target.name === "vehicle_class") renderVehicleReference(event.target.closest("form"));
+      }
       if (event.target.matches("[data-vehicle-preset-select]")) setVehiclePreset(event.target.closest("form"), event.target.value || "");
       if (event.target.matches('select[name="placement_mode"], select[name="random_count"]')) {
         const form = event.target.closest("form");
@@ -19205,9 +19958,13 @@ PAGE_TEMPLATE = """
       } else if (!picker.dataset.pickerGroup) {
         picker.dataset.pickerGroup = "cargo";
       }
-      renderVisualPicker(picker);
+      const hasReferenceCards = (picker.dataset.pickerMode === "loadout" && picker.querySelector("[data-loadout-card]"))
+        || (picker.dataset.pickerMode === "vehicle_cargo" && picker.querySelector("[data-vehicle-cargo-card]"));
+      if (hasReferenceCards) syncPickerPreview(picker);
+      else renderVisualPicker(picker);
     });
     document.querySelectorAll("select[data-visual-select]:not([data-visual-select-lazy])").forEach((select) => renderVisualSelect(select));
+    document.querySelectorAll("[data-vehicle-reference-panel]").forEach((panel) => renderVehicleReference(panel.closest("form")));
     document.querySelectorAll("[data-live-output]").forEach((preview) => syncLiveOutput(preview.closest("form")));
     document.querySelectorAll("[data-wage-target]").forEach((select) => {
       const form = select.closest("form");
@@ -19677,8 +20434,8 @@ PAGE_TEMPLATE = """
           return {name: words.join(" "), x: numbers[0], z: numbers[1], angle: numbers[2] || 0};
         }).filter(Boolean);
       }
-      function ensureMinimumCards() {
-        while (cards().length < 2) addCard({});
+      function ensureMinimumCards(minimum = 2) {
+        while (cards().length < Math.max(1, minimum)) addCard({});
       }
       function renderCards(text, addDefaults = true) {
         rows.replaceChildren();
@@ -19699,17 +20456,86 @@ PAGE_TEMPLATE = """
       const form = select.closest("form");
       if (!form) return;
       const typeSelect = form.querySelector("[data-scenario-type]");
-      const poolRows = form.querySelectorAll("[data-scenario-location-pool-row]");
+      const positionListRow = form.querySelector("[data-scenario-position-list-row]");
+      const poolRows = form.querySelectorAll("[data-scenario-airdrop-pool-row]");
       const locationCards = form.querySelector("[data-scenario-location-pool-rows]");
+      const positionLabel = form.querySelector("[data-scenario-position-list-label]");
+      const positionHelp = form.querySelector("[data-scenario-position-list-help]");
+      const positionPreview = form.querySelector("[data-scenario-position-preview]");
+      const positionPreviewText = form.querySelector("[data-scenario-position-preview-text]");
+      const countInput = form.querySelector("[data-scenario-count]");
+      const radiusInput = form.elements.radius;
+      const xInput = form.elements.x;
+      const zInput = form.elements.z;
+      function prettyNumber(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) return "0";
+        return String(Math.round(number * 1000) / 1000);
+      }
+      function generatedVehiclePositions() {
+        const count = Math.max(1, Math.min(50, Number(countInput?.value || 1) || 1));
+        const radius = Math.max(35, Math.min(250, Number(radiusInput?.value || 45) || 45));
+        const baseX = Number(xInput?.value || 0) || 0;
+        const baseZ = Number(zInput?.value || 0) || 0;
+        return Array.from({length: count}, (_unused, index) => {
+          const distance = radius * Math.sqrt((index + 1) / count);
+          const angle = (index * 137.50776405) % 360;
+          const radians = angle * (Math.PI / 180);
+          return {x: baseX + (Math.cos(radians) * distance), z: baseZ + (Math.sin(radians) * distance), angle: 0};
+        });
+      }
+      function renderPositionPreview() {
+        const eventType = String(typeSelect?.value || "airdrop").toLowerCase();
+        const isVehicle = eventType === "vehicle_spawn";
+        if (!positionPreview || !positionPreviewText) return;
+        positionPreview.hidden = !isVehicle;
+        if (!isVehicle) return;
+        const count = Math.max(1, Math.min(50, Number(countInput?.value || 1) || 1));
+        if (select.value === "fixed") {
+          positionPreviewText.textContent = count === 1
+            ? `1. x=${prettyNumber(xInput?.value)} z=${prettyNumber(zInput?.value)} a=0`
+            : `Exact mode supports one vehicle. Choose radius or manual positions for ${count} vehicles.`;
+          return;
+        }
+        if (select.value === "radius_spread") {
+          positionPreviewText.textContent = generatedVehiclePositions().map((position, index) =>
+            `${index + 1}. x=${prettyNumber(position.x)} z=${prettyNumber(position.z)} a=${position.angle}`
+          ).join("\\n");
+          return;
+        }
+        const manual = Array.from(locationCards?.querySelectorAll("[data-scenario-location-card]") || []).map((card) => {
+          const x = card.querySelector("[data-scenario-location-x]")?.value;
+          const z = card.querySelector("[data-scenario-location-z]")?.value;
+          const angle = card.querySelector("[data-scenario-location-angle]")?.value || 0;
+          return x !== "" && z !== "" ? {x, z, angle} : null;
+        }).filter(Boolean);
+        const lines = manual.map((position, index) => `${index + 1}. x=${prettyNumber(position.x)} z=${prettyNumber(position.z)} a=${prettyNumber(position.angle)}`);
+        lines.unshift(`${manual.length}/${count} manual vehicle positions ready`);
+        positionPreviewText.textContent = lines.join("\\n");
+      }
       function syncLocationPool() {
         const eventType = String(typeSelect?.value || "airdrop").toLowerCase();
         const isAirdrop = eventType === "airdrop" || eventType === "loot_crate";
-        const visible = isAirdrop && select.value === "random_pool";
-        poolRows.forEach((row) => { row.hidden = !visible; });
-        if (visible && locationCards?._ensureScenarioLocationCards) locationCards._ensureScenarioLocationCards();
+        const isVehicle = eventType === "vehicle_spawn";
+        const airdropPoolVisible = isAirdrop && select.value === "random_pool";
+        const manualVehicleVisible = isVehicle && select.value === "manual_positions";
+        poolRows.forEach((row) => { row.hidden = !airdropPoolVisible; });
+        if (positionListRow) positionListRow.hidden = !(airdropPoolVisible || manualVehicleVisible);
+        if (airdropPoolVisible && locationCards?._ensureScenarioLocationCards) locationCards._ensureScenarioLocationCards(2);
+        if (manualVehicleVisible && locationCards?._ensureScenarioLocationCards) {
+          locationCards._ensureScenarioLocationCards(Math.max(1, Math.min(50, Number(countInput?.value || 1) || 1)));
+        }
+        if (positionLabel) positionLabel.textContent = manualVehicleVisible ? "Exact vehicle positions" : "Random airdrop locations";
+        if (positionHelp) positionHelp.textContent = manualVehicleVisible
+          ? "Enter one different X/Z coordinate for every vehicle in the quantity field."
+          : "Each card is one possible airdrop location. Add at least two different locations.";
+        renderPositionPreview();
       }
       select.addEventListener("change", syncLocationPool);
       typeSelect?.addEventListener("change", syncLocationPool);
+      [countInput, radiusInput, xInput, zInput].forEach((input) => input?.addEventListener("input", syncLocationPool));
+      locationCards?.addEventListener("input", renderPositionPreview);
+      locationCards?.addEventListener("click", () => window.requestAnimationFrame(renderPositionPreview));
       form.addEventListener("scenario-prefill", syncLocationPool);
       syncLocationPool();
     });
@@ -33744,6 +34570,9 @@ def public_landing_page(page_key: str = "home", guide_key: str = ""):
         bot_invite_url=dashboard_bot_invite_url(),
         support_url=SUPPORT_DISCORD_URL,
         support_email=PUBLIC_SUPPORT_EMAIL,
+        izurvive_url=PUBLIC_IZURVIVE_URL,
+        bohemia_monetization_url=PUBLIC_BOHEMIA_MONETIZATION_URL,
+        current_year=datetime.now(DASHBOARD_TIMEZONE).year,
         pwa_theme_color=PWA_THEME_COLOR,
         android_play_store_url=ANDROID_PLAY_STORE_URL,
     )
@@ -35987,42 +36816,128 @@ def default_vehicle_spawn_parts(vehicle_class: str) -> dict[str, list[str]]:
     })
 
 
+_VEHICLE_REFERENCE_RECORD_CACHE: dict[str, dict[str, Any]] = {}
+_DAYZ_REFERENCE_CLASSNAME_CACHE: dict[str, set[str]] = {}
+
+
+def dayz_reference_classnames(map_key: Any) -> set[str]:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    sources = [
+        load_dayz_reference_text(clean_map, "db", "types.xml"),
+        load_dayz_reference_text(clean_map, "cfgspawnabletypes.xml"),
+    ]
+    digest = dashboard_cache_key(sources)
+    cached = _DAYZ_REFERENCE_CLASSNAME_CACHE.get(digest)
+    if cached is not None:
+        return set(cached)
+    names: set[str] = set()
+    for source_text in sources:
+        if not source_text.strip():
+            continue
+        try:
+            root = ET.fromstring(re.sub(r"<!--.*?-->", "", source_text, flags=re.DOTALL))
+        except ET.ParseError:
+            continue
+        for type_node in root.findall(".//type"):
+            type_name = safe_dayz_class(type_node.get("name"))
+            if type_name:
+                names.add(type_name.lower())
+        for item_node in root.findall(".//item"):
+            item_name = safe_dayz_class(item_node.get("name"))
+            if item_name:
+                names.add(item_name.lower())
+    return set(remember_small_cache(_DAYZ_REFERENCE_CLASSNAME_CACHE, digest, names, limit=12))
+
+
+def dayz_vehicle_reference_records(map_key: Any) -> dict[str, Any]:
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    source_text = load_dayz_reference_text(clean_map, "cfgspawnabletypes.xml")
+    digest = dashboard_cache_key([clean_map, source_text])
+    cached = _VEHICLE_REFERENCE_RECORD_CACHE.get(digest)
+    if cached is not None:
+        return cached
+    records: dict[str, Any] = {}
+    if source_text.strip():
+        try:
+            root = ET.fromstring(re.sub(r"<!--.*?-->", "", source_text, flags=re.DOTALL))
+        except ET.ParseError:
+            root = None
+        if root is not None and root.tag == "spawnabletypes":
+            for type_node in root.findall("./type"):
+                type_name = safe_dayz_class(type_node.get("name"))
+                if not type_name:
+                    continue
+                groups = []
+                for attachment_node in type_node.findall("./attachments"):
+                    items = []
+                    for item_node in attachment_node.findall("./item"):
+                        item_name = safe_dayz_class(item_node.get("name"))
+                        if item_name:
+                            items.append({"name": item_name, "chance": str(item_node.get("chance") or "1.00")})
+                    if items:
+                        groups.append({"chance": str(attachment_node.get("chance") or "1.00"), "items": items})
+                if groups and spawnabletype_is_vehicle(type_node):
+                    records[type_name.lower()] = {"name": type_name, "groups": groups}
+    return remember_small_cache(_VEHICLE_REFERENCE_RECORD_CACHE, digest, records, limit=12)
+
+
+def vehicle_attachment_group_kind(group: Any) -> str:
+    names = [str(item.get("name") or "").lower() for item in (group or {}).get("items", []) if isinstance(item, dict)]
+    if names and all("wheel" in name for name in names):
+        return "wheels"
+    if any(any(term in name for term in ("door", "hood", "trunk")) for name in names):
+        return "doors"
+    if any("battery" in name for name in names):
+        return "battery"
+    if any("radiator" in name for name in names):
+        return "radiator"
+    if any("sparkplug" in name or "glowplug" in name for name in names):
+        return "sparkplug"
+    return "other"
+
+
+def vehicle_reference_detail(map_key: Any, vehicle_class: Any) -> dict[str, Any]:
+    class_name = safe_dayz_class(vehicle_class)
+    record = dayz_vehicle_reference_records(map_key).get(class_name.lower()) if class_name else None
+    if not isinstance(record, dict):
+        fallback = default_vehicle_spawn_parts(class_name)
+        groups = [
+            {"chance": "1.00", "items": [{"name": item_name, "chance": "1.00"}]}
+            for item_name in fallback.get("wheels", []) + fallback.get("doors", [])
+        ]
+        for item_name in ("CarRadiator", "CarBattery", "SparkPlug"):
+            groups.append({"chance": "1.00", "items": [{"name": item_name, "chance": "1.00"}]})
+        groups = [{**group, "kind": vehicle_attachment_group_kind(group)} for group in groups]
+        return {"name": class_name, "available": False, "groups": groups, "parts": [item["name"] for group in groups for item in group["items"]]}
+    groups = [{**group, "kind": vehicle_attachment_group_kind(group)} for group in record.get("groups", [])]
+    return {
+        "name": str(record.get("name") or class_name),
+        "available": True,
+        "groups": groups,
+        "parts": [str(item.get("name") or "") for group in groups for item in group.get("items", []) if str(item.get("name") or "")],
+    }
+
+
 def build_vehicle_spawnabletypes_xml(payload: dict[str, Any]) -> dict[str, Any]:
     vehicle_class = sanitize_dayz_classname(payload.get("vehicle_class"))
     if not vehicle_class:
         raise ValueError("Vehicle classname is required.")
     if disallowed_vehicle_part_class(vehicle_class):
         raise ValueError("Use a whole vehicle classname, not a wheel, door, radiator or other part.")
-    parts = default_vehicle_spawn_parts(vehicle_class)
-    wheel_chance = dayz_xml_chance(payload.get("wheel_chance"), 0.8)
-    door_chance = dayz_xml_chance(payload.get("door_chance"), 0.5)
-    radiator_chance = dayz_xml_chance(payload.get("radiator_chance"), 1.0)
-    battery_chance = dayz_xml_chance(payload.get("battery_chance"), 1.0)
-    fuel_chance = dayz_xml_chance(payload.get("fuel_chance"), 1.0)
-    lines = [
-        f'<type name="{xml_attr(vehicle_class)}">',
-        '    <attachments chance="1.00">',
-    ]
-    for item in parts["wheels"]:
-        lines.append(f'        <item name="{xml_attr(item)}" chance="{wheel_chance}" />')
-    for item in parts["doors"]:
-        lines.append(f'        <item name="{xml_attr(item)}" chance="{door_chance}" />')
-    lines.extend([
-        f'        <item name="CarRadiator" chance="{radiator_chance}" />',
-        f'        <item name="CarBattery" chance="{battery_chance}" />',
-        f'        <item name="SparkPlug" chance="{fuel_chance}" />',
-        "    </attachments>",
-    ])
-    cargo_items = split_class_list(payload.get("cargo_items"), 40)
-    if cargo_items:
-        lines.append('    <cargo chance="1.00">')
-        for item in cargo_items:
-            lines.append(f'        <item name="{xml_attr(item)}" chance="1.00" />')
-        lines.append("    </cargo>")
-    lines.append("</type>")
-    generated_xml = "\n".join(lines)
-    validate_xml_fragment("cfgspawnabletypes", generated_xml)
-    return {"generated_xml": generated_xml, "part_count": len(parts["wheels"]) + len(parts["doors"]) + 3}
+    cargo_rows = [{"item": item_name, "quantity": 1} for item_name in split_class_list(payload.get("cargo_items"), 40)]
+    record = {
+        "vehicle_class": vehicle_class,
+        "vehicle_mode": "full_with_cargo" if cargo_rows else "full_no_cargo",
+        "part_battery": True,
+        "part_sparkplug": True,
+        "part_radiator": True,
+        "part_wheels": True,
+        "part_doors": True,
+    }
+    map_key = payload.get("map") or payload.get("server_map") or "chernarus"
+    generated_xml = build_vehicle_workshop_xml(record, cargo_rows, map_key=map_key)
+    wrapped = ET.fromstring(f"<spawnabletypes>{generated_xml}</spawnabletypes>")
+    return {"generated_xml": generated_xml, "part_count": len(wrapped.findall(".//attachments/item"))}
 
 
 def parse_airdrop_positions(value: Any) -> list[dict[str, str]]:
@@ -36287,6 +37202,27 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
             "complexChildrenTypes": cargo_children,
         }]
     return preset
+
+
+def validate_player_loadout_json(payload: dict[str, Any], custom_path: Any, map_key: Any) -> list[str]:
+    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    target_path = safe_custom_json_path(custom_path, "WanderingLoadout")
+    valid, validation_message = validate_dayz_upload_text(target_path, text)
+    if not valid:
+        raise ValueError(f"Generated player loadout failed validation: {validation_message}")
+    available = dayz_reference_classnames(map_key)
+    if not available:
+        return [f"No active {normalize_dayz_reference_map_key(map_key)} reference library was available for classname checks."]
+    missing = sorted({
+        class_name
+        for class_name in iter_player_loadout_classnames(payload)
+        if safe_dayz_class(class_name) and safe_dayz_class(class_name).lower() not in available
+    }, key=str.lower)
+    if not missing:
+        return []
+    preview = ", ".join(missing[:12])
+    suffix = f" and {len(missing) - 12} more" if len(missing) > 12 else ""
+    return [f"Not found in the selected map/reference version: {preview}{suffix}."]
 
 
 def empty_visual_loadout_draft() -> dict[str, Any]:
@@ -36749,24 +37685,34 @@ def build_spawnable_cargo_xml(type_name: str, items: list[dict[str, Any]]) -> st
     return "\n".join(lines)
 
 
-def build_vehicle_workshop_xml(record: dict[str, Any], items: list[dict[str, Any]]) -> str:
+def build_vehicle_workshop_xml(record: dict[str, Any], items: list[dict[str, Any]], map_key: Any = "chernarus") -> str:
     safe_type = safe_dayz_class(record.get("vehicle_class")) or "VehicleClass"
-    parts = default_vehicle_spawn_parts(safe_type)
-    lines = [f'<type name="{safe_type}">', '    <attachments chance="1.00">']
-    if safe_bool(record.get("part_wheels"), True):
-        for item_name in parts.get("wheels", []):
-            lines.append(f'        <item name="{xml_attr(item_name)}" chance="1.00" />')
-    if safe_bool(record.get("part_doors"), True):
-        for item_name in parts.get("doors", []):
-            lines.append(f'        <item name="{xml_attr(item_name)}" chance="1.00" />')
-    if safe_bool(record.get("part_battery"), True):
-        lines.append('        <item name="CarBattery" chance="1.00" />')
-    if safe_bool(record.get("part_sparkplug"), True):
-        lines.append('        <item name="SparkPlug" chance="1.00" />')
-    if safe_bool(record.get("part_radiator"), True):
-        lines.append('        <item name="CarRadiator" chance="1.00" />')
-    lines.append('    </attachments>')
-    if str(record.get("vehicle_mode") or "") != "full_no_cargo":
+    mode = str(record.get("vehicle_mode") or "full_with_cargo").strip().lower()
+    detail = vehicle_reference_detail(map_key, safe_type)
+    lines = [f'<type name="{safe_type}">']
+    enabled_groups = {
+        "wheels": safe_bool(record.get("part_wheels"), True),
+        "doors": safe_bool(record.get("part_doors"), True),
+        "battery": safe_bool(record.get("part_battery"), True),
+        "sparkplug": safe_bool(record.get("part_sparkplug"), True),
+        "radiator": safe_bool(record.get("part_radiator"), True),
+        "other": True,
+    }
+    for group in detail.get("groups", []):
+        if not isinstance(group, dict) or not enabled_groups.get(vehicle_attachment_group_kind(group), True):
+            continue
+        group_chance = str(group.get("chance") or "1.00") if mode == "native" else "1.00"
+        lines.append(f'    <attachments chance="{xml_attr(group_chance)}">')
+        for item in group.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            item_name = safe_dayz_class(item.get("name"))
+            if not item_name:
+                continue
+            item_chance = str(item.get("chance") or "1.00") if mode == "native" else "1.00"
+            lines.append(f'        <item name="{xml_attr(item_name)}" chance="{xml_attr(item_chance)}" />')
+        lines.append('    </attachments>')
+    if mode == "full_with_cargo":
         cargo_lines: list[str] = []
         for item in items:
             if not isinstance(item, dict):
@@ -36781,7 +37727,15 @@ def build_vehicle_workshop_xml(record: dict[str, Any], items: list[dict[str, Any
             lines.extend(cargo_lines)
             lines.append('    </cargo>')
     lines.append("</type>")
-    return "\n".join(lines)
+    generated_xml = "\n".join(lines)
+    validate_xml_fragment("cfgspawnabletypes", generated_xml)
+    valid, validation_message = validate_dayz_upload_text(
+        "cfgspawnabletypes.xml",
+        f'<?xml version="1.0" encoding="UTF-8"?>\n<spawnabletypes>\n{generated_xml}\n</spawnabletypes>\n',
+    )
+    if not valid:
+        raise ValueError(f"Generated vehicle loadout failed validation: {validation_message}")
+    return generated_xml
 
 
 def build_airdrop_xml_package(record: dict[str, Any]) -> dict[str, str]:
@@ -41249,6 +42203,29 @@ def parse_scenario_location_pool(raw: Any, map_size: int) -> list[dict[str, Any]
     return locations
 
 
+def generate_scenario_vehicle_positions(x: Any, z: Any, radius: Any, count: Any, angle: Any = 0) -> list[dict[str, Any]]:
+    """Generate a deterministic, previewable set of vehicle positions inside a radius."""
+    base_x = safe_int(x, 0)
+    base_z = safe_int(z, 0)
+    base_angle = safe_int(angle, 0) % 360
+    spread = max(35, min(250, safe_int(radius, 45) or 45))
+    vehicle_count = max(1, min(80, safe_int(count, 1)))
+    positions: list[dict[str, Any]] = []
+    for index in range(vehicle_count):
+        distance = spread * math.sqrt((index + 1) / vehicle_count)
+        offset_angle = (base_angle + (index * 137.50776405)) % 360
+        radians = math.radians(offset_angle)
+        pos_x = round(base_x + (math.cos(radians) * distance), 3)
+        pos_z = round(base_z + (math.sin(radians) * distance), 3)
+        positions.append({
+            "name": f"Generated vehicle {index + 1}",
+            "x": pos_x,
+            "z": pos_z,
+            "angle": base_angle,
+        })
+    return positions
+
+
 def map_image_file_for(server_map: str) -> str:
     return MAP_IMAGE_FILES.get(map_key_for(server_map), MAP_IMAGE_FILES["chernarus"])
 
@@ -42358,7 +43335,15 @@ def page(mode: str, auth: dict[str, Any]):
     player_loadout_active_slot = str(request.args.get("loadout_slot") or "Head").strip()
     if player_loadout_active_slot not in player_loadout_slots:
         player_loadout_active_slot = "Head"
-    player_loadout_slot_items = picker_groups.get(player_loadout_active_slot) or []
+    reference_classnames = dayz_reference_classnames(server_map)
+    player_loadout_slot_items = [
+        {
+            **item,
+            "reference_available": not reference_classnames or str(item.get("name") or "").lower() in reference_classnames,
+        }
+        for item in (picker_groups.get(player_loadout_active_slot) or [])
+        if isinstance(item, dict)
+    ]
     player_loadout_selected_item = safe_dayz_class(request.args.get("loadout_item"))
     if player_loadout_selected_item and player_loadout_selected_item not in {
         str(item.get("name") or "").strip()
@@ -42391,6 +43376,30 @@ def page(mode: str, auth: dict[str, Any]):
             "image_url": str(info.get("image_url") or item_image_url(item_name)),
             "fallback_image_url": str(info.get("fallback_image_url") or item_thumb_fallback(str(info.get("category") or "General"))),
         })
+    player_loadout_warnings = []
+    if player_loadout_draft_items:
+        try:
+            player_loadout_warnings = validate_player_loadout_json(
+                build_player_loadout_json({"name": player_loadout_draft_name, "items": player_loadout_draft_items}),
+                player_loadout_draft_custom_path,
+                server_map,
+            )
+        except ValueError as validation_error:
+            player_loadout_warnings = [str(validation_error)]
+    vehicle_reference_records = dayz_vehicle_reference_records(server_map)
+    vehicle_loadout_items = [
+        {
+            **item,
+            "reference_available": str(item.get("name") or "").lower() in vehicle_reference_records,
+        }
+        for item in (picker_groups.get("vehicles") or [])
+        if isinstance(item, dict)
+    ]
+    vehicle_loadout_selected_class = safe_dayz_class(request.args.get("vehicle_class")) or "Truck_01_Covered"
+    vehicle_names = {str(item.get("name") or "") for item in vehicle_loadout_items}
+    if vehicle_loadout_selected_class not in vehicle_names and vehicle_loadout_items:
+        vehicle_loadout_selected_class = str(vehicle_loadout_items[0].get("name") or "")
+    vehicle_loadout_reference = vehicle_reference_detail(server_map, vehicle_loadout_selected_class)
     visual_player_cargo_names = [
         str(item.get("name") or "").strip()
         for item in (picker_groups.get("player_cargo") or [])
@@ -42485,6 +43494,10 @@ def page(mode: str, auth: dict[str, Any]):
         pwa_theme_color=PWA_THEME_COLOR,
         public_origin=dashboard_public_origin(),
         android_play_store_url=ANDROID_PLAY_STORE_URL,
+        support_url=SUPPORT_DISCORD_URL,
+        support_email=PUBLIC_SUPPORT_EMAIL,
+        izurvive_url=PUBLIC_IZURVIVE_URL,
+        current_year=datetime.now(UTC).year,
         section_allowed=section_allowed,
         channel_label=channel_label_from_channels,
         view_title={"overview": "Operations Dashboard", "admin": "Admin Control Panel", "owner": "Owner Console"}[mode],
@@ -42512,6 +43525,11 @@ def page(mode: str, auth: dict[str, Any]):
         player_loadout_draft_items_text=player_loadout_draft_items_text,
         player_loadout_draft_rows=player_loadout_draft_rows,
         player_loadout_json_text=player_loadout_json_text,
+        player_loadout_warnings=player_loadout_warnings,
+        vehicle_loadout_items=vehicle_loadout_items,
+        vehicle_loadout_selected_class=vehicle_loadout_selected_class,
+        vehicle_loadout_reference=vehicle_loadout_reference,
+        vehicle_reference_records=vehicle_reference_records,
         ce_defaults=ce_defaults,
         airdrop_location_presets=airdrop_location_presets,
         airdrop_marker_class=SCENARIO_AIRDROP_MARKER_CLASS,
@@ -43675,6 +44693,102 @@ def public_support():
     )
 
 
+@APP.get("/child-safety")
+def public_child_safety():
+    return public_info_page(
+        "/child-safety",
+        "Child Safety",
+        "Safety",
+        "Child safety and reporting",
+        "Wandering Bot is a server-owner administration service. Community owners remain responsible for their Discord membership, moderation rules, age requirements, and reports.",
+        [
+            {
+                "title": "Protecting younger users",
+                "body": [
+                    "Do not use Wandering Bot to request, publish, or trade a child's personal information. Server owners should restrict administration tools to trusted adults and use Discord's age and permission controls.",
+                    "Private dashboard credentials, linked gamertags, server logs, and moderation evidence must not be posted in public channels.",
+                ],
+            },
+            {
+                "title": "Report a concern",
+                "body": [
+                    f"Report an urgent Wandering Bot safety concern through the support Discord or email {PUBLIC_SUPPORT_EMAIL}. Include the Discord server name, relevant message or channel, and enough context to investigate without reposting harmful material.",
+                    "For immediate danger or illegal content, contact local emergency services and report the content directly to the platform hosting it.",
+                ],
+            },
+        ],
+        actions=[
+            {"label": "Contact support", "href": "/support", "primary": True},
+            {"label": "Community rules", "href": "/community-rules", "primary": False},
+        ],
+        description="Child safety, privacy, and reporting information for Wandering Bot communities and server owners.",
+    )
+
+
+@APP.get("/delete-account")
+def public_delete_account():
+    return public_info_page(
+        "/delete-account",
+        "Delete Account",
+        "Account",
+        "Delete your Wandering Bot account",
+        "Request removal of a Wandering Bot dashboard account, mobile-app account, or connected server data from the support team.",
+        [
+            {
+                "title": "Send a verified request",
+                "body": [
+                    f"Email {PUBLIC_SUPPORT_EMAIL} from the address associated with your purchase or contact the support team while signed into the relevant dashboard. State which dashboard account and Discord server should be removed.",
+                    "The support team may ask for proof that you control the account or Discord server before deleting connected data.",
+                ],
+            },
+            {
+                "title": "What happens next",
+                "body": [
+                    "Access is removed from the requested account and the connected dashboard data is scheduled for deletion. Records that must be retained for payment, fraud prevention, dispute handling, security, or legal obligations may be kept only for the required period.",
+                    "Removing the mobile app from a device does not itself delete the server-side account. Use this request process so the account can be identified and removed safely.",
+                ],
+            },
+        ],
+        actions=[
+            {"label": "Start deletion request", "href": f"mailto:{PUBLIC_SUPPORT_EMAIL}?subject=Wandering%20Bot%20account%20deletion", "primary": True},
+            {"label": "Privacy policy", "href": "/privacy", "primary": False},
+        ],
+        description="Account and data deletion instructions for the Wandering Bot dashboard and mobile application.",
+    )
+
+
+@APP.get("/community-rules")
+def public_community_rules():
+    return public_info_page(
+        "/community-rules",
+        "Community Rules",
+        "Community",
+        "Wandering Bot community rules",
+        "These rules apply to Wandering Bot support spaces, public reviews, shared examples, and interactions with the support team.",
+        [
+            {
+                "title": "Be safe and respectful",
+                "body": [
+                    "Do not harass, threaten, impersonate, discriminate against, or expose another person. Do not share private credentials, personal information, private server logs, or payment details.",
+                    "Keep support requests factual. Disagreement about a DayZ server rule is not permission to target its staff or players.",
+                ],
+            },
+            {
+                "title": "Use the service responsibly",
+                "body": [
+                    "Only connect Discord, Nitrado, FTP, RCON, Stripe, or DayZ resources you own or are authorised to manage. Do not use Wandering Bot to evade platform enforcement, distribute malware, or interfere with another community.",
+                    "Server owners are responsible for checking generated files, moderation actions, and destructive controls before applying them to a live server.",
+                ],
+            },
+        ],
+        actions=[
+            {"label": "Get support", "href": "/support", "primary": True},
+            {"label": "Terms of Service", "href": "/terms", "primary": False},
+        ],
+        description="Community and acceptable-use rules for Wandering Bot support spaces and DayZ server-owner tools.",
+    )
+
+
 @APP.get("/.well-known/assetlinks.json")
 def android_assetlinks_json():
     statements = android_assetlinks_statements()
@@ -43738,7 +44852,7 @@ def sitemap_xml():
         entries.append(
             f"  <url><loc>{loc}</loc>{lastmod_tag(guide_data)}<changefreq>weekly</changefreq><priority>0.7</priority></url>"
         )
-    for static_path in ("/privacy", "/terms", "/support"):
+    for static_path in ("/privacy", "/terms", "/child-safety", "/delete-account", "/community-rules", "/support"):
         loc = html.escape(public_page_url(static_path), quote=True)
         entries.append(
             f"  <url><loc>{loc}</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>"
@@ -45434,6 +46548,27 @@ def api_xml_workshop_loadout_add():
     config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
     if target_error or not isinstance(config, dict):
         return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+    map_key = config.get("server_map") or config.get("map") or "chernarus"
+    available_classnames = dayz_reference_classnames(map_key)
+    if available_classnames and item_name.lower() not in available_classnames:
+        return jsonify({
+            "ok": False,
+            "success": False,
+            "error": f"{item_name} is not available in the selected {normalize_dayz_reference_map_key(map_key)} reference library.",
+        }), 400
+    if not attachment_for:
+        picker_groups = cached_xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id)))
+        compatible_names = {
+            str(item.get("name") or "").lower()
+            for item in picker_groups.get(active_slot, [])
+            if isinstance(item, dict)
+        }
+        if compatible_names and item_name.lower() not in compatible_names:
+            return jsonify({
+                "ok": False,
+                "success": False,
+                "error": f"{item_name} is not compatible with the selected {active_slot} slot.",
+            }), 400
     workshop = dashboard_prepare_xml_workshop_for_profile(base_config, config, profile_id) if profile_id else config.setdefault("xml_workshop", {})
     if not isinstance(workshop, dict):
         workshop = {}
@@ -45460,12 +46595,14 @@ def api_xml_workshop_loadout_download():
     guild_id = normalize_guild_id(raw_payload.get("guild_id"))
     profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
     draft: dict[str, Any] = {}
+    map_key = "chernarus"
     guild_configs = load_store("guild_configs", {})
     if isinstance(guild_configs, dict):
         base_config = guild_configs.get(guild_id, {})
         config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
         if target_error or not isinstance(config, dict):
             return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+        map_key = config.get("server_map") or config.get("map") or map_key
         workshop = dashboard_xml_workshop_for_profile(base_config, config, profile_id) if profile_id else config.get("xml_workshop", {})
         saved_draft = workshop.get("player_loadout_draft", {}) if isinstance(workshop, dict) else {}
         if isinstance(saved_draft, dict):
@@ -45480,12 +46617,65 @@ def api_xml_workshop_loadout_download():
     filename = os.path.basename(custom_path.replace("\\", "/")) or "custom_loadout.json"
     if not filename.lower().endswith(".json"):
         filename += ".json"
-    text = json.dumps(build_player_loadout_json({"name": name, "items": items}), indent=2, ensure_ascii=False) + "\n"
+    generated_payload = build_player_loadout_json({"name": name, "items": items})
+    try:
+        validate_player_loadout_json(generated_payload, custom_path, map_key)
+    except ValueError as validation_error:
+        return jsonify({"ok": False, "success": False, "error": str(validation_error)}), 400
+    text = json.dumps(generated_payload, indent=2, ensure_ascii=False) + "\n"
     return send_file(
         io.BytesIO(text.encode("utf-8")),
         mimetype="application/json",
         as_attachment=True,
         download_name=filename,
+    )
+
+
+@APP.post("/api/admin/xml-workshop-vehicle-download")
+def api_xml_workshop_vehicle_download():
+    payload, error = require_admin()
+    if error:
+        return error
+    raw_payload = payload or {}
+    guild_id = normalize_guild_id(raw_payload.get("guild_id"))
+    profile_id = normalize_server_profile_id(raw_payload.get("server_profile_id"), "")
+    guild_configs = load_store("guild_configs", {})
+    if not isinstance(guild_configs, dict):
+        guild_configs = {}
+    config, _runtime_id, target_error = dashboard_target_config_for_profile(guild_configs, guild_id, profile_id)
+    if target_error or not isinstance(config, dict):
+        return jsonify({"ok": False, "success": False, "error": target_error or "DayZ server profile was not found."}), 404
+    record = {
+        "vehicle_class": safe_dayz_class(raw_payload.get("vehicle_class")),
+        "vehicle_mode": str(raw_payload.get("vehicle_mode") or "full_with_cargo").strip(),
+        "part_battery": safe_bool(raw_payload.get("part_battery"), True),
+        "part_sparkplug": safe_bool(raw_payload.get("part_sparkplug"), True),
+        "part_radiator": safe_bool(raw_payload.get("part_radiator"), True),
+        "part_wheels": safe_bool(raw_payload.get("part_wheels"), True),
+        "part_doors": safe_bool(raw_payload.get("part_doors"), True),
+    }
+    if not record["vehicle_class"] or disallowed_vehicle_part_class(record["vehicle_class"]):
+        return jsonify({"ok": False, "success": False, "error": "Pick a valid whole vehicle classname before downloading."}), 400
+    items = parse_xml_workshop_items(raw_payload.get("items"))
+    try:
+        fragment = build_vehicle_workshop_xml(
+            record,
+            items,
+            map_key=config.get("server_map") or config.get("map") or "chernarus",
+        )
+    except ValueError as validation_error:
+        return jsonify({"ok": False, "success": False, "error": str(validation_error)}), 400
+    text = f'<?xml version="1.0" encoding="UTF-8"?>\n<spawnabletypes>\n{fragment}\n</spawnabletypes>\n'
+    valid, validation_message = validate_dayz_upload_text("cfgspawnabletypes.xml", text)
+    if not valid:
+        return jsonify({"ok": False, "success": False, "error": f"Generated vehicle XML failed validation: {validation_message}"}), 400
+    recipe_name = str(raw_payload.get("recipe_name") or record["vehicle_class"]).strip()
+    filename_stem = re.sub(r"[^A-Za-z0-9_-]+", "_", recipe_name).strip("_")[:80] or "vehicle_loadout"
+    return send_file(
+        io.BytesIO(text.encode("utf-8")),
+        mimetype="application/xml",
+        as_attachment=True,
+        download_name=f"{filename_stem}_cfgspawnabletypes.xml",
     )
 
 
@@ -45876,6 +47066,14 @@ def api_xml_workshop():
         record["custom_path"] = safe_custom_json_path(payload.get("custom_path"), record["id"])
         record["cfggameplay_reference"] = record["custom_path"]
         record["generated_json"] = build_player_loadout_json(record)
+        try:
+            record["warnings"] = validate_player_loadout_json(
+                record["generated_json"],
+                record["custom_path"],
+                config.get("server_map") or config.get("map") or "chernarus",
+            )
+        except ValueError as validation_error:
+            return jsonify({"ok": False, "error": str(validation_error)}), 400
     elif kind == "vehicle_loadout":
         record.update({
             "vehicle_class": safe_dayz_class(payload.get("vehicle_class")),
@@ -45891,7 +47089,20 @@ def api_xml_workshop():
             return jsonify({"ok": False, "error": "vehicle_class must be a valid DayZ classname"}), 400
         if disallowed_vehicle_part_class(record["vehicle_class"]):
             return jsonify({"ok": False, "error": "pick a whole vehicle class, not a hood, trunk, wheel, or vehicle part"}), 400
-        record["generated_xml"] = build_vehicle_workshop_xml(record, items)
+        map_key = config.get("server_map") or config.get("map") or "chernarus"
+        try:
+            record["generated_xml"] = build_vehicle_workshop_xml(record, items, map_key=map_key)
+        except ValueError as validation_error:
+            return jsonify({"ok": False, "error": str(validation_error)}), 400
+        available_classnames = dayz_reference_classnames(map_key)
+        missing_items = sorted({
+            item_name
+            for item_name in [record["vehicle_class"], *[safe_dayz_class(item.get("item")) for item in items]]
+            if item_name and available_classnames and item_name.lower() not in available_classnames
+        }, key=str.lower)
+        record["warnings"] = [
+            "Not found in the selected map/reference version: " + ", ".join(missing_items) + "."
+        ] if missing_items else []
 
     collection = recipes.setdefault(target_key, [])
     if not isinstance(collection, list):
@@ -46107,7 +47318,15 @@ def api_scenario_event():
         z = max(0, min(map_size, safe_int(saved_location.get("z"), z)))
         location_name = str(saved_location.get("name") or saved_location_name or location_name).strip()
     requested_location_mode = str(payload.get("location_mode") or "").strip().lower()
-    location_mode = "random_pool" if requested_location_mode == "random_pool" else "fixed"
+    if requested_location_mode == "random_pool":
+        location_mode = "random_pool"
+    elif requested_location_mode in {"radius_spread", "spread_radius"}:
+        location_mode = "radius_spread"
+    elif requested_location_mode in {"manual_positions", "manual", "exact_positions"}:
+        location_mode = "manual_positions"
+    else:
+        location_mode = "fixed"
+    vehicle_requested_count = max(1, min(50, safe_int(payload.get("count"), safe_int(preset.get("count"), 1))))
     location_pool: list[dict[str, Any]] = []
     active_count = 1
     if event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool":
@@ -46130,7 +47349,23 @@ def api_scenario_event():
         z = safe_int(location_pool[0].get("z"), z)
         location_name = f"Random pool ({active_count} active / {len(location_pool)} locations)"
         location_records = [{"name": location_name, "x": x, "z": z}]
+    elif event_type == "vehicle_spawn" and location_mode == "manual_positions":
+        location_pool = parse_scenario_location_pool(payload.get("location_pool"), map_size)
+        if len(location_pool) != vehicle_requested_count:
+            return jsonify({
+                "ok": False,
+                "error": f"You selected {vehicle_requested_count} vehicles, so manual placement needs exactly {vehicle_requested_count} different X/Z coordinates. You supplied {len(location_pool)}.",
+            }), 400
+        x = safe_int(location_pool[0].get("x"), x)
+        z = safe_int(location_pool[0].get("z"), z)
+        location_name = f"Manual positions ({len(location_pool)} vehicles)"
+        location_records = [{"name": location_name, "x": x, "z": z}]
     else:
+        if event_type == "vehicle_spawn" and location_mode == "fixed" and vehicle_requested_count != 1:
+            return jsonify({
+                "ok": False,
+                "error": "One exact coordinate can spawn one vehicle. Choose generated radius positions or manual vehicle positions when quantity is greater than one.",
+            }), 400
         # Keep existing API callers working: before the location-pool control
         # existed, a populated batch_locations value deliberately created one
         # event per line.  New random-pool forms never use this legacy path.
@@ -46151,7 +47386,7 @@ def api_scenario_event():
     # initial `1`; keep the Mummy preset's intentional 7-spawn baseline.
     if spawn_preset == "mummy_zombie" and requested_count <= 1:
         requested_count = preset_count
-    event_count = max(1, min(250, requested_count))
+    event_count = max(1, min(50 if event_type == "vehicle_spawn" else 250, requested_count))
     if event_type == "zombie_horde" and zombie_mix:
         event_count = min(250, sum(safe_int(item.get("count"), 1) for item in zombie_mix))
     preset_zombie_min = max(1, min(250, safe_int(preset.get("zombie_min_count"), event_count)))
@@ -46164,6 +47399,10 @@ def api_scenario_event():
     zombie_max_count = max(zombie_min_count, min(250, requested_zombie_max))
     if event_type == "gas_zone":
         event_count = 1
+    if event_type == "vehicle_spawn" and location_mode == "radius_spread":
+        location_pool = generate_scenario_vehicle_positions(x, z, radius, event_count, payload.get("angle", 0))
+        location_name = f"Generated radius ({event_count} vehicles / {radius}m)"
+        location_records = [{"name": location_name, "x": x, "z": z}]
     gas_lifetime_default = 3888000 if permanent else 1800
     gas_lifetime = max(60, min(3888000, safe_int(payload.get("gas_lifetime"), gas_lifetime_default)))
     timing_preset = str(payload.get("timing_preset") or "").strip().lower().replace("-", "_")
@@ -46252,6 +47491,7 @@ def api_scenario_event():
         # file.  A location pool needs native CE's one-of-many position
         # selection, so keep it on the guarded CE upload path.
         or bool(location_pool)
+        or (event_type == "vehicle_spawn" and location_mode in {"radius_spread", "manual_positions"})
     )
     use_delivery_bridge = (
         ALLOW_SCENARIO_DELIVERY_BRIDGE
@@ -46342,8 +47582,15 @@ def api_scenario_event():
             "name": display_name,
             "event_type": event_type,
             "location": loc_name or "Dashboard",
-            "location_mode": location_mode if event_type in {"airdrop", "loot_crate"} else "fixed",
-            "location_pool": location_pool if event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool" else [],
+            "location_mode": location_mode if (
+                event_type in {"airdrop", "loot_crate"} or (
+                    event_type == "vehicle_spawn" and location_mode in {"radius_spread", "manual_positions"}
+                )
+            ) else "fixed",
+            "location_pool": location_pool if (
+                (event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool")
+                or (event_type == "vehicle_spawn" and location_mode in {"radius_spread", "manual_positions"})
+            ) else [],
             "active_count": active_count if event_type in {"airdrop", "loot_crate"} and location_mode == "random_pool" else 1,
             "x": max(0, min(map_size, safe_int(location.get("x"), x))),
             "y": safe_int(payload.get("y"), 0),

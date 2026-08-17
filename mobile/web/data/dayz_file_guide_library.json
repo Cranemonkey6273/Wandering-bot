@@ -1,6 +1,6 @@
 {
   "active_release": "1.29.163451",
-  "reviewed_at": "2026-08-10",
+  "reviewed_at": "2026-08-15",
   "coverage_note": "Core vanilla mission files for Chernarus, Livonia and Sakhal are explained here. Always compare with the active vanilla library for the selected map and version; PC mod files need the exact mod author's schema.",
   "files": [
     {
@@ -12,7 +12,7 @@
       "works_with": ["cfgspawnabletypes.xml", "cfglimitsdefinition.xml", "mapgroupproto.xml", "globals.xml"],
       "relationship": "An item can be plentiful in types.xml and still not spawn in a building when its category, usage or tier does not match an eligible loot point.",
       "restart": "Restart required for the server to load economy changes.",
-      "warning": "Never replace the complete live file with a small snippet. Merge complete <type> records and keep every unrelated entry."
+      "warning": "Never replace the complete live file with a small snippet. Merge complete <type> records and keep every unrelated entry. Removing tiers or mass-changing deloot is a server-wide economy redesign, not a routine cleanup."
     },
     {
       "category": "Loot and economy",
@@ -21,9 +21,9 @@
       "format": "XML",
       "purpose": "Controls attachments, cargo, nested cargo, presets and spawn damage for supported entities such as weapons, bags, infected and vehicles.",
       "works_with": ["types.xml", "events.xml", "cfgrandompresets.xml"],
-      "relationship": "The <type name> and every item classname must exist for the active DayZ build. It changes what an entity carries; it does not set that entity's total world population.",
+      "relationship": "The <type name> and every item classname must exist for the active DayZ build. It changes what an entity carries; it does not set that entity's total world population. Extra infected cargo can be appended without removing existing food, ammunition or presets. An outer cargo/attachments chance gates that block; a nested item chance is conditional inside it.",
       "restart": "Restart required.",
-      "warning": "Chance is normally 0 to 1. Exact vehicle fuel-tank and radiator levels are not configured here; fuel and water can instead be supplied as cargo."
+      "warning": "Chance is normally 0 to 1. Values 1, 1.0 and 1.00 are equivalent. Separate cargo/attachments blocks are independently evaluated and can both succeed; multiple children in one block are not universally mutually exclusive because slot conflicts, cargo capacity and preset semantics also matter. A top-level ruined-damage rule for FlashGrenade or Grenade_ChemGas affects every occurrence produced through this file, not only infected. Exact vehicle fuel-tank and radiator levels are not configured here; fuel and water can instead be supplied as cargo."
     },
     {
       "category": "Loot and economy",
@@ -45,7 +45,7 @@
       "works_with": ["types.xml", "mapgroupproto.xml", "cfglimitsdefinitionuser.xml"],
       "relationship": "A custom category, usage or tier/value cannot safely be referenced elsewhere until it is defined in the matching limits definitions.",
       "restart": "Restart required.",
-      "warning": "Prefer the user definitions file for supported custom definitions so vanilla definitions remain easy to compare after an update."
+      "warning": "A custom loot taxonomy is possible only when its exact names are coordinated across this file, every active types source and mapgroupproto.xml. Never remove all vanilla definitions automatically; back up and explicitly approve that server-wide redesign."
     },
     {
       "category": "Loot and economy",
@@ -75,10 +75,10 @@
       "location": "mpmissions/<mission>/db/events.xml",
       "format": "XML",
       "purpose": "Defines event population, lifetime, radii, position mode, limit mode and child classnames for vehicles, infected, animals, loot and dynamic/static scenes.",
-      "works_with": ["cfgeventspawns.xml", "cfgeventgroups.xml", "cfgspawnabletypes.xml", "types.xml"],
-      "relationship": "For a fixed custom event, the event name must match cfgeventspawns.xml exactly. Child classnames must exist. A grouped scene also needs the matching group definition.",
+      "works_with": ["cfgeventspawns.xml", "cfgeventgroups.xml", "cfgspawnabletypes.xml", "mapgroupproto.xml", "types.xml"],
+      "relationship": "For a fixed custom event, the event name must match cfgeventspawns.xml exactly. Child classnames must exist. A grouped scene also needs the matching group definition. Adding Land_Wreck_C130J to StaticHeliCrash also requires the classname in the active build and a suitable mapgroupproto.xml prototype when the wreck is expected to spawn loot.",
       "restart": "Restart required.",
-      "warning": "Not every event needs four files: cfgeventgroups.xml is only needed for grouped layouts, and mapgroupproto.xml is only needed when the spawned object requires an appropriate loot prototype."
+      "warning": "Not every event needs four files: cfgeventgroups.xml is only needed for grouped layouts, and mapgroupproto.xml is only needed when the spawned object requires an appropriate loot prototype. Merge a new child into the current event instead of replacing its full record. ExplosionTest chains with many second-scale events are experimental, destructive and performance-sensitive; verify the exact platform/version and obtain explicit approval before generating them."
     },
     {
       "category": "Events and spawns",
@@ -89,7 +89,7 @@
       "works_with": ["events.xml", "cfgeventgroups.xml"],
       "relationship": "Its event name must match events.xml. A position using a group attribute must match a group in cfgeventgroups.xml.",
       "restart": "Restart required.",
-      "warning": "X and Z are horizontal world coordinates; A is heading. Y is used only by structures that support or require an explicit height."
+      "warning": "X and Z are horizontal world coordinates; A is heading. Y is used only by structures that support or require an explicit height. Every event name must match events.xml exactly. Large ExplosionTest coordinate chains are experimental and can cause repeated effects or severe server load."
     },
     {
       "category": "Events and spawns",
@@ -186,9 +186,9 @@
       "format": "XML",
       "purpose": "Describes supported building/group prototypes, loot containers and loot points inside those objects.",
       "works_with": ["mapgrouppos.xml", "types.xml", "cfglimitsdefinition.xml"],
-      "relationship": "mapgrouppos.xml places a named group; mapgroupproto.xml describes where loot can appear inside that group. Loot categories/usages must agree with eligible types.xml entries.",
+      "relationship": "mapgrouppos.xml places a named group; mapgroupproto.xml describes where loot can appear inside that group. Loot categories/usages must agree with eligible types.xml entries. Large aircraft wreck prototypes can use many model-local points across their right side, centre and left side, but those points are local offsets rather than world coordinates.",
       "restart": "Restart required.",
-      "warning": "Do not paste map placement records into this prototype file. Its root and record structure are different."
+      "warning": "Do not paste map placement records into this prototype file. Its root and record structure are different. Never mass-remove existing categories/usages unless the owner explicitly chooses a fully coordinated custom taxonomy. Validate every category name against the active cfglimitsdefinition.xml; examples such as vehiclesparts are invalid unless that exact name exists. Keep lootmax and container capacity compatible with the available point/proxy layout."
     },
     {
       "category": "Map groups",
@@ -239,11 +239,11 @@
       "name": "cfgeconomycore.xml",
       "location": "mpmissions/<mission>/cfgeconomycore.xml",
       "format": "XML",
-      "purpose": "Defines Central Economy root classes, defaults and diagnostic logging switches.",
-      "works_with": ["Central Economy", "RPT diagnostics"],
-      "relationship": "Its root classes tell the economy which class families are managed; logging defaults can help diagnose CE behaviour in server reports.",
+      "purpose": "Defines Central Economy root classes, defaults, diagnostics and optional custom CE include folders.",
+      "works_with": ["Central Economy", "RPT diagnostics", "custom types XML includes"],
+      "relationship": "Its root classes tell the economy which class families are managed. A <ce folder> can organise deliberate non-conflicting type=\"types\" include files such as weapons, ammunition or food.",
       "restart": "Restart required.",
-      "warning": "This is an advanced economy file. Do not add individual loot entries here."
+      "warning": "This is an advanced economy file. Do not add individual loot entries here, duplicate a classname across active type sources unintentionally, or treat a partial include as a complete replacement."
     }
   ],
   "terms": [
@@ -271,7 +271,7 @@
     {"category": "World and gameplay", "term": "x / y / z", "meaning": "World coordinates: X and Z are horizontal map axes; Y is height/elevation where the schema uses it.", "rule": "Do not swap an iZurvive X/Z pair into a JSON schema expecting X/Y/Z without placing height in the middle."},
     {"category": "Events and spawns", "term": "a / heading", "meaning": "Rotation around the vertical axis, normally expressed from 0 to 360 degrees.", "rule": "Keep enough decimal precision to prevent unwanted rotation changes."},
     {"category": "Events and spawns", "term": "r / radius", "meaning": "Radius in metres around a territory or configured point.", "rule": "It is not a diameter; map boundaries and the feature's own limits still apply."},
-    {"category": "Loot and economy", "term": "chance", "meaning": "Probability for cargo, attachments or preset choices, normally from 0.0 to 1.0.", "rule": "1.0 means 100 percent; 0.5 means 50 percent."},
+    {"category": "Loot and economy", "term": "chance", "meaning": "Probability for cargo, attachments or preset choices, normally from 0.0 to 1.0.", "rule": "1, 1.0 and 1.00 mean 100 percent; 0.5 means 50 percent. The outer block chance is evaluated before nested item chances, and separate sibling blocks are independent."},
     {"category": "Loot and economy", "term": "damage min / max", "meaning": "Spawn damage range where 0 is pristine and 1 is ruined.", "rule": "Keep min less than or equal to max. Ruined items may be unusable or cleaned up."},
     {"category": "Loot and economy", "term": "category", "meaning": "Broad loot classification such as weapons, food, tools or clothes.", "rule": "Custom names must be defined in limits definitions and supported by the related loot chain."},
     {"category": "Loot and economy", "term": "usage", "meaning": "Location type where loot can be eligible, such as Military, Town, Farm or Hunting.", "rule": "A types.xml usage must agree with eligible building/group definitions."},
