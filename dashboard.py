@@ -7190,8 +7190,6 @@ PAGE_TEMPLATE = """
       transition: opacity .16s ease, transform .16s ease, visibility .16s ease;
     }
     .command-top-nav details:last-of-type .nav-menu { right: 0; left: auto; }
-    .command-top-nav details:hover .nav-menu,
-    .command-top-nav details:focus-within .nav-menu,
     .command-top-nav details[open] .nav-menu {
       opacity: 1;
       visibility: visible;
@@ -15062,29 +15060,37 @@ PAGE_TEMPLATE = """
       if (!nav) return;
       const groups = [...nav.querySelectorAll("details")];
 
-      groups.forEach((group) => group.addEventListener("toggle", () => {
-        if (!group.open) return;
-        groups.forEach((other) => {
-          if (other !== group) other.open = false;
+      const closeGroups = (except = null) => {
+        groups.forEach((group) => {
+          if (group !== except) group.open = false;
         });
-      }));
+      };
+
+      groups.forEach((group) => {
+        group.setAttribute("name", "wandering-command-navigation");
+        group.open = false;
+        group.addEventListener("toggle", () => {
+          if (group.open) closeGroups(group);
+        });
+      });
       nav.addEventListener("click", (event) => {
         if (event.target.closest("a")) {
-          groups.forEach((group) => { group.open = false; });
+          closeGroups();
         }
       });
       document.addEventListener("pointerdown", (event) => {
         if (!nav.contains(event.target)) {
-          groups.forEach((group) => { group.open = false; });
+          closeGroups();
         }
       });
       document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
         const openGroup = groups.find((group) => group.open);
         if (!openGroup) return;
-        openGroup.open = false;
+        closeGroups();
         openGroup.querySelector("summary")?.focus();
       });
+      window.addEventListener("pageshow", () => closeGroups());
     }
 
     function installDashboardImagePreview() {
