@@ -15163,7 +15163,7 @@ PAGE_TEMPLATE = """
       const preview = document.createElement("aside");
       preview.className = "dashboard-image-preview";
       preview.setAttribute("aria-hidden", "true");
-      preview.innerHTML = "<img alt=\"\"><strong></strong><span></span>";
+      preview.innerHTML = "<img alt=\\\"\\\"><strong></strong><span></span>";
       document.body.appendChild(preview);
       const previewImage = preview.querySelector("img");
       const previewTitle = preview.querySelector("strong");
