@@ -12831,7 +12831,7 @@ PAGE_TEMPLATE = """
             {% endfor %}
           </div>
           <div class="attachment-tray" data-attachment-tray>
-            <div class="row-between"><strong>Weapon Attachments</strong><button type="button" data-clear-selected-slot>Clear Selected</button></div>
+            <div class="row-between"><strong>Exact Item Attachments</strong><button type="button" data-clear-selected-slot>Clear Selected</button></div>
             <div data-attachment-items></div>
           </div>
           <form method="post" action="/api/admin/visual-loadout-draft" class="toolbar">
@@ -14706,18 +14706,6 @@ PAGE_TEMPLATE = """
     const PLAYER_LOADOUT_STORAGE_SLOTS = new Set(["Body", "Vest", "Back", "Hips", "Legs"]);
     const PLAYER_LOADOUT_CAPACITY_HINTS = {alicebag: 90, mountainbag: 80, fieldbackpack: 90, drybag: 63, taloonbag: 35, courierbag: 30, improvisedbag: 42, huntingbag: 63, assaultbag: 42, platecarriervest: 24, highcapacityvest: 30, smershvest: 30, smershbag: 30, jacket: 42, pants: 30};
     const PLAYER_LOADOUT_SIZE_HINTS = {m4a1: 27, akm: 27, ak74: 27, sks: 24, mosin: 30, svd: 30, fal: 27, vss: 24, platecarrier: 25, helmet: 9, mag_: 4, ammobox: 4, ammo_: 1, grenade: 2, bandage: 1, canteen: 4, waterbottle: 4, knife: 2, pistol: 6};
-    function curatedLoadoutChildren(parentKey) {
-      if (parentKey === "nvgoggles") return ["Battery9V"];
-      if (parentKey === "nvgheadstrap") return ["NVGoggles"];
-      if (parentKey.startsWith("ballistichelmet") || parentKey.startsWith("tacticalhelmet")) return ["NVGoggles"];
-      if (parentKey === "platecarriervest") return ["PlateCarrierPouches", "PlateCarrierHolster"];
-      const plateCarrierVariant = parentKey.match(/^platecarriervest_(black|camo|green|winter)$/);
-      if (plateCarrierVariant) {
-        const suffix = plateCarrierVariant[1][0].toUpperCase() + plateCarrierVariant[1].slice(1);
-        return [`PlateCarrierPouches_${suffix}`, `PlateCarrierHolster_${suffix}`];
-      }
-      return [];
-    }
     const VISUAL_LOADOUT_DRAFT = {{ visual_loadout_draft|tojson }};
     const DEFAULT_LOADOUT_SLOT = {{ player_loadout_active_slot|tojson }};
     document.body.dataset.section = "{{ active_section }}";
@@ -15804,7 +15792,7 @@ PAGE_TEMPLATE = """
     }
     function playerLoadoutDirectChildNames(parentName) {
       const parentKey = String(parentName || "").toLowerCase();
-      return PLAYER_LOADOUT_REFERENCE_CHILDREN[parentKey] || curatedLoadoutChildren(parentKey);
+      return PLAYER_LOADOUT_REFERENCE_CHILDREN[parentKey] || [];
     }
     function playerLoadoutChildItems(parentName) {
       const explicit = playerLoadoutDirectChildNames(parentName);
@@ -16876,21 +16864,6 @@ PAGE_TEMPLATE = """
       });
       return rows;
     })();
-    const LOADOUT_ATTACHMENTS = {
-      BallisticHelmet: ["NVGoggles", "UniversalLight"],
-      BallisticHelmet_Black: ["NVGoggles", "UniversalLight"],
-      BallisticHelmet_Green: ["NVGoggles", "UniversalLight"],
-      Mich2001Helmet: ["NVGoggles", "UniversalLight"],
-      TacticalHelmet_Black: ["NVGoggles", "UniversalLight"],
-      TacticalHelmet_Green: ["NVGoggles", "UniversalLight"],
-      NVGoggles: ["Battery9V"],
-      NVGHeadstrap: ["NVGoggles", "UniversalLight"],
-      UniversalLight: ["Battery9V"],
-      M4A1: ["M4_RISHndgrd", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
-      AKM: ["Mag_AKM_30Rnd"],
-      SVD: ["Battery9V"],
-      SKS: ["Ammo_762x39"]
-    };
     const loadoutState = {
       selected: "{{ visual_loadout_slot }}",
       category: "all",
@@ -16910,6 +16883,32 @@ PAGE_TEMPLATE = """
     function loadoutItem(classname) {
       const key = String(classname || "").toLowerCase();
       return LOADOUT_DB.find((item) => item.classname.toLowerCase() === key) || {classname, readable: classname, category: "Misc"};
+    }
+    function visualLoadoutSlotGroup(slot) {
+      const button = document.querySelector(`[data-visual-loadout-page] [data-loadout-slot="${CSS.escape(slot || "")}"]`);
+      return button?.dataset.slotGroup || "cloth";
+    }
+    function visualLoadoutEquippedItem(slot) {
+      const group = visualLoadoutSlotGroup(slot);
+      return String(loadoutState[group]?.[slot] || "");
+    }
+    function visualLoadoutDirectChildren(parentName) {
+      return PLAYER_LOADOUT_REFERENCE_CHILDREN[String(parentName || "").toLowerCase()] || [];
+    }
+    function visualLoadoutAttachedChildren(slot, group) {
+      if (group === "attachments") return loadoutState.weaponAttachments[slot] || [];
+      const children = loadoutState.children[slot];
+      return Array.isArray(children?.direct) ? children.direct : [];
+    }
+    function setVisualLoadoutAttachedChildren(slot, group, items) {
+      if (group === "attachments") {
+        loadoutState.weaponAttachments[slot] = items;
+        return;
+      }
+      const children = loadoutState.children[slot];
+      const record = children && typeof children === "object" && !Array.isArray(children) ? children : {};
+      record.direct = items;
+      loadoutState.children[slot] = record;
     }
     function loadoutCategoryMatches(item, category) {
       if (!category || category === "all") return true;
@@ -16959,7 +16958,9 @@ PAGE_TEMPLATE = """
         const button = document.querySelector(`[data-loadout-slot="${CSS.escape(target)}"]`);
         const group = button ? button.dataset.slotGroup || "cloth" : "cloth";
         loadoutState[group][target] = item.classname;
-        if (group === "attachments") loadoutState.weaponAttachments[target] = loadoutState.weaponAttachments[target] || [];
+        delete loadoutState.children[target];
+        delete loadoutState.weaponAttachments[target];
+        if (group === "attachments") loadoutState.weaponAttachments[target] = [];
       }
       renderLoadoutState();
       return true;
@@ -16992,17 +16993,20 @@ PAGE_TEMPLATE = """
     function renderAttachmentTray() {
       const trayItems = document.querySelectorAll("[data-attachment-items]");
       const selected = loadoutState.selected || "";
-      const selectedClass = loadoutState.attachments[selected] || "";
-      const allowed = LOADOUT_ATTACHMENTS[selectedClass] || [];
+      const group = visualLoadoutSlotGroup(selected);
+      const selectedClass = visualLoadoutEquippedItem(selected);
+      const allowed = visualLoadoutDirectChildren(selectedClass);
       trayItems.forEach((node) => {
         if (!selected || !selectedClass || !allowed.length) {
-          node.innerHTML = '<span class="muted">Select a weapon slot with a weapon to add sockets.</span>';
+          node.innerHTML = selectedClass
+            ? '<span class="muted">This item has no verified direct attachments in the active DayZ reference.</span>'
+            : '<span class="muted">Select an equipped item to see only its exact direct attachments.</span>';
           return;
         }
-        const attached = loadoutState.weaponAttachments[selected] || [];
+        const attached = visualLoadoutAttachedChildren(selected, group);
         node.innerHTML = allowed.map((classname) => {
           const active = attached.includes(classname);
-          return `<button type="button" class="attachment-chip" data-add-attachment="${classname}">${active ? "Added" : "Add"} ${classname}</button>`;
+          return `<button type="button" class="attachment-chip ${active ? "active" : ""}" data-add-attachment="${classname}">${active ? "Remove" : "Add"} ${classname}</button>`;
         }).join("");
       });
     }
@@ -17091,9 +17095,13 @@ PAGE_TEMPLATE = """
       const attachButton = event.target.closest("[data-add-attachment]");
       if (attachButton && loadoutState.selected) {
         const slot = loadoutState.selected;
-        loadoutState.weaponAttachments[slot] = loadoutState.weaponAttachments[slot] || [];
+        const group = visualLoadoutSlotGroup(slot);
+        const attached = visualLoadoutAttachedChildren(slot, group);
         const item = attachButton.dataset.addAttachment || "";
-        if (!loadoutState.weaponAttachments[slot].includes(item)) loadoutState.weaponAttachments[slot].push(item);
+        const next = attached.includes(item)
+          ? attached.filter((classname) => classname !== item)
+          : [...attached, item];
+        setVisualLoadoutAttachedChildren(slot, group, next);
         renderLoadoutState();
         return;
       }
@@ -17110,6 +17118,7 @@ PAGE_TEMPLATE = """
         delete loadoutState.cloth[loadoutState.selected];
         delete loadoutState.attachments[loadoutState.selected];
         delete loadoutState.weaponAttachments[loadoutState.selected];
+        delete loadoutState.children[loadoutState.selected];
         renderLoadoutState();
         return;
       }
@@ -37137,6 +37146,96 @@ _VEHICLE_REFERENCE_RECORD_CACHE: dict[str, dict[str, Any]] = {}
 _DAYZ_REFERENCE_CLASSNAME_CACHE: dict[str, set[str]] = {}
 _DAYZ_REFERENCE_ATTACHMENT_CHILDREN_CACHE: dict[str, dict[str, list[str]]] = {}
 
+# cfgspawnabletypes.xml describes what can spawn together, not every physical
+# inventory socket on an item.  These are the vanilla socket relationships that
+# are useful in a player loadout builder but are normally absent from that XML.
+# Keep this as direct parent -> direct child only: a battery belongs to NVGs,
+# for example, rather than being shown on the helmet that carries those NVGs.
+DAYZ_VANILLA_KNIFE_SLOT_CHILDREN = (
+    "CombatKnife", "HuntingKnife", "KitchenKnife", "SteakKnife",
+    "AK_Bayonet", "M9A1_Bayonet", "FangeKnife",
+)
+DAYZ_VANILLA_PISTOL_SLOT_CHILDREN = (
+    "Colt1911", "CZ75", "Deagle", "Deagle_Gold", "Derringer_Black",
+    "Derringer_Grey", "Derringer_Pink", "Engraved1911", "FNX45",
+    "Glock19", "MakarovIJ70", "Magnum", "MKII", "P1", "PM73Rak",
+)
+
+DAYZ_VANILLA_LOADOUT_ATTACHMENT_CHILDREN: dict[str, tuple[str, ...]] = {
+    # Headgear and powered headgear.
+    "ballistichelmet_bdu": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_black": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_desert": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_green": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_navy": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_un": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_winter": ("NVGoggles", "UniversalLight"),
+    "ballistichelmet_woodland": ("NVGoggles", "UniversalLight"),
+    "mich2001helmet": ("NVGoggles", "UniversalLight"),
+    "tacticalhelmet_black": ("NVGoggles", "UniversalLight"),
+    "tacticalhelmet_green": ("NVGoggles", "UniversalLight"),
+    "gorkahelmet": ("GorkaHelmetVisor",),
+    "gorkahelmet_black": ("GorkaHelmetVisor",),
+    "gorkahelmet_green": ("GorkaHelmetVisor",),
+    "nvgheadstrap": ("NVGoggles",),
+    "nvgoggles": ("Battery9V",),
+    "headtorch_black": ("Battery9V",),
+    "headtorch_grey": ("Battery9V",),
+    "universallight": ("Battery9V",),
+    "tlrlight": ("Battery9V",),
+    "flashlight": ("Battery9V",),
+    "megaphone": ("Battery9V",),
+    "rangefinder": ("Battery9V",),
+    "pso11optic": ("Battery9V",),
+    "pso1optic": ("Battery9V",),
+    "pso6optic": ("Battery9V",),
+    "m4_t3nrdsoptic": ("Battery9V",),
+    "m68optic": ("Battery9V",),
+    "kobraoptic": ("Battery9V",),
+    "reflexoptic": ("Battery9V",),
+    "fnp45_mrdsoptic": ("Battery9V",),
+
+    # Wearable military gear.
+    "platecarriervest": ("PlateCarrierPouches", "PlateCarrierHolster"),
+    "platecarriervest_black": ("PlateCarrierPouches_Black", "PlateCarrierHolster_Black"),
+    "platecarriervest_camo": ("PlateCarrierPouches_Camo", "PlateCarrierHolster_Camo"),
+    "platecarriervest_green": ("PlateCarrierPouches_Green", "PlateCarrierHolster_Green"),
+    "platecarriervest_winter": ("PlateCarrierPouches_Winter", "PlateCarrierHolster_Winter"),
+    "smershvest": ("SmershBag",),
+
+    # A belt exposes only the items that fit that belt's actual sockets.  Do
+    # not use a name match here: that would accidentally claim modded belts
+    # support vanilla attachments that they do not.
+    "militarybelt": (
+        "Compass", "PersonalRadio", "Handcuffs", "Canteen", "Binoculars",
+        "Rangefinder", "Flashlight", "NylonKnifeSheath", "LeatherKnifeSheath",
+        "PlateCarrierHolster",
+    ) + DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "civilianbelt": ("Canteen", "NylonKnifeSheath", "LeatherKnifeSheath", "PlateCarrierHolster"),
+    "ropebelt": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "leatherbelt_beige": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN + DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "leatherbelt_black": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN + DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "leatherbelt_brown": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN + DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "leatherbelt_natural": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN + DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+
+    # Holsters, knife sheaths and the one vanilla boot family with a knife
+    # socket.  These remain separate so selecting a sheath never suggests a
+    # canteen or a pistol.
+    "nylonknifesheath": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "leatherknifesheath": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "platecarrierholster": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN,
+    "platecarrierholster_black": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN,
+    "platecarrierholster_camo": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN,
+    "platecarrierholster_green": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN,
+    "platecarrierholster_winter": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN,
+    "chestholster": DAYZ_VANILLA_PISTOL_SLOT_CHILDREN,
+    "militaryboots_beige": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "militaryboots_black": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "militaryboots_bluerock": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "militaryboots_brown": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+    "militaryboots_redpunk": DAYZ_VANILLA_KNIFE_SLOT_CHILDREN,
+}
+
 
 def dayz_reference_classnames(map_key: Any) -> set[str]:
     clean_map = normalize_dayz_reference_map_key(map_key)
@@ -37197,6 +37296,39 @@ def dayz_reference_attachment_children(map_key: Any) -> dict[str, list[str]]:
                     children_by_parent[parent.lower()] = children
     cached_value = remember_small_cache(_DAYZ_REFERENCE_ATTACHMENT_CHILDREN_CACHE, digest, children_by_parent, limit=12)
     return {parent: list(children) for parent, children in cached_value.items()}
+
+
+def dayz_reference_loadout_attachment_children(map_key: Any) -> dict[str, list[str]]:
+    """Combine active spawn presets with verified direct vanilla gear sockets.
+
+    The active reference still decides what may be displayed.  This means a
+    class removed by a DayZ update (or missing from the selected map release)
+    cannot reappear merely because it exists in the vanilla compatibility
+    table.
+    """
+    available = dayz_reference_classnames(map_key)
+    source_children = dayz_reference_attachment_children(map_key)
+    merged: dict[str, list[str]] = {}
+
+    def add(parent: Any, children: Any) -> None:
+        parent_name = safe_dayz_class(parent)
+        parent_key = parent_name.lower()
+        if not parent_name or (available and parent_key not in available):
+            return
+        bucket = merged.setdefault(parent_key, [])
+        seen = {item.lower() for item in bucket}
+        for raw_child in children or ():
+            child = safe_dayz_class(raw_child)
+            if not child or (available and child.lower() not in available) or child.lower() in seen:
+                continue
+            seen.add(child.lower())
+            bucket.append(child)
+
+    for parent, children in source_children.items():
+        add(parent, children)
+    for parent, children in DAYZ_VANILLA_LOADOUT_ATTACHMENT_CHILDREN.items():
+        add(parent, children)
+    return merged
 
 
 def dayz_vehicle_reference_records(map_key: Any) -> dict[str, Any]:
@@ -37837,71 +37969,63 @@ def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> lis
     text = name.lower()
     if not name:
         return []
-    slots: list[dict[str, Any]] = []
+    exact_children = dayz_reference_loadout_attachment_children("chernarus").get(text, [])
+    grouped_exact: dict[tuple[str, str, str], list[str]] = {}
 
-    def add(slot_key: str, label: str, choices: list[str], category: str, mode: str = "single") -> None:
+    def exact_child_group(child: str) -> tuple[str, str, str]:
+        key = child.lower()
+        if key == "battery9v":
+            return "battery", "Battery", "Attachments"
+        if "nvg" in key:
+            return "nvg", "NVG", "Attachments"
+        if "pouches" in key:
+            return "pouches", "Pouches", "Attachments"
+        if "holster" in key:
+            return "holster", "Holster", "Attachments"
+        if "sheath" in key:
+            return "sheath", "Knife sheath", "Attachments"
+        if child in DAYZ_VANILLA_KNIFE_SLOT_CHILDREN:
+            return "knife", "Knife", "Weapons"
+        if child in DAYZ_VANILLA_PISTOL_SLOT_CHILDREN:
+            return "pistol", "Pistol", "Weapons"
+        if key.startswith("mag_"):
+            return "magazine", "Magazine", "Ammunition"
+        if "optic" in key or key in {"buisoptic", "puscope"}:
+            return "optic", "Optic", "Attachments"
+        if "hndgrd" in key:
+            return "handguard", "Handguard", "Attachments"
+        if "bttstck" in key or "stock" in key:
+            return "buttstock", "Buttstock", "Attachments"
+        if "suppressor" in key or "compensator" in key:
+            return "muzzle", "Muzzle attachment", "Attachments"
+        if "bayonet" in key:
+            return "bayonet", "Bayonet", "Attachments"
+        if key == "canteen":
+            return "canteen", "Canteen", "Food/Drink"
+        if key == "compass":
+            return "compass", "Compass", "Navigation"
+        if key in {"personalradio", "rangefinder", "binoculars", "flashlight", "handcuffs"}:
+            return key, child, "Tools"
+        return "attachment", "Attachment", "Attachments"
+
+    for child in exact_children:
+        grouped_exact.setdefault(exact_child_group(child), []).append(child)
+    exact_slots: list[dict[str, Any]] = []
+    for (slot_key, label, category), choices in grouped_exact.items():
         rows = visual_items_matching(groups, choices, category)
         if rows:
-            slots.append({"key": slot_key, "label": label, "mode": mode, "items": rows})
-
-    def add_player_cargo(slot_key: str, label: str, mode: str = "multi") -> None:
-        rows = unique_visual_items(groups.get("player_cargo") or groups.get("cargo", []), None)
-        if rows:
-            slots.append({"key": slot_key, "label": label, "mode": mode, "items": rows})
-
-    if any(term in text for term in ("helmet", "ballistichelmet", "tacticalhelmet", "combathelmet", "mich")):
-        add("nvg", "NVG / head attachment", ["NVGoggles", "NVGHeadstrap", "UniversalLight"], "Attachments")
-        add("battery", "Battery", ["Battery9V"], "Attachments")
-    if any(term in text for term in ("nvg", "universallight", "universal_light", "flashlight", "headtorch")):
-        add("battery", "Battery", ["Battery9V"], "Attachments")
-    if "platecarrier" in text:
-        add("pouches", "Pouches", ["PlateCarrierPouches"], "Attachments")
-        add("holster", "Holster", ["PlateCarrierHolster", "PlateCarrierHolster_Black", "PlateCarrierHolster_Camo", "PlateCarrierHolster_Green", "PlateCarrierHolster_Winter"], "Attachments")
-        add("grenades", "Grenades", ["M67Grenade", "RGD5Grenade", "FlashGrenade", "M18SmokeGrenade_Red", "M18SmokeGrenade_Green"], "Explosives", "multi")
-    if "belt" in text:
-        add("canteen", "Canteen", ["Canteen"], "Containers")
-        add("sheath", "Knife sheath", ["LeatherKnifeSheath", "NylonKnifeSheath"], "Attachments")
-        add("holster", "Holster", ["ChestHolster"], "Attachments")
-    if "knifesheath" in text or text.endswith("sheath"):
-        add("knife", "Knife", ["CombatKnife", "HuntingKnife", "KitchenKnife", "StoneKnife"], "Tools")
-    if "holster" in text:
-        add("pistol", "Pistol", ["MakarovIJ70", "FNX45", "Glock19", "Deagle", "CZ75", "Colt1911"], "Weapons")
-    if any(term in text for term in ("m4a1", "akm", "ak74", "ak101", "sks", "mosin", "svd", "fal", "vss", "aug", "pistol", "fnx", "glock", "deagle", "cz75", "1911")):
-        if "m4a1" in text:
-            add("magazine", "Magazine", ["Mag_STANAG_30Rnd", "Mag_STANAGCoupled_30Rnd", "Mag_CMAG_40Rnd"], "Ammunition")
-            add("optic", "Optic", ["ACOGOptic", "M68Optic", "M4_T3NRDSOptic", "ReflexOptic", "BUISOptic"], "Attachments")
-            add("handguard", "Handguard", ["M4_RISHndgrd", "M4_MPHndgrd", "M4_PlasticHndgrd"], "Attachments")
-            add("buttstock", "Buttstock", ["M4_OEBttstck", "M4_MPBttstck", "M4_CQBBttstck"], "Attachments")
-            add("muzzle", "Suppressor", ["M4_Suppressor"], "Attachments")
-            add("ammo", "Ammo", ["AmmoBox_556x45_20Rnd", "Ammo_556x45"], "Ammunition")
-        elif "akm" in text:
-            add("magazine", "Magazine", ["Mag_AKM_30Rnd", "Mag_AKM_Drum75Rnd"], "Ammunition")
-            add("optic", "Optic", ["KobraOptic", "PSO1Optic", "PistolOptic"], "Attachments")
-            add("muzzle", "Suppressor", ["AK_Suppressor"], "Attachments")
-            add("ammo", "Ammo", ["AmmoBox_762x39_20Rnd", "Ammo_762x39"], "Ammunition")
-        elif "ak74" in text or "ak101" in text:
-            mag = "Mag_AK101_30Rnd" if "ak101" in text else "Mag_AK74_30Rnd"
-            ammo_box = "AmmoBox_556x45_20Rnd" if "ak101" in text else "AmmoBox_545x39_20Rnd"
-            ammo_loose = "Ammo_556x45" if "ak101" in text else "Ammo_545x39"
-            add("magazine", "Magazine", [mag], "Ammunition")
-            add("optic", "Optic", ["KobraOptic", "PSO1Optic"], "Attachments")
-            add("muzzle", "Suppressor", ["AK_Suppressor"], "Attachments")
-            add("ammo", "Ammo", [ammo_box, ammo_loose], "Ammunition")
-        elif "svd" in text:
-            add("magazine", "Magazine", ["Mag_SVD_10Rnd"], "Ammunition")
-            add("optic", "Optic", ["PSO1Optic"], "Attachments")
-            add("ammo", "Ammo", ["AmmoBox_762x54_20Rnd", "Ammo_762x54"], "Ammunition")
-        elif "sks" in text or "mosin" in text:
-            add("optic", "Optic", ["PUScope", "HuntingOptic"], "Attachments")
-            add("ammo", "Ammo", ["AmmoBox_762x39_20Rnd", "Ammo_762x39", "AmmoBox_762x54_20Rnd", "Ammo_762x54"], "Ammunition")
-        else:
-            add("magazine", "Magazine", ["Mag_FNX45_15Rnd", "Mag_Glock_15Rnd", "Mag_CZ75_15Rnd", "Mag_1911_7Rnd"], "Ammunition")
-            add("ammo", "Ammo", ["AmmoBox_45ACP_25rnd", "AmmoBox_9x19_25rnd", "Ammo_45ACP", "Ammo_9x19"], "Ammunition")
+            exact_slots.append({"key": slot_key, "label": label, "mode": "single", "items": rows})
     capacity = visual_item_capacity(name)
     if capacity > 0:
-        add_player_cargo("cargo", f"Cargo ({capacity} slot estimate)")
-    return slots
-
+        cargo_rows = unique_visual_items(groups.get("player_cargo") or groups.get("cargo", []), None)
+        if cargo_rows:
+            exact_slots.append({
+                "key": "cargo",
+                "label": f"Cargo ({capacity} slot estimate)",
+                "mode": "multi",
+                "items": cargo_rows,
+            })
+    return exact_slots
 
 def visual_item_variant_key(item_name: Any) -> str:
     text = safe_dayz_class(item_name)
@@ -43706,7 +43830,7 @@ def page(mode: str, auth: dict[str, Any]):
     if player_loadout_active_slot not in player_loadout_slots:
         player_loadout_active_slot = "Head"
     reference_classnames = dayz_reference_classnames(server_map)
-    player_loadout_attachment_children = dayz_reference_attachment_children(server_map)
+    player_loadout_attachment_children = dayz_reference_loadout_attachment_children(server_map)
     player_loadout_slot_candidates = [
         {
             **item,

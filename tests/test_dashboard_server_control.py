@@ -742,10 +742,18 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Definitely_Not_A_DayZ_Class", warnings[0])
 
     def test_player_loadout_children_are_reference_specific_and_pristine(self):
-        children = dashboard.dayz_reference_attachment_children("chernarus")
+        children = dashboard.dayz_reference_loadout_attachment_children("chernarus")
         self.assertEqual({"Hook", "Jig"}, set(children["booniehat_orange"]))
         self.assertIn("M4_OEBttstck", children["m4a1"])
         self.assertNotIn("NVGoggles", children["booniehat_orange"])
+        self.assertIn("Canteen", children["militarybelt"])
+        self.assertIn("PlateCarrierHolster", children["militarybelt"])
+        self.assertIn("NylonKnifeSheath", children["militarybelt"])
+        self.assertIn("CombatKnife", children["militaryboots_black"])
+        self.assertIn("HuntingKnife", children["nylonknifesheath"])
+        self.assertIn("Glock19", children["platecarrierholster"])
+        self.assertEqual(["NVGoggles"], children["nvgheadstrap"])
+        self.assertEqual(["Battery9V"], children["nvgoggles"])
 
         normalized = dashboard.force_pristine_loadout_items([
             {"item": "M4A1", "quantity": 1, "damage": "ruined"},
@@ -846,6 +854,9 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("readonly aria-readonly=\"true\"", template)
         self.assertNotIn("Attachment for weapon/item", template)
         self.assertIn("Only classes present in the active DayZ reference can be added.", template)
+        self.assertIn("visualLoadoutDirectChildren", template)
+        self.assertIn("Exact Item Attachments", template)
+        self.assertNotIn("const LOADOUT_ATTACHMENTS =", template)
         self.assertIn('id="vehicle-loadout-builder"', template)
         self.assertIn("data-vehicle-card-search", template)
         self.assertIn("data-vehicle-class", template)
