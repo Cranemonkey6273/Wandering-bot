@@ -5,7 +5,7 @@ import os
 import sys
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 from _bot_loader import import_bot_module  # noqa: E402
@@ -14,6 +14,166 @@ bot = import_bot_module()
 
 
 class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _safe_zone_config():
+        return {
+            "safe_zones": [
+                {
+                    "id": "z1",
+                    "name": "Test Safe Zone",
+                    "enabled": True,
+                    "shape": "circle",
+                    "x": 100,
+                    "y": 200,
+                    "radius": 50,
+                    "triggers": ["kill"],
+                    "action": "ban",
+                }
+            ]
+        }
+
+    @staticmethod
+    def _live_pvp_hit_line(*, victim="Victim", attacker="Attacker", health="40", dead_marker=""):
+        return (
+            f'18:19:00 | Player "{victim}" {dead_marker} '
+            f'(id=victim pos=<10, 20, 3>) [HP: {health}] hit by Player "{attacker}" '
+            '(id=attacker pos=<100, 200, 3>) into Torso(15) for 60 damage '
+            '(Bullet_9x19) with SG5-K from 12.0 meters'
+        )
+
+    async def test_safe_zone_pvp_evidence_bans_only_the_verified_attacker_and_audits_exact_line(self):
+        line = self._live_pvp_hit_line()
+        evidence = bot.safe_zone_pvp_evidence(line)
+        self.assertEqual("verified", evidence["status"])
+        self.assertEqual("Victim", evidence["victim"])
+        self.assertEqual("Attacker", evidence["attacker"])
+        self.assertEqual("100, 200, 3", evidence["attacker_coords"])
+
+        class CapturedEmbed:
+            def __init__(self, *args, **kwargs):
+                self.title = kwargs.get("title")
+                self.description = kwargs.get("description")
+                self.fields = []
+
+            def add_field(self, **kwargs):
+                self.fields.append(kwargs)
+                return self
+
+        guild = type("Guild", (), {"id": 123})()
+        apply_ban = AsyncMock(return_value=(True, "TEMP ban 1 day (offense #1)"))
+        post_report = AsyncMock()
+        with patch.object(bot.discord, "Embed", CapturedEmbed), patch.object(bot, "style_embed", side_effect=lambda embed: embed), patch.object(
+            bot, "discord_guild_for_runtime_id", return_value=guild
+        ), patch.object(bot, "_safe_zone_apply_ban", apply_ban), patch.object(bot, "_safe_zone_post_report", post_report):
+            await bot.check_safe_zones_for_adm("123", self._safe_zone_config(), "kill", line)
+
+        apply_ban.assert_awaited_once()
+        self.assertEqual("Attacker", apply_ban.call_args.args[3])
+        report_embed = post_report.call_args.args[2]
+        fields = {field["name"]: field["value"] for field in report_embed.fields}
+        self.assertEqual("Victim", fields["Victim"])
+        self.assertEqual("Attacker", fields["Attacker"])
+        self.assertEqual("HP: 40", fields["Victim HP/dead state"])
+        self.assertEqual("100, 200, 3", fields["Attacker position"])
+        self.assertEqual(line, fields["Exact ADM evidence"])
+
+    async def test_safe_zone_corpse_hit_variants_never_create_an_offence(self):
+        cases = (
+            self._live_pvp_hit_line(health="0"),
+            self._live_pvp_hit_line(health="40", dead_marker="( dEaD )"),
+            self._live_pvp_hit_line(health="-0.5"),
+        )
+        guild = type("Guild", (), {"id": 123})()
+        apply_ban = AsyncMock()
+        post_report = AsyncMock()
+        with patch.object(bot, "discord_guild_for_runtime_id", return_value=guild), patch.object(
+            bot, "_safe_zone_apply_ban", apply_ban
+        ), patch.object(bot, "_safe_zone_post_report", post_report):
+            for line in cases:
+                evidence = bot.safe_zone_pvp_evidence(line)
+                self.assertEqual("corpse", evidence["status"])
+                await bot.check_safe_zones_for_adm("123", self._safe_zone_config(), "kill", line)
+
+        apply_ban.assert_not_awaited()
+        post_report.assert_not_awaited()
+
+    async def test_safe_zone_ambiguous_pvp_evidence_is_reviewed_not_banned(self):
+        cases = (
+            self._live_pvp_hit_line(victim="SamePlayer", attacker="sameplayer"),
+            '18:19:00 | Player "Victim" (id=victim pos=<10, 20, 3>) [HP: 40] hit by Player "" into Torso(15)',
+            '18:19:00 | Player Victim [HP: 40] hit by Player Attacker into Torso(15)',
+        )
+        guild = type("Guild", (), {"id": 123})()
+        apply_ban = AsyncMock()
+        post_report = AsyncMock()
+        with patch.object(bot, "discord_guild_for_runtime_id", return_value=guild), patch.object(
+            bot, "_safe_zone_apply_ban", apply_ban
+        ), patch.object(bot, "_safe_zone_post_report", post_report):
+            for line in cases:
+                evidence = bot.safe_zone_pvp_evidence(line)
+                self.assertIn(evidence["status"], {"self", "unparseable"})
+                await bot.check_safe_zones_for_adm("123", self._safe_zone_config(), "kill", line)
+
+        apply_ban.assert_not_awaited()
+        self.assertEqual(len(cases), post_report.await_count)
+
+    async def test_safe_zone_ban_passes_exact_evidence_to_nitrado_audit(self):
+        line = self._live_pvp_hit_line()
+        guild = type("Guild", (), {"id": 123})()
+        add_ban = AsyncMock(return_value=(True, "updated"))
+        with patch.object(bot, "_safe_zone_offense_inc", return_value=1), patch.object(
+            bot, "add_player_to_nitrado_banlist_async", add_ban
+        ), patch.object(bot, "save_guild_configs"):
+            ok, _label = await bot._safe_zone_apply_ban(
+                guild,
+                {},
+                {"id": "z1", "name": "Test Safe Zone", "ban_type": "temp", "ban_duration_minutes": 60},
+                "Attacker",
+                "kill",
+                line,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(line, add_ban.call_args.kwargs["evidence_line"])
+
+    async def test_ban_announcement_falls_back_to_embed_when_media_upload_fails(self):
+        class Channel:
+            def __init__(self):
+                self.calls = []
+
+            async def send(self, **kwargs):
+                self.calls.append(kwargs)
+                if "file" in kwargs:
+                    raise PermissionError("Attach Files denied")
+
+        channel = Channel()
+        guild = type("Guild", (), {"get_channel": lambda _self, _channel_id: channel})()
+        config = {
+            "ban_announcement": {
+                "enabled": True,
+                "channel_id": "42",
+                "media_path": "ban_announcement_media/test.mp4",
+            }
+        }
+        with patch.object(bot, "discord_guild_for_runtime_id", return_value=guild), patch.object(
+            bot, "ban_announcement_media_absolute_path", return_value="C:/fake/ban.mp4"
+        ), patch.object(bot.discord, "File", return_value=object()), patch.object(
+            bot, "style_embed", side_effect=lambda embed: embed
+        ):
+            sent = await bot.post_confirmed_game_ban_announcement(
+                "123",
+                config,
+                gamertag="Attacker",
+                ban_type="temp",
+                source="safe_zone",
+                minutes=60,
+            )
+
+        self.assertTrue(sent)
+        self.assertEqual(2, len(channel.calls))
+        self.assertIn("file", channel.calls[0])
+        self.assertNotIn("file", channel.calls[1])
+
     def test_nitrado_panel_banlist_is_comma_separated_and_case_preserving(self):
         source = "DaddyR6294,LoganArcade,Mama Justice89,Liamchomski\nLeonDaBeast9249"
         entries = bot.nitrado_banlist_entries_from_text(source)

@@ -2207,8 +2207,8 @@ def extract_pvp_hit_details(line):
     hit, which lets payout rules reject corpse hits safely.
     """
     hit = re.search(
-        r'(?:Player\s+)?"([^"]+)"\s*(\(DEAD\))?.*?'
-        r'\[HP:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\]\s+hit by\s+'
+        r'(?:Player\s+)?"([^"]+)"\s*(\(\s*DEAD\s*\))?.*?'
+        r'\[\s*HP\s*:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*\]\s+hit\s+by\s+'
         r'(?:Player\s+)?"([^"]+)".*?for\s+'
         r'([0-9]+(?:\.[0-9]+)?)\s+damage\s+\(([^)]+)\)'
         r'(?:\s+with\s+([^\s]+))?'
@@ -2231,6 +2231,114 @@ def extract_pvp_hit_details(line):
     details["coords"] = extract_adm_player_coords(line, details["victim"]) or extract_adm_coords(line)
     details["attacker_coords"] = extract_adm_player_coords(line, details["attacker"])
     return details
+
+
+def safe_zone_pvp_evidence(line):
+    """Classify PvP evidence before a safe-zone action can be automated.
+
+    ADM damage records are victim-first: the player after ``hit by Player``
+    is the attacker.  A missing attacker position, a dead/zero-HP victim, or
+    any ambiguity means staff must review the event instead of the bot taking
+    an irreversible moderation action.
+    """
+    raw_line = str(line or "")
+    hit_syntax = bool(re.search(r'\bhit\s+by\s+player\b|\bhit\s+by\s+"', raw_line, re.IGNORECASE))
+    hit_details = extract_pvp_hit_details(raw_line) if hit_syntax else None
+    if hit_syntax:
+        if not isinstance(hit_details, dict):
+            return {
+                "status": "unparseable",
+                "reason": "The player-versus-player hit line could not be parsed confidently.",
+                "evidence": raw_line,
+            }
+
+        victim = str(hit_details.get("victim") or "").strip()
+        attacker = str(hit_details.get("attacker") or "").strip()
+        health = hit_details.get("victim_health")
+        victim_dead = bool(hit_details.get("victim_dead"))
+        try:
+            corpse_hit = victim_dead or float(health) <= 0
+        except (TypeError, ValueError):
+            return {
+                "status": "unparseable",
+                "reason": "The victim health in the player-versus-player hit line is invalid.",
+                "victim": victim,
+                "attacker": attacker,
+                "evidence": raw_line,
+            }
+
+        evidence = {
+            "victim": victim,
+            "attacker": attacker,
+            "victim_health": health,
+            "victim_dead": victim_dead,
+            "attacker_coords": hit_details.get("attacker_coords"),
+            "evidence": raw_line,
+        }
+        if corpse_hit:
+            evidence.update(status="corpse", reason="The victim was already dead or had zero health.")
+            return evidence
+        if not victim or not attacker:
+            evidence.update(status="unparseable", reason="The victim or attacker name is missing.")
+            return evidence
+        if normalize_discord_name(victim) == normalize_discord_name(attacker):
+            evidence.update(status="self", reason="Attacker and victim are the same player.")
+            return evidence
+        if not parse_xy_coords(hit_details.get("attacker_coords")):
+            evidence.update(status="unparseable", reason="The attacker position is missing or invalid.")
+            return evidence
+        evidence["status"] = "verified"
+        return evidence
+
+    # Older/documented ADM kill records can use a direct or reverse
+    # ``killed Player`` form rather than a damage line. They remain valid only
+    # if the actor and the actor's own position are both present.
+    kill_details = extract_pvp_kill_details(raw_line)
+    if not isinstance(kill_details, dict):
+        return {"status": "not_pvp", "evidence": raw_line}
+    victim = str(kill_details.get("victim") or "").strip()
+    attacker = str(kill_details.get("killer") or "").strip()
+    evidence = {
+        "victim": victim,
+        "attacker": attacker,
+        "victim_health": None,
+        "victim_dead": False,
+        "attacker_coords": kill_details.get("killer_coords"),
+        "evidence": raw_line,
+    }
+    if not victim or not attacker or not parse_xy_coords(evidence["attacker_coords"]):
+        evidence.update(status="unparseable", reason="The PvP kill actor or attacker position is missing.")
+        return evidence
+    if normalize_discord_name(victim) == normalize_discord_name(attacker):
+        evidence.update(status="self", reason="Attacker and victim are the same player.")
+        return evidence
+    evidence["status"] = "verified"
+    return evidence
+
+
+def safe_zone_victim_state_text(evidence):
+    if not isinstance(evidence, dict):
+        return "Unknown"
+    health = evidence.get("victim_health")
+    if evidence.get("victim_dead"):
+        return "DEAD" if health is None else f"DEAD (HP: {health:g})"
+    if health is None:
+        return "Not supplied by this ADM format"
+    try:
+        return f"HP: {float(health):g}"
+    except (TypeError, ValueError):
+        return f"HP: {health}"
+
+
+def add_exact_adm_evidence_fields(embed, line):
+    """Attach the complete raw ADM record to an internal moderation embed."""
+    evidence = str(line or "").strip() or "(empty ADM evidence line)"
+    # A Discord embed field holds at most 1,024 characters. ADM records are
+    # normally far smaller, but preserving chunks avoids silently truncating
+    # a longer line in the audit trail.
+    for index, start in enumerate(range(0, len(evidence), 1000)):
+        name = "Exact ADM evidence" if index == 0 else f"Exact ADM evidence ({index + 1})"
+        embed.add_field(name=name, value=evidence[start:start + 1000], inline=False)
 
 
 def adm_hit_is_melee(hit_details, line=""):
@@ -28052,7 +28160,7 @@ def add_player_to_nitrado_banlist(config, gamertag):
         current[matching_index] = gamertag
         ok, message = push_nitrado_banlist(config, current)
         if ok:
-            return True, f"Already banned; exact ADM spelling corrected. {message}"
+            return True, message
         return ok, message
     current.append(gamertag)
     return push_nitrado_banlist(config, current)
@@ -28082,6 +28190,7 @@ async def post_nitrado_banlist_log(
     result="",
     ok=True,
     minutes=None,
+    evidence_line="",
 ):
     try:
         guild_id = str(guild_id)
@@ -28123,6 +28232,8 @@ async def post_nitrado_banlist_log(
             embed.add_field(name="Reason", value=str(reason)[:900], inline=False)
         if result:
             embed.add_field(name="Nitrado response", value=str(result)[:900], inline=False)
+        if evidence_line:
+            add_exact_adm_evidence_fields(embed, evidence_line)
         try:
             uk_now = datetime.now(ZoneInfo("Europe/Dublin")).strftime("%Y-%m-%d %H:%M:%S UK")
         except Exception:
@@ -28222,11 +28333,32 @@ async def post_confirmed_game_ban_announcement(
         await channel.send(**send_kwargs)
         return True
     except Exception as error:
+        # A channel may permit normal embeds but deny Attach Files. Never lose
+        # the confirmed-ban announcement merely because its optional GIF/video
+        # could not be uploaded.
+        if media_path:
+            print(f"[BAN ANNOUNCEMENT] media send failed for {guild_id}: {error}; retrying without media")
+            try:
+                await channel.send(embed=style_embed(embed))
+                return True
+            except Exception as fallback_error:
+                print(f"[BAN ANNOUNCEMENT] fallback post failed for {guild_id}: {fallback_error}")
+                return False
         print(f"[BAN ANNOUNCEMENT] post failed for {guild_id}: {error}")
         return False
 
 
-async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
+async def add_player_to_nitrado_banlist_async(
+    guild_id,
+    config,
+    gamertag,
+    *,
+    ban_type="",
+    reason="",
+    source="",
+    minutes=None,
+    evidence_line="",
+):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     if str(source or "").strip().lower() == "discord_link_enforcement" and link_enforcement_protected_gamertag_record(guild_id, clean_name):
         await cleanup_link_enforcement_after_link(guild_id, config, clean_name, source="link_enforcement_skip")
@@ -28243,6 +28375,7 @@ async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban
         result=message,
         ok=ok,
         minutes=minutes,
+        evidence_line=evidence_line,
     )
     if ok and "already banned" not in str(message or "").lower():
         await post_confirmed_game_ban_announcement(
@@ -29128,6 +29261,7 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
         reason=f"Safe-zone violation: {trigger_name} in {zone.get('name')}",
         source="safe_zone",
         minutes=duration_minutes if effective_ban_type == "temp" else None,
+        evidence_line=line,
     )
     if not ok:
         print(f"[SAFEZONE] banlist push failed for {gamertag}: {msg}")
@@ -29162,25 +29296,68 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
     return True, f"PERM ban (offense #{offense_count})"
 
 
+async def _safe_zone_post_evidence_review(guild, zone, event_type, evidence):
+    """Report ambiguous combat evidence to staff without taking action."""
+    evidence = evidence if isinstance(evidence, dict) else {}
+    reason = str(evidence.get("reason") or "The ADM evidence was not safe to automate.")
+    embed = discord.Embed(
+        title=f"🛡️ Safe-Zone Review Required — {zone.get('name', 'Unnamed')}",
+        description="No manhunt or Nitrado ban was applied. Staff review is required before moderation.",
+        color=0xF1C40F,
+    )
+    embed.add_field(name="Zone", value=zone.get("name", "?"), inline=True)
+    embed.add_field(name="Trigger", value=str(event_type or "unknown"), inline=True)
+    embed.add_field(name="Decision", value=f"Staff review required — {reason}", inline=False)
+    embed.add_field(name="Victim", value=str(evidence.get("victim") or "Unknown"), inline=True)
+    embed.add_field(name="Attacker", value=str(evidence.get("attacker") or "Unknown"), inline=True)
+    embed.add_field(name="Victim HP/dead state", value=safe_zone_victim_state_text(evidence), inline=True)
+    embed.add_field(name="Attacker position", value=str(evidence.get("attacker_coords") or "Unknown"), inline=False)
+    add_exact_adm_evidence_fields(embed, evidence.get("evidence"))
+    await _safe_zone_post_report(guild, zone, embed)
+
+
 async def check_safe_zones_for_adm(guild_id, config, event_type, line):
     """Check one ADM event against configured safe-zone rules."""
-
-    # A self-hit against an already dead character is a corpse replay, not a
-    # live-player kill. Guard this boundary too so future callers cannot turn
-    # it into a safe-zone offense and Nitrado ban.
-    if event_type == "kill" and is_stale_self_kill_of_dead_player(line):
-        return
 
     zones = config.get("safe_zones") or []
     if not zones:
         return
 
-    coords = safe_zone_event_actor_coords(event_type, line)
+    # Every player-on-player damage/kill record has a victim first and an
+    # attacker after ``hit by Player``. Only fully verified attacker evidence
+    # is eligible for automation. A corpse hit is ignored; ambiguous/self-hit
+    # evidence is sent to staff instead of causing a false ban.
+    combat_evidence = safe_zone_pvp_evidence(line) if event_type in {"kill", "cut"} else {"status": "not_pvp"}
+    evidence_status = combat_evidence.get("status") if isinstance(combat_evidence, dict) else "not_pvp"
+    if evidence_status == "corpse":
+        return
+
+    if evidence_status in {"unparseable", "self"}:
+        guild = discord_guild_for_runtime_id(guild_id)
+        if not guild:
+            return
+        # Coordinates cannot be trusted here, so do not guess which zone was
+        # crossed. Post one review to the first enabled rule that would have
+        # considered this event type; staff get the exact raw evidence.
+        for zone in zones:
+            if not zone.get("enabled", True):
+                continue
+            if _safe_zone_event_matches_trigger(event_type, line, zone.get("triggers") or []):
+                await _safe_zone_post_evidence_review(guild, zone, event_type, combat_evidence)
+                return
+        return
+
+    if evidence_status == "verified":
+        coords = combat_evidence.get("attacker_coords")
+        player_name = str(combat_evidence.get("attacker") or "").strip()
+    else:
+        coords = safe_zone_event_actor_coords(event_type, line)
+        player_name = safe_zone_event_actor_name(event_type, line)
+
     point = parse_xy_coords(coords)
     if not point:
         return
 
-    player_name = safe_zone_event_actor_name(event_type, line)
     if not player_name:
         return
 
@@ -29215,14 +29392,22 @@ async def check_safe_zones_for_adm(guild_id, config, event_type, line):
             title=f"🛡️ Safe-Zone Violation — {zone.get('name', 'Unnamed')}",
             description=(
                 f"**{player_name}** triggered `{matched_trigger}` "
-                f"({territory_text} the zone).\n"
-                f"`{line[:300]}`"
+                f"({territory_text} the zone)."
             ),
             color=0xE74C3C,
         )
         embed.add_field(name="Zone", value=zone.get("name", "?"), inline=True)
         embed.add_field(name="Action", value=action.upper(), inline=True)
         embed.add_field(name="Trigger", value=matched_trigger, inline=True)
+        if evidence_status == "verified":
+            embed.add_field(name="Victim", value=str(combat_evidence.get("victim") or "Unknown"), inline=True)
+            embed.add_field(name="Attacker", value=player_name, inline=True)
+            embed.add_field(name="Victim HP/dead state", value=safe_zone_victim_state_text(combat_evidence), inline=True)
+            embed.add_field(name="Attacker position", value=str(coords), inline=False)
+            embed.add_field(name="Decision", value="Verified attacker evidence; configured action applied.", inline=False)
+        else:
+            embed.add_field(name="Decision", value="Configured action applied from the ADM event.", inline=False)
+        add_exact_adm_evidence_fields(embed, line)
 
         if action == "ban":
             ok, label = await _safe_zone_apply_ban(guild, config, zone, player_name, matched_trigger, line)
@@ -48841,6 +49026,15 @@ def safe_int(value, default=0):
         return int(float(text.replace(",", "")))
     except Exception:
         return default
+
+
+def safe_bool(value, default=False):
+    """Parse persisted dashboard booleans without treating ``'false'`` as true."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
 def parse_dayz_map_number(value):
