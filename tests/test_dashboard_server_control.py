@@ -820,11 +820,15 @@ class DashboardServerControlTests(unittest.TestCase):
         template = dashboard.PAGE_TEMPLATE
         self.assertIn('id="player-loadout-builder"', template)
         self.assertIn("data-loadout-card-search", template)
-        self.assertIn("Unavailable for selected reference", template)
+        self.assertIn("data-loadout-inventory-add", template)
+        self.assertIn("data-loadout-child-cards", template)
+        self.assertIn("Only classes present in the active DayZ reference can be added.", template)
         self.assertIn('id="vehicle-loadout-builder"', template)
         self.assertIn("data-vehicle-card-search", template)
+        self.assertIn("data-vehicle-class", template)
         self.assertIn("data-vehicle-reference-catalog", template)
         self.assertIn("Compatible cargo cards", template)
+        self.assertIn("mouseenter", template)
 
     def test_xml_workshop_legacy_state_only_falls_back_to_matching_map_profile(self):
         base_config = {

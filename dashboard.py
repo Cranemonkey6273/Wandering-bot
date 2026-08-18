@@ -6854,7 +6854,7 @@ PAGE_TEMPLATE = """
     .item-table .item-name-cell strong { overflow-wrap: anywhere; }
     .loadout-builder { display: grid; grid-template-columns: minmax(16rem, .75fr) minmax(16rem, 1fr); gap: .75rem; align-items: start; }
     .loadout-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem; }
-    .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font-size: .85rem; text-align: center; text-decoration: none; font-weight: 800; }
+    .loadout-slot { border: 1px dashed var(--line); border-radius: 999px; padding: .45rem .6rem; background: #070b08; color: var(--muted); font: inherit; font-size: .85rem; text-align: center; text-decoration: none; font-weight: 800; cursor: pointer; }
     .loadout-slot.active { border-style: solid; border-color: var(--gold); color: var(--text); background: rgba(213,180,95,.12); }
     .loadout-slot-count { display: block; margin-top: .15rem; color: var(--muted); font-size: .72rem; font-weight: 700; }
     .loadout-selected-slot { border: 1px solid var(--line); border-radius: .5rem; padding: .65rem; background: #070b08; color: var(--muted); }
@@ -6867,6 +6867,11 @@ PAGE_TEMPLATE = """
     .player-loadout-layout .xml-output-panel .save-preview { min-height: 8rem; max-height: 18rem; }
     .player-loadout-layout .loadout-workbench { margin-top: .75rem; }
     .player-loadout-layout .visual-picker-grid { max-height: 30rem; grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr)); }
+    .loadout-inventory-fill, .loadout-child-builder { display: grid; gap: .6rem; border: 1px solid var(--line); border-radius: .55rem; padding: .7rem; background: rgba(7,11,8,.88); }
+    .loadout-inventory-fill .item-picker-controls { grid-template-columns: minmax(12rem, 1fr) minmax(5rem, .35fr) auto; }
+    .loadout-storage-status { display: grid; gap: .3rem; color: var(--muted); font-size: .83rem; }
+    .loadout-storage-status strong { color: var(--text); }
+    .loadout-child-grid { max-height: 17rem; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); }
     .vehicle-workbench { display: grid; gap: .75rem; }
     .vehicle-cargo-board { min-height: 12rem; }
     .visual-loadout-layout { display: grid; grid-template-columns: minmax(16rem, .8fr) minmax(28rem, 1.35fr) minmax(20rem, .95fr); gap: .85rem; align-items: start; }
@@ -7160,6 +7165,7 @@ PAGE_TEMPLATE = """
       outline: none;
     }
     .command-top-nav details { position: relative; }
+    .command-top-nav details::after { content: ""; position: absolute; z-index: 139; top: 100%; left: 0; width: 100%; height: .55rem; }
     .command-top-nav summary { cursor: pointer; list-style: none; }
     .command-top-nav summary::-webkit-details-marker { display: none; }
     .command-top-nav summary::after {
@@ -7406,32 +7412,32 @@ PAGE_TEMPLATE = """
       {% else %}
       <a class="nav-primary" href="/admin?section=overview{{ server_qs }}">Home</a>
       <details>
-        <summary>Server &amp; setup</summary>
+        <summary>Server setup</summary>
         <div class="nav-menu">
-          <a href="/admin?section=overview{{ server_qs }}">Start here</a>
-          <a href="/admin?section=access&amp;setup_tool=servers{{ server_qs }}">Admin center</a>
-          <a href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Feeds</a>
+          <a href="/admin?section=overview{{ server_qs }}">Dashboard overview</a>
+          <a href="/admin?section=access&amp;setup_tool=servers{{ server_qs }}">Server connection &amp; access</a>
+          <a href="/admin?section=live-feeds{{ server_qs }}{{ profile_qs }}">Live feeds &amp; alerts</a>
         </div>
       </details>
       <details>
-        <summary>Live ops</summary>
+        <summary>Events &amp; players</summary>
         <div class="nav-menu">
-          <a href="/admin?section=pve&amp;pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops &amp; events</a>
-          <a href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones &amp; radar</a>
-          <a href="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}">Player audit</a>
+          <a href="/admin?section=pve&amp;pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrop &amp; event builder</a>
+          <a href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Safe zones &amp; radar</a>
+          <a href="/admin?section=player-audit{{ server_qs }}{{ profile_qs }}">Player records &amp; bans</a>
           <a href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>
         </div>
       </details>
       <details>
-        <summary>Files &amp; loadouts</summary>
+        <summary>Files, gear &amp; shop</summary>
         <div class="nav-menu nav-menu-wide">
-          <a href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">XML &amp; loadouts</a>
-          <a href="/admin?section=presets{{ server_qs }}">Preset files</a>
+          <a href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">Files &amp; loadout builder</a>
+          <a href="/admin?section=presets{{ server_qs }}">Preset file manager</a>
           <a href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop &amp; economy</a>
         </div>
       </details>
       <details>
-        <summary>More</summary>
+        <summary>Help &amp; tools</summary>
         <div class="nav-menu nav-menu-right">
           <a href="/admin?section=reviews{{ server_qs }}">Reviews</a>
           <a href="/admin?section=help{{ server_qs }}">Help &amp; guides</a>
@@ -12029,7 +12035,7 @@ PAGE_TEMPLATE = """
             <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
           </div>
           {% for warning in player_loadout_warnings %}<div class="notice warning"><strong>Reference warning</strong><span>{{ warning }}</span></div>{% endfor %}
-          <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop" data-html-submit="true">
+          <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&xml_tool=player-loadout&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}#player-loadout-builder">
@@ -12046,25 +12052,26 @@ PAGE_TEMPLATE = """
                 </label>
                 <div class="loadout-builder">
                   <div>
-                    <h4>Player Slots</h4>
+                    <h4>1. Choose an equipment slot</h4>
                     <div class="loadout-slots">
                       {% for slot in player_loadout_slots %}
-                      <a class="loadout-slot {{ 'active' if slot == player_loadout_active_slot else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}&loadout_slot={{ slot|urlencode }}#player-loadout-builder">
+                      <button type="button" class="loadout-slot {{ 'active' if slot == player_loadout_active_slot else '' }}" data-loadout-slot="{{ slot }}">
                         {{ slot }}
                         <span class="loadout-slot-count">{{ (xml_picker_groups.get(slot) or [])|length }} options</span>
-                      </a>
+                      </button>
                       {% endfor %}
                     </div>
                   </div>
                   <div class="loadout-selected-slot">
                     <strong data-active-slot-label>Selected slot: {{ player_loadout_active_slot }}</strong>
-                    <p class="tool-note" data-active-slot-note>Showing {{ player_loadout_active_slot }} options below. Pick a card or use the dropdown, then press Add.</p>
+                    <p class="tool-note" data-active-slot-note>Showing {{ player_loadout_active_slot }} options below. Click a card to add it instantly, or use the dropdown and Add.</p>
                   </div>
                 </div>
                 <div class="loadout-workbench">
-                  <div class="embed-preview"><strong>Player loadout builder</strong><span>Pick a body slot, add items from the picker, then drag selected rows to reorder the generated loadout.</span></div>
+                  <div class="embed-preview"><strong>2. Add equipment</strong><span>Pick a body slot and click a card to add it instantly. Use the inventory helper to nest supplies into the worn storage that has room.</span></div>
                   <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="{{ player_loadout_active_slot }}">
                     <label>Search compatible {{ player_loadout_active_slot }} items <input type="search" data-loadout-card-search placeholder="Display name or classname"></label>
+                    {% if player_loadout_hidden_count %}<p class="tool-note"><span class="pill warn">{{ player_loadout_hidden_count }} invalid shop classname{{ '' if player_loadout_hidden_count == 1 else 's' }} hidden</span> Only classes present in the active DayZ reference can be added.</p>{% endif %}
                     <div class="item-picker-controls">
                       <label>Find item
                         <select class="picker-select" name="loadout_item" data-picker-item>
@@ -12075,7 +12082,7 @@ PAGE_TEMPLATE = """
                       <label>Qty <input name="loadout_qty" data-picker-qty type="number" min="1" max="999" value="1"></label>
                       <label>Fill <select name="loadout_quantity" data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
                       <label>Slot <select name="loadout_slot" data-picker-slot>{% for slot in player_loadout_slots %}<option {{ 'selected' if slot == player_loadout_active_slot else '' }}>{{ slot }}</option>{% endfor %}<option value="">Unsorted</option></select></label>
-                      <button type="submit" formaction="/api/admin/xml-workshop-loadout-add">Add</button>
+                      <button type="button" data-picker-add>Add</button>
                     </div>
                     <label>Attachment for weapon/item
                       <select class="picker-select" name="loadout_attachment" data-picker-attachment>
@@ -12084,25 +12091,44 @@ PAGE_TEMPLATE = """
                       </select>
                     </label>
                     <input class="hidden-field" name="loadout_damage" value="pristine" data-picker-damage>
-                    <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Pick gear, slot and quantity.</span></div>
+                    <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Choose a slot, then click an item card to add it.</span></div>
+                    <section class="loadout-inventory-fill" data-loadout-inventory-fill>
+                      <div><strong>3. Fill worn inventory</strong><p class="tool-note">Choose supplies and they will be placed in worn clothing, a vest or backpack with enough estimated free slots.</p></div>
+                      <div class="item-picker-controls">
+                        <label>Inventory item
+                          <select class="picker-select" data-loadout-inventory-item>
+                            <option value="">Choose supplies</option>
+                            {% for item in player_loadout_inventory_items %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
+                          </select>
+                        </label>
+                        <label>Qty <input data-loadout-inventory-qty type="number" min="1" max="999" value="1"></label>
+                        <button type="button" data-loadout-inventory-add>Add to available slots</button>
+                      </div>
+                      <div class="loadout-storage-status" data-loadout-storage-status>Equip a jacket, trousers, vest or backpack first.</div>
+                    </section>
+                    <section class="loadout-child-builder" data-loadout-child-builder>
+                      <div><strong>4. Add compatible attachments or cargo</strong><p class="tool-note" data-loadout-child-note>Add an item, then pick it below to see its compatible attachments or cargo. Click a child card to add it instantly.</p></div>
+                      <label>Parent item <select class="picker-select" data-loadout-child-parent><option value="">Add an item first</option></select></label>
+                      <label>Find compatible child <input type="search" data-loadout-child-search placeholder="Display name or classname"></label>
+                      <div class="visual-picker-grid loadout-child-grid" data-loadout-child-cards><span class="muted">Add an item first.</span></div>
+                    </section>
                     <details class="loadout-html-picker" data-visual-picker open>
                       <summary>{{ player_loadout_active_slot }} item cards</summary>
                       <div class="visual-picker-grid" data-visual-grid>
                         {% for item in player_loadout_slot_items[:72] %}
-                        <a class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}&loadout_slot={{ player_loadout_active_slot|urlencode }}&loadout_item={{ item.name|urlencode }}#player-loadout-builder" data-loadout-card data-loadout-search="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
+                        <button type="button" class="visual-picker-card {{ 'active' if item.name == player_loadout_selected_item else '' }}" data-visual-item="{{ item.name }}" data-loadout-card data-loadout-search="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
                           <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/General' }}';" alt="">
                           <strong>{{ item.label or item.name }}</strong>
                           <code>{{ item.name }}</code>
                           <small>{{ item.category }}{% if item.size %} - {{ item.size }} slots{% endif %}</small>
-                          {% if not item.reference_available %}<span class="pill bad">Unavailable for selected reference</span>{% endif %}
-                        </a>
+                        </button>
                         {% else %}
-                        <p class="muted">No matching items for this slot yet.</p>
+                        <p class="muted">No valid active-reference items for this slot yet.</p>
                         {% endfor %}
                       </div>
                     </details>
                   </div>
-                  <label>Loadout items
+                  <label>5. Final loadout (drag rows to reorder)
                     <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet">
                       {% for row in player_loadout_draft_rows %}
                       <div class="selected-row">
@@ -12117,7 +12143,7 @@ PAGE_TEMPLATE = """
                     <small class="field-help">Loadout JSON spawns these as pristine items.</small>
                   </label>
                 </div>
-                <div><button type="submit">Save Player Loadout</button> <button type="submit" formaction="/api/admin/xml-workshop-recipe-action" name="action" value="clear_draft" onclick="return window.confirm('Clear this local loadout draft? No live DayZ files will be changed.');">Clear Draft</button> <span class="result muted"></span></div>
+                <div><button type="submit">Save Player Loadout</button> <button type="submit" data-html-submit="true" formaction="/api/admin/xml-workshop-recipe-action" name="action" value="clear_draft" onclick="return window.confirm('Clear this local loadout draft? No live DayZ files will be changed.');">Clear Draft</button> <span class="result muted"></span></div>
               </div>
               <aside class="xml-output-panel">
                 <div class="mini-grid">
@@ -12127,7 +12153,7 @@ PAGE_TEMPLATE = """
                 </div>
                 <div class="toolbar">
                   <button type="submit">Save Draft</button>
-                  <button type="submit" formaction="/api/admin/xml-workshop-loadout-download" formmethod="post">Download JSON</button>
+                  <button type="submit" data-html-submit="true" formaction="/api/admin/xml-workshop-loadout-download" formmethod="post">Download JSON</button>
                   <button type="button" data-copy-live-output>Copy JSON</button>
                 </div>
                 <pre class="save-preview" data-live-output>{{ player_loadout_json_text }}</pre>
@@ -12144,7 +12170,7 @@ PAGE_TEMPLATE = """
             <div><h3>Vehicle Loadout</h3><p class="tool-note">Choose the exact vehicle variant, preserve its real attachment slots, then add compatible cargo.</p></div>
             <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
           </div>
-          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop" data-html-submit="true">
+          <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=xml-workshop&xml_tool=vehicle-loadout&guild_id={{ server.guild_id if server else '' }}{{ profile_qs }}&vehicle_class={{ vehicle_loadout_selected_class|urlencode }}#vehicle-loadout-builder">
@@ -12152,20 +12178,20 @@ PAGE_TEMPLATE = """
             <script type="application/json" data-vehicle-reference-catalog>{{ vehicle_reference_records|tojson }}</script>
             <div class="full xml-tool-layout">
               <div class="stack">
-                <label>Vehicle recipe <input name="recipe_name" value="Builder Truck"></label>
-                <label>Search vehicles <input type="search" data-vehicle-card-search placeholder="Display name, classname or colour"></label>
+                <label>Vehicle recipe name <input name="recipe_name" value="Builder Truck"></label>
+                <label>1. Choose a vehicle <input type="search" data-vehicle-card-search placeholder="Display name, classname or colour"></label>
+                {% if vehicle_loadout_hidden_count %}<p class="tool-note"><span class="pill warn">{{ vehicle_loadout_hidden_count }} unsupported vehicle classname{{ '' if vehicle_loadout_hidden_count == 1 else 's' }} hidden</span> Only vehicles with active-reference part data can be selected.</p>{% endif %}
                 <div class="visual-picker-grid vehicle-picker-grid" data-vehicle-card-grid>
                   {% for item in vehicle_loadout_items[:36] %}
-                  <a class="visual-picker-card {{ 'active' if item.name == vehicle_loadout_selected_class else '' }}" href="/admin?section=xml-workshop&xml_tool=vehicle-loadout{{ server_qs }}{{ profile_qs }}&vehicle_class={{ item.name|urlencode }}#vehicle-loadout-builder" data-vehicle-card data-vehicle-search="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
+                  <button type="button" class="visual-picker-card {{ 'active' if item.name == vehicle_loadout_selected_class else '' }}" data-vehicle-card data-vehicle-class="{{ item.name }}" data-vehicle-search="{{ (item.label or item.name)|lower }} {{ item.name|lower }} {{ item.category|lower }}">
                     <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/Vehicles' }}';" alt="">
                     <strong>{{ item.label or item.name }}</strong>
                     <code>{{ item.name }}</code>
                     <small>{{ item.category }}</small>
-                    {% if not item.reference_available %}<span class="pill bad">Not in selected cfgspawnabletypes</span>{% endif %}
-                  </a>
+                  </button>
                   {% else %}<p class="muted">No whole-vehicle classnames were found for this reference.</p>{% endfor %}
                 </div>
-                <label>Vehicle classname
+                <label>2. Selected vehicle classname
                   <select class="picker-select" name="vehicle_class" data-visual-select="vehicles">
                     {% for item in vehicle_loadout_items %}<option value="{{ item.name }}" {{ 'selected' if item.name == vehicle_loadout_selected_class else '' }}>{{ item.label or item.name }} - {{ item.name }}</option>{% endfor %}
                   </select>
@@ -12176,8 +12202,8 @@ PAGE_TEMPLATE = """
                     {% for group in vehicle_loadout_reference.groups %}<div class="mini-card"><span class="muted">{{ group.kind|replace('sparkplug', 'ignition')|title }}</span><strong>{% for item in group['items'] %}{{ item.name }}{% if not loop.last %} / {% endif %}{% endfor %}</strong></div>{% endfor %}
                   </div>
                 </section>
-                <label>Mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
-                <label>Inventory preset
+                <label>3. Vehicle loadout mode <select name="vehicle_mode"><option value="full_with_cargo">Full vehicle with cargo</option><option value="full_no_cargo">Full vehicle, no cargo</option><option value="native">Use native files</option></select></label>
+                <label>4. Quick cargo preset
                   <select name="vehicle_inventory_preset" data-vehicle-preset-select>
                     <option value="">Manual cargo</option>
                     <option value="builder">Builder truck</option>
@@ -12234,7 +12260,7 @@ PAGE_TEMPLATE = """
                       </div>
                     </details>
                   </div>
-                  <label>Cargo items
+                  <label>5. Vehicle cargo (drag rows to reorder)
                     <div class="selected-items vehicle-cargo-board" data-selected-items data-empty-text="No cargo items added yet"></div>
                     <textarea class="raw-output" name="items" data-picker-output placeholder="WoodenPlank, 20, -1, pristine&#10;Nail, 99, -1, pristine"></textarea>
                   </label>
@@ -12248,7 +12274,7 @@ PAGE_TEMPLATE = """
                 </div>
                 <div class="toolbar">
                   <button type="submit">Save Draft</button>
-                  <button type="submit" formaction="/api/admin/xml-workshop-vehicle-download" formmethod="post">Download XML</button>
+                  <button type="submit" data-html-submit="true" formaction="/api/admin/xml-workshop-vehicle-download" formmethod="post">Download XML</button>
                   <button type="button" data-copy-live-output>Copy XML</button>
                 </div>
                 <pre class="save-preview" data-live-output></pre>
@@ -14681,6 +14707,17 @@ PAGE_TEMPLATE = """
     const DASHBOARD_THEME = "{{ dashboard_theme }}";
     const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
+    const PLAYER_LOADOUT_REFERENCE_CLASSNAMES = new Set({{ player_loadout_reference_classnames|tojson }});
+    const PLAYER_LOADOUT_STORAGE_SLOTS = new Set(["Body", "Vest", "Back", "Hips", "Legs"]);
+    const PLAYER_LOADOUT_CAPACITY_HINTS = {alicebag: 90, mountainbag: 80, fieldbackpack: 90, drybag: 63, taloonbag: 35, courierbag: 30, improvisedbag: 42, huntingbag: 63, assaultbag: 42, platecarriervest: 24, highcapacityvest: 30, smershvest: 30, smershbag: 30, jacket: 42, pants: 30};
+    const PLAYER_LOADOUT_SIZE_HINTS = {m4a1: 27, akm: 27, ak74: 27, sks: 24, mosin: 30, svd: 30, fal: 27, vss: 24, platecarrier: 25, helmet: 9, mag_: 4, ammobox: 4, ammo_: 1, grenade: 2, bandage: 1, canteen: 4, waterbottle: 4, knife: 2, pistol: 6};
+    const PLAYER_LOADOUT_CHILD_OPTIONS = {
+      BallisticHelmet: ["NVGoggles", "UniversalLight"], BallisticHelmet_Black: ["NVGoggles", "UniversalLight"], BallisticHelmet_Green: ["NVGoggles", "UniversalLight"],
+      Mich2001Helmet: ["NVGoggles", "UniversalLight"], TacticalHelmet_Black: ["NVGoggles", "UniversalLight"], TacticalHelmet_Green: ["NVGoggles", "UniversalLight"],
+      NVGoggles: ["Battery9V"], NVGHeadstrap: ["NVGoggles", "UniversalLight"], UniversalLight: ["Battery9V"],
+      PlateCarrierVest: ["PlateCarrierPouches", "PlateCarrierHolster"], M4A1: ["M4_RISHndgrd", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
+      AKM: ["Mag_AKM_30Rnd"], SVD: ["Battery9V"], SKS: ["Ammo_762x39"]
+    };
     const VISUAL_LOADOUT_DRAFT = {{ visual_loadout_draft|tojson }};
     const DEFAULT_LOADOUT_SLOT = {{ player_loadout_active_slot|tojson }};
     document.body.dataset.section = "{{ active_section }}";
@@ -15059,6 +15096,7 @@ PAGE_TEMPLATE = """
       const nav = document.querySelector(".command-top-nav");
       if (!nav) return;
       const groups = [...nav.querySelectorAll("details")];
+      const hoverNavigation = window.matchMedia("(hover: hover) and (pointer: fine)");
 
       const closeGroups = (except = null) => {
         groups.forEach((group) => {
@@ -15071,6 +15109,29 @@ PAGE_TEMPLATE = """
         group.open = false;
         group.addEventListener("toggle", () => {
           if (group.open) closeGroups(group);
+        });
+        group.addEventListener("mouseenter", () => {
+          if (!hoverNavigation.matches) return;
+          closeGroups(group);
+          group.open = true;
+        });
+        group.addEventListener("mouseleave", () => {
+          if (hoverNavigation.matches) group.open = false;
+        });
+        group.querySelector("summary")?.addEventListener("click", (event) => {
+          if (!hoverNavigation.matches || event.detail === 0) return;
+          event.preventDefault();
+          closeGroups(group);
+          group.open = true;
+        });
+        group.addEventListener("focusin", () => {
+          closeGroups(group);
+          group.open = true;
+        });
+        group.addEventListener("focusout", () => {
+          window.setTimeout(() => {
+            if (!group.contains(document.activeElement) && hoverNavigation.matches) group.open = false;
+          }, 0);
         });
       });
       nav.addEventListener("click", (event) => {
@@ -15446,6 +15507,10 @@ PAGE_TEMPLATE = """
       if (strictAllItems.length) return strictAllItems;
       return [];
     }
+    function loadoutReferenceAvailable(item) {
+      const name = String(item?.name || item?.classname || "").trim().toLowerCase();
+      return !PLAYER_LOADOUT_REFERENCE_CLASSNAMES.size || PLAYER_LOADOUT_REFERENCE_CLASSNAMES.has(name);
+    }
     function selectedPickerSlot(slot) {
       if (!slot) return "Head";
       if (String(slot).startsWith("cargo:")) return "";
@@ -15468,10 +15533,13 @@ PAGE_TEMPLATE = """
       return slotFilteredItems(selectedPickerSlot(slot)).map(normaliseLoadoutCandidate);
     }
     function pickerGroupItems(groupName, picker) {
+      let items;
       if (picker?.dataset.pickerMode === "loadout" && LOADOUT_SLOT_TERMS[groupName]) {
-        return slotFilteredItems(groupName);
+        items = slotFilteredItems(groupName);
+      } else {
+        items = XML_PICKER_GROUPS[groupName] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
       }
-      return XML_PICKER_GROUPS[groupName] || XML_PICKER_GROUPS.cargo || XML_PICKER_GROUPS.all || [];
+      return picker?.dataset.pickerMode === "loadout" ? items.filter(loadoutReferenceAvailable) : items;
     }
     function rebuildPickerOptions(picker, groupName) {
       const select = picker ? picker.querySelector("[data-picker-item]") : null;
@@ -15606,7 +15674,7 @@ PAGE_TEMPLATE = """
         if (label) label.textContent = `Selected slot: ${slot}`;
         const note = form.querySelector("[data-active-slot-note]");
         if (note) {
-          note.textContent = `Showing ${slot} options below. Pick a card or use the dropdown, then press Add.`;
+          note.textContent = `Showing ${slot} options below. Click a card to add it instantly, or use the dropdown and Add.`;
         }
         form.querySelectorAll("[data-loadout-slot]").forEach((button) => {
           button.classList.toggle("active", button.dataset.loadoutSlot === slot);
@@ -15678,6 +15746,7 @@ PAGE_TEMPLATE = """
         empty.textContent = board.dataset.emptyText || "No items added yet";
         board.appendChild(empty);
         syncLiveOutput(form);
+        refreshPlayerLoadoutHelpers(form);
         return;
       }
       lines.forEach((line, index) => {
@@ -15695,6 +15764,7 @@ PAGE_TEMPLATE = """
         board.appendChild(row);
       });
       syncLiveOutput(form);
+      refreshPlayerLoadoutHelpers(form);
     }
     function setOutputLines(output, lines) {
       output.value = lines.filter(Boolean).join("\\n");
@@ -15703,6 +15773,151 @@ PAGE_TEMPLATE = """
     }
     function outputLines(output) {
       return output.value.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
+    }
+    function hintedLoadoutValue(name, hints, fallback) {
+      const text = String(name || "").toLowerCase();
+      const known = Number(itemInfo(name)[fallback === 0 ? "capacity" : "size"] || 0);
+      if (known > 0) return known;
+      for (const [term, value] of Object.entries(hints)) {
+        if (text.includes(term)) return value;
+      }
+      return fallback;
+    }
+    function playerLoadoutCapacity(name) {
+      return hintedLoadoutValue(name, PLAYER_LOADOUT_CAPACITY_HINTS, 0);
+    }
+    function playerLoadoutItemSize(name) {
+      return hintedLoadoutValue(name, PLAYER_LOADOUT_SIZE_HINTS, 1);
+    }
+    function playerLoadoutStorageEntries(items) {
+      return items.filter((item) => !item.attachmentFor && PLAYER_LOADOUT_STORAGE_SLOTS.has(item.slot) && playerLoadoutCapacity(item.item) > 0)
+        .map((item) => {
+          const capacity = playerLoadoutCapacity(item.item);
+          const used = items.filter((child) => String(child.attachmentFor || "").toLowerCase() === String(item.item || "").toLowerCase())
+            .reduce((total, child) => total + (playerLoadoutItemSize(child.item) * Math.max(1, Number(child.quantity || 1) || 1)), 0);
+          return {name: item.item, slot: item.slot, capacity, used, free: Math.max(0, capacity - used)};
+        });
+    }
+    function playerLoadoutCargoItems() {
+      const rows = XML_PICKER_GROUPS.player_cargo || XML_PICKER_GROUPS.cargo || [];
+      return rows.filter(loadoutReferenceAvailable);
+    }
+    function playerLoadoutChildItems(parentName) {
+      const parentKey = String(parentName || "").toLowerCase();
+      const explicit = PLAYER_LOADOUT_CHILD_OPTIONS[parentName]
+        || ((parentKey.includes("ballistichelmet") || parentKey.includes("mich2001helmet") || parentKey.includes("tacticalhelmet")) ? ["NVGoggles", "UniversalLight"] : []);
+      const items = explicit.map((name) => ({name, ...itemInfo(name)}));
+      if (playerLoadoutCapacity(parentName) > 0) items.push(...playerLoadoutCargoItems());
+      const seen = new Set();
+      return items.filter((item) => {
+        const key = String(item?.name || "").toLowerCase();
+        if (!key || key === String(parentName || "").toLowerCase() || seen.has(key) || !loadoutReferenceAvailable(item)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    function setPlayerLoadoutResult(form, message, isError = false) {
+      const result = form?.querySelector(".result");
+      if (!result) return;
+      result.textContent = message;
+      result.classList.toggle("error", isError);
+      result.classList.toggle("success", !isError && Boolean(message));
+    }
+    function refreshPlayerLoadoutHelpers(form, preferredParent = "") {
+      const helper = form?.querySelector("[data-loadout-inventory-fill]");
+      if (!helper) return;
+      const output = form.querySelector("[data-picker-output]");
+      const items = parsedOutputItems(form);
+      const storage = playerLoadoutStorageEntries(items);
+      const storageStatus = helper.querySelector("[data-loadout-storage-status]");
+      if (storageStatus) {
+        storageStatus.replaceChildren();
+        if (!storage.length) {
+          storageStatus.textContent = "Equip a jacket, trousers, vest or backpack first.";
+        } else {
+          const heading = document.createElement("strong");
+          heading.textContent = "Available worn storage (estimates)";
+          storageStatus.appendChild(heading);
+          storage.forEach((entry) => {
+            const line = document.createElement("span");
+            line.textContent = `${entry.name} (${entry.slot}): ${entry.free}/${entry.capacity} slots free`;
+            storageStatus.appendChild(line);
+          });
+        }
+      }
+      const childBuilder = form.querySelector("[data-loadout-child-builder]");
+      const parentSelect = childBuilder?.querySelector("[data-loadout-child-parent]");
+      const childCards = childBuilder?.querySelector("[data-loadout-child-cards]");
+      if (!parentSelect || !childCards) return;
+      const priorParent = preferredParent || parentSelect.value || "";
+      const parentNames = [];
+      const seenParents = new Set();
+      items.forEach((item) => {
+        const name = String(item.item || "").trim();
+        const key = name.toLowerCase();
+        if (name && !seenParents.has(key)) {
+          seenParents.add(key);
+          parentNames.push(name);
+        }
+      });
+      parentSelect.replaceChildren();
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = parentNames.length ? "Choose an added item" : "Add an item first";
+      parentSelect.appendChild(blank);
+      parentNames.forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        parentSelect.appendChild(option);
+      });
+      parentSelect.value = parentNames.find((name) => name.toLowerCase() === String(priorParent).toLowerCase()) || "";
+      const parentName = parentSelect.value;
+      const search = String(childBuilder.querySelector("[data-loadout-child-search]")?.value || "").trim().toLowerCase();
+      const childNote = childBuilder.querySelector("[data-loadout-child-note]");
+      childCards.replaceChildren();
+      if (!parentName) {
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "Choose an added item to see its children.";
+        childCards.appendChild(empty);
+        if (childNote) childNote.textContent = "Choose an added item to see its compatible attachments or cargo.";
+        return;
+      }
+      const children = playerLoadoutChildItems(parentName).filter((item) => {
+        const text = `${item.name || ""} ${item.label || ""} ${item.category || ""}`.toLowerCase();
+        return !search || text.includes(search);
+      }).slice(0, 72);
+      if (childNote) {
+        childNote.textContent = playerLoadoutCapacity(parentName) > 0
+          ? `Click a compatible card to add it into ${parentName}. Capacity is an estimate.`
+          : `Click a compatible attachment card to add it to ${parentName}.`;
+      }
+      if (!children.length) {
+        const empty = document.createElement("span");
+        empty.className = "muted";
+        empty.textContent = "No compatible children are listed for this item.";
+        childCards.appendChild(empty);
+        return;
+      }
+      children.forEach((item) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "visual-picker-card";
+        card.dataset.loadoutChildItem = item.name || "";
+        const img = document.createElement("img");
+        img.src = imageForItem(item);
+        img.alt = "";
+        img.onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
+        const title = document.createElement("strong");
+        title.textContent = item.label || item.name || "";
+        const classname = document.createElement("code");
+        classname.textContent = item.name || "";
+        const meta = document.createElement("small");
+        meta.textContent = [item.category || "General", playerLoadoutItemSize(item.name) ? `${playerLoadoutItemSize(item.name)} slots` : ""].filter(Boolean).join(" - ");
+        card.append(img, title, classname, meta);
+        childCards.appendChild(card);
+      });
     }
     function appendPickerLine(picker, output) {
       const line = pickerLine(picker);
@@ -15716,6 +15931,7 @@ PAGE_TEMPLATE = """
         itemInput.focus();
       }
       if (picker) syncPickerPreview(picker);
+      if (picker?.dataset.pickerMode === "loadout") refreshPlayerLoadoutHelpers(output.closest("form"), lineParts(line).name);
       return true;
     }
     function xmlEscape(value) {
@@ -16182,6 +16398,22 @@ PAGE_TEMPLATE = """
         if (picker) syncPickerPreview(picker);
         return;
       }
+      const vehicleCard = event.target.closest("[data-vehicle-card]");
+      if (vehicleCard) {
+        event.preventDefault();
+        const form = vehicleCard.closest("form");
+        const select = form?.elements?.vehicle_class;
+        if (select) {
+          select.value = vehicleCard.dataset.vehicleClass || "";
+          form.querySelectorAll("[data-vehicle-card]").forEach((card) => {
+            card.classList.toggle("active", card === vehicleCard);
+          });
+          renderVisualSelect(select);
+          renderVehicleReference(form);
+          syncLiveOutput(form);
+        }
+        return;
+      }
       const vehicleCargoCard = event.target.closest("[data-vehicle-cargo-card]");
       if (vehicleCargoCard) {
         event.preventDefault();
@@ -16193,6 +16425,61 @@ PAGE_TEMPLATE = """
           const form = picker.closest("form");
           appendPickerLine(picker, form ? form.querySelector("[data-picker-output]") : null);
         }
+        return;
+      }
+      const loadoutInventoryAdd = event.target.closest("[data-loadout-inventory-add]");
+      if (loadoutInventoryAdd) {
+        event.preventDefault();
+        const form = loadoutInventoryAdd.closest("form");
+        const picker = loadoutInventoryAdd.closest("[data-loadout-inventory-fill]");
+        const output = form?.querySelector("[data-picker-output]");
+        const item = String(picker?.querySelector("[data-loadout-inventory-item]")?.value || "").trim();
+        const quantity = Math.max(1, Math.min(999, Number(picker?.querySelector("[data-loadout-inventory-qty]")?.value || 1) || 1));
+        if (!form || !output || !item) {
+          setPlayerLoadoutResult(form, "Choose the inventory item first.", true);
+          return;
+        }
+        if (!loadoutReferenceAvailable({name: item})) {
+          setPlayerLoadoutResult(form, `${item} is not in the active reference library.`, true);
+          return;
+        }
+        const slotSize = playerLoadoutItemSize(item);
+        const storage = playerLoadoutStorageEntries(parsedOutputItems(form));
+        let remaining = quantity;
+        const lines = outputLines(output);
+        const assignments = [];
+        while (remaining > 0) {
+          const target = storage.filter((entry) => entry.free >= slotSize).sort((a, b) => b.free - a.free)[0];
+          if (!target) break;
+          target.free -= slotSize;
+          const assignment = assignments.find((row) => row.parent === target.name);
+          if (assignment) assignment.quantity += 1;
+          else assignments.push({parent: target.name, quantity: 1});
+          remaining -= 1;
+        }
+        if (!assignments.length) {
+          setPlayerLoadoutResult(form, "No equipped storage has enough estimated free slots for that item.", true);
+          return;
+        }
+        assignments.forEach((assignment) => lines.push([item, assignment.quantity, -1, "pristine", "", assignment.parent].join(", ")));
+        setOutputLines(output, lines);
+        setPlayerLoadoutResult(form, remaining ? `Added ${quantity - remaining}/${quantity} ${item}; the remaining items do not fit.` : `Added ${quantity} ${item} to available worn storage.` , Boolean(remaining));
+        refreshPlayerLoadoutHelpers(form, assignments[assignments.length - 1].parent);
+        return;
+      }
+      const loadoutChildCard = event.target.closest("[data-loadout-child-item]");
+      if (loadoutChildCard) {
+        event.preventDefault();
+        const form = loadoutChildCard.closest("form");
+        const output = form?.querySelector("[data-picker-output]");
+        const parent = String(form?.querySelector("[data-loadout-child-parent]")?.value || "").trim();
+        const child = String(loadoutChildCard.dataset.loadoutChildItem || "").trim();
+        if (!form || !output || !parent || !child) return;
+        const lines = outputLines(output);
+        lines.push([child, 1, -1, "pristine", "", parent].join(", "));
+        setOutputLines(output, lines);
+        setPlayerLoadoutResult(form, `Added ${child} to ${parent}.`);
+        refreshPlayerLoadoutHelpers(form, parent);
         return;
       }
       const visualCard = event.target.closest("[data-visual-item]");
@@ -16218,6 +16505,7 @@ PAGE_TEMPLATE = """
         if (select) {
           select.value = visualSelectCard.dataset.visualSelectValue || "";
           renderVisualSelect(select);
+          if (select.name === "vehicle_class") renderVehicleReference(select.closest("form"));
           syncLiveOutput(select.closest("form"));
         }
         return;
@@ -16341,6 +16629,7 @@ PAGE_TEMPLATE = """
           card.hidden = Boolean(query) && !String(card.dataset.loadoutSearch || "").includes(query);
         });
       }
+      if (event.target.matches("[data-loadout-child-search]")) refreshPlayerLoadoutHelpers(event.target.closest("form"));
       if (event.target.matches("[data-vehicle-card-search]")) {
         const query = String(event.target.value || "").trim().toLowerCase();
         event.target.closest("form")?.querySelectorAll("[data-vehicle-card]").forEach((card) => {
@@ -16361,6 +16650,7 @@ PAGE_TEMPLATE = """
         syncLoadoutPickerSlot(event.target);
         renderVisualPicker(event.target.closest("[data-item-picker]"));
       }
+      if (event.target.matches("[data-loadout-child-parent]")) refreshPlayerLoadoutHelpers(event.target.closest("form"));
       if (event.target.matches("[data-theme-select]")) {
         const theme = event.target.value || "default";
         localStorage.setItem("wanderingDashboardTheme", theme);
@@ -19795,7 +20085,7 @@ PAGE_TEMPLATE = """
       }
       form.addEventListener("submit", async (event) => {
         if (event.submitter && event.submitter.matches && event.submitter.matches("[data-zone-map-hit], [data-airdrop-map-hit], [data-airdrop-map-control]")) return;
-        if (form.dataset.htmlSubmit === "true") return;
+        if (form.dataset.htmlSubmit === "true" || event.submitter?.dataset.htmlSubmit === "true") return;
         event.preventDefault();
         if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
         form.querySelectorAll("[data-item-picker]").forEach((picker) => {
@@ -43342,13 +43632,22 @@ def page(mode: str, auth: dict[str, Any]):
     if player_loadout_active_slot not in player_loadout_slots:
         player_loadout_active_slot = "Head"
     reference_classnames = dayz_reference_classnames(server_map)
-    player_loadout_slot_items = [
+    player_loadout_slot_candidates = [
         {
             **item,
             "reference_available": not reference_classnames or str(item.get("name") or "").lower() in reference_classnames,
         }
         for item in (picker_groups.get(player_loadout_active_slot) or [])
         if isinstance(item, dict)
+    ]
+    player_loadout_hidden_count = sum(1 for item in player_loadout_slot_candidates if not item["reference_available"])
+    player_loadout_slot_items = [item for item in player_loadout_slot_candidates if item["reference_available"]]
+    player_loadout_inventory_items = [
+        item
+        for item in (picker_groups.get("player_cargo") or [])
+        if isinstance(item, dict) and (
+            not reference_classnames or str(item.get("name") or "").lower() in reference_classnames
+        )
     ]
     player_loadout_selected_item = safe_dayz_class(request.args.get("loadout_item"))
     if player_loadout_selected_item and player_loadout_selected_item not in {
@@ -43393,13 +43692,18 @@ def page(mode: str, auth: dict[str, Any]):
         except ValueError as validation_error:
             player_loadout_warnings = [str(validation_error)]
     vehicle_reference_records = dayz_vehicle_reference_records(server_map)
-    vehicle_loadout_items = [
+    vehicle_loadout_candidates = [
         {
             **item,
             "reference_available": str(item.get("name") or "").lower() in vehicle_reference_records,
         }
         for item in (picker_groups.get("vehicles") or [])
         if isinstance(item, dict)
+    ]
+    vehicle_loadout_hidden_count = sum(1 for item in vehicle_loadout_candidates if not item["reference_available"])
+    vehicle_loadout_items = [
+        item for item in vehicle_loadout_candidates
+        if not vehicle_reference_records or item["reference_available"]
     ]
     vehicle_loadout_selected_class = safe_dayz_class(request.args.get("vehicle_class")) or "Truck_01_Covered"
     vehicle_names = {str(item.get("name") or "") for item in vehicle_loadout_items}
@@ -43521,10 +43825,13 @@ def page(mode: str, auth: dict[str, Any]):
         economy_currency_options=ECONOMY_CURRENCY_OPTIONS,
         format_currency=dashboard_format_currency,
         xml_picker_groups=picker_groups,
+        player_loadout_reference_classnames=sorted(reference_classnames),
         types_factory_preload=types_factory_preload,
         player_loadout_slots=player_loadout_slots,
         player_loadout_active_slot=player_loadout_active_slot,
         player_loadout_slot_items=player_loadout_slot_items,
+        player_loadout_inventory_items=player_loadout_inventory_items,
+        player_loadout_hidden_count=player_loadout_hidden_count,
         player_loadout_selected_item=player_loadout_selected_item,
         player_loadout_draft_name=player_loadout_draft_name,
         player_loadout_draft_custom_path=player_loadout_draft_custom_path,
@@ -43533,6 +43840,7 @@ def page(mode: str, auth: dict[str, Any]):
         player_loadout_json_text=player_loadout_json_text,
         player_loadout_warnings=player_loadout_warnings,
         vehicle_loadout_items=vehicle_loadout_items,
+        vehicle_loadout_hidden_count=vehicle_loadout_hidden_count,
         vehicle_loadout_selected_class=vehicle_loadout_selected_class,
         vehicle_loadout_reference=vehicle_loadout_reference,
         vehicle_reference_records=vehicle_reference_records,
