@@ -712,7 +712,7 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual(1, weapon["spawnWeight"])
         self.assertNotIn("attachmentFor", weapon)
         self.assertEqual(
-            ["Mag_STANAG_30Rnd", "M4_MPBttstck"],
+            ["Mag_STANAG_30Rnd", "Mag_STANAG_30Rnd", "M4_MPBttstck"],
             [row["itemType"] for row in weapon["complexChildrenTypes"]],
         )
         self.assertTrue(all("spawnWeight" not in row for row in weapon["complexChildrenTypes"]))
@@ -720,9 +720,39 @@ class DashboardServerControlTests(unittest.TestCase):
         cargo = payload["discreteUnsortedItemSets"][0]
         self.assertEqual("QA Survivor Cargo", cargo["name"])
         self.assertEqual(
-            ["BandageDressing", "BandageDressing", "BandageDressing", "M4A1", "Mag_STANAG_30Rnd"],
+            ["BandageDressing", "BandageDressing", "BandageDressing", "M4A1"],
             [row["itemType"] for row in cargo["complexChildrenTypes"]],
         )
+
+    def test_player_loadout_keeps_blank_slot_for_inventory_children_of_every_container(self):
+        rows = dashboard.parse_xml_workshop_items("\n".join([
+            "AliceBag_Black, 1, -1, pristine, Back",
+            "SalineBag, 1, 100, pristine, , AliceBag_Black",
+            "GorkaEJacket_Autumn, 1, -1, pristine, Body",
+            "BandageDressing, 2, -1, pristine, , GorkaEJacket_Autumn",
+            "CargoPants_Green, 1, -1, pristine, Legs",
+            "AmmoBox_9x19_25rnd, 1, -1, pristine, , CargoPants_Green",
+        ]))
+
+        self.assertEqual("", rows[1]["slot"])
+        self.assertEqual("AliceBag_Black", rows[1]["attachment_for"])
+
+        payload = dashboard.build_player_loadout_json({"name": "Container QA", "items": rows})
+        slots = {entry["slotName"]: entry["discreteItemSets"] for entry in payload["attachmentSlotItemSets"]}
+
+        self.assertEqual(["AliceBag_Black"], [entry["itemType"] for entry in slots["Back"]])
+        self.assertEqual(["SalineBag"], [entry["itemType"] for entry in slots["Back"][0]["complexChildrenTypes"]])
+        self.assertEqual(["GorkaEJacket_Autumn"], [entry["itemType"] for entry in slots["Body"]])
+        self.assertEqual(
+            ["BandageDressing", "BandageDressing"],
+            [entry["itemType"] for entry in slots["Body"][0]["complexChildrenTypes"]],
+        )
+        self.assertEqual(["CargoPants_Green"], [entry["itemType"] for entry in slots["Legs"]])
+        self.assertEqual(
+            ["AmmoBox_9x19_25rnd"],
+            [entry["itemType"] for entry in slots["Legs"][0]["complexChildrenTypes"]],
+        )
+        self.assertNotIn("discreteUnsortedItemSets", payload)
 
     def test_player_loadout_full_json_is_validated_against_selected_reference(self):
         payload = dashboard.build_player_loadout_json({

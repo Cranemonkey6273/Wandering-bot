@@ -15707,9 +15707,15 @@ PAGE_TEMPLATE = """
       const damage = picker.querySelector("[data-picker-damage]")?.value || "pristine";
       const slot = picker.querySelector("[data-picker-slot]")?.value || "";
       const attachment = picker.querySelector("[data-picker-attachment]")?.value || "";
-      return mode === "bundle"
-        ? `${qty}x ${item}`
-        : [item, qty, quantity, damage, slot, attachment].filter((part, index) => index < 4 || String(part || "").trim()).join(", ");
+      if (mode === "bundle") return `${qty}x ${item}`;
+      // A child item has no wear-slot of its own, so its blank slot must stay
+      // in column five.  Dropping that empty column makes the parent name look
+      // like a slot, which turns backpack/jacket/trouser cargo into a second
+      // top-level worn item in the exported DayZ loadout.
+      if (attachment) return [item, qty, quantity, damage, slot, attachment].join(", ");
+      return slot
+        ? [item, qty, quantity, damage, slot].join(", ")
+        : [item, qty, quantity, damage].join(", ");
     }
     function lineParts(line) {
       const parts = String(line || "").split(",").map((part) => part.trim());
@@ -16154,11 +16160,15 @@ PAGE_TEMPLATE = """
         const children = (attachmentsByParent[key] || []).filter((child) => !consumedAttachments.has(child));
         if (children.length) {
           children.forEach((child) => consumedAttachments.add(child));
-          entry.complexChildrenTypes = children.map((child) => {
-            const childEntry = nestedItemEntry(child, false);
+          // Quantity is cargo quantity when a row belongs to a parent.  Keep
+          // every copy beneath that parent instead of moving the extras into
+          // the character's loose/global cargo.
+          entry.complexChildrenTypes = children.flatMap((child) => {
             const copies = Math.max(1, Number(child.quantity || 1) || 1);
-            for (let index = 1; index < copies; index += 1) cargo.push({...child, quantity: 1});
-            return childEntry;
+            return Array.from(
+              {length: copies},
+              () => nestedItemEntry({...child, quantity: 1}, false),
+            );
           });
         }
         return entry;
@@ -37488,8 +37498,12 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
             slot = str(raw.get("slot") or "").strip()
             attachment_for = str(raw.get("attachment_for") or raw.get("attachmentFor") or "").strip()
         else:
-            parts = [part.strip() for part in re.split(r"[|,]", str(raw or "")) if part.strip()]
-            if not parts:
+            # Keep intentionally blank CSV columns.  A child line is encoded
+            # as ``item, qty, amount, pristine, , Parent``; removing the blank
+            # slot shifts Parent into the slot field and makes it a second worn
+            # root item instead of cargo/attachment of Parent.
+            parts = [part.strip() for part in re.split(r"[|,]", str(raw or ""))]
+            if not any(parts):
                 continue
             item_name = safe_dayz_class(parts[0])
             quantity = safe_int(parts[1], 1) if len(parts) > 1 else 1
@@ -37625,8 +37639,6 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
             cargo_rows.append(item)
 
     consumed_attachment_ids: set[int] = set()
-    extra_attachment_cargo_rows: list[dict[str, Any]] = []
-
     def nested_item_entry(item: dict[str, Any], *, include_spawn_weight: bool = True) -> dict[str, Any]:
         """Build an item and consume rows explicitly attached to it once."""
         entry = player_loadout_item_entry(item, include_spawn_weight=include_spawn_weight)
@@ -37637,13 +37649,15 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
         ]
         if children:
             consumed_attachment_ids.update(id(child) for child in children)
-            nested_children = []
-            for child in children:
-                nested_children.append(nested_item_entry(child, include_spawn_weight=False))
-                extra_attachment_cargo_rows.extend(
-                    {**child, "quantity": 1}
-                    for _copy in range(max(0, safe_int(child.get("quantity"), 1) - 1))
-                )
+            # A quantity on an attached row is the number of that item's
+            # copies inside the selected parent (backpack, jacket, trousers,
+            # belt, weapon, etc.), not a request to spill its extras into the
+            # player's loose cargo.
+            nested_children = [
+                nested_item_entry({**child, "quantity": 1}, include_spawn_weight=False)
+                for child in children
+                for _copy in range(max(1, safe_int(child.get("quantity"), 1)))
+            ]
             entry["complexChildrenTypes"] = nested_children
         return entry
 
@@ -37680,10 +37694,6 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
         for item in children
         if id(item) not in consumed_attachment_ids
         for _copy in range(max(1, safe_int(item.get("quantity"), 1)))
-    )
-    cargo_children.extend(
-        nested_item_entry(item, include_spawn_weight=False)
-        for item in extra_attachment_cargo_rows
     )
     if cargo_children:
         preset["discreteUnsortedItemSets"] = [{
