@@ -741,6 +741,25 @@ class DashboardServerControlTests(unittest.TestCase):
         warnings = dashboard.validate_player_loadout_json(missing_payload, "./custom/missing_qa.json", "chernarus")
         self.assertIn("Definitely_Not_A_DayZ_Class", warnings[0])
 
+    def test_player_loadout_children_are_reference_specific_and_pristine(self):
+        children = dashboard.dayz_reference_attachment_children("chernarus")
+        self.assertEqual({"Hook", "Jig"}, set(children["booniehat_orange"]))
+        self.assertIn("M4_OEBttstck", children["m4a1"])
+        self.assertNotIn("NVGoggles", children["booniehat_orange"])
+
+        normalized = dashboard.force_pristine_loadout_items([
+            {"item": "M4A1", "quantity": 1, "damage": "ruined"},
+            {"item": "Battery9V", "quantity": 1, "damage": "random"},
+        ])
+        self.assertEqual(["pristine", "pristine"], [row["damage"] for row in normalized])
+
+        payload = dashboard.build_player_loadout_json({
+            "name": "Pristine QA",
+            "items": [{"item": "M4A1", "quantity": 1, "damage": "ruined", "slot": "Left Shoulder"}],
+        })
+        weapon = next(row for row in payload["attachmentSlotItemSets"] if row["slotName"] == "shoulderL")["discreteItemSets"][0]
+        self.assertEqual({"healthMin": 1.0, "healthMax": 1.0}, weapon["attributes"])
+
     def test_vehicle_loadout_preserves_reference_attachment_slot_groups(self):
         detail = dashboard.vehicle_reference_detail("chernarus", "Truck_01_Covered")
         self.assertTrue(detail["available"])
@@ -822,6 +841,10 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("data-loadout-card-search", template)
         self.assertIn("data-loadout-inventory-add", template)
         self.assertIn("data-loadout-child-cards", template)
+        self.assertIn("4. Add exact compatible children", template)
+        self.assertIn("Every loadout item is pristine.", template)
+        self.assertIn("readonly aria-readonly=\"true\"", template)
+        self.assertNotIn("Attachment for weapon/item", template)
         self.assertIn("Only classes present in the active DayZ reference can be added.", template)
         self.assertIn('id="vehicle-loadout-builder"', template)
         self.assertIn("data-vehicle-card-search", template)
@@ -903,7 +926,7 @@ class DashboardServerControlTests(unittest.TestCase):
             "recipe_kind": "player_loadout",
             "recipe_name": "Livonia QA Loadout",
             "custom_path": "./custom/Livonia_QA_Loadout.json",
-            "items": "BallisticHelmet, 1, -1, pristine, Head",
+            "items": "BallisticHelmet, 1, -1, ruined, Head",
         }
 
         with (
@@ -919,6 +942,7 @@ class DashboardServerControlTests(unittest.TestCase):
         livo_recipes = livo_workshop["recipes"]["players"]
         self.assertEqual(["Livonia QA Loadout"], [row["name"] for row in livo_recipes])
         self.assertEqual("BallisticHelmet", livo_recipes[0]["items"][0]["item"])
+        self.assertEqual("pristine", livo_recipes[0]["items"][0]["damage"])
         self.assertEqual(["Cherno loadout"], [row["name"] for row in configs["guild-1"]["xml_workshop"]["recipes"]["players"]])
 
         delete_payload = {

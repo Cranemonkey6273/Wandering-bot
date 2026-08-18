@@ -12068,7 +12068,7 @@ PAGE_TEMPLATE = """
                   </div>
                 </div>
                 <div class="loadout-workbench">
-                  <div class="embed-preview"><strong>2. Add equipment</strong><span>Pick a body slot and click a card to add it instantly. Use the inventory helper to nest supplies into the worn storage that has room.</span></div>
+                  <div class="embed-preview"><strong>2. Add equipment</strong><span>Pick an equipment slot and click a card to add it instantly. Use the inventory helper to place supplies into equipped storage with room.</span></div>
                   <div class="item-picker" data-item-picker data-picker-mode="loadout" data-picker-group="{{ player_loadout_active_slot }}">
                     <label>Search compatible {{ player_loadout_active_slot }} items <input type="search" data-loadout-card-search placeholder="Display name or classname"></label>
                     {% if player_loadout_hidden_count %}<p class="tool-note"><span class="pill warn">{{ player_loadout_hidden_count }} invalid shop classname{{ '' if player_loadout_hidden_count == 1 else 's' }} hidden</span> Only classes present in the active DayZ reference can be added.</p>{% endif %}
@@ -12084,16 +12084,10 @@ PAGE_TEMPLATE = """
                       <label>Slot <select name="loadout_slot" data-picker-slot>{% for slot in player_loadout_slots %}<option {{ 'selected' if slot == player_loadout_active_slot else '' }}>{{ slot }}</option>{% endfor %}<option value="">Unsorted</option></select></label>
                       <button type="button" data-picker-add>Add</button>
                     </div>
-                    <label>Attachment for weapon/item
-                      <select class="picker-select" name="loadout_attachment" data-picker-attachment>
-                        <option value="">None</option>
-                        {% for item in xml_picker_groups.cargo %}<option value="{{ item.name }}">{{ item.name }} - {{ item.category }}</option>{% endfor %}
-                      </select>
-                    </label>
                     <input class="hidden-field" name="loadout_damage" value="pristine" data-picker-damage>
                     <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Choose a slot, then click an item card to add it.</span></div>
                     <section class="loadout-inventory-fill" data-loadout-inventory-fill>
-                      <div><strong>3. Fill worn inventory</strong><p class="tool-note">Choose supplies and they will be placed in worn clothing, a vest or backpack with enough estimated free slots.</p></div>
+                      <div><strong>3. Fill equipped inventory</strong><p class="tool-note">Choose supplies and they will be placed in equipped clothing, a vest or backpack with enough estimated free slots. Every loadout item is pristine.</p></div>
                       <div class="item-picker-controls">
                         <label>Inventory item
                           <select class="picker-select" data-loadout-inventory-item>
@@ -12107,7 +12101,7 @@ PAGE_TEMPLATE = """
                       <div class="loadout-storage-status" data-loadout-storage-status>Equip a jacket, trousers, vest or backpack first.</div>
                     </section>
                     <section class="loadout-child-builder" data-loadout-child-builder>
-                      <div><strong>4. Add compatible attachments or cargo</strong><p class="tool-note" data-loadout-child-note>Add an item, then pick it below to see its compatible attachments or cargo. Click a child card to add it instantly.</p></div>
+                      <div><strong>4. Add exact compatible children</strong><p class="tool-note" data-loadout-child-note>Only children defined for the selected classname are shown. Equipped storage shows cargo that fits its available capacity. Click a card to add it instantly.</p></div>
                       <label>Parent item <select class="picker-select" data-loadout-child-parent><option value="">Add an item first</option></select></label>
                       <label>Find compatible child <input type="search" data-loadout-child-search placeholder="Display name or classname"></label>
                       <div class="visual-picker-grid loadout-child-grid" data-loadout-child-cards><span class="muted">Add an item first.</span></div>
@@ -12128,7 +12122,7 @@ PAGE_TEMPLATE = """
                       </div>
                     </details>
                   </div>
-                  <label>5. Final loadout (drag rows to reorder)
+                  <label>5. Generated loadout (drag rows to reorder)
                     <div class="selected-items" data-selected-items data-empty-text="No loadout items added yet">
                       {% for row in player_loadout_draft_rows %}
                       <div class="selected-row">
@@ -12139,8 +12133,8 @@ PAGE_TEMPLATE = """
                       <span class="muted">No loadout items added yet</span>
                       {% endfor %}
                     </div>
-                    <textarea class="raw-output" name="items" data-picker-output placeholder="BandageDressing, 2, -1, pristine, Body&#10;WaterBottle, 1, 100, pristine, Back&#10;Mag_STANAG_30Rnd, 2, 100, pristine">{{ player_loadout_draft_items_text }}</textarea>
-                    <small class="field-help">Loadout JSON spawns these as pristine items.</small>
+                    <textarea class="raw-output" name="items" data-picker-output readonly aria-readonly="true" placeholder="Choose equipment, supplies, and exact children above.">{{ player_loadout_draft_items_text }}</textarea>
+                    <small class="field-help">Generated from the controls above. Every loadout item spawns pristine.</small>
                   </label>
                 </div>
                 <div><button type="submit">Save Player Loadout</button> <button type="submit" data-html-submit="true" formaction="/api/admin/xml-workshop-recipe-action" name="action" value="clear_draft" onclick="return window.confirm('Clear this local loadout draft? No live DayZ files will be changed.');">Clear Draft</button> <span class="result muted"></span></div>
@@ -12244,7 +12238,7 @@ PAGE_TEMPLATE = """
                       </label>
                       <label>Qty <input data-picker-qty type="number" min="1" max="999" value="1"></label>
                       <label>Fill <select data-picker-quantity><option value="-1">Native</option><option value="100">Full</option><option value="75">75%</option><option value="50">50%</option></select></label>
-                      <label>Damage <select data-picker-damage><option value="pristine">Pristine</option><option value="worn">Worn</option><option value="damaged">Damaged</option><option value="random">Random</option></select></label>
+                      <input class="hidden-field" value="pristine" data-picker-damage>
                       <button type="button" data-picker-add>Add</button>
                     </div>
                     <div class="item-picker-preview"><img class="item-thumb" data-picker-image src="/item-thumb/General" alt=""><span data-picker-label>Click cargo cards to add them, then drag the selected cargo rows into order.</span></div>
@@ -14708,16 +14702,22 @@ PAGE_TEMPLATE = """
     const ITEM_LOOKUP = {{ (server.shop_items if server and active_section in ["shop", "xml-workshop", "loot-engine", "visual-loadout", "bulk-economy"] else [])|tojson }};
     const XML_PICKER_GROUPS = {{ xml_picker_groups|tojson }};
     const PLAYER_LOADOUT_REFERENCE_CLASSNAMES = new Set({{ player_loadout_reference_classnames|tojson }});
+    const PLAYER_LOADOUT_REFERENCE_CHILDREN = {{ player_loadout_attachment_children|tojson }};
     const PLAYER_LOADOUT_STORAGE_SLOTS = new Set(["Body", "Vest", "Back", "Hips", "Legs"]);
     const PLAYER_LOADOUT_CAPACITY_HINTS = {alicebag: 90, mountainbag: 80, fieldbackpack: 90, drybag: 63, taloonbag: 35, courierbag: 30, improvisedbag: 42, huntingbag: 63, assaultbag: 42, platecarriervest: 24, highcapacityvest: 30, smershvest: 30, smershbag: 30, jacket: 42, pants: 30};
     const PLAYER_LOADOUT_SIZE_HINTS = {m4a1: 27, akm: 27, ak74: 27, sks: 24, mosin: 30, svd: 30, fal: 27, vss: 24, platecarrier: 25, helmet: 9, mag_: 4, ammobox: 4, ammo_: 1, grenade: 2, bandage: 1, canteen: 4, waterbottle: 4, knife: 2, pistol: 6};
-    const PLAYER_LOADOUT_CHILD_OPTIONS = {
-      BallisticHelmet: ["NVGoggles", "UniversalLight"], BallisticHelmet_Black: ["NVGoggles", "UniversalLight"], BallisticHelmet_Green: ["NVGoggles", "UniversalLight"],
-      Mich2001Helmet: ["NVGoggles", "UniversalLight"], TacticalHelmet_Black: ["NVGoggles", "UniversalLight"], TacticalHelmet_Green: ["NVGoggles", "UniversalLight"],
-      NVGoggles: ["Battery9V"], NVGHeadstrap: ["NVGoggles", "UniversalLight"], UniversalLight: ["Battery9V"],
-      PlateCarrierVest: ["PlateCarrierPouches", "PlateCarrierHolster"], M4A1: ["M4_RISHndgrd", "M4_MPBttstck", "Mag_STANAG_30Rnd", "ACOGOptic", "Battery9V"],
-      AKM: ["Mag_AKM_30Rnd"], SVD: ["Battery9V"], SKS: ["Ammo_762x39"]
-    };
+    function curatedLoadoutChildren(parentKey) {
+      if (parentKey === "nvgoggles") return ["Battery9V"];
+      if (parentKey === "nvgheadstrap") return ["NVGoggles"];
+      if (parentKey.startsWith("ballistichelmet") || parentKey.startsWith("tacticalhelmet")) return ["NVGoggles"];
+      if (parentKey === "platecarriervest") return ["PlateCarrierPouches", "PlateCarrierHolster"];
+      const plateCarrierVariant = parentKey.match(/^platecarriervest_(black|camo|green|winter)$/);
+      if (plateCarrierVariant) {
+        const suffix = plateCarrierVariant[1][0].toUpperCase() + plateCarrierVariant[1].slice(1);
+        return [`PlateCarrierPouches_${suffix}`, `PlateCarrierHolster_${suffix}`];
+      }
+      return [];
+    }
     const VISUAL_LOADOUT_DRAFT = {{ visual_loadout_draft|tojson }};
     const DEFAULT_LOADOUT_SLOT = {{ player_loadout_active_slot|tojson }};
     document.body.dataset.section = "{{ active_section }}";
@@ -15802,10 +15802,12 @@ PAGE_TEMPLATE = """
       const rows = XML_PICKER_GROUPS.player_cargo || XML_PICKER_GROUPS.cargo || [];
       return rows.filter(loadoutReferenceAvailable);
     }
-    function playerLoadoutChildItems(parentName) {
+    function playerLoadoutDirectChildNames(parentName) {
       const parentKey = String(parentName || "").toLowerCase();
-      const explicit = PLAYER_LOADOUT_CHILD_OPTIONS[parentName]
-        || ((parentKey.includes("ballistichelmet") || parentKey.includes("mich2001helmet") || parentKey.includes("tacticalhelmet")) ? ["NVGoggles", "UniversalLight"] : []);
+      return PLAYER_LOADOUT_REFERENCE_CHILDREN[parentKey] || curatedLoadoutChildren(parentKey);
+    }
+    function playerLoadoutChildItems(parentName) {
+      const explicit = playerLoadoutDirectChildNames(parentName);
       const items = explicit.map((name) => ({name, ...itemInfo(name)}));
       if (playerLoadoutCapacity(parentName) > 0) items.push(...playerLoadoutCargoItems());
       const seen = new Set();
@@ -15836,7 +15838,7 @@ PAGE_TEMPLATE = """
           storageStatus.textContent = "Equip a jacket, trousers, vest or backpack first.";
         } else {
           const heading = document.createElement("strong");
-          heading.textContent = "Available worn storage (estimates)";
+          heading.textContent = "Available equipped storage (estimates)";
           storageStatus.appendChild(heading);
           storage.forEach((entry) => {
             const line = document.createElement("span");
@@ -15881,22 +15883,30 @@ PAGE_TEMPLATE = """
         empty.className = "muted";
         empty.textContent = "Choose an added item to see its children.";
         childCards.appendChild(empty);
-        if (childNote) childNote.textContent = "Choose an added item to see its compatible attachments or cargo.";
+        if (childNote) childNote.textContent = "Choose an added item to see only its exact attachment children, or its cargo if it is equipped storage.";
         return;
       }
+      const directChildNames = new Set(playerLoadoutDirectChildNames(parentName).map((name) => String(name).toLowerCase()));
+      const storageEntry = storage
+        .filter((entry) => String(entry.name || "").toLowerCase() === String(parentName).toLowerCase())
+        .sort((left, right) => right.free - left.free)[0];
       const children = playerLoadoutChildItems(parentName).filter((item) => {
         const text = `${item.name || ""} ${item.label || ""} ${item.category || ""}`.toLowerCase();
-        return !search || text.includes(search);
+        const isDirectAttachment = directChildNames.has(String(item.name || "").toLowerCase());
+        const fitsStorage = !storageEntry || isDirectAttachment || playerLoadoutItemSize(item.name) <= storageEntry.free;
+        return fitsStorage && (!search || text.includes(search));
       }).slice(0, 72);
       if (childNote) {
         childNote.textContent = playerLoadoutCapacity(parentName) > 0
-          ? `Click a compatible card to add it into ${parentName}. Capacity is an estimate.`
-          : `Click a compatible attachment card to add it to ${parentName}.`;
+          ? `Click a child card to add it into ${parentName}. Capacity is an estimate.`
+          : `Only direct children verified for ${parentName} are shown.`;
       }
       if (!children.length) {
         const empty = document.createElement("span");
         empty.className = "muted";
-        empty.textContent = "No compatible children are listed for this item.";
+        empty.textContent = playerLoadoutCapacity(parentName) > 0
+          ? "No verified child items fit the available equipped-storage rules."
+          : "This item has no verified direct attachments in the active reference.";
         childCards.appendChild(empty);
         return;
       }
@@ -16463,7 +16473,7 @@ PAGE_TEMPLATE = """
         }
         assignments.forEach((assignment) => lines.push([item, assignment.quantity, -1, "pristine", "", assignment.parent].join(", ")));
         setOutputLines(output, lines);
-        setPlayerLoadoutResult(form, remaining ? `Added ${quantity - remaining}/${quantity} ${item}; the remaining items do not fit.` : `Added ${quantity} ${item} to available worn storage.` , Boolean(remaining));
+        setPlayerLoadoutResult(form, remaining ? `Added ${quantity - remaining}/${quantity} ${item}; the remaining items do not fit.` : `Added ${quantity} ${item} to available equipped storage.` , Boolean(remaining));
         refreshPlayerLoadoutHelpers(form, assignments[assignments.length - 1].parent);
         return;
       }
@@ -16475,6 +16485,17 @@ PAGE_TEMPLATE = """
         const parent = String(form?.querySelector("[data-loadout-child-parent]")?.value || "").trim();
         const child = String(loadoutChildCard.dataset.loadoutChildItem || "").trim();
         if (!form || !output || !parent || !child) return;
+        const directChildNames = new Set(playerLoadoutDirectChildNames(parent).map((name) => String(name).toLowerCase()));
+        const isDirectAttachment = directChildNames.has(child.toLowerCase());
+        const storage = playerLoadoutStorageEntries(parsedOutputItems(form));
+        const storageEntry = storage
+          .filter((entry) => String(entry.name || "").toLowerCase() === parent.toLowerCase())
+          .sort((left, right) => right.free - left.free)[0];
+        if (storageEntry && !isDirectAttachment && playerLoadoutItemSize(child) > storageEntry.free) {
+          setPlayerLoadoutResult(form, `${child} does not fit in the remaining estimated space in ${parent}.`, true);
+          refreshPlayerLoadoutHelpers(form, parent);
+          return;
+        }
         const lines = outputLines(output);
         lines.push([child, 1, -1, "pristine", "", parent].join(", "));
         setOutputLines(output, lines);
@@ -37114,6 +37135,7 @@ def default_vehicle_spawn_parts(vehicle_class: str) -> dict[str, list[str]]:
 
 _VEHICLE_REFERENCE_RECORD_CACHE: dict[str, dict[str, Any]] = {}
 _DAYZ_REFERENCE_CLASSNAME_CACHE: dict[str, set[str]] = {}
+_DAYZ_REFERENCE_ATTACHMENT_CHILDREN_CACHE: dict[str, dict[str, list[str]]] = {}
 
 
 def dayz_reference_classnames(map_key: Any) -> set[str]:
@@ -37143,6 +37165,38 @@ def dayz_reference_classnames(map_key: Any) -> set[str]:
             if item_name:
                 names.add(item_name.lower())
     return set(remember_small_cache(_DAYZ_REFERENCE_CLASSNAME_CACHE, digest, names, limit=12))
+
+
+def dayz_reference_attachment_children(map_key: Any) -> dict[str, list[str]]:
+    """Return direct child items declared for each active spawnable type."""
+    clean_map = normalize_dayz_reference_map_key(map_key)
+    source_text = load_dayz_reference_text(clean_map, "cfgspawnabletypes.xml")
+    digest = dashboard_cache_key([clean_map, source_text])
+    cached = _DAYZ_REFERENCE_ATTACHMENT_CHILDREN_CACHE.get(digest)
+    if cached is not None:
+        return {parent: list(children) for parent, children in cached.items()}
+    children_by_parent: dict[str, list[str]] = {}
+    if source_text.strip():
+        try:
+            root = ET.fromstring(re.sub(r"<!--.*?-->", "", source_text, flags=re.DOTALL))
+        except ET.ParseError:
+            root = None
+        if root is not None and root.tag == "spawnabletypes":
+            for type_node in root.findall("./type"):
+                parent = safe_dayz_class(type_node.get("name"))
+                if not parent:
+                    continue
+                children: list[str] = []
+                seen: set[str] = set()
+                for item_node in type_node.findall("./attachments/item"):
+                    child = safe_dayz_class(item_node.get("name"))
+                    if child and child.lower() not in seen:
+                        seen.add(child.lower())
+                        children.append(child)
+                if children:
+                    children_by_parent[parent.lower()] = children
+    cached_value = remember_small_cache(_DAYZ_REFERENCE_ATTACHMENT_CHILDREN_CACHE, digest, children_by_parent, limit=12)
+    return {parent: list(children) for parent, children in cached_value.items()}
 
 
 def dayz_vehicle_reference_records(map_key: Any) -> dict[str, Any]:
@@ -37326,6 +37380,15 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
     return rows
 
 
+def force_pristine_loadout_items(items: Any) -> list[dict[str, Any]]:
+    """Normalize player and vehicle loadout rows to pristine condition."""
+    return [
+        {**item, "damage": "pristine"}
+        for item in (items or [])
+        if isinstance(item, dict) and safe_dayz_class(item.get("item"))
+    ]
+
+
 def format_player_loadout_line(
     item_name: Any,
     quantity: Any,
@@ -37417,7 +37480,7 @@ def build_player_loadout_json(record: dict[str, Any]) -> dict[str, Any]:
     slot_items: dict[str, list[dict[str, Any]]] = {}
     attachment_rows: dict[str, list[dict[str, Any]]] = {}
     cargo_rows: list[dict[str, Any]] = []
-    rows = [item for item in record.get("items", []) if isinstance(item, dict) and safe_dayz_class(item.get("item"))]
+    rows = force_pristine_loadout_items(record.get("items", []))
     for item in rows:
         attachment_for = safe_dayz_class(item.get("attachment_for"))
         if attachment_for:
@@ -43614,7 +43677,18 @@ def page(mode: str, auth: dict[str, Any]):
     player_loadout_draft_name = str(player_loadout_draft.get("name") or "Fresh Spawn Plus").strip()[:120] or "Fresh Spawn Plus"
     player_loadout_draft_custom_path = safe_custom_json_path(player_loadout_draft.get("custom_path"), "WanderingLoadout")
     player_loadout_draft_items_text = str(player_loadout_draft.get("items_text") or "")
-    player_loadout_draft_items = parse_xml_workshop_items(player_loadout_draft_items_text)
+    player_loadout_draft_items = force_pristine_loadout_items(parse_xml_workshop_items(player_loadout_draft_items_text))
+    if player_loadout_draft_items:
+        player_loadout_draft_items_text = "\n".join(
+            format_player_loadout_line(
+                item.get("item"),
+                item.get("quantity"),
+                item.get("quantity_percent"),
+                item.get("slot"),
+                item.get("attachment_for"),
+            )
+            for item in player_loadout_draft_items
+        )
     player_loadout_json_text = (
         json.dumps(
             build_player_loadout_json({
@@ -43632,6 +43706,7 @@ def page(mode: str, auth: dict[str, Any]):
     if player_loadout_active_slot not in player_loadout_slots:
         player_loadout_active_slot = "Head"
     reference_classnames = dayz_reference_classnames(server_map)
+    player_loadout_attachment_children = dayz_reference_attachment_children(server_map)
     player_loadout_slot_candidates = [
         {
             **item,
@@ -43826,6 +43901,7 @@ def page(mode: str, auth: dict[str, Any]):
         format_currency=dashboard_format_currency,
         xml_picker_groups=picker_groups,
         player_loadout_reference_classnames=sorted(reference_classnames),
+        player_loadout_attachment_children=player_loadout_attachment_children,
         types_factory_preload=types_factory_preload,
         player_loadout_slots=player_loadout_slots,
         player_loadout_active_slot=player_loadout_active_slot,
@@ -46921,9 +46997,9 @@ def api_xml_workshop_loadout_download():
         saved_draft = workshop.get("player_loadout_draft", {}) if isinstance(workshop, dict) else {}
         if isinstance(saved_draft, dict):
             draft = saved_draft
-    items = parse_xml_workshop_items(raw_payload.get("items"))
+    items = force_pristine_loadout_items(parse_xml_workshop_items(raw_payload.get("items")))
     if not items:
-        items = parse_xml_workshop_items(draft.get("items_text"))
+        items = force_pristine_loadout_items(parse_xml_workshop_items(draft.get("items_text")))
     if not items:
         return jsonify({"ok": False, "error": "add at least one valid loadout item before downloading"}), 400
     name = str(raw_payload.get("recipe_name") or draft.get("name") or "Wandering Bot Loadout").strip()[:120] or "Wandering Bot Loadout"
@@ -46970,7 +47046,7 @@ def api_xml_workshop_vehicle_download():
     }
     if not record["vehicle_class"] or disallowed_vehicle_part_class(record["vehicle_class"]):
         return jsonify({"ok": False, "success": False, "error": "Pick a valid whole vehicle classname before downloading."}), 400
-    items = parse_xml_workshop_items(raw_payload.get("items"))
+    items = force_pristine_loadout_items(parse_xml_workshop_items(raw_payload.get("items")))
     try:
         fragment = build_vehicle_workshop_xml(
             record,
@@ -47325,6 +47401,8 @@ def api_xml_workshop():
     if not recipe_name:
         return jsonify({"ok": False, "error": "recipe_name is required"}), 400
     items = parse_xml_workshop_items(payload.get("items"))
+    if kind in {"player_loadout", "vehicle_loadout"}:
+        items = force_pristine_loadout_items(items)
     if not items and kind != "airdrop":
         return jsonify({"ok": False, "error": "add at least one valid item line"}), 400
     record = {
