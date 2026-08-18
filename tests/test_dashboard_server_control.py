@@ -754,6 +754,19 @@ class DashboardServerControlTests(unittest.TestCase):
         )
         self.assertNotIn("discreteUnsortedItemSets", payload)
 
+        # Migrate drafts written by the affected release, where the blank slot
+        # column was lost and the parent landed in column five.
+        legacy_rows = dashboard.parse_xml_workshop_items(
+            "SalineBag, 1, 100, pristine, AliceBag_Black",
+            recover_player_loadout_parent=True,
+        )
+        self.assertEqual("", legacy_rows[0]["slot"])
+        self.assertEqual("AliceBag_Black", legacy_rows[0]["attachment_for"])
+        self.assertEqual(
+            "AliceBag_Black",
+            dashboard.parse_xml_workshop_items("SalineBag, 1, 100, pristine, AliceBag_Black")[0]["slot"],
+        )
+
     def test_player_loadout_full_json_is_validated_against_selected_reference(self):
         payload = dashboard.build_player_loadout_json({
             "name": "Reference QA",
@@ -885,6 +898,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertNotIn("Attachment for weapon/item", template)
         self.assertIn("Only classes present in the active DayZ reference can be added.", template)
         self.assertIn("visualLoadoutDirectChildren", template)
+        self.assertIn("function parsePlayerLoadoutLine(line, recoverLegacyParent = false)", template)
+        self.assertIn("if (attachment) return [item, qty, quantity, damage, slot, attachment].join", template)
         self.assertIn("Exact Item Attachments", template)
         self.assertNotIn("const LOADOUT_ATTACHMENTS =", template)
         self.assertIn('id="vehicle-loadout-builder"', template)

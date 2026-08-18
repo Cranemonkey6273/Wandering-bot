@@ -14704,6 +14704,14 @@ PAGE_TEMPLATE = """
     const PLAYER_LOADOUT_REFERENCE_CLASSNAMES = new Set({{ player_loadout_reference_classnames|tojson }});
     const PLAYER_LOADOUT_REFERENCE_CHILDREN = {{ player_loadout_attachment_children|tojson }};
     const PLAYER_LOADOUT_STORAGE_SLOTS = new Set(["Body", "Vest", "Back", "Hips", "Legs"]);
+    const PLAYER_LOADOUT_SLOT_NAMES = {
+      head: "Headgear", headgear: "Headgear", eyes: "Eyewear", eyewear: "Eyewear", glasses: "Eyewear",
+      mask: "Mask", body: "Body", torso: "Body", vest: "Vest", back: "Back", backpack: "Back",
+      hips: "Hips", belt: "Hips", legs: "Legs", feet: "Feet", hands: "Hands",
+      "left shoulder": "shoulderL", shoulder1: "shoulderL", shoulderl: "shoulderL",
+      "right shoulder": "shoulderR", shoulder2: "shoulderR", shoulderr: "shoulderR",
+      gloves: "Gloves", armband: "Armband"
+    };
     const PLAYER_LOADOUT_CAPACITY_HINTS = {alicebag: 90, mountainbag: 80, fieldbackpack: 90, drybag: 63, taloonbag: 35, courierbag: 30, improvisedbag: 42, huntingbag: 63, assaultbag: 42, platecarriervest: 24, highcapacityvest: 30, smershvest: 30, smershbag: 30, jacket: 42, pants: 30};
     const PLAYER_LOADOUT_SIZE_HINTS = {m4a1: 27, akm: 27, ak74: 27, sks: 24, mosin: 30, svd: 30, fal: 27, vss: 24, platecarrier: 25, helmet: 9, mag_: 4, ammobox: 4, ammo_: 1, grenade: 2, bandage: 1, canteen: 4, waterbottle: 4, knife: 2, pistol: 6};
     const VISUAL_LOADOUT_DRAFT = {{ visual_loadout_draft|tojson }};
@@ -15717,15 +15725,38 @@ PAGE_TEMPLATE = """
         ? [item, qty, quantity, damage, slot].join(", ")
         : [item, qty, quantity, damage].join(", ");
     }
-    function lineParts(line) {
+    function playerLoadoutSlotName(value) {
+      return PLAYER_LOADOUT_SLOT_NAMES[String(value || "").trim().toLowerCase()] || "";
+    }
+    function parsePlayerLoadoutLine(line, recoverLegacyParent = false) {
       const parts = String(line || "").split(",").map((part) => part.trim());
       if (/^\\d+x\\s+/i.test(parts[0] || "")) {
         const match = parts[0].match(/^(\\d+)x\\s+(.+)$/i);
-        return match ? {name: match[2], meta: `${match[1]}x`} : {name: parts[0], meta: ""};
+        return match ? {item: match[2], quantity: Number(match[1]) || 1} : {item: parts[0], quantity: 1};
+      }
+      let slot = parts[4] || "";
+      let attachmentFor = parts[5] || "";
+      // Read old saved rows produced before the blank-parent-column fix. They
+      // used ``item, qty, amount, pristine, Parent``; Parent is not a valid
+      // player wear slot, so it is safely restored as the item's parent.
+      if (recoverLegacyParent && !attachmentFor && slot && !playerLoadoutSlotName(slot)) {
+        attachmentFor = slot;
+        slot = "";
       }
       return {
-        name: parts[0] || "",
-        meta: [parts[1] ? `${parts[1]}x` : "", parts[4] || ""].filter(Boolean).join(" - "),
+        item: parts[0] || "",
+        quantity: Math.max(1, Number(parts[1] || 1) || 1),
+        quantityPercent: Number(parts[2] || -1),
+        damage: parts[3] || "pristine",
+        slot,
+        attachmentFor,
+      };
+    }
+    function lineParts(line, recoverLegacyParent = false) {
+      const item = parsePlayerLoadoutLine(line, recoverLegacyParent);
+      return {
+        name: item.item,
+        meta: [item.quantity ? `${item.quantity}x` : "", item.slot || item.attachmentFor || ""].filter(Boolean).join(" - "),
       };
     }
     function syncSelectedItems(output) {
@@ -15733,6 +15764,7 @@ PAGE_TEMPLATE = """
       const board = form ? form.querySelector("[data-selected-items]") : null;
       if (!board) return;
       const lines = output.value.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
+      const recoverLegacyParent = form?.elements.recipe_kind?.value === "player_loadout";
       board.innerHTML = "";
       if (!lines.length) {
         const empty = document.createElement("span");
@@ -15744,7 +15776,7 @@ PAGE_TEMPLATE = """
         return;
       }
       lines.forEach((line, index) => {
-        const info = lineParts(line);
+        const info = lineParts(line, recoverLegacyParent);
         const item = itemInfo(info.name);
         const row = document.createElement("div");
         row.className = "selected-row";
@@ -15752,7 +15784,7 @@ PAGE_TEMPLATE = """
         row.dataset.index = String(index);
         row.innerHTML = `<img class="item-thumb" src="${item.image_url || fallbackThumb(item.category)}" alt=""><span><strong></strong><small></small></span><button type="button" data-remove-selected>&times;</button>`;
         row.querySelector("strong").textContent = info.name;
-        const slotHint = item.size ? `${item.size * Math.max(1, Number(lineParts(line).meta?.match(/([0-9]+)x/)?.[1] || 1))} slots` : "";
+        const slotHint = item.size ? `${item.size * info.quantity} slots` : "";
         row.querySelector("small").textContent = [info.meta || line, slotHint].filter(Boolean).join(" - ");
         row.querySelector("img").onerror = function () { this.onerror = null; this.src = item.fallback_image_url || fallbackThumb(item.category); };
         board.appendChild(row);
@@ -15943,17 +15975,10 @@ PAGE_TEMPLATE = """
     }
     function parsedOutputItems(form) {
       const output = form ? form.querySelector("[data-picker-output]") : null;
-      return outputLines(output).map((line) => {
-        const parts = String(line || "").split(",").map((part) => part.trim());
-        return {
-          item: parts[0] || "",
-          quantity: Math.max(1, Number(parts[1] || 1) || 1),
-          quantityPercent: Number(parts[2] || -1),
-          damage: parts[3] || "pristine",
-          slot: parts[4] || "",
-          attachmentFor: parts[5] || "",
-        };
-      }).filter((item) => item.item);
+      const recoverLegacyParent = form?.elements.recipe_kind?.value === "player_loadout";
+      return outputLines(output)
+        .map((line) => parsePlayerLoadoutLine(line, recoverLegacyParent))
+        .filter((item) => item.item);
     }
     function itemSlotSize(name) {
       const value = Number(itemInfo(name).size || 1);
@@ -16116,15 +16141,7 @@ PAGE_TEMPLATE = """
       setOutputLines(output, VEHICLE_INVENTORY_PRESETS[presetKey]);
     }
     function buildLoadoutPreview(form, items) {
-      const slotNames = {
-        head: "Headgear", headgear: "Headgear", eyes: "Eyewear", eyewear: "Eyewear", glasses: "Eyewear",
-        mask: "Mask", body: "Body", torso: "Body", vest: "Vest", back: "Back", backpack: "Back",
-        hips: "Hips", belt: "Hips", legs: "Legs", feet: "Feet", hands: "Hands",
-        "left shoulder": "shoulderL", shoulder1: "shoulderL", shoulderl: "shoulderL",
-        "right shoulder": "shoulderR", shoulder2: "shoulderR", shoulderr: "shoulderR",
-        gloves: "Gloves", armband: "Armband"
-      };
-      const dayzSlot = (slot) => slotNames[String(slot || "").trim().toLowerCase()] || "";
+      const dayzSlot = playerLoadoutSlotName;
       const itemEntry = (item, includeSpawnWeight = true) => {
         const entry = {
           itemType: item.item,
@@ -37481,7 +37498,12 @@ def format_airdrop_positions(rows: list[dict[str, str]]) -> str:
     )
 
 
-def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, Any]]:
+def parse_xml_workshop_items(
+    value: Any,
+    max_rows: int = 80,
+    *,
+    recover_player_loadout_parent: bool = False,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if isinstance(value, list):
         candidates = value
@@ -37511,6 +37533,12 @@ def parse_xml_workshop_items(value: Any, max_rows: int = 80) -> list[dict[str, A
             damage = str(parts[3] if len(parts) > 3 else "pristine").strip().lower()
             slot = str(parts[4] if len(parts) > 4 else "").strip()
             attachment_for = str(parts[5] if len(parts) > 5 else "").strip()
+        if recover_player_loadout_parent and not attachment_for and slot and not player_loadout_slot_name(slot):
+            # Versions released before the parent-column fix removed the blank
+            # fifth column from child rows. Recover ``..., Parent`` drafts so
+            # they become ``..., , Parent`` rather than another worn root.
+            attachment_for = slot
+            slot = ""
         if not item_name:
             continue
         if damage not in {"pristine", "worn", "damaged", "badly_damaged", "ruined", "random"}:
@@ -43823,7 +43851,10 @@ def page(mode: str, auth: dict[str, Any]):
     player_loadout_draft_name = str(player_loadout_draft.get("name") or "Fresh Spawn Plus").strip()[:120] or "Fresh Spawn Plus"
     player_loadout_draft_custom_path = safe_custom_json_path(player_loadout_draft.get("custom_path"), "WanderingLoadout")
     player_loadout_draft_items_text = str(player_loadout_draft.get("items_text") or "")
-    player_loadout_draft_items = force_pristine_loadout_items(parse_xml_workshop_items(player_loadout_draft_items_text))
+    player_loadout_draft_items = force_pristine_loadout_items(parse_xml_workshop_items(
+        player_loadout_draft_items_text,
+        recover_player_loadout_parent=True,
+    ))
     if player_loadout_draft_items:
         player_loadout_draft_items_text = "\n".join(
             format_player_loadout_line(
@@ -47143,9 +47174,15 @@ def api_xml_workshop_loadout_download():
         saved_draft = workshop.get("player_loadout_draft", {}) if isinstance(workshop, dict) else {}
         if isinstance(saved_draft, dict):
             draft = saved_draft
-    items = force_pristine_loadout_items(parse_xml_workshop_items(raw_payload.get("items")))
+    items = force_pristine_loadout_items(parse_xml_workshop_items(
+        raw_payload.get("items"),
+        recover_player_loadout_parent=True,
+    ))
     if not items:
-        items = force_pristine_loadout_items(parse_xml_workshop_items(draft.get("items_text")))
+        items = force_pristine_loadout_items(parse_xml_workshop_items(
+            draft.get("items_text"),
+            recover_player_loadout_parent=True,
+        ))
     if not items:
         return jsonify({"ok": False, "error": "add at least one valid loadout item before downloading"}), 400
     name = str(raw_payload.get("recipe_name") or draft.get("name") or "Wandering Bot Loadout").strip()[:120] or "Wandering Bot Loadout"
@@ -47547,7 +47584,10 @@ def api_xml_workshop():
     recipe_name = str(payload.get("recipe_name") or payload.get("name") or "").strip()
     if not recipe_name:
         return jsonify({"ok": False, "error": "recipe_name is required"}), 400
-    items = parse_xml_workshop_items(payload.get("items"))
+    items = parse_xml_workshop_items(
+        payload.get("items"),
+        recover_player_loadout_parent=kind == "player_loadout",
+    )
     if kind in {"player_loadout", "vehicle_loadout"}:
         items = force_pristine_loadout_items(items)
     if not items and kind != "airdrop":
