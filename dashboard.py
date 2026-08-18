@@ -37964,12 +37964,16 @@ def visual_slot_item_candidates(groups: dict[str, Any], picker: str) -> list[dic
     return unique_visual_items(candidates, None)
 
 
-def visual_compatible_child_slots(item_name: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
+def visual_compatible_child_slots(
+    item_name: Any,
+    groups: dict[str, Any],
+    map_key: Any = "chernarus",
+) -> list[dict[str, Any]]:
     name = safe_dayz_class(item_name)
     text = name.lower()
     if not name:
         return []
-    exact_children = dayz_reference_loadout_attachment_children("chernarus").get(text, [])
+    exact_children = dayz_reference_loadout_attachment_children(map_key).get(text, [])
     grouped_exact: dict[tuple[str, str, str], list[str]] = {}
 
     def exact_child_group(child: str) -> tuple[str, str, str]:
@@ -38082,12 +38086,16 @@ def visual_loadout_reference_options(groups: dict[str, Any]) -> list[dict[str, A
     return unique_visual_items(rows, 260)
 
 
-def visual_loadout_reference_detail(item_name: Any, groups: dict[str, Any]) -> dict[str, Any]:
+def visual_loadout_reference_detail(
+    item_name: Any,
+    groups: dict[str, Any],
+    map_key: Any = "chernarus",
+) -> dict[str, Any]:
     name = safe_dayz_class(item_name)
     if not name:
         return {}
     detail = visual_item_detail(name, groups)
-    children = visual_compatible_child_slots(name, groups)
+    children = visual_compatible_child_slots(name, groups, map_key)
     return {
         "item": detail,
         "slots": visual_item_slot_labels(name, groups),
@@ -38096,7 +38104,11 @@ def visual_loadout_reference_detail(item_name: Any, groups: dict[str, Any]) -> d
     }
 
 
-def visual_loadout_selected_rows(draft_value: Any, groups: dict[str, Any]) -> list[dict[str, Any]]:
+def visual_loadout_selected_rows(
+    draft_value: Any,
+    groups: dict[str, Any],
+    map_key: Any = "chernarus",
+) -> list[dict[str, Any]]:
     draft = normalize_visual_loadout_draft(draft_value)
     rows: list[dict[str, Any]] = []
     for slot in VISUAL_LOADOUT_SLOTS:
@@ -38105,7 +38117,7 @@ def visual_loadout_selected_rows(draft_value: Any, groups: dict[str, Any]) -> li
             continue
         detail = visual_item_detail(item_name, groups)
         children = draft["children"].get(slot["key"], {})
-        child_slots = visual_compatible_child_slots(item_name, groups)
+        child_slots = visual_compatible_child_slots(item_name, groups, map_key)
         for child_slot in child_slots:
             selected_child = children.get(child_slot.get("key"))
             if isinstance(selected_child, list):
@@ -38117,7 +38129,7 @@ def visual_loadout_selected_rows(draft_value: Any, groups: dict[str, Any]) -> li
             if isinstance(selected_child, str) and selected_child:
                 child_slot["selected"] = selected_child
                 child_slot["selected_detail"] = visual_item_detail(selected_child, groups)
-                child_slot["nested_slots"] = visual_compatible_child_slots(selected_child, groups)
+                child_slot["nested_slots"] = visual_compatible_child_slots(selected_child, groups, map_key)
                 child_slot["nested_children"] = children.get(f"{child_slot.get('key')}:children", {})
                 for nested_slot in child_slot["nested_slots"]:
                     nested_value = child_slot["nested_children"].get(nested_slot.get("key")) if isinstance(child_slot["nested_children"], dict) else None
@@ -43924,13 +43936,13 @@ def page(mode: str, auth: dict[str, Any]):
         visual_loadout_items = visual_loadout_items_for_view(picker_groups, visual_loadout_slot, visual_loadout_category)
         visual_loadout_draft = normalize_visual_loadout_draft(selected_config.get("visual_loadout_draft") if isinstance(selected_config, dict) else {})
         visual_loadout_json_text = json.dumps(build_visual_loadout_json(visual_loadout_draft), indent=2, ensure_ascii=False)
-        visual_loadout_equipped_rows = visual_loadout_selected_rows(visual_loadout_draft, picker_groups)
+        visual_loadout_equipped_rows = visual_loadout_selected_rows(visual_loadout_draft, picker_groups, server_map)
         visual_loadout_slot_card_rows = visual_loadout_slot_cards(visual_loadout_draft, picker_groups)
         visual_reference_options = visual_loadout_reference_options(picker_groups)
         visual_reference_name = safe_dayz_class(request.args.get("loadout_ref"))
         if not visual_reference_name and visual_loadout_items:
             visual_reference_name = str(visual_loadout_items[0].get("name") or "")
-        visual_reference_detail = visual_loadout_reference_detail(visual_reference_name, picker_groups)
+        visual_reference_detail = visual_loadout_reference_detail(visual_reference_name, picker_groups, server_map)
     else:
         visual_loadout_items = []
         visual_loadout_draft = empty_visual_loadout_draft()
@@ -47215,6 +47227,7 @@ def api_visual_loadout_draft():
     config = guild_configs.setdefault(guild_id, {"channels": {}})
     draft = normalize_visual_loadout_draft(config.get("visual_loadout_draft"))
     picker_groups = cached_xml_picker_groups(flat_shop_items(shop_for_guild(load_store("shop", {}), guild_id)))
+    map_key = config.get("server_map") or config.get("map") or "chernarus"
     if action == "clear":
         draft = empty_visual_loadout_draft()
     elif action == "remove":
@@ -47242,7 +47255,7 @@ def api_visual_loadout_draft():
             if wants_json_response():
                 return jsonify({"ok": False, "error": "select a parent item before adding children"}), 400
             return redirect(return_to)
-        allowed_slots = visual_compatible_child_slots(parent_item, picker_groups)
+        allowed_slots = visual_compatible_child_slots(parent_item, picker_groups, map_key)
         allowed = next((row for row in allowed_slots if row.get("key") == child_slot), None)
         allowed_names = {str(option.get("name") or "").lower() for option in (allowed or {}).get("items", [])}
         if not allowed or item_name.lower() not in allowed_names:
@@ -47269,7 +47282,7 @@ def api_visual_loadout_draft():
             if wants_json_response():
                 return jsonify({"ok": False, "error": "select the child item before adding its children"}), 400
             return redirect(return_to)
-        nested_slots = visual_compatible_child_slots(selected_child, picker_groups)
+        nested_slots = visual_compatible_child_slots(selected_child, picker_groups, map_key)
         allowed = next((row for row in nested_slots if row.get("key") == nested_slot), None)
         allowed_names = {str(option.get("name") or "").lower() for option in (allowed or {}).get("items", [])}
         if not allowed or item_name.lower() not in allowed_names:
