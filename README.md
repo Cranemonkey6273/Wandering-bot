@@ -100,3 +100,26 @@ Only the Primary Owner can approve, run, sync, or cancel worker jobs.
 - When Railway comes back, use **Recover / Sync Worker Jobs** on the AI Development Agent page to import forgotten worker jobs.
 - If the worker itself restarts while a job is running, that job is marked `interrupted` so it will not sit forever as running. Re-run it from the dashboard if needed.
 - Agent conversations create durable runs. Pick a run in the chat composer or press **Continue Run** to attach the next message, task, approval, and sandbox job to the same work thread after refreshes or Railway restarts.
+
+### Supabase state persistence for ADM rate-limit and dedupe memory
+
+For production reliability, the bot can keep key runtime state in Supabase so deploys/restarts don't wipe ADM scan context.
+
+Set these Railway variables:
+
+```env
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-token>
+WANDERING_SUPABASE_STATE_TABLE=bot_state_store
+WANDERING_SUPABASE_STATE_FLUSH_SECONDS=20
+```
+
+Then run the SQL migration in `supabase/migrations/20260819_add_bot_state_store.sql` (or paste it into the Supabase SQL Editor):
+
+```sql
+-- creates:
+-- public.bot_state_store(state_key, state_value jsonb, updated_at timestamptz)
+```
+
+If you keep using the anonymous key, set `SUPABASE_KEY` instead of
+`SUPABASE_SERVICE_ROLE_KEY` and ensure row-level access still allows your bot role.

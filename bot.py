@@ -25,6 +25,10 @@ import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
 import discord
 import socket
+try:
+    from supabase import create_client
+except Exception:
+    create_client = None
 
 from dayz_file_intelligence import (
     DAYZ_FILE_SPECS,
@@ -56,6 +60,17 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TRANSLATE_API_URL = os.getenv("TRANSLATE_API_URL", "https://libretranslate.de/translate")
 TRANSLATE_API_KEY = os.getenv("TRANSLATE_API_KEY")
 DASHBOARD_PUBLIC_URL = os.getenv("WANDERING_DASHBOARD_PUBLIC_URL", "https://dayzwanderingbot.com")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_KEY = (
+    os.getenv("SUPABASE_KEY", "").strip()
+    or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    or os.getenv("SUPABASE_ANON_KEY", "").strip()
+)
+SUPABASE_STATE_TABLE = os.getenv("WANDERING_SUPABASE_STATE_TABLE", "bot_state_store").strip() or "bot_state_store"
+try:
+    SUPABASE_STATE_FLUSH_SECONDS = max(5, int(os.getenv("WANDERING_SUPABASE_STATE_FLUSH_SECONDS", "20")))
+except Exception:
+    SUPABASE_STATE_FLUSH_SECONDS = 20
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -180,6 +195,18 @@ adm_scan_stage = {}
 # many guilds or when a shared IP/service is temporarily blocked.
 ADM_NITRADO_PROVIDER_BACKOFF_KEY = "provider:nitrado-adm"
 adm_rate_limit_backoff_until = {}
+# Optional Supabase state persistence for critical runtime state so restart/redeploy
+# won’t immediately forget dedupe/backoff context.
+_supabase_client = None
+_supabase_state_sync_lock = threading.Lock()
+_supabase_state_dirty = set()
+SUPABASE_STATE_KEYS = {
+    "processed_adm_lines",
+    "processed_adm_events",
+    "processed_kill_events",
+    "adm_rate_limit_backoff_until",
+    "adm_nitrado_request_state",
+}
 # Global Nitrado file-server pacing to keep requests spread across all scans.
 adm_nitrado_request_pacing_lock = threading.Lock()
 adm_nitrado_request_state = {}
@@ -8281,6 +8308,144 @@ def load_json(path):
     return {}
 
 
+def _supabase_enabled():
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+
+def _get_supabase_client():
+    global _supabase_client
+    if not _supabase_enabled() or create_client is None:
+        return None
+    if _supabase_client is None:
+        try:
+            _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        except Exception as error:
+            print(f"[SUPABASE] client init failed: {error}")
+            _supabase_client = False
+    return _supabase_client if _supabase_client is not False else None
+
+
+def _mark_supabase_state_dirty(key):
+    if not _supabase_enabled():
+        return
+    if str(key) not in SUPABASE_STATE_KEYS:
+        return
+    with _supabase_state_sync_lock:
+        _supabase_state_dirty.add(str(key))
+
+
+def _supabase_state_rows():
+    def _ordered_keys_as_list(value):
+        if isinstance(value, OrderedDict):
+            return list(value.keys())
+        if isinstance(value, dict):
+            return list(value.keys())
+        return list(value or [])
+
+    return {
+        "processed_adm_lines": {str(guild_id): _ordered_keys_as_list(hashes) for guild_id, hashes in processed_lines.items()},
+        "processed_adm_events": {str(guild_id): _ordered_keys_as_list(fingerprints) for guild_id, fingerprints in processed_adm_events.items()},
+        "processed_kill_events": {str(guild_id): _ordered_keys_as_list(fingerprints) for guild_id, fingerprints in processed_kill_events.items()},
+        "adm_rate_limit_backoff_until": dict(adm_rate_limit_backoff_until),
+        "adm_nitrado_request_state": dict(adm_nitrado_request_state),
+    }
+
+
+def _flush_supabase_state():
+    if not _supabase_enabled():
+        return
+    state_client = _get_supabase_client()
+    if not state_client:
+        return
+    with _supabase_state_sync_lock:
+        dirty = set(_supabase_state_dirty)
+        _supabase_state_dirty.clear()
+    if not dirty:
+        return
+
+    now = datetime.now(UTC).isoformat()
+    rows = []
+    payload = _supabase_state_rows()
+    for key in dirty:
+        if key not in payload:
+            continue
+        rows.append({
+            "state_key": key,
+            "state_value": payload[key],
+            "updated_at": now,
+        })
+    if not rows:
+        return
+
+    try:
+        state_client.table(SUPABASE_STATE_TABLE).upsert(rows, on_conflict="state_key").execute()
+    except Exception as error:
+        print(f"[SUPABASE] state flush failed: {error}")
+        with _supabase_state_sync_lock:
+            _supabase_state_dirty.update(dirty)
+
+
+def _load_supabase_state(keys):
+    keys = sorted(set(str(item) for item in (keys or [])))
+    if not keys:
+        return {}
+    if not _supabase_enabled():
+        return {}
+    client = _get_supabase_client()
+    if not client:
+        return {}
+    try:
+        response = client.table(SUPABASE_STATE_TABLE).select("state_key,state_value").in_("state_key", keys).execute()
+        rows = getattr(response, "data", None)
+        if not isinstance(rows, list):
+            return {}
+        out = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            key = row.get("state_key")
+            if isinstance(key, str) and key in keys:
+                out[key] = row.get("state_value")
+        return out
+    except Exception as error:
+        print(f"[SUPABASE] failed to load state: {error}")
+        return {}
+
+
+def load_supabase_state_cache():
+    loaded = _load_supabase_state(SUPABASE_STATE_KEYS)
+    if not loaded:
+        return
+
+    global adm_rate_limit_backoff_until, adm_nitrado_request_state
+    if "adm_rate_limit_backoff_until" in loaded and isinstance(loaded["adm_rate_limit_backoff_until"], dict):
+        adm_rate_limit_backoff_until = {}
+        for key, value in loaded["adm_rate_limit_backoff_until"].items():
+            if not isinstance(key, str) or not key.strip():
+                continue
+            try:
+                adm_rate_limit_backoff_until[str(key)] = max(
+                    0.0,
+                    float(value or 0.0),
+                )
+            except (TypeError, ValueError):
+                continue
+
+    if "adm_nitrado_request_state" in loaded and isinstance(loaded["adm_nitrado_request_state"], dict):
+        adm_nitrado_request_state = {}
+        for bucket_id, state in loaded["adm_nitrado_request_state"].items():
+            if not isinstance(bucket_id, str) or not bucket_id.strip():
+                continue
+            if not isinstance(state, dict):
+                continue
+            try:
+                adm_nitrado_request_state[str(bucket_id)] = {
+                    "next_request_at": max(0.0, float(state.get("next_request_at", 0.0) or 0.0)),
+                    "rate_limit_streak": max(0, int(state.get("rate_limit_streak", 0) or 0)),
+                    "rate_limit_streak_at": max(0.0, float(state.get("rate_limit_streak_at", 0.0) or 0.0)),
+                }
+            except (TypeError, ValueError):
+                continue
 def normalize_discord_name(name):
     return re.sub(r"[^a-z0-9]+", "", unstyled_channel_name(name).lower())
 
@@ -15244,7 +15409,11 @@ def should_guard_stale_adm_events(guild_id):
 def load_processed_adm_lines():
     global processed_lines
 
-    data = load_json(PROCESSED_ADM_FILE)
+    data = _load_supabase_state({"processed_adm_lines"}).get("processed_adm_lines")
+    if data is None:
+        data = load_json(PROCESSED_ADM_FILE)
+    if not isinstance(data, dict):
+        data = {}
     processed_lines = {}
 
     for guild_id, hashes in data.items():
@@ -15267,12 +15436,17 @@ def save_processed_adm_lines():
         data[guild_id] = keys[-PROCESSED_ADM_CACHE_LIMIT:]
 
     save_json(PROCESSED_ADM_FILE, data)
+    _mark_supabase_state_dirty("processed_adm_lines")
 
 
 def load_processed_adm_events():
     global processed_adm_events
 
-    data = load_json(PROCESSED_ADM_EVENTS_FILE)
+    data = _load_supabase_state({"processed_adm_events"}).get("processed_adm_events")
+    if data is None:
+        data = load_json(PROCESSED_ADM_EVENTS_FILE)
+    if not isinstance(data, dict):
+        data = {}
     processed_adm_events = {}
 
     for guild_id, fingerprints in data.items():
@@ -15291,12 +15465,17 @@ def save_processed_adm_events():
         data[guild_id] = keys[-PROCESSED_ADM_EVENT_CACHE_LIMIT:]
 
     save_json(PROCESSED_ADM_EVENTS_FILE, data)
+    _mark_supabase_state_dirty("processed_adm_events")
 
 
 def load_processed_kill_events():
     global processed_kill_events
 
-    data = load_json(PROCESSED_KILL_EVENTS_FILE)
+    data = _load_supabase_state({"processed_kill_events"}).get("processed_kill_events")
+    if data is None:
+        data = load_json(PROCESSED_KILL_EVENTS_FILE)
+    if not isinstance(data, dict):
+        data = {}
     processed_kill_events = {}
 
     for guild_id, fingerprints in data.items():
@@ -15315,6 +15494,7 @@ def save_processed_kill_events():
         data[guild_id] = keys[-PROCESSED_KILL_EVENT_CACHE_LIMIT:]
 
     save_json(PROCESSED_KILL_EVENTS_FILE, data)
+    _mark_supabase_state_dirty("processed_kill_events")
 
 
 def load_recorded_pvp_deaths():
@@ -16467,11 +16647,13 @@ def _adm_nitrado_bucket_ids(guild_id, config=None):
 
 def _clear_old_request_streaks():
     cutoff = time.time() - adm_nitrado_request_streak_decay_seconds()
+    changed = False
     with adm_nitrado_request_pacing_lock:
         to_delete = []
         for bucket_id, state in list(adm_nitrado_request_state.items()):
             if not isinstance(state, dict):
                 to_delete.append(bucket_id)
+                changed = True
                 continue
             streak = int(state.get("rate_limit_streak", 0) or 0)
             streak_at = float(state.get("rate_limit_streak_at", 0) or 0)
@@ -16479,10 +16661,15 @@ def _clear_old_request_streaks():
             if streak > 0 and streak_at > 0 and streak_at < cutoff:
                 state["rate_limit_streak"] = 0
                 state["rate_limit_streak_at"] = 0.0
+                changed = True
             elif streak <= 0 and next_request_at <= time.time():
                 to_delete.append(bucket_id)
+        if to_delete:
+            changed = True
         for bucket_id in to_delete:
             adm_nitrado_request_state.pop(bucket_id, None)
+    if changed:
+        _mark_supabase_state_dirty("adm_nitrado_request_state")
 
 
 def _bucket_rate_limit_streak(bucket_id):
@@ -16549,6 +16736,7 @@ def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
                 {"next_request_at": 0.0, "rate_limit_streak": 0, "rate_limit_streak_at": 0.0},
             )
             state["next_request_at"] = next_request_at
+        _mark_supabase_state_dirty("adm_nitrado_request_state")
 
     if max_streak > 0:
         delay += random.uniform(0, min(2.0, spacing * 0.15))
@@ -16602,6 +16790,8 @@ def set_adm_rate_limit_backoff(guild_id, config=None, stage=None):
     until = now + seconds
     for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=True):
         adm_rate_limit_backoff_until[key] = until
+    _mark_supabase_state_dirty("adm_rate_limit_backoff_until")
+    _mark_supabase_state_dirty("adm_nitrado_request_state")
     if stage:
         print(
             f"[ADM BACKOFF] {guild_id}: stage={stage} "
@@ -16618,6 +16808,8 @@ def clear_adm_rate_limit_backoff(guild_id, config=None, *, include_provider=Fals
             if isinstance(state, dict):
                 state["rate_limit_streak"] = 0
                 state["rate_limit_streak_at"] = 0.0
+    _mark_supabase_state_dirty("adm_rate_limit_backoff_until")
+    _mark_supabase_state_dirty("adm_nitrado_request_state")
 
 
 def set_adm_scan_stage(guild_id, stage):
@@ -24550,6 +24742,15 @@ async def temp_ban_expiry_loop():
         print(f"NITRADO TEMP BAN LOOP ERROR: {error}")
 
 
+@tasks.loop(seconds=SUPABASE_STATE_FLUSH_SECONDS)
+async def supabase_state_flush_loop():
+    try:
+        if _supabase_enabled():
+            await asyncio.to_thread(_flush_supabase_state)
+    except Exception as error:
+        print(f"[SUPABASE] state flush loop error: {error}")
+
+
 @tasks.loop(minutes=1)
 async def billing_service_lifecycle_loop():
     try:
@@ -29847,6 +30048,7 @@ async def reloadguilds(ctx):
     if not has_staff_permissions(ctx):
         return
 
+    load_supabase_state_cache()
     load_guild_configs()
     load_processed_adm_lines()
     load_online_players()
@@ -34892,6 +35094,9 @@ async def start_background_tasks():
 
         if not rpt_event_tracker_loop.is_running():
             rpt_event_tracker_loop.start()
+
+        if not supabase_state_flush_loop.is_running():
+            supabase_state_flush_loop.start()
 
         if not recap_loop.is_running():
             recap_loop.start()
@@ -59815,6 +60020,7 @@ async def on_ready():
     ensure_folder(DATA_ROOT)
     ensure_folder(GUILD_DATA_FOLDER)
 
+    load_supabase_state_cache()
     load_guild_configs()
     load_processed_adm_lines()
     load_processed_adm_events()

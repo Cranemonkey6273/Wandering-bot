@@ -7656,7 +7656,7 @@ PAGE_TEMPLATE = """
       </div>
       <div class="owner-switcher-grid" data-owner-server-grid>
         {% for item in servers %}
-        <div class="owner-switcher-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}" data-owner-server-card data-owner-status="{{ item.owner_status.key }}" data-owner-rank="{{ item.owner_status.rank }}" data-owner-search="{{ (item.guild_name ~ ' ' ~ item.map ~ ' ' ~ (item.dashboard_access.tier or item.dashboard_access.plan_status or 'none') ~ ' ' ~ item.owner_status.label)|lower }}">
+        <div class="owner-switcher-card {{ 'active' if server and item.guild_id == server.guild_id else '' }}" data-owner-server-card data-owner-status="{{ item.owner_status.key }}" data-owner-rank="{{ item.owner_status.rank }}" data-owner-search="{{ (item.guild_name ~ ' ' ~ item.map ~ ' ' ~ item.guild_id ~ ' ' ~ (item.dashboard_access.tier or item.dashboard_access.plan_status or 'none') ~ ' ' ~ item.owner_status.label)|lower }}">
           <div class="owner-switcher-title">
             <strong>{{ item.guild_name }}</strong>
             <span class="pill">{{ item.map|upper }}</span>
@@ -7666,6 +7666,7 @@ PAGE_TEMPLATE = """
             <span class="owner-server-status-copy">{{ item.owner_status.detail }}</span>
           </div>
           <div class="owner-server-meta">
+            <span class="pill">{{ item.guild_id }}</span>
             <span class="pill">{{ item.dashboard_access.tier or item.dashboard_access.plan_status or 'none' }}</span>
             <span class="pill">{{ item.owner_status.profile_count }} profile{{ '' if item.owner_status.profile_count == 1 else 's' }}</span>
             <span class="pill">{{ item.owner_status.configured_routes }} routes</span>
@@ -8462,6 +8463,7 @@ PAGE_TEMPLATE = """
               <div>
                 <h4>{{ owned.guild_name }}</h4>
                 <div class="owner-server-meta">
+                  <span class="pill">Guild {{ owned.guild_id }}</span>
                   <span class="pill">{{ owned.map|upper }}</span>
                   <span class="pill {{ 'ok' if owned.dashboard_access.enabled else 'bad' }}">Admin {{ 'enabled' if owned.dashboard_access.enabled else 'locked' }}</span>
                   <span class="pill">{{ owned.dashboard_access.tier or owned.dashboard_access.plan_status }}</span>
