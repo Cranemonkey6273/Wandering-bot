@@ -19,6 +19,7 @@ import shutil
 import secrets
 import traceback
 import time
+import threading
 import urllib.parse
 import xml.etree.ElementTree as ET
 from ftplib import FTP_TLS
@@ -105,9 +106,6 @@ PLAYER_AUDIT_FILE = data_path("player_audit.json")
 PROCESSED_ADM_FILE = data_path("processed_adm_lines.json")
 PROCESSED_ADM_EVENTS_FILE = data_path("processed_adm_events.json")
 PROCESSED_KILL_EVENTS_FILE = data_path("processed_kill_events.json")
-BAN_ANNOUNCEMENT_MEDIA_FOLDER = data_path("ban_announcement_media")
-BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES = 8 * 1024 * 1024
-BAN_ANNOUNCEMENT_MEDIA_EXTENSIONS = {".gif", ".mp4", ".webm"}
 RECORDED_PVP_DEATHS_FILE = data_path("recorded_pvp_deaths.json")
 ONLINE_PLAYERS_FILE = data_path("online_players.json")
 PLAYER_STATS_FILE = data_path("player_stats.json")
@@ -171,19 +169,20 @@ ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
-# Per-guild backoff after Nitrado/Cloudflare 429s. Without this the ADM loop
-# retries every 30s across many paths and can keep the service rate-limited.
-adm_rate_limit_backoff_until = {}
-# Nitrado/Cloudflare can rate-limit the Railway egress IP rather than one API
-# token.  Serialize fresh ADM/RPT polls and share a provider-wide cooldown so
-# one blocked service never causes every configured server to retry at once.
+# Nitrado/Cloudflare rate-limit backoff is now applied at both guild/token and
+# provider levels. Provider-level backoff is critical when one instance polls
+# many guilds or when a shared IP/service is temporarily blocked.
 ADM_NITRADO_PROVIDER_BACKOFF_KEY = "provider:nitrado-adm"
-adm_nitrado_request_pacing_lock = asyncio.Lock()
+adm_rate_limit_backoff_until = {}
+# Global Nitrado file-server pacing to keep requests spread across all scans.
+adm_nitrado_request_pacing_lock = threading.Lock()
 adm_nitrado_next_request_at = 0.0
 # Short-lived per-Nitrado-service ADM cache. During a Discord merge the same
 # DayZ service can be watched by an old guild and a new server profile; sharing
 # the downloaded ADM bytes keeps both routes live without double-hitting Nitrado.
 adm_source_fetch_cache = {}
+# Per-guild scheduler timestamps so many guilds don't all fire at once.
+adm_next_scan_at = {}
 # Runtime-only source metadata for the ADM file currently being parsed.
 # This lets the parser tell the difference between the latest live log and
 # an intentional cold-start history sweep.
@@ -2213,8 +2212,8 @@ def extract_pvp_hit_details(line):
     hit, which lets payout rules reject corpse hits safely.
     """
     hit = re.search(
-        r'(?:Player\s+)?"([^"]+)"\s*(\(\s*DEAD\s*\))?.*?'
-        r'\[\s*HP\s*:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*\]\s+hit\s+by\s+'
+        r'(?:Player\s+)?"([^"]+)"\s*(\(DEAD\))?.*?'
+        r'\[HP:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\]\s+hit by\s+'
         r'(?:Player\s+)?"([^"]+)".*?for\s+'
         r'([0-9]+(?:\.[0-9]+)?)\s+damage\s+\(([^)]+)\)'
         r'(?:\s+with\s+([^\s]+))?'
@@ -2237,114 +2236,6 @@ def extract_pvp_hit_details(line):
     details["coords"] = extract_adm_player_coords(line, details["victim"]) or extract_adm_coords(line)
     details["attacker_coords"] = extract_adm_player_coords(line, details["attacker"])
     return details
-
-
-def safe_zone_pvp_evidence(line):
-    """Classify PvP evidence before a safe-zone action can be automated.
-
-    ADM damage records are victim-first: the player after ``hit by Player``
-    is the attacker.  A missing attacker position, a dead/zero-HP victim, or
-    any ambiguity means staff must review the event instead of the bot taking
-    an irreversible moderation action.
-    """
-    raw_line = str(line or "")
-    hit_syntax = bool(re.search(r'\bhit\s+by\s+player\b|\bhit\s+by\s+"', raw_line, re.IGNORECASE))
-    hit_details = extract_pvp_hit_details(raw_line) if hit_syntax else None
-    if hit_syntax:
-        if not isinstance(hit_details, dict):
-            return {
-                "status": "unparseable",
-                "reason": "The player-versus-player hit line could not be parsed confidently.",
-                "evidence": raw_line,
-            }
-
-        victim = str(hit_details.get("victim") or "").strip()
-        attacker = str(hit_details.get("attacker") or "").strip()
-        health = hit_details.get("victim_health")
-        victim_dead = bool(hit_details.get("victim_dead"))
-        try:
-            corpse_hit = victim_dead or float(health) <= 0
-        except (TypeError, ValueError):
-            return {
-                "status": "unparseable",
-                "reason": "The victim health in the player-versus-player hit line is invalid.",
-                "victim": victim,
-                "attacker": attacker,
-                "evidence": raw_line,
-            }
-
-        evidence = {
-            "victim": victim,
-            "attacker": attacker,
-            "victim_health": health,
-            "victim_dead": victim_dead,
-            "attacker_coords": hit_details.get("attacker_coords"),
-            "evidence": raw_line,
-        }
-        if corpse_hit:
-            evidence.update(status="corpse", reason="The victim was already dead or had zero health.")
-            return evidence
-        if not victim or not attacker:
-            evidence.update(status="unparseable", reason="The victim or attacker name is missing.")
-            return evidence
-        if normalize_discord_name(victim) == normalize_discord_name(attacker):
-            evidence.update(status="self", reason="Attacker and victim are the same player.")
-            return evidence
-        if not parse_xy_coords(hit_details.get("attacker_coords")):
-            evidence.update(status="unparseable", reason="The attacker position is missing or invalid.")
-            return evidence
-        evidence["status"] = "verified"
-        return evidence
-
-    # Older/documented ADM kill records can use a direct or reverse
-    # ``killed Player`` form rather than a damage line. They remain valid only
-    # if the actor and the actor's own position are both present.
-    kill_details = extract_pvp_kill_details(raw_line)
-    if not isinstance(kill_details, dict):
-        return {"status": "not_pvp", "evidence": raw_line}
-    victim = str(kill_details.get("victim") or "").strip()
-    attacker = str(kill_details.get("killer") or "").strip()
-    evidence = {
-        "victim": victim,
-        "attacker": attacker,
-        "victim_health": None,
-        "victim_dead": False,
-        "attacker_coords": kill_details.get("killer_coords"),
-        "evidence": raw_line,
-    }
-    if not victim or not attacker or not parse_xy_coords(evidence["attacker_coords"]):
-        evidence.update(status="unparseable", reason="The PvP kill actor or attacker position is missing.")
-        return evidence
-    if normalize_discord_name(victim) == normalize_discord_name(attacker):
-        evidence.update(status="self", reason="Attacker and victim are the same player.")
-        return evidence
-    evidence["status"] = "verified"
-    return evidence
-
-
-def safe_zone_victim_state_text(evidence):
-    if not isinstance(evidence, dict):
-        return "Unknown"
-    health = evidence.get("victim_health")
-    if evidence.get("victim_dead"):
-        return "DEAD" if health is None else f"DEAD (HP: {health:g})"
-    if health is None:
-        return "Not supplied by this ADM format"
-    try:
-        return f"HP: {float(health):g}"
-    except (TypeError, ValueError):
-        return f"HP: {health}"
-
-
-def add_exact_adm_evidence_fields(embed, line):
-    """Attach the complete raw ADM record to an internal moderation embed."""
-    evidence = str(line or "").strip() or "(empty ADM evidence line)"
-    # A Discord embed field holds at most 1,024 characters. ADM records are
-    # normally far smaller, but preserving chunks avoids silently truncating
-    # a longer line in the audit trail.
-    for index, start in enumerate(range(0, len(evidence), 1000)):
-        name = "Exact ADM evidence" if index == 0 else f"Exact ADM evidence ({index + 1})"
-        embed.add_field(name=name, value=evidence[start:start + 1000], inline=False)
 
 
 def adm_hit_is_melee(hit_details, line=""):
@@ -4387,9 +4278,9 @@ def find_live_or_enforcement_player_name(guild_id, typed_name):
 def learn_recent_adm_players_for_linking(guild_id, config, hours=168, max_logs=40):
     ensure_guild_runtime(str(guild_id))
 
-    adm_logs = list_adm_logs(config, hours)
+    adm_logs = list_adm_logs(config, hours, guild_id=guild_id)
     if not adm_logs:
-        latest_log = ping_latest_adm_log(config)
+        latest_log = ping_latest_adm_log(config, guild_id=guild_id)
         adm_logs = [latest_log] if latest_log else []
 
     adm_logs = [adm_log for adm_log in adm_logs if adm_log][:max(1, int(max_logs or 40))]
@@ -16502,32 +16393,54 @@ def adm_rate_limit_backoff_seconds():
 
 
 def adm_nitrado_request_spacing_seconds():
-    """Minimum gap between fresh Nitrado ADM/RPT API polls for this process."""
     try:
         return max(1.0, min(20.0, float(os.getenv("WANDERING_ADM_NITRADO_REQUEST_SPACING_SECONDS", "4"))))
     except Exception:
         return 4.0
 
 
-async def pace_adm_nitrado_request(guild_id, config=None):
-    """Reserve one shared Nitrado API turn, returning any active cooldown."""
+def adm_loop_max_guilds_per_cycle():
+    try:
+        return max(1, min(25, int(os.getenv("WANDERING_ADM_MAX_GUILDS_PER_CYCLE", "3"))))
+    except Exception:
+        return 3
+
+
+def adm_loop_guild_stagger_seconds():
+    try:
+        return max(0.0, min(30.0, float(os.getenv("WANDERING_ADM_GUILD_STAGGER_SECONDS", "8"))))
+    except Exception:
+        return 8.0
+
+
+def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
     global adm_nitrado_next_request_at
+
     backoff_until = active_adm_rate_limit_backoff_until(guild_id, config)
-    if backoff_until > time.time():
-        return backoff_until
-    async with adm_nitrado_request_pacing_lock:
-        now = time.monotonic()
+    now = time.time()
+    if backoff_until > now:
+        delay = max(0.0, backoff_until - now)
+        if delay > 0:
+            adm_debug_log(f"[NITRADO PACE] {stage} delayed by {delay:.1f}s due to active backoff.")
+            time.sleep(delay)
+
+    spacing = adm_nitrado_request_spacing_seconds()
+    if spacing <= 0:
+        return
+
+    now = time.time()
+    with adm_nitrado_request_pacing_lock:
         request_at = max(now, adm_nitrado_next_request_at)
-        adm_nitrado_next_request_at = request_at + adm_nitrado_request_spacing_seconds()
-    wait_seconds = request_at - time.monotonic()
-    if wait_seconds > 0:
-        await asyncio.sleep(wait_seconds)
-    return active_adm_rate_limit_backoff_until(guild_id, config)
+        delay = max(0.0, request_at - now)
+        adm_nitrado_next_request_at = request_at + spacing
+
+    if delay > 0:
+        adm_debug_log(f"[NITRADO PACE] {stage} delayed by {delay:.2f}s for request spacing.")
+        time.sleep(delay)
 
 
 def adm_rate_limit_backoff_keys(guild_id, config=None, *, include_provider=True):
-    keys = [ADM_NITRADO_PROVIDER_BACKOFF_KEY] if include_provider else []
-    keys.append(str(guild_id))
+    keys = [str(guild_id)]
     config = config if isinstance(config, dict) else {}
     token = str(config.get("nitrado_token") or "").strip()
     nitrado_user = str(config.get("nitrado_user") or "").strip()
@@ -16535,6 +16448,8 @@ def adm_rate_limit_backoff_keys(guild_id, config=None, *, include_provider=True)
         keys.append(f"token:{stable_line_hash(token)[:24]}")
     elif nitrado_user:
         keys.append(f"user:{normalize_discord_name(nitrado_user)}")
+    if include_provider:
+        keys.append(ADM_NITRADO_PROVIDER_BACKOFF_KEY)
     return list(dict.fromkeys(keys))
 
 
@@ -16548,14 +16463,13 @@ def active_adm_rate_limit_backoff_until(guild_id, config=None):
 def set_adm_rate_limit_backoff(guild_id, config=None):
     seconds = adm_rate_limit_backoff_seconds()
     until = time.time() + seconds
-    for key in adm_rate_limit_backoff_keys(guild_id, config):
+    for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=True):
         adm_rate_limit_backoff_until[key] = until
     return seconds
 
 
-def clear_adm_rate_limit_backoff(guild_id, config=None):
-    """Clear a successful profile's state without shortening a shared ban."""
-    for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=False):
+def clear_adm_rate_limit_backoff(guild_id, config=None, *, include_provider=False):
+    for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=include_provider):
         adm_rate_limit_backoff_until.pop(key, None)
 
 
@@ -16567,7 +16481,7 @@ def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
     )
 
 
-def list_adm_logs(config, lookback_hours=None, diagnostics=None, stop_after_first_match=False):
+def list_adm_logs(config, lookback_hours=None, diagnostics=None, stop_after_first_match=False, guild_id=""):
 
     service_id = config.get("service_id")
     headers, header_error = nitrado_api_headers_or_error(config)
@@ -16590,6 +16504,7 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None, stop_after_firs
     for search_path in nitrado_adm_search_paths(config):
 
         try:
+            pace_adm_nitrado_request(guild_id, config, stage="ADM list")
 
             url = (
                 f"https://api.nitrado.net/services/"
@@ -16691,8 +16606,8 @@ def list_adm_logs(config, lookback_hours=None, diagnostics=None, stop_after_firs
     return logs
 
 
-def ping_latest_adm_log(config, diagnostics=None):
-    matching_logs = list_adm_logs(config, diagnostics=diagnostics, stop_after_first_match=True)
+def ping_latest_adm_log(config, diagnostics=None, guild_id=""):
+    matching_logs = list_adm_logs(config, diagnostics=diagnostics, stop_after_first_match=True, guild_id=guild_id)
 
     if not matching_logs:
         adm_debug_log("NO MATCHING ADM FILES")
@@ -16760,10 +16675,6 @@ def nitrado_rpt_search_paths(config):
     else:
         roots = ("dayzxb", "dayzxb_missions", "dayzps", "dayzps_missions")
     candidates = []
-    for remembered_key in ("adm_log_directory", "adm_last_log_directory"):
-        remembered = normalize_nitrado_directory_path(config.get(remembered_key))
-        if remembered:
-            candidates.append(remembered)
     for root in roots:
         candidates.extend([
             f"/games/{nitrado_user}/noftp/{root}/profiles/",
@@ -16791,6 +16702,7 @@ def list_rpt_logs(config):
     matching = {}
     for search_path in nitrado_rpt_search_paths(config):
         try:
+            pace_adm_nitrado_request("", config, stage="RPT list")
             response = requests.get(
                 f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/list",
                 headers=headers,
@@ -16798,37 +16710,19 @@ def list_rpt_logs(config):
                 timeout=20,
             )
             if response.status_code != 200:
-                diagnostic = {
-                    "path": search_path,
+                if adm_scan_diagnostic_is_rate_limited({
                     "status": response.status_code,
                     "error": response.text[:300],
-                }
-                if adm_scan_diagnostic_is_rate_limited(diagnostic):
-                    set_adm_rate_limit_backoff("rpt-tracker")
-                    break
+                }):
+                    set_adm_rate_limit_backoff("", config)
                 continue
-            try:
-                entries = response.json().get("data", {}).get("entries", [])
-            except Exception:
-                diagnostic = {
-                    "path": search_path,
-                    "status": response.status_code,
-                    "error": response.text[:300],
-                }
-                if adm_scan_diagnostic_is_rate_limited(diagnostic):
-                    set_adm_rate_limit_backoff("rpt-tracker")
-                    break
-                continue
-            matched_this_path = False
+            entries = response.json().get("data", {}).get("entries", [])
             for entry in entries:
                 if not RPT_LOG_NAME_PATTERN.search(entry.get("name", "")):
                     continue
                 path = entry.get("path")
                 if path:
                     matching[path] = entry
-                    matched_this_path = True
-            if matched_this_path:
-                break
         except Exception as err:
             print(f"[RPT TRACKER] list_rpt_logs error: {err}")
     logs = list(matching.values())
@@ -16848,6 +16742,7 @@ def fetch_latest_rpt_content(config):
             print(f"[RPT TRACKER] Nitrado auth error: {header_error}")
         return None, None, None
     try:
+        pace_adm_nitrado_request("", config, stage="RPT download")
         dl_resp = requests.get(
             f"https://api.nitrado.net/services/{service_id}/gameservers/file_server/download",
             headers=headers,
@@ -16856,23 +16751,22 @@ def fetch_latest_rpt_content(config):
         )
         if dl_resp.status_code != 200:
             if adm_scan_diagnostic_is_rate_limited({
-                "path": latest.get("path"),
                 "status": dl_resp.status_code,
                 "error": dl_resp.text[:300],
             }):
-                set_adm_rate_limit_backoff("rpt-tracker")
+                set_adm_rate_limit_backoff("", config)
             return None, None, None
         token_url = dl_resp.json().get("data", {}).get("token", {}).get("url")
         if not token_url:
             return None, None, None
+        pace_adm_nitrado_request("", config, stage="RPT file")
         file_resp = requests.get(token_url, timeout=30)
         if file_resp.status_code != 200:
             if adm_scan_diagnostic_is_rate_limited({
-                "path": latest.get("path"),
                 "status": file_resp.status_code,
                 "error": file_resp.text[:300],
             }):
-                set_adm_rate_limit_backoff("rpt-tracker")
+                set_adm_rate_limit_backoff("", config)
             return None, None, None
         text = file_resp.content.decode("utf-8", errors="replace")
         return latest.get("path"), latest.get("modified_at", ""), text
@@ -17497,12 +17391,6 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     previous_path = str(state.get("last_rpt_path") or "")
     previous_size = int(state.get("last_rpt_size") or 0)
     previous_signature = str(state.get("last_rpt_generation_signature") or "")
-
-    if config.get("nitrado_token") and config.get("service_id"):
-        backoff_until = await pace_adm_nitrado_request(guild_id, config)
-        if backoff_until > time.time():
-            remaining = max(1, int(backoff_until - time.time()))
-            return f"Nitrado/Cloudflare ADM API backoff active for about {remaining}s; RPT polling is waiting too."
 
     path, modified_at, text = await asyncio.to_thread(fetch_latest_rpt_content, config)
     now_ts = datetime.now(UTC).timestamp()
@@ -22495,6 +22383,7 @@ def download_latest_adm(
         return False
 
     try:
+        pace_adm_nitrado_request(guild_id, config, stage="ADM download token")
 
         download_url = (
             f"https://api.nitrado.net/services/"
@@ -22513,6 +22402,11 @@ def download_latest_adm(
         )
 
         if response.status_code != 200:
+            if adm_scan_diagnostic_is_rate_limited({
+                "status": response.status_code,
+                "error": response.text[:300],
+            }):
+                set_adm_rate_limit_backoff(guild_id, config)
             if isinstance(diagnostics, list):
                 diagnostics.append({
                     "path": latest_log.get("path"),
@@ -22541,8 +22435,14 @@ def download_latest_adm(
                 })
             return False
 
+        pace_adm_nitrado_request(guild_id, config, stage="ADM download file")
         file_response = requests.get(token_url, timeout=30)
         if file_response.status_code != 200:
+            if adm_scan_diagnostic_is_rate_limited({
+                "status": file_response.status_code,
+                "error": file_response.text[:300],
+            }):
+                set_adm_rate_limit_backoff(guild_id, config)
             if isinstance(diagnostics, list):
                 diagnostics.append({
                     "path": latest_log.get("path"),
@@ -24182,14 +24082,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     if cold_start:
         history_diagnostics = []
         try:
-            backoff_until = await pace_adm_nitrado_request(guild_id, config)
-            if backoff_until > time.time():
-                remaining = max(1, int(backoff_until - time.time()))
-                return False, (
-                    f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
-                    "Waiting before the next ADM search so Nitrado can clear the temporary block."
-                )
-            history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics, True)
+            history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics, True, guild_id)
         except Exception as err:
             print(f"[ADM COLD-START] history listing failed: {err}")
             history_logs = []
@@ -24203,13 +24096,6 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         for older in history_logs[:-1]:
             try:
                 older_download_diagnostics = []
-                backoff_until = await pace_adm_nitrado_request(guild_id, config)
-                if backoff_until > time.time():
-                    remaining = max(1, int(backoff_until - time.time()))
-                    return False, (
-                        f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
-                        "Waiting before the next ADM history download so Nitrado can clear the temporary block."
-                    )
                 ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older, older_download_diagnostics)
                 if not ok_dl and adm_scan_diagnostics_rate_limited(older_download_diagnostics):
                     backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
@@ -24236,17 +24122,11 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         print(f"[ADM CACHE] Reused latest ADM for {guild_display_name(guild_id)} ({guild_id}) from matching Nitrado service.")
     else:
         adm_scan_diagnostics = []
-        backoff_until = await pace_adm_nitrado_request(guild_id, config)
-        if backoff_until > time.time():
-            remaining = max(1, int(backoff_until - time.time()))
-            return False, (
-                f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
-                "Waiting before the next ADM search so Nitrado can clear the temporary block."
-            )
         latest_log = await asyncio.to_thread(
             ping_latest_adm_log,
             config,
             adm_scan_diagnostics,
+            guild_id,
         )
 
         if not latest_log:
@@ -24260,13 +24140,6 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             print(f"[ADM CACHE] Reused ADM log `{latest_log.get('path')}` for {guild_display_name(guild_id)} ({guild_id}).")
         else:
             adm_download_diagnostics = []
-            backoff_until = await pace_adm_nitrado_request(guild_id, config)
-            if backoff_until > time.time():
-                remaining = max(1, int(backoff_until - time.time()))
-                return False, (
-                    f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
-                    "Waiting before the next ADM download so Nitrado can clear the temporary block."
-                )
             success = await asyncio.to_thread(
                 download_latest_adm,
                 guild_id,
@@ -24399,20 +24272,54 @@ async def refresh_adm_feeds(guild_id=None, *, force=False):
 
 @tasks.loop(seconds=ADM_LOOP_SECONDS)
 async def adm_loop():
+    active_items = list(active_adm_config_items())
+    if not active_items:
+        return
 
-    for guild_id, config in active_adm_config_items():
+    now = time.time()
 
+    # Keep scheduler map in sync with currently configured ADM feeds.
+    active_adm_ids = {str(guild_id) for guild_id, _ in active_items}
+    for configured_guild_id in list(adm_next_scan_at.keys()):
+        if configured_guild_id not in active_adm_ids:
+            adm_next_scan_at.pop(configured_guild_id, None)
+
+    # Give each guild its first pass a small random delay so many servers do
+    # not all wake at exactly the same second on startup or after a restart.
+    stagger_cap = adm_loop_guild_stagger_seconds()
+    for guild_id, _ in active_items:
+        guild_id = str(guild_id)
+        if guild_id not in adm_next_scan_at:
+            jitter = random.uniform(0, max(1.0, min(stagger_cap, float(ADM_LOOP_SECONDS))))
+            adm_next_scan_at[guild_id] = now + jitter
+
+    provider_backoff_until = active_adm_rate_limit_backoff_until("", {})
+    if provider_backoff_until > now:
+        # When provider-wide backoff is active, every ADM call should wait anyway.
+        # Skip the cycle to reduce pointless calls and noisy WAITING logs.
+        return
+
+    # Stagger guild checks instead of firing every configured guild at the same instant.
+    due_items = []
+    for guild_id, config in active_items:
+        guild_id = str(guild_id)
+        next_scan_at = float(adm_next_scan_at.get(guild_id, 0) or 0)
+        if next_scan_at <= now:
+            due_items.append((next_scan_at, guild_id, config))
+
+    max_this_cycle = adm_loop_max_guilds_per_cycle()
+    due_items.sort(key=lambda item: item[0])
+    for _, guild_id, config in due_items[:max_this_cycle]:
         try:
             success, message = await refresh_adm_for_guild(guild_id, config)
-
             if success:
                 print(f"[ADM LOOP] {guild_display_name(guild_id)} ({guild_id}) -> OK: {message}")
             else:
                 print(f"[ADM LOOP] {guild_display_name(guild_id)} ({guild_id}) -> WAITING: {message}")
-
         except Exception as error:
-
             print(f"[ADM LOOP ERROR] {guild_id}: {error}")
+        finally:
+            adm_next_scan_at[guild_id] = time.time() + ADM_LOOP_SECONDS
 
 
 @tasks.loop(minutes=5)
@@ -28269,10 +28176,7 @@ def add_player_to_nitrado_banlist(config, gamertag):
             return True, "Already banned."
         # Upgrade a differently-cased legacy entry to the exact ADM spelling.
         current[matching_index] = gamertag
-        ok, message = push_nitrado_banlist(config, current)
-        if ok:
-            return True, message
-        return ok, message
+        return push_nitrado_banlist(config, current)
     current.append(gamertag)
     return push_nitrado_banlist(config, current)
 
@@ -28301,7 +28205,6 @@ async def post_nitrado_banlist_log(
     result="",
     ok=True,
     minutes=None,
-    evidence_line="",
 ):
     try:
         guild_id = str(guild_id)
@@ -28343,8 +28246,6 @@ async def post_nitrado_banlist_log(
             embed.add_field(name="Reason", value=str(reason)[:900], inline=False)
         if result:
             embed.add_field(name="Nitrado response", value=str(result)[:900], inline=False)
-        if evidence_line:
-            add_exact_adm_evidence_fields(embed, evidence_line)
         try:
             uk_now = datetime.now(ZoneInfo("Europe/Dublin")).strftime("%Y-%m-%d %H:%M:%S UK")
         except Exception:
@@ -28356,120 +28257,7 @@ async def post_nitrado_banlist_log(
         print(f"[NITRADO BAN FEED] log failed: {error}")
 
 
-def ban_announcement_media_absolute_path(relative_path):
-    clean = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
-    if not clean:
-        return ""
-    root = os.path.abspath(BAN_ANNOUNCEMENT_MEDIA_FOLDER)
-    candidate = os.path.abspath(os.path.join(DATA_ROOT, *clean.split("/")))
-    try:
-        if os.path.commonpath([root, candidate]) != root:
-            return ""
-    except ValueError:
-        return ""
-    if not os.path.isfile(candidate):
-        return ""
-    extension = os.path.splitext(candidate)[1].lower()
-    if extension not in BAN_ANNOUNCEMENT_MEDIA_EXTENSIONS:
-        return ""
-    try:
-        if os.path.getsize(candidate) > BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES:
-            return ""
-    except OSError:
-        return ""
-    return candidate
-
-
-async def post_confirmed_game_ban_announcement(
-    guild_id,
-    config,
-    *,
-    gamertag,
-    ban_type="",
-    reason="",
-    source="",
-    minutes=None,
-):
-    settings = config.get("ban_announcement") if isinstance(config, dict) else None
-    if not isinstance(settings, dict) or not safe_bool(settings.get("enabled"), False):
-        return False
-    guild = discord_guild_for_runtime_id(guild_id)
-    if not guild:
-        return False
-
-    channel = None
-    channel_id = _safe_channel_id(settings.get("channel_id"))
-    if channel_id:
-        channel = guild.get_channel(channel_id) or bot.get_channel(channel_id)
-    channel_key = str(settings.get("channel_key") or "moderation_logs").strip()
-    if not channel and channel_key:
-        channel = resolve_feed_channel(guild_id, config, channel_key, required=False, allow_name_repair=False)
-    if not channel:
-        for fallback_key in ("moderation_logs", "admin_logs", "nitrado_ban_logs"):
-            channel = resolve_feed_channel(guild_id, config, fallback_key, required=False, allow_name_repair=False)
-            if channel:
-                break
-    if not channel:
-        print(f"[BAN ANNOUNCEMENT] {guild_id} has no configured announcement channel; skipped.")
-        return False
-
-    clean_name = normalize_nitrado_banlist_name(gamertag)
-    headline = re.sub(r"[\r\n]+", " ", str(settings.get("headline") or "PLAYER BANNED")).strip()[:80] or "PLAYER BANNED"
-    embed = discord.Embed(
-        title=f"🔨 {headline}",
-        description=f"**{discord_escape_mentions(clean_name or 'Unknown player')}** has been added to the game ban list.",
-        color=0xE74C3C,
-    )
-    embed.add_field(name="DayZ server", value=dayz_server_display_name(guild_id, config), inline=False)
-    try:
-        duration_minutes = int(minutes) if minutes is not None else 0
-    except (TypeError, ValueError):
-        duration_minutes = 0
-    duration = f"Temporary — {duration_minutes} minute(s)" if duration_minutes > 0 else "Permanent"
-    embed.add_field(name="Ban", value=duration, inline=True)
-    embed.add_field(name="Source", value=str(source or ban_type or "moderation").replace("_", " ")[:120], inline=True)
-    if safe_bool(settings.get("include_reason"), True) and reason:
-        embed.add_field(name="Reason", value=discord_safe_content(discord_escape_mentions(reason), 900), inline=False)
-    embed.set_footer(text=POWERED_BY_FOOTER_TEXT)
-
-    media_path = ban_announcement_media_absolute_path(settings.get("media_path"))
-    send_kwargs = {"embed": style_embed(embed)}
-    if media_path:
-        extension = os.path.splitext(media_path)[1].lower()
-        attachment_name = f"ban-announcement{extension}"
-        if extension == ".gif":
-            embed.set_image(url=f"attachment://{attachment_name}")
-        send_kwargs["file"] = discord.File(media_path, filename=attachment_name)
-    try:
-        await channel.send(**send_kwargs)
-        return True
-    except Exception as error:
-        # A channel may permit normal embeds but deny Attach Files. Never lose
-        # the confirmed-ban announcement merely because its optional GIF/video
-        # could not be uploaded.
-        if media_path:
-            print(f"[BAN ANNOUNCEMENT] media send failed for {guild_id}: {error}; retrying without media")
-            try:
-                await channel.send(embed=style_embed(embed))
-                return True
-            except Exception as fallback_error:
-                print(f"[BAN ANNOUNCEMENT] fallback post failed for {guild_id}: {fallback_error}")
-                return False
-        print(f"[BAN ANNOUNCEMENT] post failed for {guild_id}: {error}")
-        return False
-
-
-async def add_player_to_nitrado_banlist_async(
-    guild_id,
-    config,
-    gamertag,
-    *,
-    ban_type="",
-    reason="",
-    source="",
-    minutes=None,
-    evidence_line="",
-):
+async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     if str(source or "").strip().lower() == "discord_link_enforcement" and link_enforcement_protected_gamertag_record(guild_id, clean_name):
         await cleanup_link_enforcement_after_link(guild_id, config, clean_name, source="link_enforcement_skip")
@@ -28486,18 +28274,7 @@ async def add_player_to_nitrado_banlist_async(
         result=message,
         ok=ok,
         minutes=minutes,
-        evidence_line=evidence_line,
     )
-    if ok and "already banned" not in str(message or "").lower():
-        await post_confirmed_game_ban_announcement(
-            guild_id,
-            config,
-            gamertag=clean_name,
-            ban_type=ban_type,
-            reason=reason,
-            source=source,
-            minutes=minutes,
-        )
     return ok, message
 
 
@@ -29372,7 +29149,6 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
         reason=f"Safe-zone violation: {trigger_name} in {zone.get('name')}",
         source="safe_zone",
         minutes=duration_minutes if effective_ban_type == "temp" else None,
-        evidence_line=line,
     )
     if not ok:
         print(f"[SAFEZONE] banlist push failed for {gamertag}: {msg}")
@@ -29407,68 +29183,25 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
     return True, f"PERM ban (offense #{offense_count})"
 
 
-async def _safe_zone_post_evidence_review(guild, zone, event_type, evidence):
-    """Report ambiguous combat evidence to staff without taking action."""
-    evidence = evidence if isinstance(evidence, dict) else {}
-    reason = str(evidence.get("reason") or "The ADM evidence was not safe to automate.")
-    embed = discord.Embed(
-        title=f"🛡️ Safe-Zone Review Required — {zone.get('name', 'Unnamed')}",
-        description="No manhunt or Nitrado ban was applied. Staff review is required before moderation.",
-        color=0xF1C40F,
-    )
-    embed.add_field(name="Zone", value=zone.get("name", "?"), inline=True)
-    embed.add_field(name="Trigger", value=str(event_type or "unknown"), inline=True)
-    embed.add_field(name="Decision", value=f"Staff review required — {reason}", inline=False)
-    embed.add_field(name="Victim", value=str(evidence.get("victim") or "Unknown"), inline=True)
-    embed.add_field(name="Attacker", value=str(evidence.get("attacker") or "Unknown"), inline=True)
-    embed.add_field(name="Victim HP/dead state", value=safe_zone_victim_state_text(evidence), inline=True)
-    embed.add_field(name="Attacker position", value=str(evidence.get("attacker_coords") or "Unknown"), inline=False)
-    add_exact_adm_evidence_fields(embed, evidence.get("evidence"))
-    await _safe_zone_post_report(guild, zone, embed)
-
-
 async def check_safe_zones_for_adm(guild_id, config, event_type, line):
     """Check one ADM event against configured safe-zone rules."""
+
+    # A self-hit against an already dead character is a corpse replay, not a
+    # live-player kill. Guard this boundary too so future callers cannot turn
+    # it into a safe-zone offense and Nitrado ban.
+    if event_type == "kill" and is_stale_self_kill_of_dead_player(line):
+        return
 
     zones = config.get("safe_zones") or []
     if not zones:
         return
 
-    # Every player-on-player damage/kill record has a victim first and an
-    # attacker after ``hit by Player``. Only fully verified attacker evidence
-    # is eligible for automation. A corpse hit is ignored; ambiguous/self-hit
-    # evidence is sent to staff instead of causing a false ban.
-    combat_evidence = safe_zone_pvp_evidence(line) if event_type in {"kill", "cut"} else {"status": "not_pvp"}
-    evidence_status = combat_evidence.get("status") if isinstance(combat_evidence, dict) else "not_pvp"
-    if evidence_status == "corpse":
-        return
-
-    if evidence_status in {"unparseable", "self"}:
-        guild = discord_guild_for_runtime_id(guild_id)
-        if not guild:
-            return
-        # Coordinates cannot be trusted here, so do not guess which zone was
-        # crossed. Post one review to the first enabled rule that would have
-        # considered this event type; staff get the exact raw evidence.
-        for zone in zones:
-            if not zone.get("enabled", True):
-                continue
-            if _safe_zone_event_matches_trigger(event_type, line, zone.get("triggers") or []):
-                await _safe_zone_post_evidence_review(guild, zone, event_type, combat_evidence)
-                return
-        return
-
-    if evidence_status == "verified":
-        coords = combat_evidence.get("attacker_coords")
-        player_name = str(combat_evidence.get("attacker") or "").strip()
-    else:
-        coords = safe_zone_event_actor_coords(event_type, line)
-        player_name = safe_zone_event_actor_name(event_type, line)
-
+    coords = safe_zone_event_actor_coords(event_type, line)
     point = parse_xy_coords(coords)
     if not point:
         return
 
+    player_name = safe_zone_event_actor_name(event_type, line)
     if not player_name:
         return
 
@@ -29503,22 +29236,14 @@ async def check_safe_zones_for_adm(guild_id, config, event_type, line):
             title=f"🛡️ Safe-Zone Violation — {zone.get('name', 'Unnamed')}",
             description=(
                 f"**{player_name}** triggered `{matched_trigger}` "
-                f"({territory_text} the zone)."
+                f"({territory_text} the zone).\n"
+                f"`{line[:300]}`"
             ),
             color=0xE74C3C,
         )
         embed.add_field(name="Zone", value=zone.get("name", "?"), inline=True)
         embed.add_field(name="Action", value=action.upper(), inline=True)
         embed.add_field(name="Trigger", value=matched_trigger, inline=True)
-        if evidence_status == "verified":
-            embed.add_field(name="Victim", value=str(combat_evidence.get("victim") or "Unknown"), inline=True)
-            embed.add_field(name="Attacker", value=player_name, inline=True)
-            embed.add_field(name="Victim HP/dead state", value=safe_zone_victim_state_text(combat_evidence), inline=True)
-            embed.add_field(name="Attacker position", value=str(coords), inline=False)
-            embed.add_field(name="Decision", value="Verified attacker evidence; configured action applied.", inline=False)
-        else:
-            embed.add_field(name="Decision", value="Configured action applied from the ADM event.", inline=False)
-        add_exact_adm_evidence_fields(embed, line)
 
         if action == "ban":
             ok, label = await _safe_zone_apply_ban(guild, config, zone, player_name, matched_trigger, line)
@@ -29984,9 +29709,9 @@ async def backfillkills(interaction: discord.Interaction, limit: int = 100, hour
     hours = max(1, min(336, int(hours or 336)))
     ensure_guild_runtime(guild_id)
 
-    adm_logs = await asyncio.to_thread(list_adm_logs, config, hours)
+    adm_logs = await asyncio.to_thread(list_adm_logs, config, hours, None, False, guild_id)
     if not adm_logs:
-        latest_log = await asyncio.to_thread(ping_latest_adm_log, config)
+        latest_log = await asyncio.to_thread(ping_latest_adm_log, config, None, guild_id)
         adm_logs = [latest_log] if latest_log else []
 
     if not adm_logs:
@@ -30116,9 +29841,9 @@ async def backfilladmstats(interaction: discord.Interaction, hours: int = 336, f
     hours = max(1, min(336, int(hours or 336)))
     ensure_guild_runtime(guild_id)
 
-    adm_logs = await asyncio.to_thread(list_adm_logs, config, hours)
+    adm_logs = await asyncio.to_thread(list_adm_logs, config, hours, None, False, guild_id)
     if not adm_logs:
-        latest_log = await asyncio.to_thread(ping_latest_adm_log, config)
+        latest_log = await asyncio.to_thread(ping_latest_adm_log, config, None, guild_id)
         adm_logs = [latest_log] if latest_log else []
 
     if not adm_logs:
@@ -37716,39 +37441,6 @@ def scenario_event_pool_active_count(event, locations=None):
     return max(1, min(len(locations), 50, requested))
 
 
-def scenario_vehicle_spawn_positions(event):
-    """Return the exact stored position set for a multi-vehicle event."""
-    if not isinstance(event, dict) or str(event.get("event_type") or "").strip().lower() != "vehicle_spawn":
-        return []
-    mode = str(event.get("location_mode") or "fixed").strip().lower()
-    if mode not in {"radius_spread", "spread_radius", "manual_positions", "manual", "exact_positions"}:
-        return []
-    raw_locations = event.get("location_pool")
-    if not isinstance(raw_locations, list):
-        return []
-    locations = []
-    seen = set()
-    for raw in raw_locations[:80]:
-        if not isinstance(raw, dict):
-            continue
-        x = parse_dayz_map_number(raw.get("x"))
-        z = parse_dayz_map_number(raw.get("z"))
-        if x is None or z is None or x < 0 or z < 0 or x > 30000 or z > 30000:
-            continue
-        angle = parse_dayz_map_number(raw.get("angle", raw.get("a", 0))) or 0
-        key = (round(x, 3), round(z, 3))
-        if key in seen:
-            continue
-        seen.add(key)
-        locations.append({
-            "name": str(raw.get("name") or f"{ce_decimal(x)}, {ce_decimal(z)}")[:80],
-            "x": x,
-            "z": z,
-            "angle": angle % 360,
-        })
-    return locations
-
-
 def is_economy_vehicle_reset_event(event):
     return (
         str(event.get("event_type") or "") == "vehicle_reset_all"
@@ -40298,50 +39990,45 @@ def scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupr
         "class_name": guard_class,
         "event_child_type": guard_class,
         "count": guard_count,
-        # Match the vanilla InfectedArmy secondary-event shape.  A secondary
-        # event is selected at the parent Static event's chosen position and
-        # therefore must not own an independent cfgeventspawns coordinate.
-        "lifetime": 3,
+        "lifetime": max(180, min(3888000, safe_int(lifetime, 1800))),
         "x": (event or {}).get("x"),
         "y": (event or {}).get("y"),
         "z": (event or {}).get("z"),
         "radius": guard_radius,
         "use_eventgroup": False,
-        "limit_type": "custom",
-        "position": "player",
-        "skip_spawn": True,
-        "empty_spawn": True,
+        "limit_type": "child",
         "child_lootmin": 0,
         "child_lootmax": 5,
         "child_records": [{
             "type": guard_class,
             "count": guard_count,
             "min": guard_count,
-            "max": 0,
+            "max": guard_count,
             "lootmin": 0,
             "lootmax": 5,
         }],
         "secondary": "",
         "eventgroup_children": None,
         "empty_event_children": False,
-        "nominal": max(50, guard_count),
-        "min_count": min(25, max(1, guard_count)),
-        "max_count": max(250, guard_count),
-        "restock": 0,
-        "saferadius": 100,
-        "distanceradius": max(5, min(500, guard_radius)),
-        "cleanupradius": max(100, min(5000, guard_radius)),
+        "nominal": guard_count,
+        "min_count": guard_count,
+        "max_count": guard_count,
+        "restock": max(0, min(3888000, safe_int(restock, 0))),
+        "saferadius": max(0, min(5000, safe_int(saferadius, 0))),
+        "distanceradius": 0,
+        "cleanupradius": max(0, min(30000, safe_int(cleanupradius, 100))),
         "start_speed": scenario_start_speed_key(event or {}),
         "visual_marker": False,
         "scene_clearance_radius": 0,
-        "remove_damaged": True,
-        "deletable": False,
+        "remove_damaged": False,
+        "deletable": True,
         "stable_definition": False,
         "use_existing_definition": False,
         "patch_existing_definition": False,
         "mapgroupproto_classes": [],
         "mapgroupproto_tags": {},
     }
+    apply_zombie_territory_fields(record, event)
     return record, ""
 
 
@@ -40414,14 +40101,9 @@ def scenario_airdrop_uses_eventgroup(event):
 
 
 def scenario_airdrop_secondary_infected(event):
-    guard_class = str((event or {}).get("guard_class") or "").strip()
-    guard_count = ce_event_nominal_count(event or {}, (event or {}).get("guard_count", 0))
-    if not guard_class.startswith(("ZmbM_", "ZmbF_")) or guard_count <= 0:
-        return ""
-    # Vanilla helicopter crashes attach InfectedArmy through <secondary>.
-    # Use the same relationship so pooled drops and their guards always share
-    # the one position DayZ CE selected for the parent Static event.
-    return ce_event_name(event or {}, suffix="guards", family="Infected")
+    # Guard hordes are emitted as separate Infected CE events. Keeping them
+    # out of the Static airdrop child list avoids mixed-family spawn failures.
+    return ""
 
 
 def add_console_ce_event_group(root, group_name, child_type, lootmin=40, lootmax=80, child_records=None):
@@ -41496,14 +41178,13 @@ def console_ce_event_is_static_gas_zone(event_name):
     )
 
 
-def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, count=8, exclusion_center=None, exclusion_radius=0):
+def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, exclusion_center=None, exclusion_radius=0):
     base_x = parse_dayz_map_number(x)
     base_z = parse_dayz_map_number(z)
     base_angle = parse_dayz_map_number(angle) or 0
     if base_x is None or base_z is None:
         return [(x, z, base_angle)]
 
-    count = max(1, min(80, safe_int(count, 8)))
     spread = max(35, min(250, safe_int(radius, 45) or 45))
     exclude_x = None
     exclude_z = None
@@ -41514,20 +41195,25 @@ def console_ce_vehicle_spawn_positions(x, z, angle=0, radius=45, count=8, exclus
     if exclude_x is not None and exclude_z is not None and exclusion_radius:
         spread = max(spread, min(300, exclusion_radius + 25))
 
+    candidate_angles = (0, 45, 90, 135, 180, 225, 270, 315, 22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5)
     positions = []
-    minimum_distance = 0.0
-    if exclude_x is not None and exclude_z is not None and exclusion_radius:
-        minimum_distance = float(exclusion_radius)
-    for index in range(count):
-        fraction = (index + 1) / count
-        distance = minimum_distance + ((spread - minimum_distance) * math.sqrt(fraction))
-        offset_angle = (base_angle + (index * 137.50776405)) % 360
-        radians = math.radians(offset_angle)
-        positions.append((
-            round(base_x + (math.cos(radians) * distance), 3),
-            round(base_z + (math.sin(radians) * distance), 3),
-            round(base_angle % 360, 3),
-        ))
+    seen = set()
+    for ring in (spread, min(350, spread + 35), min(400, spread + 70)):
+        for offset_angle in candidate_angles:
+            radians = math.radians(offset_angle)
+            pos_x = round(base_x + (math.cos(radians) * ring), 3)
+            pos_z = round(base_z + (math.sin(radians) * ring), 3)
+            if exclude_x is not None and exclude_z is not None and exclusion_radius:
+                distance = math.hypot(pos_x - exclude_x, pos_z - exclude_z)
+                if distance < exclusion_radius:
+                    continue
+            key = (pos_x, pos_z)
+            if key in seen:
+                continue
+            seen.add(key)
+            positions.append((pos_x, pos_z, base_angle))
+        if len(positions) >= 8:
+            break
     return positions
 
 
@@ -41651,12 +41337,20 @@ def add_console_ce_event_spawn(root, event_name, x, z, angle=0, count=1, radius=
             "r": str(max(1, radius or 45)),
         })
     if event_name.startswith("Vehicle") and CONSOLE_CE_EVENT_MARKER in event_name:
-        append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
-        ET.SubElement(event_node, "pos", {
-            "x": ce_decimal(x),
-            "z": ce_decimal(z),
-            "a": ce_decimal(angle),
-        })
+        for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(
+            x,
+            z,
+            angle=angle,
+            radius=radius or 45,
+            exclusion_center=vehicle_exclusion_center,
+            exclusion_radius=vehicle_exclusion_radius,
+        ):
+            append_wandering_xml_comment(event_node, f"managed spawn position {event_name}")
+            ET.SubElement(event_node, "pos", {
+                "x": ce_decimal(pos_x),
+                "z": ce_decimal(pos_z),
+                "a": ce_decimal(pos_angle),
+            })
         return event_node
     if event_name.startswith("Animal") and CONSOLE_CE_EVENT_MARKER in event_name:
         for pos_x, pos_z, pos_angle in console_ce_spread_positions(x, z, angle=angle, radius=radius or 45, count=count):
@@ -42550,7 +42244,6 @@ def console_ce_records_for_event(event, map_key=""):
     warnings = []
     location_pool = scenario_event_location_pool(event)
     pool_active_count = scenario_event_pool_active_count(event, location_pool)
-    vehicle_positions = scenario_vehicle_spawn_positions(event)
 
     if event_type in {"vehicle_reset_all", "vehicle_reset_point"}:
         warnings.append(
@@ -42565,29 +42258,7 @@ def console_ce_records_for_event(event, map_key=""):
     count = ce_event_nominal_count(event)
     lifetime = 3600
     if event_type == "vehicle_spawn":
-        vehicle_location_mode = str(event.get("location_mode") or "fixed").strip().lower()
-        if vehicle_location_mode == "fixed" and count > 1:
-            warnings.append(
-                f"`{event.get('id')}` requested {count} vehicles at one exact coordinate; the fixed event was limited to one. "
-                "Choose radius spread or enter one manual coordinate per vehicle."
-            )
-            count = 1
-        elif vehicle_location_mode in {"manual_positions", "manual", "exact_positions"}:
-            if not vehicle_positions:
-                warnings.append(f"`{event.get('id')}` has manual vehicle placement selected but no valid coordinates, so it was skipped.")
-                return records, warnings
-            if len(vehicle_positions) != count:
-                warnings.append(
-                    f"`{event.get('id')}` requested {count} vehicles but stored {len(vehicle_positions)} manual coordinates; "
-                    f"the event count was aligned to {len(vehicle_positions)}."
-                )
-                count = len(vehicle_positions)
-        elif vehicle_location_mode in {"radius_spread", "spread_radius"} and vehicle_positions and len(vehicle_positions) != count:
-            warnings.append(
-                f"`{event.get('id')}` requested {count} vehicles but stored {len(vehicle_positions)} generated coordinates; "
-                f"the event count was aligned to {len(vehicle_positions)}."
-            )
-            count = len(vehicle_positions)
+        count = 1
         lifetime = 3888000
     elif event_type in {"airdrop", "loot_crate"}:
         count = 1
@@ -42803,20 +42474,6 @@ def console_ce_records_for_event(event, map_key=""):
         )
 
     record_name = event_name_override or ce_event_name(event, family=family)
-    generated_spawn_positions = []
-    if event_type == "vehicle_spawn" and str(event.get("location_mode") or "").strip().lower() in {"radius_spread", "spread_radius"}:
-        generated_spawn_positions = vehicle_positions or [
-            {"x": pos_x, "z": pos_z, "angle": pos_angle}
-            for pos_x, pos_z, pos_angle in console_ce_vehicle_spawn_positions(
-                event.get("x"),
-                event.get("z"),
-                angle=event.get("angle", 0),
-                radius=event.get("radius") or 45,
-                count=count,
-            )
-        ]
-    elif event_type == "vehicle_spawn" and str(event.get("location_mode") or "").strip().lower() in {"manual_positions", "manual", "exact_positions"}:
-        generated_spawn_positions = vehicle_positions
     record = {
         "name": record_name,
         "source_id": event.get("id"),
@@ -42831,7 +42488,7 @@ def console_ce_records_for_event(event, map_key=""):
         # A single CE definition with several candidate positions keeps each
         # child scene at one.  Nominal/min/max below controls how many of
         # those airdrop scenes DayZ CE maintains concurrently.
-        "spawn_positions": generated_spawn_positions or location_pool,
+        "spawn_positions": location_pool,
         "radius": event.get("radius"),
         "use_eventgroup": use_eventgroup,
         "limit_type": limit_type,
@@ -42946,23 +42603,29 @@ def console_ce_records_for_event(event, map_key=""):
         )
     records.append(record)
 
-    if event_type in {"airdrop", "loot_crate"}:
-        guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
-        if guard_warning:
-            warnings.append(guard_warning)
-        if guard_record:
-            record["secondary"] = guard_record["name"]
-            records.append(guard_record)
+    if event_type == "airdrop":
+        # A separate infected CE event would choose independently from the
+        # airdrop's location pool, so it could put guards at a different
+        # candidate.  Omit guards rather than producing a misleading scene.
+        if location_pool and safe_int(event.get("guard_count"), 0) > 0:
             warnings.append(
-                f"`{event.get('id')}` attaches infected guard definition `{guard_record['name']}` through `<secondary>`, "
-                "so the guards follow the Static airdrop position selected by DayZ CE, including random location pools."
+                f"`{event.get('id')}` uses a native random location pool; infected guards were not generated because separate CE events cannot reliably share the selected pool position."
             )
+        elif not location_pool:
+            guard_record, guard_warning = scenario_airdrop_guard_record(event, lifetime, restock, saferadius, cleanupradius)
+            if guard_warning:
+                warnings.append(guard_warning)
+            if guard_record:
+                records.append(guard_record)
+                warnings.append(
+                    f"`{event.get('id')}` creates infected guard event `{guard_record['name']}` separate from the Static airdrop loot event."
+                )
         marker_class = str(scenario_airdrop_scene_config(event).get("marker") or event.get("marker_class") or SCENARIO_AIRDROP_MARKER_CLASS).strip()
         if event.get("visual_marker") and marker_class:
             scene_label = scenario_airdrop_scene_config(event).get("label") or scenario_airdrop_scene_type(event)
             warnings.append(
                 f"`{event.get('id')}` requested `{scene_label}` visual object `{marker_class}`. "
-                "Native CE will deploy the terrain-aligned scene, direct ground loot, and any infected guards at the selected Static event position."
+                "Native CE will deploy the terrain-aligned scene, direct ground loot, and any infected guards through one fixed Static dynamic event."
             )
 
         if event.get("loot_preset") and event.get("loot_preset") != "none" and not event.get("loot"):
@@ -42977,13 +42640,6 @@ def console_ce_records_for_event(event, map_key=""):
     if event_type == "vehicle_spawn" and event.get("vehicle_condition") and event.get("vehicle_condition") != "no_parts":
         warnings.append(
             f"`{event.get('id')}` spawns the vehicle event, but exact fuel/parts condition is not guaranteed by events.xml/cfgeventspawns.xml alone."
-        )
-    if event_type == "vehicle_spawn" and generated_spawn_positions:
-        position_mode = str(event.get("location_mode") or "").strip().lower()
-        position_label = "generated radius" if position_mode in {"radius_spread", "spread_radius"} else "manual"
-        warnings.append(
-            f"`{event.get('id')}` uses {len(generated_spawn_positions)} {position_label} `cfgeventspawns.xml` positions "
-            f"for {count} vehicle(s)."
         )
 
     return records, warnings
@@ -43964,57 +43620,6 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     return output
 
 
-def _ce_validation_line_excerpt(text, error, limit=220):
-    """Return the failing source line without flooding Discord/dashboard errors."""
-    position = getattr(error, "position", None)
-    line_number = position[0] if isinstance(position, tuple) and position else None
-    if not line_number:
-        line_number = safe_int(getattr(error, "lineno", None), 0)
-    if not line_number:
-        return ""
-    lines = str(text or "").splitlines()
-    if line_number < 1 or line_number > len(lines):
-        return ""
-    source_line = lines[line_number - 1].strip()
-    if not source_line:
-        return "(blank line)"
-    if len(source_line) > limit:
-        source_line = source_line[: max(1, limit - 1)] + "…"
-    return source_line.replace("`", "'")
-
-
-def _parse_named_ce_xml(label, path, text):
-    """Parse one CE XML document and retain its identity in any error."""
-    try:
-        return ET.fromstring(str(text or "").encode("utf-8")), ""
-    except Exception as error:
-        remote_path = str(path or "").strip()
-        location = f" at `{remote_path}`" if remote_path else ""
-        excerpt = _ce_validation_line_excerpt(text, error)
-        excerpt_text = f" Failing line: `{excerpt}`" if excerpt else ""
-        error_text = str(error).rstrip(".")
-        return None, (
-            f"`{label}` validation failed before upload{location}: "
-            f"{type(error).__name__}: {error_text}.{excerpt_text}"
-        )
-
-
-def _parse_named_ce_json(label, path, text):
-    """Parse one linked JSON document and retain its identity in any error."""
-    try:
-        return json.loads(str(text or "")), ""
-    except Exception as error:
-        remote_path = str(path or "").strip()
-        location = f" at `{remote_path}`" if remote_path else ""
-        excerpt = _ce_validation_line_excerpt(text, error)
-        excerpt_text = f" Failing line: `{excerpt}`" if excerpt else ""
-        error_text = str(error).rstrip(".")
-        return None, (
-            f"`{label}` validation failed before upload{location}: "
-            f"{type(error).__name__}: {error_text}.{excerpt_text}"
-        )
-
-
 def validate_console_ce_xml_bundle(built, check_scope=True):
     messages = []
     scope_messages = []
@@ -44038,60 +43643,22 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         or built.get("mapgroupproto_source_text")
         or "<prototype></prototype>"
     )
-    xml_documents = [
-        ("events_root", "events.xml", built.get("events_path"), built.get("events_text") or ""),
-        ("spawns_root", "cfgeventspawns.xml", built.get("spawns_path"), built.get("spawns_text") or ""),
-        ("types_root", "types.xml", built.get("types_path"), built.get("types_text") or "<types></types>"),
-        (
-            "eventgroups_root",
-            "cfgeventgroups.xml",
-            built.get("eventgroups_path"),
-            built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>",
-        ),
-        (
-            "mapgroupproto_root",
-            "mapgroupproto.xml",
-            built.get("mapgroupproto_path") or built.get("mapgroupproto_context_path"),
-            mapgroupproto_context_text,
-        ),
-        (
-            "cfgenvironment_root",
-            "cfgenvironment.xml",
-            built.get("cfgenvironment_path"),
+    try:
+        events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
+        spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
+        types_root = ET.fromstring(str(built.get("types_text") or "<types></types>").encode("utf-8"))
+        eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
+        mapgroupproto_root = ET.fromstring(mapgroupproto_context_text.encode("utf-8"))
+        cfgenvironment_root = ET.fromstring(str(
             built.get("cfgenvironment_text")
             or built.get("cfgenvironment_source_text")
-            or "<env><territories /></env>",
-        ),
-        (
-            "zombie_territories_root",
-            "zombie_territories.xml",
-            built.get("zombie_territories_path"),
-            built.get("zombie_territories_text") or "<territory-type></territory-type>",
-        ),
-    ]
-    parsed_roots = {}
-    for root_key, label, path, text in xml_documents:
-        parsed_root, parse_message = _parse_named_ce_xml(label, path, text)
-        if parsed_root is None:
-            return False, scope_messages + [parse_message]
-        parsed_roots[root_key] = parsed_root
-
-    events_root = parsed_roots["events_root"]
-    spawns_root = parsed_roots["spawns_root"]
-    types_root = parsed_roots["types_root"]
-    eventgroups_root = parsed_roots["eventgroups_root"]
-    mapgroupproto_root = parsed_roots["mapgroupproto_root"]
-    cfgenvironment_root = parsed_roots["cfgenvironment_root"]
-    zombie_territories_root = parsed_roots["zombie_territories_root"]
-
-    if built.get("cfgeffectarea_text"):
-        _parsed_effect_area, parse_message = _parse_named_ce_json(
-            "cfgEffectArea.json",
-            built.get("cfgeffectarea_path"),
-            built.get("cfgeffectarea_text"),
-        )
-        if parse_message:
-            return False, scope_messages + [parse_message]
+            or "<env><territories /></env>"
+        ).encode("utf-8"))
+        zombie_territories_root = ET.fromstring(str(built.get("zombie_territories_text") or "<territory-type></territory-type>").encode("utf-8"))
+        if built.get("cfgeffectarea_text"):
+            json.loads(str(built.get("cfgeffectarea_text") or ""))
+    except Exception as error:
+        return False, scope_messages + [f"CE file validation failed before upload: {error}"]
 
     map_key = normalize_dayz_reference_map_key(
         built.get("map_key")
@@ -44140,15 +43707,10 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         if is_wandering_managed_name(zone_node.get("name") or "")
     }
     for territory_file in territory_files:
-        territory_path = str(territory_file.get("path") or "").strip()
-        territory_label = os.path.basename(territory_path) or "animal_territories.xml"
-        territory_root, parse_message = _parse_named_ce_xml(
-            territory_label,
-            territory_path,
-            territory_file.get("text") or "",
-        )
-        if territory_root is None:
-            return False, scope_messages + [parse_message]
+        try:
+            territory_root = ET.fromstring(str(territory_file.get("text") or "").encode("utf-8"))
+        except Exception as error:
+            return False, [f"XML validation failed for `{territory_file.get('path')}`: {error}"]
         if territory_root.tag != "territory-type":
             messages.append(f"`{territory_file.get('path')}` must use `<territory-type>` as the root tag.")
         if not territory_root.findall(".//zone"):
@@ -44174,30 +43736,6 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 environment_herd_names[territory_name] = territory_node
 
     allowed_families = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Static", "Trajectory", "Vehicle")
-    all_event_names = {
-        str(event_node.get("name") or "").strip()
-        for event_node in events_root.findall("event")
-        if str(event_node.get("name") or "").strip()
-    }
-    secondary_event_names = set()
-    for parent_node in events_root.findall("event"):
-        parent_name = str(parent_node.get("name") or "").strip()
-        for secondary_node in parent_node.findall("secondary"):
-            secondary_name = str(secondary_node.text or "").strip()
-            if not secondary_name:
-                if is_wandering_managed_name(parent_name):
-                    messages.append(f"`{parent_name}` has an empty `<secondary>` event reference.")
-                continue
-            secondary_event_names.add(secondary_name)
-            if is_wandering_managed_name(parent_name):
-                if secondary_name not in all_event_names:
-                    messages.append(
-                        f"`{parent_name}` references secondary event `{secondary_name}`, but that definition is missing from events.xml."
-                    )
-                if not secondary_name.startswith("Infected"):
-                    messages.append(
-                        f"`{parent_name}` secondary event `{secondary_name}` must use the `Infected` CE family."
-                    )
     generated_events = {}
     for event_node in events_root.findall("event"):
         name = str(event_node.get("name") or "")
@@ -44208,13 +43746,8 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 f"`{name}` uses an invalid DayZ CE event prefix. Use one of: {', '.join(allowed_families)}."
             )
         is_zombie_territory_event = name in zombie_territory_event_names
-        is_attached_secondary_event = name in secondary_event_names
         position_text = (event_node.findtext("position") or "").strip()
-        if is_attached_secondary_event and position_text != "player":
-            messages.append(
-                f"`{name}` is attached through `<secondary>` and must use `<position>player</position>` so it follows its parent event."
-            )
-        elif position_text != "fixed" and not (is_zombie_territory_event and position_text == "player") and not is_attached_secondary_event:
+        if position_text != "fixed" and not (is_zombie_territory_event and position_text == "player"):
             messages.append(f"`{name}` must use `<position>fixed</position>` for cfgeventspawns coordinates.")
         limit_text = (event_node.findtext("limit") or "").strip()
         if limit_text not in {"child", "custom", "mixed", "parent"}:
@@ -44270,7 +43803,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
     for name in generated_events:
         spawn_node = generated_spawns.get(name)
         if spawn_node is None:
-            if name in zombie_territory_event_names or name in secondary_event_names:
+            if name in zombie_territory_event_names:
                 continue
             messages.append(f"`{name}` is in events.xml but missing from cfgeventspawns.xml.")
             continue
@@ -45370,26 +44903,20 @@ def _scenario_notice_tracker_summary(text):
 
 def _scenario_notice_public_error(messages):
     for message in messages or []:
-        text = _compact_discord_line(message, 820)
+        text = _compact_discord_line(message, 420)
         lowered = text.lower()
         file_match = re.search(
-            r"\b(events\.xml|cfgeventspawns\.xml|cfgeventgroups\.xml|eventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|cfgenvironment\.xml|[a-z0-9_-]+_territories\.xml|cfgeffectarea\.json)\b",
+            r"\b(events\.xml|cfgeventspawns\.xml|eventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|zombie_territories\.xml)\b",
             text,
             re.IGNORECASE,
         )
         file_name = file_match.group(1) if file_match else "CE XML"
         token_match = re.search(r"unclosed token: line \d+, column \d+", text, re.IGNORECASE)
         if token_match:
-            if "validation failed before upload" in lowered:
-                return (
-                    f"{text} Fix or re-upload `{file_name}`, then retry the event upload."
-                )
             return (
                 f"{file_name} looks malformed or incomplete ({token_match.group(0)}). "
                 "Fix or re-upload that XML, then retry the event upload."
             )
-        if "validation failed before upload" in lowered:
-            return f"{text} Fix or re-upload `{file_name}`, then retry the event upload."
         if "could not compare existing xml records" in lowered:
             return f"The bot could not compare the existing {file_name} before upload. Check that file, then retry."
         if "could not download existing" in lowered or "native ce source required" in lowered:
@@ -49137,15 +48664,6 @@ def safe_int(value, default=0):
         return int(float(text.replace(",", "")))
     except Exception:
         return default
-
-
-def safe_bool(value, default=False):
-    """Parse persisted dashboard booleans without treating ``'false'`` as true."""
-    if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
-    return str(value).strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
 def parse_dayz_map_number(value):
