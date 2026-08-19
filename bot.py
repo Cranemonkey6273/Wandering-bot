@@ -182,7 +182,7 @@ ADM_NITRADO_PROVIDER_BACKOFF_KEY = "provider:nitrado-adm"
 adm_rate_limit_backoff_until = {}
 # Global Nitrado file-server pacing to keep requests spread across all scans.
 adm_nitrado_request_pacing_lock = threading.Lock()
-adm_nitrado_next_request_at = 0.0
+adm_nitrado_request_state = {}
 # Short-lived per-Nitrado-service ADM cache. During a Discord merge the same
 # DayZ service can be watched by an old guild and a new server profile; sharing
 # the downloaded ADM bytes keeps both routes live without double-hitting Nitrado.
@@ -16423,11 +16423,72 @@ def adm_rate_limit_backoff_seconds():
         return 180
 
 
+def adm_rate_limit_backoff_max_seconds():
+    try:
+        return max(60, min(900, int(os.getenv("WANDERING_ADM_RATE_LIMIT_BACKOFF_MAX_SECONDS", "900"))))
+    except Exception:
+        return 900
+
+
 def adm_nitrado_request_spacing_seconds():
     try:
         return max(1.0, min(20.0, float(os.getenv("WANDERING_ADM_NITRADO_REQUEST_SPACING_SECONDS", "4"))))
     except Exception:
         return 4.0
+
+
+def adm_nitrado_request_max_spacing_seconds():
+    try:
+        return max(1.0, min(90.0, float(os.getenv("WANDERING_ADM_NITRADO_REQUEST_MAX_SPACING_SECONDS", "30"))))
+    except Exception:
+        return 30.0
+
+
+def adm_nitrado_request_streak_decay_seconds():
+    try:
+        return max(10, min(1800, int(os.getenv("WANDERING_ADM_RATE_LIMIT_STREAK_DECAY_SECONDS", "300"))))
+    except Exception:
+        return 300
+
+
+def _adm_nitrado_bucket_ids(guild_id, config=None):
+    config = config if isinstance(config, dict) else {}
+    buckets = [ADM_NITRADO_PROVIDER_BACKOFF_KEY]
+    token = str(config.get("nitrado_token") or "").strip()
+    nitrado_user = str(config.get("nitrado_user") or "").strip()
+    if token:
+        buckets.append(f"token:{stable_line_hash(token)[:24]}")
+    elif nitrado_user:
+        buckets.append(f"user:{normalize_discord_name(nitrado_user)}")
+    else:
+        buckets.append(f"guild:{str(guild_id)}")
+    return list(dict.fromkeys(buckets))
+
+
+def _clear_old_request_streaks():
+    cutoff = time.time() - adm_nitrado_request_streak_decay_seconds()
+    with adm_nitrado_request_pacing_lock:
+        to_delete = []
+        for bucket_id, state in list(adm_nitrado_request_state.items()):
+            if not isinstance(state, dict):
+                to_delete.append(bucket_id)
+                continue
+            streak = int(state.get("rate_limit_streak", 0) or 0)
+            streak_at = float(state.get("rate_limit_streak_at", 0) or 0)
+            next_request_at = float(state.get("next_request_at", 0) or 0)
+            if streak > 0 and streak_at > 0 and streak_at < cutoff:
+                state["rate_limit_streak"] = 0
+                state["rate_limit_streak_at"] = 0.0
+            elif streak <= 0 and next_request_at <= time.time():
+                to_delete.append(bucket_id)
+        for bucket_id in to_delete:
+            adm_nitrado_request_state.pop(bucket_id, None)
+
+
+def _bucket_rate_limit_streak(bucket_id):
+    with adm_nitrado_request_pacing_lock:
+        state = adm_nitrado_request_state.get(bucket_id, {})
+        return int(state.get("rate_limit_streak", 0) or 0)
 
 
 def adm_loop_max_guilds_per_cycle():
@@ -16445,8 +16506,6 @@ def adm_loop_guild_stagger_seconds():
 
 
 def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
-    global adm_nitrado_next_request_at
-
     backoff_until = active_adm_rate_limit_backoff_until(guild_id, config)
     now = time.time()
     if backoff_until > now:
@@ -16455,15 +16514,44 @@ def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
             adm_debug_log(f"[NITRADO PACE] {stage} delayed by {delay:.1f}s due to active backoff.")
             time.sleep(delay)
 
-    spacing = adm_nitrado_request_spacing_seconds()
+    _clear_old_request_streaks()
+    buckets = _adm_nitrado_bucket_ids(guild_id, config)
+    max_streak = 0
+    for bucket_id in buckets:
+        max_streak = max(max_streak, _bucket_rate_limit_streak(bucket_id))
+
+    base_spacing = adm_nitrado_request_spacing_seconds()
+    spacing_multiplier = min(8.0, max(1.0, 2.0 ** min(max_streak, 7)))
+    spacing = max(
+        base_spacing,
+        min(
+            adm_nitrado_request_max_spacing_seconds(),
+            base_spacing * spacing_multiplier,
+        ),
+    )
     if spacing <= 0:
         return
 
     now = time.time()
     with adm_nitrado_request_pacing_lock:
-        request_at = max(now, adm_nitrado_next_request_at)
+        request_at = now
+        for bucket_id in buckets:
+            state = adm_nitrado_request_state.setdefault(
+                bucket_id,
+                {"next_request_at": 0.0, "rate_limit_streak": 0, "rate_limit_streak_at": 0.0},
+            )
+            request_at = max(request_at, float(state.get("next_request_at", 0.0) or 0.0))
         delay = max(0.0, request_at - now)
-        adm_nitrado_next_request_at = request_at + spacing
+        next_request_at = request_at + spacing
+        for bucket_id in buckets:
+            state = adm_nitrado_request_state.setdefault(
+                bucket_id,
+                {"next_request_at": 0.0, "rate_limit_streak": 0, "rate_limit_streak_at": 0.0},
+            )
+            state["next_request_at"] = next_request_at
+
+    if max_streak > 0:
+        delay += random.uniform(0, min(2.0, spacing * 0.15))
 
     if delay > 0:
         adm_debug_log(f"[NITRADO PACE] {stage} delayed by {delay:.2f}s for request spacing.")
@@ -16492,8 +16580,26 @@ def active_adm_rate_limit_backoff_until(guild_id, config=None):
 
 
 def set_adm_rate_limit_backoff(guild_id, config=None, stage=None):
-    seconds = adm_rate_limit_backoff_seconds()
-    until = time.time() + seconds
+    now = time.time()
+    keys = adm_rate_limit_backoff_keys(guild_id, config, include_provider=True)
+    max_streak = 0
+    with adm_nitrado_request_pacing_lock:
+        for key in keys:
+            state = adm_nitrado_request_state.setdefault(
+                key,
+                {"next_request_at": 0.0, "rate_limit_streak": 0, "rate_limit_streak_at": 0.0},
+            )
+            state["rate_limit_streak"] = int(state.get("rate_limit_streak", 0) or 0) + 1
+            state["rate_limit_streak_at"] = now
+            max_streak = max(max_streak, int(state["rate_limit_streak"]))
+            state["next_request_at"] = max(float(state.get("next_request_at", 0.0) or 0.0), now)
+
+    streak_multiplier = min(16.0, max(1.0, 2.0 ** min(max_streak, 4)))
+    seconds = min(
+        adm_rate_limit_backoff_max_seconds(),
+        int(adm_rate_limit_backoff_seconds() * streak_multiplier),
+    )
+    until = now + seconds
     for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=True):
         adm_rate_limit_backoff_until[key] = until
     if stage:
@@ -16504,9 +16610,14 @@ def set_adm_rate_limit_backoff(guild_id, config=None, stage=None):
     return seconds
 
 
-def clear_adm_rate_limit_backoff(guild_id, config=None, *, include_provider=False):
+def clear_adm_rate_limit_backoff(guild_id, config=None, *, include_provider=False, clear_rate_limit_streaks=False):
     for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=include_provider):
         adm_rate_limit_backoff_until.pop(key, None)
+        if clear_rate_limit_streaks:
+            state = adm_nitrado_request_state.get(key)
+            if isinstance(state, dict):
+                state["rate_limit_streak"] = 0
+                state["rate_limit_streak_at"] = 0.0
 
 
 def set_adm_scan_stage(guild_id, stage):
@@ -24278,7 +24389,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         adm_parse_context.pop(str(guild_id), None)
 
     print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
-    clear_adm_rate_limit_backoff(guild_id, config)
+    clear_adm_rate_limit_backoff(guild_id, config, clear_rate_limit_streaks=True)
     set_adm_scan_stage(guild_id, None)
     return True, "ADM feed refreshed"
 
