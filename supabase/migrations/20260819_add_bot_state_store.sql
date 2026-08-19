@@ -31,16 +31,14 @@ begin
     select 1 from pg_policies
     where schemaname = 'public'
       and tablename = 'bot_state_store'
-      and polname = 'service role full access'
+      and policyname = 'service role full access'
   ) then
-    execute $p$
-      create policy "service role full access"
+    create policy "service role full access"
       on public.bot_state_store
       for all
       to public
       using (auth.role() = 'service_role')
-      with check (auth.role() = 'service_role')
-    $p$;
+      with check (auth.role() = 'service_role');
   end if;
 end
 $$;
