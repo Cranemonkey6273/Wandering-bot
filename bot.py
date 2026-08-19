@@ -29571,11 +29571,6 @@ async def admstatus(ctx):
 
     embed.set_thumbnail(url=BOT_IMAGE)
     await ctx.send(embed=style_embed(embed))
-    await send_command_guide_pages(
-        ctx,
-        title="ALL SLASH COMMANDS",
-        intro="Full command list with what each command does and how to type it."
-    )
 
 
 @bot.command()
