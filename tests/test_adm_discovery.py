@@ -481,6 +481,61 @@ class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             bot.adm_rate_limit_backoff_until.clear()
             bot.adm_rate_limit_backoff_until.update(old_backoff)
 
+    def test_adm_rate_limit_backoff_is_shared_across_nitrado_tokens(self):
+        old_backoff = dict(bot.adm_rate_limit_backoff_until)
+        config_a = {"nitrado_token": "account-a-token", "nitrado_user": "ni123"}
+        config_b = {"nitrado_token": "account-b-token", "nitrado_user": "ni456"}
+        try:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.set_adm_rate_limit_backoff("guild-a:cherno", config_a)
+
+            self.assertGreater(bot.active_adm_rate_limit_backoff_until("guild-b:livo", config_b), time.time())
+            self.assertIn(bot.ADM_NITRADO_PROVIDER_BACKOFF_KEY, bot.adm_rate_limit_backoff_until)
+            self.assertNotIn("account-a-token", "".join(bot.adm_rate_limit_backoff_until.keys()))
+            bot.clear_adm_rate_limit_backoff("guild-a:cherno", config_a)
+            self.assertGreater(bot.active_adm_rate_limit_backoff_until("guild-b:livo", config_b), time.time())
+        finally:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.adm_rate_limit_backoff_until.update(old_backoff)
+
+    def test_rpt_log_search_reuses_adm_directory_and_stops_after_a_match(self):
+        original_get = bot.requests.get
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+            text = ""
+
+            def json(self):
+                return {
+                    "data": {
+                        "entries": [{
+                            "name": "DayZServer_X1_x64_2026-08-19_16-00-00.RPT",
+                            "path": "/games/ni123/noftp/dayzxb/profiles/DayZServer_X1_x64_2026-08-19_16-00-00.RPT",
+                            "modified_at": "2026-08-19T16:00:00+00:00",
+                        }]
+                    }
+                }
+
+        def fake_get(_url, headers=None, params=None, timeout=None):
+            calls.append(params.get("dir"))
+            return FakeResponse()
+
+        try:
+            bot.requests.get = fake_get
+            logs = bot.list_rpt_logs({
+                "nitrado_token": "token",
+                "service_id": "service",
+                "nitrado_user": "ni123",
+                "server_platform": "Xbox",
+                "adm_log_directory": "/games/ni123/noftp/dayzxb/profiles/",
+            })
+        finally:
+            bot.requests.get = original_get
+
+        self.assertEqual(1, len(logs))
+        self.assertEqual(["/games/ni123/noftp/dayzxb/profiles/"], calls)
+
     def test_ping_latest_adm_log_stops_after_first_matching_directory(self):
         original_get = bot.requests.get
         calls = []

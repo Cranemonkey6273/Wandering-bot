@@ -174,6 +174,12 @@ adm_scan_locks = {}
 # Per-guild backoff after Nitrado/Cloudflare 429s. Without this the ADM loop
 # retries every 30s across many paths and can keep the service rate-limited.
 adm_rate_limit_backoff_until = {}
+# Nitrado/Cloudflare can rate-limit the Railway egress IP rather than one API
+# token.  Serialize fresh ADM/RPT polls and share a provider-wide cooldown so
+# one blocked service never causes every configured server to retry at once.
+ADM_NITRADO_PROVIDER_BACKOFF_KEY = "provider:nitrado-adm"
+adm_nitrado_request_pacing_lock = asyncio.Lock()
+adm_nitrado_next_request_at = 0.0
 # Short-lived per-Nitrado-service ADM cache. During a Discord merge the same
 # DayZ service can be watched by an old guild and a new server profile; sharing
 # the downloaded ADM bytes keeps both routes live without double-hitting Nitrado.
@@ -16495,8 +16501,33 @@ def adm_rate_limit_backoff_seconds():
         return 180
 
 
-def adm_rate_limit_backoff_keys(guild_id, config=None):
-    keys = [str(guild_id)]
+def adm_nitrado_request_spacing_seconds():
+    """Minimum gap between fresh Nitrado ADM/RPT API polls for this process."""
+    try:
+        return max(1.0, min(20.0, float(os.getenv("WANDERING_ADM_NITRADO_REQUEST_SPACING_SECONDS", "4"))))
+    except Exception:
+        return 4.0
+
+
+async def pace_adm_nitrado_request(guild_id, config=None):
+    """Reserve one shared Nitrado API turn, returning any active cooldown."""
+    global adm_nitrado_next_request_at
+    backoff_until = active_adm_rate_limit_backoff_until(guild_id, config)
+    if backoff_until > time.time():
+        return backoff_until
+    async with adm_nitrado_request_pacing_lock:
+        now = time.monotonic()
+        request_at = max(now, adm_nitrado_next_request_at)
+        adm_nitrado_next_request_at = request_at + adm_nitrado_request_spacing_seconds()
+    wait_seconds = request_at - time.monotonic()
+    if wait_seconds > 0:
+        await asyncio.sleep(wait_seconds)
+    return active_adm_rate_limit_backoff_until(guild_id, config)
+
+
+def adm_rate_limit_backoff_keys(guild_id, config=None, *, include_provider=True):
+    keys = [ADM_NITRADO_PROVIDER_BACKOFF_KEY] if include_provider else []
+    keys.append(str(guild_id))
     config = config if isinstance(config, dict) else {}
     token = str(config.get("nitrado_token") or "").strip()
     nitrado_user = str(config.get("nitrado_user") or "").strip()
@@ -16520,6 +16551,12 @@ def set_adm_rate_limit_backoff(guild_id, config=None):
     for key in adm_rate_limit_backoff_keys(guild_id, config):
         adm_rate_limit_backoff_until[key] = until
     return seconds
+
+
+def clear_adm_rate_limit_backoff(guild_id, config=None):
+    """Clear a successful profile's state without shortening a shared ban."""
+    for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=False):
+        adm_rate_limit_backoff_until.pop(key, None)
 
 
 def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
@@ -16723,6 +16760,10 @@ def nitrado_rpt_search_paths(config):
     else:
         roots = ("dayzxb", "dayzxb_missions", "dayzps", "dayzps_missions")
     candidates = []
+    for remembered_key in ("adm_log_directory", "adm_last_log_directory"):
+        remembered = normalize_nitrado_directory_path(config.get(remembered_key))
+        if remembered:
+            candidates.append(remembered)
     for root in roots:
         candidates.extend([
             f"/games/{nitrado_user}/noftp/{root}/profiles/",
@@ -16757,14 +16798,37 @@ def list_rpt_logs(config):
                 timeout=20,
             )
             if response.status_code != 200:
+                diagnostic = {
+                    "path": search_path,
+                    "status": response.status_code,
+                    "error": response.text[:300],
+                }
+                if adm_scan_diagnostic_is_rate_limited(diagnostic):
+                    set_adm_rate_limit_backoff("rpt-tracker")
+                    break
                 continue
-            entries = response.json().get("data", {}).get("entries", [])
+            try:
+                entries = response.json().get("data", {}).get("entries", [])
+            except Exception:
+                diagnostic = {
+                    "path": search_path,
+                    "status": response.status_code,
+                    "error": response.text[:300],
+                }
+                if adm_scan_diagnostic_is_rate_limited(diagnostic):
+                    set_adm_rate_limit_backoff("rpt-tracker")
+                    break
+                continue
+            matched_this_path = False
             for entry in entries:
                 if not RPT_LOG_NAME_PATTERN.search(entry.get("name", "")):
                     continue
                 path = entry.get("path")
                 if path:
                     matching[path] = entry
+                    matched_this_path = True
+            if matched_this_path:
+                break
         except Exception as err:
             print(f"[RPT TRACKER] list_rpt_logs error: {err}")
     logs = list(matching.values())
@@ -16791,11 +16855,25 @@ def fetch_latest_rpt_content(config):
             timeout=20,
         )
         if dl_resp.status_code != 200:
+            if adm_scan_diagnostic_is_rate_limited({
+                "path": latest.get("path"),
+                "status": dl_resp.status_code,
+                "error": dl_resp.text[:300],
+            }):
+                set_adm_rate_limit_backoff("rpt-tracker")
             return None, None, None
         token_url = dl_resp.json().get("data", {}).get("token", {}).get("url")
         if not token_url:
             return None, None, None
         file_resp = requests.get(token_url, timeout=30)
+        if file_resp.status_code != 200:
+            if adm_scan_diagnostic_is_rate_limited({
+                "path": latest.get("path"),
+                "status": file_resp.status_code,
+                "error": file_resp.text[:300],
+            }):
+                set_adm_rate_limit_backoff("rpt-tracker")
+            return None, None, None
         text = file_resp.content.decode("utf-8", errors="replace")
         return latest.get("path"), latest.get("modified_at", ""), text
     except Exception as err:
@@ -17419,6 +17497,12 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     previous_path = str(state.get("last_rpt_path") or "")
     previous_size = int(state.get("last_rpt_size") or 0)
     previous_signature = str(state.get("last_rpt_generation_signature") or "")
+
+    if config.get("nitrado_token") and config.get("service_id"):
+        backoff_until = await pace_adm_nitrado_request(guild_id, config)
+        if backoff_until > time.time():
+            remaining = max(1, int(backoff_until - time.time()))
+            return f"Nitrado/Cloudflare ADM API backoff active for about {remaining}s; RPT polling is waiting too."
 
     path, modified_at, text = await asyncio.to_thread(fetch_latest_rpt_content, config)
     now_ts = datetime.now(UTC).timestamp()
@@ -24098,6 +24182,13 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     if cold_start:
         history_diagnostics = []
         try:
+            backoff_until = await pace_adm_nitrado_request(guild_id, config)
+            if backoff_until > time.time():
+                remaining = max(1, int(backoff_until - time.time()))
+                return False, (
+                    f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
+                    "Waiting before the next ADM search so Nitrado can clear the temporary block."
+                )
             history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics, True)
         except Exception as err:
             print(f"[ADM COLD-START] history listing failed: {err}")
@@ -24112,6 +24203,13 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         for older in history_logs[:-1]:
             try:
                 older_download_diagnostics = []
+                backoff_until = await pace_adm_nitrado_request(guild_id, config)
+                if backoff_until > time.time():
+                    remaining = max(1, int(backoff_until - time.time()))
+                    return False, (
+                        f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
+                        "Waiting before the next ADM history download so Nitrado can clear the temporary block."
+                    )
                 ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older, older_download_diagnostics)
                 if not ok_dl and adm_scan_diagnostics_rate_limited(older_download_diagnostics):
                     backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
@@ -24138,6 +24236,13 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         print(f"[ADM CACHE] Reused latest ADM for {guild_display_name(guild_id)} ({guild_id}) from matching Nitrado service.")
     else:
         adm_scan_diagnostics = []
+        backoff_until = await pace_adm_nitrado_request(guild_id, config)
+        if backoff_until > time.time():
+            remaining = max(1, int(backoff_until - time.time()))
+            return False, (
+                f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
+                "Waiting before the next ADM search so Nitrado can clear the temporary block."
+            )
         latest_log = await asyncio.to_thread(
             ping_latest_adm_log,
             config,
@@ -24155,6 +24260,13 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             print(f"[ADM CACHE] Reused ADM log `{latest_log.get('path')}` for {guild_display_name(guild_id)} ({guild_id}).")
         else:
             adm_download_diagnostics = []
+            backoff_until = await pace_adm_nitrado_request(guild_id, config)
+            if backoff_until > time.time():
+                remaining = max(1, int(backoff_until - time.time()))
+                return False, (
+                    f"Nitrado/Cloudflare ADM API rate-limit backoff active for about {remaining}s. "
+                    "Waiting before the next ADM download so Nitrado can clear the temporary block."
+                )
             success = await asyncio.to_thread(
                 download_latest_adm,
                 guild_id,
@@ -24190,8 +24302,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         adm_parse_context.pop(str(guild_id), None)
 
     print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
-    for key in adm_rate_limit_backoff_keys(guild_id, config):
-        adm_rate_limit_backoff_until.pop(key, None)
+    clear_adm_rate_limit_backoff(guild_id, config)
     return True, "ADM feed refreshed"
 
 
