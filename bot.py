@@ -16491,11 +16491,16 @@ def active_adm_rate_limit_backoff_until(guild_id, config=None):
     )
 
 
-def set_adm_rate_limit_backoff(guild_id, config=None):
+def set_adm_rate_limit_backoff(guild_id, config=None, stage=None):
     seconds = adm_rate_limit_backoff_seconds()
     until = time.time() + seconds
     for key in adm_rate_limit_backoff_keys(guild_id, config, include_provider=True):
         adm_rate_limit_backoff_until[key] = until
+    if stage:
+        print(
+            f"[ADM BACKOFF] {guild_id}: stage={stage} "
+            f"for {int(seconds)}s ({', '.join(adm_rate_limit_backoff_keys(guild_id, config, include_provider=True))})"
+        )
     return seconds
 
 
