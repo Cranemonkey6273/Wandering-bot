@@ -173,6 +173,8 @@ adm_scan_locks = {}
 adm_scan_started_at = {}
 # Last ADM refresh outcome per runtime guild id (for operator troubleshooting).
 adm_last_refresh = {}
+# In-progress ADM scan stage per runtime guild id (for hangs/diagnostics).
+adm_scan_stage = {}
 # Nitrado/Cloudflare rate-limit backoff is now applied at both guild/token and
 # provider levels. Provider-level backoff is critical when one instance polls
 # many guilds or when a shared IP/service is temporarily blocked.
@@ -16477,6 +16479,14 @@ def clear_adm_rate_limit_backoff(guild_id, config=None, *, include_provider=Fals
         adm_rate_limit_backoff_until.pop(key, None)
 
 
+def set_adm_scan_stage(guild_id, stage):
+    key = str(guild_id)
+    if stage:
+        adm_scan_stage[key] = str(stage)
+    else:
+        adm_scan_stage.pop(key, None)
+
+
 def adm_rate_limited_message(stage, diagnostics, backoff_seconds=None):
     seconds = int(backoff_seconds if backoff_seconds is not None else adm_rate_limit_backoff_seconds())
     return (
@@ -24036,6 +24046,7 @@ async def parse_adm(guild_id, config):
 async def refresh_adm_for_guild(guild_id, config, *, force=False):
 
     guild_id = str(guild_id)
+    status_key = guild_id
 
     # Per-guild lock prevents two concurrent ADM scans from racing each
     # other and posting the same line twice before either has marked it
@@ -24043,16 +24054,17 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
     # on_ready re-firing on reconnect, !restartadm, /forcerefresh.
     lock = adm_scan_locks.setdefault(guild_id, asyncio.Lock())
     if lock.locked():
-        elapsed = int(time.time() - float(adm_scan_started_at.get(guild_id, time.time())))
+        stage = adm_scan_stage.get(status_key, "unknown stage")
+        elapsed = int(time.time() - float(adm_scan_started_at.get(status_key, time.time())))
         if elapsed < 0:
             elapsed = 0
         scan_msg = (
             "ADM scan already in progress for this guild"
             if elapsed <= 0
-            else f"ADM scan already in progress for this guild ({elapsed}s)"
+            else f"ADM scan already in progress for this guild ({elapsed}s, {stage})"
         )
         result = (False, scan_msg)
-        adm_last_refresh[guild_id] = {
+        adm_last_refresh[status_key] = {
             "ts": time.time(),
             "success": False,
             "message": result[1],
@@ -24060,37 +24072,60 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
         return result
 
     async with lock:
-        adm_scan_started_at[guild_id] = time.time()
+        adm_scan_started_at[status_key] = time.time()
         try:
-            result = await _refresh_adm_for_guild_locked(guild_id, config, force=force)
-            adm_last_refresh[guild_id] = {
+            max_seconds = max(
+                60,
+                min(900, int(os.getenv("WANDERING_ADM_SCAN_TIMEOUT_SECONDS", "180")))
+            )
+            try:
+                result = await asyncio.wait_for(
+                    _refresh_adm_for_guild_locked(guild_id, config, force=force),
+                    timeout=max_seconds,
+                )
+            except asyncio.TimeoutError:
+                backoff_seconds = set_adm_rate_limit_backoff(guild_id, config, stage="scan")
+                result = (
+                    False,
+                    f"ADM scan timed out after {max_seconds}s; applying temporary backoff ({backoff_seconds}s). "
+                    "Likely stalled on Nitrado/Discord delivery. Retrying later.",
+                )
+            except Exception as error:
+                result = (False, f"ADM scan failed: {type(error).__name__}: {str(error)[:180]}")
+            adm_last_refresh[status_key] = {
                 "ts": time.time(),
                 "success": bool(result[0]),
                 "message": str(result[1]),
             }
             return result
         finally:
-            adm_scan_started_at.pop(guild_id, None)
+            adm_scan_stage.pop(status_key, None)
+            adm_scan_started_at.pop(status_key, None)
 
 
 async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
+    set_adm_scan_stage(guild_id, "initializing")
 
     ensure_guild_runtime(guild_id)
 
     if is_showcase_guild(guild_id):
+        set_adm_scan_stage(guild_id, "showcase-skip")
         return False, "Showcase guild skipped; no ADM setup needed"
 
     if force:
+        set_adm_scan_stage(guild_id, "reset-caches")
         reset_processed_adm_caches(guild_id)
 
     required_keys = ["nitrado_token", "service_id", "nitrado_user", "ftp_user", "ftp_password"]
     missing = [key for key in required_keys if not config.get(key)]
 
     if missing:
+        set_adm_scan_stage(guild_id, "missing-setup")
         return False, f"Missing setup values: {', '.join(missing)}"
 
     backoff_until = active_adm_rate_limit_backoff_until(guild_id, config)
     if backoff_until > time.time():
+        set_adm_scan_stage(guild_id, "backoff")
         remaining = max(1, int(backoff_until - time.time()))
         force_note = " Force reset was accepted, but the Nitrado cooldown is still being respected." if force else ""
         return False, (
@@ -24099,6 +24134,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             f"{force_note}"
         )
 
+    set_adm_scan_stage(guild_id, "scanning-history")
     print(f"[ADM SEARCH] Searching latest ADM for {guild_display_name(guild_id)} ({guild_id})")
 
     # 🗓️ First refresh after bot startup → also ingest the previous 24h
@@ -24108,6 +24144,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     # dedupe in parse_adm guarantees nothing is ever re-broadcast.
     cold_start = not bool(_adm_history_swept.get(str(guild_id)))
     if cold_start:
+        set_adm_scan_stage(guild_id, "history-sweep")
         history_diagnostics = []
         try:
             history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics, True, guild_id)
@@ -24123,6 +24160,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             print(f"[ADM COLD-START] sweeping last 24h: {len(history_logs)} log(s) for {guild_display_name(guild_id)}")
         for older in history_logs[:-1]:
             try:
+                set_adm_scan_stage(guild_id, f"history-download:{older.get('path')}")
                 older_download_diagnostics = []
                 ok_dl = await asyncio.to_thread(download_latest_adm, guild_id, config, older, older_download_diagnostics)
                 if not ok_dl and adm_scan_diagnostics_rate_limited(older_download_diagnostics):
@@ -24136,6 +24174,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
                         "history_sweep": True,
                     }
                     try:
+                        set_adm_scan_stage(guild_id, "history-parse")
                         await parse_adm(guild_id, config)
                     finally:
                         adm_parse_context.pop(str(guild_id), None)
@@ -24145,10 +24184,12 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
     cached_latest_log = hydrate_adm_from_source_cache(guild_id, config)
     if cached_latest_log:
+        set_adm_scan_stage(guild_id, "cache-hit")
         latest_log = cached_latest_log
         success = True
         print(f"[ADM CACHE] Reused latest ADM for {guild_display_name(guild_id)} ({guild_id}) from matching Nitrado service.")
     else:
+        set_adm_scan_stage(guild_id, "searching-latest")
         adm_scan_diagnostics = []
         latest_log = await asyncio.to_thread(
             ping_latest_adm_log,
@@ -24158,6 +24199,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         )
 
         if not latest_log:
+            set_adm_scan_stage(guild_id, "no-latest")
             if adm_scan_diagnostics_rate_limited(adm_scan_diagnostics):
                 backoff_seconds = set_adm_rate_limit_backoff(guild_id, config)
                 return False, adm_rate_limited_message("search", adm_scan_diagnostics, backoff_seconds)
@@ -24167,6 +24209,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             success = True
             print(f"[ADM CACHE] Reused ADM log `{latest_log.get('path')}` for {guild_display_name(guild_id)} ({guild_id}).")
         else:
+            set_adm_scan_stage(guild_id, "downloading-latest")
             adm_download_diagnostics = []
             success = await asyncio.to_thread(
                 download_latest_adm,
@@ -24185,6 +24228,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
             remember_adm_source_cache(config, latest_log, read_runtime_adm_bytes(guild_id))
 
     if remember_adm_log_source(config, latest_log):
+        set_adm_scan_stage(guild_id, "persisting-config")
         persist_server_profile_runtime_config(config)
         save_guild_configs()
 
@@ -24195,6 +24239,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         "history_sweep": False,
     }
     try:
+        set_adm_scan_stage(guild_id, "parsing-latest")
         await parse_adm(
             guild_id,
             config
@@ -24204,6 +24249,7 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
 
     print(f"[ADM SEARCH] New ADM processed for {guild_display_name(guild_id)} ({guild_id})")
     clear_adm_rate_limit_backoff(guild_id, config)
+    set_adm_scan_stage(guild_id, None)
     return True, "ADM feed refreshed"
 
 
@@ -29587,7 +29633,7 @@ async def admstatus(ctx):
 
     embed.add_field(
         name="Remembered ADM Lines",
-        value=str(len(processed_lines.get(guild_id, set()))),
+        value=str(len(processed_lines.get(str(guild_id), set()))),
         inline=True
     )
 
@@ -29597,12 +29643,15 @@ async def admstatus(ctx):
         inline=True
     )
 
-    lock = adm_scan_locks.get(guild_id)
+    status_key = str(guild_id)
+
+    lock = adm_scan_locks.get(status_key)
     if lock is not None and lock.locked():
-        started = float(adm_scan_started_at.get(guild_id, 0) or 0)
+        started = float(adm_scan_started_at.get(status_key, 0) or 0)
         elapsed = int(time.time() - started) if started > 0 else None
+        current_stage = adm_scan_stage.get(status_key, "starting")
         status_field = (
-            f"🔄 In Progress ({elapsed}s)" if elapsed is not None and elapsed >= 0 else "🔄 In Progress"
+            f"🔄 In Progress ({elapsed}s) — {current_stage}" if elapsed is not None and elapsed >= 0 else f"🔄 In Progress — {current_stage}"
         )
     else:
         status_field = "✅ Idle"
@@ -29613,7 +29662,7 @@ async def admstatus(ctx):
         inline=True
     )
 
-    last_refresh = adm_last_refresh.get(guild_id, {})
+    last_refresh = adm_last_refresh.get(status_key, {})
     last_refresh_ts = float(last_refresh.get("ts", 0) or 0)
     if last_refresh_ts > 0:
         refresh_time = datetime.fromtimestamp(last_refresh_ts, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
