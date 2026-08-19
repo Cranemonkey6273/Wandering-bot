@@ -169,6 +169,8 @@ ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
+# In-progress scan start time per runtime guild id.
+adm_scan_started_at = {}
 # Last ADM refresh outcome per runtime guild id (for operator troubleshooting).
 adm_last_refresh = {}
 # Nitrado/Cloudflare rate-limit backoff is now applied at both guild/token and
@@ -24041,7 +24043,15 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
     # on_ready re-firing on reconnect, !restartadm, /forcerefresh.
     lock = adm_scan_locks.setdefault(guild_id, asyncio.Lock())
     if lock.locked():
-        result = (False, "ADM scan already in progress for this guild")
+        elapsed = int(time.time() - float(adm_scan_started_at.get(guild_id, time.time())))
+        if elapsed < 0:
+            elapsed = 0
+        scan_msg = (
+            "ADM scan already in progress for this guild"
+            if elapsed <= 0
+            else f"ADM scan already in progress for this guild ({elapsed}s)"
+        )
+        result = (False, scan_msg)
         adm_last_refresh[guild_id] = {
             "ts": time.time(),
             "success": False,
@@ -24050,13 +24060,17 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
         return result
 
     async with lock:
-        result = await _refresh_adm_for_guild_locked(guild_id, config, force=force)
-        adm_last_refresh[guild_id] = {
-            "ts": time.time(),
-            "success": bool(result[0]),
-            "message": str(result[1]),
-        }
-        return result
+        adm_scan_started_at[guild_id] = time.time()
+        try:
+            result = await _refresh_adm_for_guild_locked(guild_id, config, force=force)
+            adm_last_refresh[guild_id] = {
+                "ts": time.time(),
+                "success": bool(result[0]),
+                "message": str(result[1]),
+            }
+            return result
+        finally:
+            adm_scan_started_at.pop(guild_id, None)
 
 
 async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
@@ -29580,6 +29594,22 @@ async def admstatus(ctx):
     embed.add_field(
         name="Killfeed Channel",
         value="Set" if channels.get("killfeed") else "Missing",
+        inline=True
+    )
+
+    lock = adm_scan_locks.get(guild_id)
+    if lock is not None and lock.locked():
+        started = float(adm_scan_started_at.get(guild_id, 0) or 0)
+        elapsed = int(time.time() - started) if started > 0 else None
+        status_field = (
+            f"🔄 In Progress ({elapsed}s)" if elapsed is not None and elapsed >= 0 else "🔄 In Progress"
+        )
+    else:
+        status_field = "✅ Idle"
+
+    embed.add_field(
+        name="ADM Scan State",
+        value=status_field,
         inline=True
     )
 
