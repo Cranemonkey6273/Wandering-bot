@@ -169,6 +169,8 @@ ADM_AGE_GUARD_COLD_START_WINDOW_SECONDS = 90
 # Per-guild asyncio.Lock so two ADM scans for the same guild can never
 # overlap (which used to cause the same log line to be posted twice).
 adm_scan_locks = {}
+# Last ADM refresh outcome per runtime guild id (for operator troubleshooting).
+adm_last_refresh = {}
 # Nitrado/Cloudflare rate-limit backoff is now applied at both guild/token and
 # provider levels. Provider-level backoff is critical when one instance polls
 # many guilds or when a shared IP/service is temporarily blocked.
@@ -24039,10 +24041,22 @@ async def refresh_adm_for_guild(guild_id, config, *, force=False):
     # on_ready re-firing on reconnect, !restartadm, /forcerefresh.
     lock = adm_scan_locks.setdefault(guild_id, asyncio.Lock())
     if lock.locked():
-        return False, "ADM scan already in progress for this guild"
+        result = (False, "ADM scan already in progress for this guild")
+        adm_last_refresh[guild_id] = {
+            "ts": time.time(),
+            "success": False,
+            "message": result[1],
+        }
+        return result
 
     async with lock:
-        return await _refresh_adm_for_guild_locked(guild_id, config, force=force)
+        result = await _refresh_adm_for_guild_locked(guild_id, config, force=force)
+        adm_last_refresh[guild_id] = {
+            "ts": time.time(),
+            "success": bool(result[0]),
+            "message": str(result[1]),
+        }
+        return result
 
 
 async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
@@ -29568,6 +29582,38 @@ async def admstatus(ctx):
         value="Set" if channels.get("killfeed") else "Missing",
         inline=True
     )
+
+    last_refresh = adm_last_refresh.get(guild_id, {})
+    last_refresh_ts = float(last_refresh.get("ts", 0) or 0)
+    if last_refresh_ts > 0:
+        refresh_time = datetime.fromtimestamp(last_refresh_ts, UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        refresh_state = "✅" if last_refresh.get("success") else "⏳"
+        refresh_message = str(last_refresh.get("message") or "No detail").strip()
+        if len(refresh_message) > 850:
+            refresh_message = refresh_message[:847] + "…"
+        refresh_field = f"{refresh_state} {refresh_time}\n{refresh_message}"
+    else:
+        refresh_field = "⚪ Never (no ADM scan attempted yet)"
+
+    embed.add_field(
+        name="Last ADM Refresh",
+        value=refresh_field,
+        inline=False
+    )
+
+    backoff_until = active_adm_rate_limit_backoff_until(guild_id, config)
+    if backoff_until > time.time():
+        embed.add_field(
+            name="ADM Backoff",
+            value=f"Active ({max(0, int(backoff_until - time.time()))}s)",
+            inline=True
+        )
+    else:
+        embed.add_field(
+            name="ADM Backoff",
+            value="None",
+            inline=True
+        )
 
     embed.set_thumbnail(url=BOT_IMAGE)
     await ctx.send(embed=style_embed(embed))
