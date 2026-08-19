@@ -10159,7 +10159,32 @@ class SlashContextAdapter:
         self.interaction = interaction
         self.guild = interaction.guild
         self.author = interaction.user
-        self.channel = interaction.channel
+        interaction_channel = interaction.channel
+
+        async def _channel_send(content=None, embed=None, **kwargs):
+            if embed is not None:
+                embed = normalize_embed_footer(embed)
+            if not self.interaction.response.is_done():
+                await self.interaction.response.send_message(content=content, embed=embed, ephemeral=True, **kwargs)
+            else:
+                await self.interaction.followup.send(content=content, embed=embed, ephemeral=True, **kwargs)
+
+        class _MissingChannel:
+            def __init__(self, sender):
+                self._sender = sender
+                self.id = 0
+                self.mention = "this channel"
+
+            async def send(self, content=None, embed=None, **kwargs):
+                await self._sender(content=content, embed=embed, **kwargs)
+
+            async def purge(self, *args, **kwargs):
+                return []
+
+            def __repr__(self):
+                return "<MissingInteractionChannel>"
+
+        self.channel = interaction_channel if interaction_channel is not None else _MissingChannel(_channel_send)
         self.message = type("Msg", (), {"content": f"/{interaction.command.name}"})()
 
     async def send(self, content=None, embed=None):
@@ -26144,6 +26169,8 @@ async def log_slash_command_usage(interaction):
                 DEFAULT_CHANNEL_NAMES["command_logs"],
                 private=True
             )
+        if not command_log_channel:
+            return
 
         command_name = interaction.command.qualified_name if interaction.command else "unknown"
         options_text = format_interaction_options(interaction.data.get("options", []) if interaction.data else [])
