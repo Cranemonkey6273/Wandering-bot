@@ -48,6 +48,23 @@ class MegaLeaderboardRefreshTests(unittest.TestCase):
         self.assertEqual((True, 3600), bot.mega_leaderboard_refresh_due(config, now))
 
 
+class ConsoleShopDeliveryRetryTests(unittest.TestCase):
+    def test_paid_console_delivery_is_retried_after_an_interrupted_upload(self):
+        pending_order = {
+            "id": 34,
+            "created_by": "shop_delivery",
+            "event_type": "shop_delivery",
+            "shop_order_id": "shop-guild-player-1",
+            "upload_status": "waiting_for_bot_upload",
+            "enabled": True,
+        }
+
+        self.assertEqual(
+            [pending_order],
+            bot.pending_dashboard_scenario_xml_events({"scenario_events": [pending_order]}),
+        )
+
+
 class FakeRole:
     def __init__(self, name, role_id):
         self.name = name

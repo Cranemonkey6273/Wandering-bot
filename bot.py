@@ -46180,6 +46180,19 @@ def scenario_event_needs_native_redeploy_after_bridge(event):
 def scenario_event_upload_needs_resolution(event):
     if not isinstance(event, dict):
         return False
+
+    # A console shop order is an explicit paid request, not a passive
+    # dashboard draft.  It must remain eligible for the controlled retry
+    # worker after an interrupted interaction/redeploy; otherwise its native
+    # CE event can be left indefinitely at "waiting_for_bot_upload".
+    if (
+        str(event.get("created_by") or "") == "shop_delivery"
+        and str(event.get("event_type") or "") == "shop_delivery"
+        and str(event.get("shop_order_id") or "").strip()
+    ):
+        upload_status = str(event.get("upload_status") or "waiting_for_bot_upload").strip().lower()
+        return upload_status in {"", "waiting_for_bot_upload", "failed", "blocked", "queued", "uploading", "starting"}
+
     if not scenario_event_has_explicit_xml_upload_request(event):
         return False
     upload_status = str(event.get("upload_status") or "waiting_for_bot_upload").strip().lower()
@@ -46400,7 +46413,7 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
             for event in scenario_events_for_config(config)
             if (
                 isinstance(event, dict)
-                and str(event.get("created_by") or "") == "dashboard"
+                and str(event.get("created_by") or "") in {"dashboard", "shop_delivery"}
                 and event.get("enabled", True)
                 and not is_file_vehicle_reset_event(event)
                 and scenario_event_upload_needs_resolution(event)
@@ -48998,6 +49011,8 @@ def create_console_shop_delivery_events(config, item_counts, x_value, z_value, o
                 "native_ce_explicit": True,
                 "delivery_route": "native_xml_only",
                 "created_by": "shop_delivery",
+                "ce_upload_requested_at": now_text,
+                "ce_upload_request_action": "create",
                 "shop_order_id": str(order_id),
                 "player": str(player),
                 "discord_id": str(discord_id),
@@ -50086,7 +50101,7 @@ def pending_dashboard_scenario_xml_events(config):
             continue
         if not event.get("enabled", True):
             continue
-        if str(event.get("created_by") or "") != "dashboard":
+        if str(event.get("created_by") or "") not in {"dashboard", "shop_delivery"}:
             continue
         if is_file_vehicle_reset_event(event):
             continue
