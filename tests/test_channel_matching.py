@@ -1701,6 +1701,7 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual("", error)
         self.assertIn("killfeed", keys)
+        self.assertIn("building", keys)
         self.assertIn("connections", keys)
         self.assertIn("disconnects", keys)
         self.assertIn("leaderboards", keys)
@@ -1725,12 +1726,51 @@ class ChannelMatchingTests(unittest.TestCase):
         ultimate = bot.channel_setup_tier_keys({"dashboard": {"tier": "dashboard_ultimate"}})
 
         self.assertIn("killfeed", free)
+        self.assertIn("building", free)
         self.assertIn("connections", free)
         self.assertIn("disconnects", free)
         self.assertIn("leaderboards", free)
         self.assertNotIn("pve_quests", free)
         self.assertIn("pve_quests", ultimate)
         self.assertGreater(len(ultimate), len(free))
+
+    def test_free_plan_blocks_non_core_channel_creation(self):
+        config = {"dashboard": {"tier": "free_bot"}}
+
+        self.assertTrue(bot.channel_key_allowed_for_subscription("building", config))
+        self.assertTrue(bot.channel_key_allowed_for_subscription("connections", config))
+        self.assertTrue(bot.channel_key_allowed_for_subscription("disconnects", config))
+        self.assertTrue(bot.channel_key_allowed_for_subscription("leaderboards", config))
+        self.assertFalse(bot.channel_key_allowed_for_subscription("raids", config))
+        self.assertFalse(bot.channel_key_allowed_for_subscription("radar", config))
+
+    def test_core_restore_pack_contains_only_universal_missing_channels(self):
+        self.assertEqual(
+            ["connections", "disconnects", "leaderboards"],
+            bot.CHANNEL_RESTORE_PACKS["core"],
+        )
+
+    def test_explicit_restore_rejects_channel_outside_current_plan(self):
+        config = {
+            "dashboard": {"tier": "free_bot"},
+            "channels": {},
+            "disabled_channels": [],
+        }
+
+        with mock.patch.object(bot, "get_or_create_feed_channel", new=mock.AsyncMock()) as create_channel, \
+             mock.patch.object(bot, "save_guild_configs"):
+            restored, error = asyncio.run(
+                bot.restore_disabled_bot_channels(
+                    mock.Mock(),
+                    config,
+                    channel_key="raids",
+                    create_missing=True,
+                )
+            )
+
+        self.assertEqual([], restored)
+        self.assertIn("not included", error)
+        create_channel.assert_not_awaited()
 
     def test_channel_restore_pack_descriptions_explain_contents(self):
         rendered = bot.format_channel_restore_packs()
