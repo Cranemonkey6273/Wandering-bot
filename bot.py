@@ -106,6 +106,9 @@ DATA_ROOT = (
     or "."
 )
 
+BAN_ANNOUNCEMENT_MEDIA_FOLDER = os.path.join(DATA_ROOT, "ban_announcement_media")
+BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES = 8 * 1024 * 1024
+
 
 def data_path(*parts):
     return os.path.join(DATA_ROOT, *parts)
@@ -28989,6 +28992,88 @@ async def post_nitrado_banlist_log(
         print(f"[NITRADO BAN FEED] log failed: {error}")
 
 
+def ban_announcement_media_absolute_path(relative_path):
+    """Return a media path only when it stays inside the managed media folder."""
+    clean = str(relative_path or "").strip().replace("\\", "/").lstrip("/")
+    if not clean:
+        return ""
+    root = os.path.abspath(BAN_ANNOUNCEMENT_MEDIA_FOLDER)
+    candidate = os.path.abspath(os.path.join(DATA_ROOT, *clean.split("/")))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return ""
+    except ValueError:
+        return ""
+    return candidate
+
+
+async def post_confirmed_game_ban_announcement(guild_id, config, *, gamertag, ban_type, source, minutes=None, reason=""):
+    """Post a confirmed game-ban notice and optionally attach its configured media.
+
+    The ban itself has already succeeded by the time this runs.  Failure to
+    attach a GIF/video must therefore fall back to the plain Discord embed,
+    rather than making a confirmed ban look as though nothing happened.
+    """
+    announcement = config.get("ban_announcement") if isinstance(config, dict) else None
+    if not isinstance(announcement, dict) or not announcement.get("enabled"):
+        return False
+
+    try:
+        guild = discord_guild_for_runtime_id(str(guild_id))
+        if not guild:
+            return False
+        channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
+        configured_channel = announcement.get("channel_id") or channels.get(announcement.get("channel_key"))
+        channel_id = _safe_channel_id(configured_channel)
+        channel = guild.get_channel(channel_id) if channel_id else None
+        if not channel:
+            return False
+
+        clean_name = normalize_nitrado_banlist_name(gamertag) or "Unknown survivor"
+        clean_type = str(ban_type or "ban").replace("_", " ").strip().title()
+        if minutes and str(ban_type or "").lower() != "perm":
+            clean_type = f"{clean_type} ({format_duration_seconds(int(minutes) * 60)})"
+        source_label = str(source or "game enforcement").replace("_", " ").strip().title()
+        embed = discord.Embed(
+            title=str(announcement.get("headline") or "PLAYER BANNED")[:256],
+            description="A DayZ ban has been confirmed and applied.",
+            color=0xE74C3C,
+        )
+        embed.add_field(name="Survivor", value=f"`{clean_name}`", inline=True)
+        embed.add_field(name="Ban", value=f"`{clean_type or 'Ban'}`", inline=True)
+        embed.add_field(name="Source", value=f"`{source_label or 'Game enforcement'}`", inline=True)
+        if announcement.get("include_reason", True) and reason:
+            embed.add_field(name="Reason", value=str(reason)[:900], inline=False)
+        embed.set_footer(text="Wandering Bot - confirmed Nitrado game ban")
+        embed.timestamp = datetime.now(UTC)
+        styled_embed = style_embed(embed)
+
+        media_path = ban_announcement_media_absolute_path(announcement.get("media_path"))
+        media_within_limit = True
+        if media_path:
+            try:
+                media_within_limit = os.path.getsize(media_path) <= BAN_ANNOUNCEMENT_MEDIA_MAX_BYTES
+            except OSError:
+                # A removed/mounted-late file will be handled by the send
+                # attempt below, which still guarantees an embed fallback.
+                pass
+        if media_path and media_within_limit:
+            try:
+                await channel.send(
+                    embed=styled_embed,
+                    file=discord.File(media_path, filename=os.path.basename(media_path)),
+                )
+                return True
+            except Exception as media_error:
+                print(f"[BAN ANNOUNCEMENT] media upload failed; sending embed fallback: {media_error}")
+
+        await channel.send(embed=styled_embed)
+        return True
+    except Exception as error:
+        print(f"[BAN ANNOUNCEMENT] post failed: {error}")
+        return False
+
+
 async def add_player_to_nitrado_banlist_async(guild_id, config, gamertag, *, ban_type="", reason="", source="", minutes=None):
     clean_name = normalize_nitrado_banlist_name(gamertag)
     if str(source or "").strip().lower() == "discord_link_enforcement" and link_enforcement_protected_gamertag_record(guild_id, clean_name):
@@ -29885,6 +29970,16 @@ async def _safe_zone_apply_ban(guild, config, zone, gamertag, trigger_name, line
     if not ok:
         print(f"[SAFEZONE] banlist push failed for {gamertag}: {msg}")
         return False, f"FTP push failed: {msg}"
+
+    await post_confirmed_game_ban_announcement(
+        str(guild.id),
+        config,
+        gamertag=gamertag,
+        ban_type="perm" if effective_ban_type == "perm" else "temp",
+        source="safe_zone",
+        minutes=duration_minutes if effective_ban_type == "temp" else None,
+        reason=f"Safe-zone violation: {trigger_name} in {zone.get('name')}",
+    )
 
     if effective_ban_type == "temp":
         until_ts = datetime.now(UTC).timestamp() + duration_minutes * 60
@@ -50251,8 +50346,11 @@ def pending_dashboard_scenario_xml_events(config):
         needs_native_redeploy = scenario_event_needs_native_redeploy_after_bridge(event)
         if scenario_event_has_confirmed_upload(event) and not needs_native_redeploy:
             continue
-        upload_status = str(event.get("upload_status") or "waiting_for_bot_upload")
-        if upload_status != "waiting_for_bot_upload" and not needs_native_redeploy:
+        # A paid shop delivery is allowed to move through failed/blocked/
+        # queued states while Nitrado is recovering.  Do not strand a paid
+        # order after its first retry merely because the status stopped being
+        # the initial "waiting_for_bot_upload" text.
+        if not scenario_event_upload_needs_resolution(event) and not needs_native_redeploy:
             continue
         if int(event.get("upload_attempts") or 0) >= 3 and not needs_native_redeploy:
             continue
@@ -50306,7 +50404,7 @@ def migrate_base_dashboard_scenario_events_to_matching_profile(config):
         if not isinstance(event, dict):
             retained_events.append(event)
             continue
-        if str(event.get("created_by") or "") != "dashboard":
+        if str(event.get("created_by") or "") != "dashboard" and not is_console_paid_shop_delivery_event(event):
             retained_events.append(event)
             continue
         if scenario_event_has_confirmed_upload(event):

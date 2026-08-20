@@ -281,6 +281,46 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertIn('name="ItemWanderingBot_', built["events_text"])
         self.assertFalse(built["mapgroupproto_text"])
 
+    def test_failed_paid_shop_delivery_stays_eligible_for_worker_retry(self):
+        event = {
+            "id": 11,
+            "created_by": "shop_delivery",
+            "event_type": "shop_delivery",
+            "delivery_route": "native_xml_only",
+            "shop_order_id": "paid-order-retry",
+            "upload_status": "failed",
+            "upload_attempts": 1,
+            "enabled": True,
+        }
+
+        self.assertEqual([event], bot.pending_dashboard_scenario_xml_events({"scenario_events": [event]}))
+
+    def test_pending_paid_shop_delivery_moves_from_hidden_base_to_matching_profile(self):
+        event = {
+            "id": 12,
+            "created_by": "shop_delivery",
+            "event_type": "shop_delivery",
+            "delivery_route": "native_xml_only",
+            "shop_order_id": "paid-order-profile",
+            "upload_status": "failed",
+            "upload_attempts": 1,
+        }
+        config = {
+            "server_map": "chernarus",
+            "scenario_events": [event],
+            "server_profiles": {
+                "cherno": {"server_map": "chernarus"},
+                "livo": {"server_map": "livonia"},
+            },
+        }
+
+        self.assertTrue(bot.migrate_base_dashboard_scenario_events_to_matching_profile(config))
+        self.assertEqual([], config["scenario_events"])
+        migrated = config["server_profiles"]["cherno"]["scenario_events"]
+        self.assertEqual("paid-order-profile", migrated[0]["shop_order_id"])
+        self.assertEqual("waiting_for_bot_upload", migrated[0]["upload_status"])
+        self.assertEqual(0, migrated[0]["upload_attempts"])
+
     def test_completed_native_shop_delivery_requests_xml_cleanup(self):
         config = {
             "scenario_events": [{
