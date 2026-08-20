@@ -497,6 +497,16 @@ class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             bot.adm_rate_limit_backoff_until.clear()
             bot.adm_rate_limit_backoff_until.update(old_backoff)
 
+    def test_adm_pacing_uses_a_shared_egress_queue_without_global_backoff(self):
+        config = {"nitrado_token": "account-token", "nitrado_user": "ni123", "service_id": "service-a"}
+
+        with patch.dict(os.environ, {"WANDERING_ADM_PROVIDER_WIDE_BACKOFF": "0"}, clear=False):
+            buckets = bot._adm_nitrado_bucket_ids("guild-a", config)
+
+        self.assertIn(bot.ADM_NITRADO_EGRESS_PACING_KEY, buckets)
+        self.assertIn("service:service-a", buckets)
+        self.assertNotIn(bot.ADM_NITRADO_PROVIDER_BACKOFF_KEY, buckets)
+
     def test_rpt_rate_limit_does_not_pause_the_adm_feed(self):
         config = {
             "nitrado_token": "rpt-token",

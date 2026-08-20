@@ -198,6 +198,10 @@ adm_scan_stage = {}
 # Nitrado service, and account token. A provider-wide block is available only
 # as an explicit emergency setting when Nitrado confirms an IP-wide limit.
 ADM_NITRADO_PROVIDER_BACKOFF_KEY = "provider:nitrado-adm"
+# Backoff remains per customer, but every Nitrado file-server request exits
+# Railway through the same small pool of outbound IPs. A shared pace prevents
+# ADM and the optional RPT tracker from bursting Cloudflare together.
+ADM_NITRADO_EGRESS_PACING_KEY = "egress:nitrado-api"
 adm_rate_limit_backoff_until = {}
 # Optional Supabase state persistence for critical runtime state so restart/redeploy
 # won’t immediately forget dedupe/backoff context.
@@ -16669,6 +16673,19 @@ def adm_nitrado_request_spacing_seconds():
         return 4.0
 
 
+def adm_nitrado_egress_spacing_seconds():
+    """Minimum gap between all Nitrado file-server API calls from Railway.
+
+    This is deliberately separate from the per-service spacing above. It
+    protects the shared Railway egress IP without turning a 429 for one
+    customer into a shared ADM backoff for every customer.
+    """
+    try:
+        return max(1.0, min(60.0, float(os.getenv("WANDERING_NITRADO_EGRESS_REQUEST_SPACING_SECONDS", "5"))))
+    except Exception:
+        return 5.0
+
+
 def adm_nitrado_request_max_spacing_seconds():
     try:
         return max(1.0, min(90.0, float(os.getenv("WANDERING_ADM_NITRADO_REQUEST_MAX_SPACING_SECONDS", "30"))))
@@ -16685,7 +16702,9 @@ def adm_nitrado_request_streak_decay_seconds():
 
 def _adm_nitrado_bucket_ids(guild_id, config=None):
     config = config if isinstance(config, dict) else {}
-    buckets = []
+    # This queue is pacing only. It is intentionally not included in the
+    # per-service ADM backoff keys below.
+    buckets = [ADM_NITRADO_EGRESS_PACING_KEY]
     if adm_provider_wide_backoff_enabled():
         buckets.append(ADM_NITRADO_PROVIDER_BACKOFF_KEY)
     service_id = str(config.get("service_id") or "").strip()
@@ -16766,14 +16785,15 @@ def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
 
     base_spacing = adm_nitrado_request_spacing_seconds()
     spacing_multiplier = min(8.0, max(1.0, 2.0 ** min(max_streak, 7)))
-    spacing = max(
+    service_spacing = max(
         base_spacing,
         min(
             adm_nitrado_request_max_spacing_seconds(),
             base_spacing * spacing_multiplier,
         ),
     )
-    if spacing <= 0:
+    egress_spacing = adm_nitrado_egress_spacing_seconds()
+    if service_spacing <= 0 and egress_spacing <= 0:
         return
 
     now = time.time()
@@ -16786,17 +16806,21 @@ def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
             )
             request_at = max(request_at, float(state.get("next_request_at", 0.0) or 0.0))
         delay = max(0.0, request_at - now)
-        next_request_at = request_at + spacing
         for bucket_id in buckets:
             state = adm_nitrado_request_state.setdefault(
                 bucket_id,
                 {"next_request_at": 0.0, "rate_limit_streak": 0, "rate_limit_streak_at": 0.0},
             )
-            state["next_request_at"] = next_request_at
+            bucket_spacing = (
+                egress_spacing
+                if bucket_id == ADM_NITRADO_EGRESS_PACING_KEY
+                else service_spacing
+            )
+            state["next_request_at"] = request_at + bucket_spacing
         _mark_supabase_state_dirty("adm_nitrado_request_state")
 
     if max_streak > 0:
-        delay += random.uniform(0, min(2.0, spacing * 0.15))
+        delay += random.uniform(0, min(2.0, service_spacing * 0.15))
 
     if delay > 0:
         adm_debug_log(f"[NITRADO PACE] {stage} delayed by {delay:.2f}s for request spacing.")
@@ -16825,6 +16849,22 @@ def active_adm_rate_limit_backoff_until(guild_id, config=None):
         (float(adm_rate_limit_backoff_until.get(key, 0) or 0) for key in adm_rate_limit_backoff_keys(guild_id, config)),
         default=0,
     )
+
+
+def adm_rate_limit_backoff_scope_label(guild_id, config=None):
+    """Human-readable scope of the active ADM cooldown for status output."""
+    now = time.time()
+    active_keys = [
+        key for key in adm_rate_limit_backoff_keys(guild_id, config)
+        if float(adm_rate_limit_backoff_until.get(key, 0) or 0) > now
+    ]
+    if ADM_NITRADO_PROVIDER_BACKOFF_KEY in active_keys:
+        return "all services (provider-wide setting is enabled)"
+    if any(key.startswith("service:") for key in active_keys):
+        return "this Nitrado service"
+    if any(key.startswith(("token:", "user:")) for key in active_keys):
+        return "this Nitrado account"
+    return "this Discord server"
 
 
 def set_adm_rate_limit_backoff(guild_id, config=None, stage=None):
@@ -30230,7 +30270,10 @@ async def admstatus(ctx):
     if backoff_until > time.time():
         embed.add_field(
             name="ADM Backoff",
-            value=f"Active ({max(0, int(backoff_until - time.time()))}s)",
+            value=(
+                f"Active ({max(0, int(backoff_until - time.time()))}s)\n"
+                f"Scope: {adm_rate_limit_backoff_scope_label(guild_id, config)}"
+            ),
             inline=True
         )
     else:
