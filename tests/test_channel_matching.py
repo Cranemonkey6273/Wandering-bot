@@ -1839,6 +1839,41 @@ class ChannelMatchingTests(unittest.TestCase):
         guild.create_text_channel.assert_not_awaited()
         guild.create_category.assert_not_awaited()
 
+    def test_explicit_restore_can_create_missing_feed_in_existing_channel_layout(self):
+        guild = mock.Mock()
+        guild.text_channels = []
+        guild.get_channel.return_value = None
+        category = mock.Mock(id=123)
+        channel = mock.Mock(id=456)
+        guild.create_text_channel = mock.AsyncMock(return_value=channel)
+        config = {
+            "channel_delivery_mode": "existing",
+            "channels": {},
+            "disabled_channels": [],
+        }
+
+        with mock.patch.object(bot, "ensure_bot_category", new=mock.AsyncMock(return_value=category)), \
+             mock.patch.object(bot, "save_guild_configs"):
+            result = asyncio.run(
+                bot.get_or_create_feed_channel(
+                    guild,
+                    config,
+                    "leaderboards",
+                    "leaderboards",
+                    force=True,
+                    repair_existing=True,
+                    allow_existing_layout_create=True,
+                )
+            )
+
+        self.assertIs(result, channel)
+        self.assertEqual(456, config["channels"]["leaderboards"])
+        guild.create_text_channel.assert_awaited_once_with(
+            "leaderboards",
+            overwrites={},
+            category=category,
+        )
+
     def test_onboarding_start_button_is_routed_persistently(self):
         source = inspect.getsource(bot.on_interaction)
 
