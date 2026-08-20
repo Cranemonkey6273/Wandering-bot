@@ -8605,6 +8605,14 @@ PRIVATE_FEED_CHANNEL_KEYS = {
 
 
 CHANNEL_RESTORE_PACKS = {
+    # This is deliberately small.  It is the only restore pack that may
+    # create missing channels, so updating an existing installation with the
+    # universally included core features cannot create a whole feed layout.
+    "core": [
+        "connections",
+        "disconnects",
+        "leaderboards",
+    ],
     "live": [
         "killfeed",
         "raids",
@@ -8703,6 +8711,7 @@ CHANNEL_RESTORE_PACKS["all"] = [
 # name alone is too vague when the server owner is trying to restore just one
 # part of their layout from a phone.
 CHANNEL_RESTORE_PACK_DESCRIPTIONS = {
+    "core": "core channels — connected, disconnected and leaderboard",
     "live": "live activity — kills, raids, building, joins, leaves and alerts",
     "radar": "radar alerts only",
     "info": "server information — online board, leaderboards, heatmap and restart alerts",
@@ -8724,6 +8733,8 @@ CHANNEL_SETUP_PACKS = {
         "welcome",
         "general_chat",
         "killfeed",
+        # Build observations are part of the core free server activity feed.
+        "building",
         # Connection activity is a core free feature: it powers the live
         # survivor board and lets every owner see who joined or left.
         "connections",
@@ -8784,6 +8795,11 @@ def channel_setup_tier_keys(config):
             if key not in keys:
                 keys.append(key)
     return keys
+
+
+def channel_key_allowed_for_subscription(key, config):
+    """Whether a channel belongs to the server's current bot plan."""
+    return str(key) in set(channel_setup_tier_keys(config))
 
 
 def resolve_channel_setup_selection(bundle="", selection=""):
@@ -9697,6 +9713,10 @@ async def restore_disabled_bot_channels(
     restored = []
     for key in keys_to_restore:
         if not channel_key_allowed_for_server_mode(key, config):
+            continue
+        if not channel_key_allowed_for_subscription(key, config):
+            if channel_key:
+                return [], f"`{key}` is not included in this server's current bot plan."
             continue
 
         name = default_channel_name_for_config(key, config)
@@ -60054,6 +60074,7 @@ async def slash_restorechannels(interaction: discord.Interaction, channel_key: s
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(pack="Channel pack to restore")
 @app_commands.choices(pack=[
+    app_commands.Choice(name="core — connected, disconnected and leaderboard", value="core"),
     app_commands.Choice(name="all — every standard bot channel", value="all"),
     app_commands.Choice(name="pve — quests, hunting, rewards and workshop", value="pve"),
     app_commands.Choice(name="live — kills, joins, leaves, raids and alerts", value="live"),
@@ -60082,7 +60103,10 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
         interaction.guild,
         config,
         channel_keys=keys,
-        create_missing=True,
+        # Full packs restore already-mapped channels only.  They must never
+        # create a wall of new channels just because an owner wanted one
+        # missing feature.  `core` is the intentional, all-plan upgrade.
+        create_missing=(pack_key == "core"),
     )
     if error:
         await interaction.followup.send(error, ephemeral=True)
