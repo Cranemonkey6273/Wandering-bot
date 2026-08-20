@@ -8783,6 +8783,26 @@ CHANNEL_TIER_PACKS = {
     "owner": ("full",),
 }
 
+CHANNEL_SUBSCRIPTION_TIER_ALIASES = {
+    "free": "free_bot",
+    "free_bot": "free_bot",
+    "basic": "dashboard",
+    "dashboard": "dashboard",
+    "pro": "dashboard_ai",
+    "dashboard_ai": "dashboard_ai",
+    "ultimate": "dashboard_ultimate",
+    "dashboard_ultimate": "dashboard_ultimate",
+    "owner": "owner",
+}
+
+CHANNEL_SUBSCRIPTION_TIER_LABELS = {
+    "free_bot": "Free Bot",
+    "dashboard": "Basic",
+    "dashboard_ai": "Pro",
+    "dashboard_ultimate": "Ultimate",
+    "owner": "Owner",
+}
+
 
 def channel_setup_tier_keys(config):
     """Return the channel keys included in the plan's automatic setup pack."""
@@ -8795,6 +8815,21 @@ def channel_setup_tier_keys(config):
             if key not in keys:
                 keys.append(key)
     return keys
+
+
+def channel_subscription_tier(config):
+    """Return the safe canonical plan used for Discord channel packs."""
+    access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    raw_tier = str(access.get("tier") or "free_bot").strip().lower()
+    return CHANNEL_SUBSCRIPTION_TIER_ALIASES.get(raw_tier, "free_bot")
+
+
+def channel_subscription_pack_keys(config):
+    """Return only the current plan's channels that match the server mode."""
+    return [
+        key for key in channel_setup_tier_keys(config)
+        if key in DEFAULT_CHANNEL_NAMES and channel_key_allowed_for_server_mode(key, config)
+    ]
 
 
 def channel_key_allowed_for_subscription(key, config):
@@ -60072,19 +60107,13 @@ async def slash_restorechannels(interaction: discord.Interaction, channel_key: s
     await interaction.followup.send("Restored:\n" + "\n".join(restored[:30]), ephemeral=True)
 @extra_tools_group.command(name="restorechannelpack", description="Admin: restore a pack of bot channels")
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(pack="Channel pack to restore")
+@app_commands.describe(pack="Your subscription's included channel pack")
 @app_commands.choices(pack=[
-    app_commands.Choice(name="core — connected, disconnected and leaderboard", value="core"),
-    app_commands.Choice(name="all — every standard bot channel", value="all"),
-    app_commands.Choice(name="pve — quests, hunting, rewards and workshop", value="pve"),
-    app_commands.Choice(name="live — kills, joins, leaves, raids and alerts", value="live"),
-    app_commands.Choice(name="radar — radar alerts only", value="radar"),
-    app_commands.Choice(name="staff — private logs and moderation tools", value="staff"),
-    app_commands.Choice(name="economy — shop, rentals and money feed", value="economy"),
-    app_commands.Choice(name="livo trader — help, balance, transactions and logs", value="livo_trader"),
-    app_commands.Choice(name="factions — chat, tickets and roster", value="factions"),
-    app_commands.Choice(name="community — chat, help, clips and linked players", value="community"),
-    app_commands.Choice(name="info — online board, leaderboard, heatmap and restarts", value="info"),
+    app_commands.Choice(name="Free Bot — included core feeds and leaderboard", value="free_bot"),
+    app_commands.Choice(name="Basic — channels included with Basic", value="dashboard"),
+    app_commands.Choice(name="Pro — channels included with Pro", value="dashboard_ai"),
+    app_commands.Choice(name="Ultimate — every included channel", value="dashboard_ultimate"),
+    app_commands.Choice(name="Owner — every channel", value="owner"),
 ])
 async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_commands.Choice[str]):
     if not has_interaction_admin_power(interaction):
@@ -60093,33 +60122,47 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
 
     await interaction.response.defer(ephemeral=True)
     config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
-    pack_key = pack.value
-    keys = CHANNEL_RESTORE_PACKS.get(pack_key)
-    if not keys:
-        await interaction.followup.send(f"Unknown channel pack `{pack_key}`.", ephemeral=True)
+    requested_tier = str(pack.value or "").strip().lower()
+    current_tier = channel_subscription_tier(config)
+    if requested_tier != current_tier:
+        current_label = CHANNEL_SUBSCRIPTION_TIER_LABELS.get(current_tier, "Free Bot")
+        await interaction.followup.send(
+            f"This server is on the **{current_label}** channel pack. "
+            "Only the pack included with its current subscription can be restored.",
+            ephemeral=True,
+        )
         return
 
+    keys = channel_subscription_pack_keys(config)
+    if not keys:
+        await interaction.followup.send("This subscription has no channels available for this server mode.", ephemeral=True)
+        return
+
+    # Choosing a subscription pack is an explicit owner choice: make those
+    # routes active, keep every non-included route disabled, and create any
+    # missing included channel (including the leaderboard) in one operation.
+    config["channel_setup_initialized"] = True
+    config["channel_setup_keys"] = list(keys)
+    config["disabled_channels"] = sorted(set(DEFAULT_CHANNEL_NAMES).difference(keys))
     restored, error = await restore_disabled_bot_channels(
         interaction.guild,
         config,
         channel_keys=keys,
-        # Full packs restore already-mapped channels only.  They must never
-        # create a wall of new channels just because an owner wanted one
-        # missing feature.  `core` is the intentional, all-plan upgrade.
-        create_missing=(pack_key == "core"),
+        create_missing=True,
     )
     if error:
         await interaction.followup.send(error, ephemeral=True)
         return
-    description = CHANNEL_RESTORE_PACK_DESCRIPTIONS.get(pack_key, "")
+    pack_label = CHANNEL_SUBSCRIPTION_TIER_LABELS.get(current_tier, "Free Bot")
     if not restored:
         await interaction.followup.send(
-            f"No `{pack_key}` channels needed restoring. This pack contains: {description}.",
+            f"The **{pack_label}** channel pack is already active.",
             ephemeral=True,
         )
         return
     await interaction.followup.send(
-        f"Ready `{pack_key}` — {description}:\n" + "\n".join(restored[:30]),
+        f"✅ **{pack_label}** channel pack ready — only channels included with this subscription were added or restored:\n"
+        + "\n".join(restored[:30]),
         ephemeral=True
     )
 bot.tree.add_command(extra_tools_group)

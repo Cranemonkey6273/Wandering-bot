@@ -1750,6 +1750,25 @@ class ChannelMatchingTests(unittest.TestCase):
             bot.CHANNEL_RESTORE_PACKS["core"],
         )
 
+    def test_subscription_channel_pack_uses_only_current_tier_channels(self):
+        free_config = {"dashboard": {"tier": "free_bot"}, "server_mode": "hybrid"}
+        basic_config = {"dashboard": {"tier": "dashboard"}, "server_mode": "hybrid"}
+
+        self.assertEqual("free_bot", bot.channel_subscription_tier(free_config))
+        self.assertEqual("dashboard", bot.channel_subscription_tier(basic_config))
+        free_keys = bot.channel_subscription_pack_keys(free_config)
+        basic_keys = bot.channel_subscription_pack_keys(basic_config)
+        self.assertIn("leaderboards", free_keys)
+        self.assertIn("building", free_keys)
+        self.assertNotIn("raids", free_keys)
+        self.assertIn("raids", basic_keys)
+        self.assertGreater(len(basic_keys), len(free_keys))
+
+    def test_subscription_channel_pack_tier_aliases_are_canonical(self):
+        self.assertEqual("free_bot", bot.channel_subscription_tier({"dashboard": {"tier": "free"}}))
+        self.assertEqual("dashboard", bot.channel_subscription_tier({"dashboard": {"tier": "basic"}}))
+        self.assertEqual("dashboard_ai", bot.channel_subscription_tier({"dashboard": {"tier": "pro"}}))
+
     def test_explicit_restore_rejects_channel_outside_current_plan(self):
         config = {
             "dashboard": {"tier": "free_bot"},
