@@ -1701,6 +1701,8 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual("", error)
         self.assertIn("killfeed", keys)
+        self.assertIn("connections", keys)
+        self.assertIn("disconnects", keys)
         self.assertIn("leaderboards", keys)
         self.assertIn("help_channel", keys)
         self.assertNotIn("pve_quests", keys)
@@ -1723,10 +1725,19 @@ class ChannelMatchingTests(unittest.TestCase):
         ultimate = bot.channel_setup_tier_keys({"dashboard": {"tier": "dashboard_ultimate"}})
 
         self.assertIn("killfeed", free)
+        self.assertIn("connections", free)
+        self.assertIn("disconnects", free)
         self.assertIn("leaderboards", free)
         self.assertNotIn("pve_quests", free)
         self.assertIn("pve_quests", ultimate)
         self.assertGreater(len(ultimate), len(free))
+
+    def test_channel_restore_pack_descriptions_explain_contents(self):
+        rendered = bot.format_channel_restore_packs()
+
+        self.assertIn("joins, leaves", rendered)
+        self.assertIn("online board, leaderboards", rendered)
+        self.assertIn("every standard Wandering Bot channel", rendered)
 
     def test_channel_setup_selected_key_gate(self):
         config = {"channel_setup_initialized": True, "channel_setup_keys": ["killfeed"]}

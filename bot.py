@@ -8694,6 +8694,22 @@ CHANNEL_RESTORE_PACKS["all"] = [
     if key not in GUILD_LOCAL_CHANNEL_KEYS
 ]
 
+# These names are shown anywhere an owner can restore a channel pack.  A pack
+# name alone is too vague when the server owner is trying to restore just one
+# part of their layout from a phone.
+CHANNEL_RESTORE_PACK_DESCRIPTIONS = {
+    "live": "live activity — kills, raids, building, joins, leaves and alerts",
+    "radar": "radar alerts only",
+    "info": "server information — online board, leaderboards, heatmap and restart alerts",
+    "community": "community spaces — chat, help, clips and linked players",
+    "staff": "private staff logs and moderation tools",
+    "economy": "economy, purchases, rentals and money feed",
+    "factions": "faction chat, tickets and roster",
+    "pve": "PvE quests, hunting, rewards and workshop",
+    "livo_trader": "Livonia Trader help, balance, transactions and logs",
+    "all": "every standard Wandering Bot channel",
+}
+
 # Channel packs used during a first-time /setup.  Joining a guild no longer
 # creates every feed automatically: owners can start with a small essentials
 # pack and add other packs later.  Existing guilds without an explicit setup
@@ -8703,6 +8719,10 @@ CHANNEL_SETUP_PACKS = {
         "welcome",
         "general_chat",
         "killfeed",
+        # Connection activity is a core free feature: it powers the live
+        # survivor board and lets every owner see who joined or left.
+        "connections",
+        "disconnects",
         "online",
         # Leaderboards are a core community feature on every plan, including
         # free installations. The hourly board uses the same ADM stats the
@@ -9644,8 +9664,9 @@ def format_channel_restore_packs():
     for pack, keys in CHANNEL_RESTORE_PACKS.items():
         if pack == "all":
             continue
-        lines.append(f"`{pack}` - {len(keys)} channel(s)")
-    lines.append("`all` - standard bot channels")
+        description = CHANNEL_RESTORE_PACK_DESCRIPTIONS.get(pack, "")
+        lines.append(f"`{pack}` — {description} ({len(keys)} channel(s))")
+    lines.append(f"`all` — {CHANNEL_RESTORE_PACK_DESCRIPTIONS['all']}")
     return "\n".join(lines)
 
 
@@ -57494,10 +57515,65 @@ leaderboard_group = app_commands.Group(
 )
 
 
-@leaderboard_group.command(name="setup", description="Set the channel for the live leaderboard message")
+@leaderboard_group.command(name="create", description="Create or repair a dedicated live leaderboard channel")
+@app_commands.default_permissions(administrator=True)
+@app_commands.describe(server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno")
+async def slash_leaderboard_create(interaction: discord.Interaction, server: str = ""):
+    if not has_interaction_admin_power(interaction):
+        await interaction.response.send_message("Admin only.", ephemeral=True)
+        return
+
+    guild_id, config, target_error = runtime_config_for_command_context(
+        interaction.guild,
+        channel=interaction.channel,
+        member=interaction.user,
+        server_profile_id=server,
+        require_profile=True,
+    )
+    if target_error:
+        await interaction.response.send_message(target_error, ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    target = await get_or_create_feed_channel(
+        interaction.guild,
+        config,
+        "leaderboards",
+        default_channel_name_for_config("leaderboards", config),
+        force=True,
+        repair_existing=True,
+    )
+    if not target:
+        await interaction.followup.send(
+            "This server is set to use its existing Discord channel layout, so I won't create a new "
+            "channel. Use `/leaderboard setup` and choose the channel you want instead.",
+            ephemeral=True,
+        )
+        return
+
+    channels = config.setdefault("channels", {})
+    channels["mega_leaderboard"] = target.id
+    set_channel_key_disabled(config, "leaderboards", False)
+    last_mega_leaderboard_message_ids.pop(guild_id, None)
+    save_guild_configs_for_runtime(config)
+    ok, info = await post_or_update_mega_leaderboard(guild_id, config)
+    if ok:
+        await interaction.followup.send(
+            f"✅ Live leaderboard ready in {target.mention}. It will refresh **every hour** automatically.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.followup.send(
+            f"⚠️ Created {target.mention}, but the first leaderboard post failed: `{info}`. "
+            "It will retry on the next refresh tick.",
+            ephemeral=True,
+        )
+
+
+@leaderboard_group.command(name="setup", description="Use an existing channel for the live leaderboard")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
-    channel="Channel where the auto-updating leaderboard message lives (defaults to current channel)",
+    channel="Existing channel where the auto-updating leaderboard message lives (defaults to current channel)",
     server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )
 async def slash_leaderboard_setup(
@@ -59959,16 +60035,16 @@ async def slash_restorechannels(interaction: discord.Interaction, channel_key: s
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(pack="Channel pack to restore")
 @app_commands.choices(pack=[
-    app_commands.Choice(name="all", value="all"),
-    app_commands.Choice(name="pve", value="pve"),
-    app_commands.Choice(name="live", value="live"),
-    app_commands.Choice(name="radar", value="radar"),
-    app_commands.Choice(name="staff", value="staff"),
-    app_commands.Choice(name="economy", value="economy"),
-    app_commands.Choice(name="livo_trader", value="livo_trader"),
-    app_commands.Choice(name="factions", value="factions"),
-    app_commands.Choice(name="community", value="community"),
-    app_commands.Choice(name="info", value="info"),
+    app_commands.Choice(name="all — every standard bot channel", value="all"),
+    app_commands.Choice(name="pve — quests, hunting, rewards and workshop", value="pve"),
+    app_commands.Choice(name="live — kills, joins, leaves, raids and alerts", value="live"),
+    app_commands.Choice(name="radar — radar alerts only", value="radar"),
+    app_commands.Choice(name="staff — private logs and moderation tools", value="staff"),
+    app_commands.Choice(name="economy — shop, rentals and money feed", value="economy"),
+    app_commands.Choice(name="livo trader — help, balance, transactions and logs", value="livo_trader"),
+    app_commands.Choice(name="factions — chat, tickets and roster", value="factions"),
+    app_commands.Choice(name="community — chat, help, clips and linked players", value="community"),
+    app_commands.Choice(name="info — online board, leaderboard, heatmap and restarts", value="info"),
 ])
 async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_commands.Choice[str]):
     if not has_interaction_admin_power(interaction):
@@ -59987,11 +60063,15 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
     if error:
         await interaction.followup.send(error, ephemeral=True)
         return
+    description = CHANNEL_RESTORE_PACK_DESCRIPTIONS.get(pack_key, "")
     if not restored:
-        await interaction.followup.send(f"No `{pack_key}` channels needed restoring.", ephemeral=True)
+        await interaction.followup.send(
+            f"No `{pack_key}` channels needed restoring. This pack contains: {description}.",
+            ephemeral=True,
+        )
         return
     await interaction.followup.send(
-        f"Restored `{pack_key}` channel pack:\n" + "\n".join(restored[:30]),
+        f"Restored `{pack_key}` — {description}:\n" + "\n".join(restored[:30]),
         ephemeral=True
     )
 bot.tree.add_command(extra_tools_group)
