@@ -1164,10 +1164,13 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "scenario_events",
     "scenario_upload_worker_status",
     "scenario_events_cleanup_completed_at",
+    "scenario_events_cleanup_blocked_at",
     "scenario_events_cleanup_error",
     "scenario_events_cleanup_pending",
     "scenario_events_cleanup_requested_at",
     "scenario_events_native_ce_cleanup_requested_at",
+    "console_shop_delivery_ce_cleanup",
+    "console_shop_delivery_ce_cleanup_error",
     "server_control_scheduler_status",
     "server_timezone",
     "vehicle_reset_cfgignorelist_workflow",
@@ -46331,11 +46334,18 @@ def scenario_event_has_explicit_xml_upload_request(event):
 
 
 def native_ce_cleanup_is_explicitly_requested(config):
-    """Only a recorded native-event delete may authorize a CE cleanup run."""
+    """Only an unblocked recorded native-event delete may authorize a CE cleanup run.
+
+    A generic cleanup touches more CE sources than a paid ground delivery.
+    Once it fails, it must wait for a deliberate owner retry instead of
+    repeatedly re-downloading the same files and contributing to a Nitrado
+    rate limit.
+    """
     return bool(
         isinstance(config, dict)
         and config.get("scenario_events_cleanup_pending")
         and str(config.get("scenario_events_native_ce_cleanup_requested_at") or "").strip()
+        and not str(config.get("scenario_events_cleanup_blocked_at") or "").strip()
     )
 
 
@@ -46405,6 +46415,123 @@ def upload_console_paid_shop_delivery_events(guild_id, config, events):
         scenario_events_override=shop_events,
         preserve_existing=True,
     )
+
+
+def queue_console_paid_shop_delivery_cleanup(config, event, now_text=None):
+    """Remember the exact two-file cleanup required after a paid order spawns.
+
+    One-time ground deliveries are removed after the server has consumed them.
+    Rebuilding the whole CE bundle for that cleanup would reintroduce the
+    unrelated map-file dependency this delivery route deliberately avoids.
+    """
+    if not isinstance(config, dict) or not is_console_paid_shop_delivery_event(event):
+        return False
+    managed_names = [
+        str(name or "").strip()
+        for name in (event.get("native_ce_managed_event_names") or [])
+        if str(name or "").strip()
+    ]
+    if not managed_names:
+        return False
+    cleanup_queue = config.get("console_shop_delivery_ce_cleanup")
+    if not isinstance(cleanup_queue, list):
+        cleanup_queue = []
+        config["console_shop_delivery_ce_cleanup"] = cleanup_queue
+    event_id = str(event.get("id") or "").strip()
+    for existing in cleanup_queue:
+        if not isinstance(existing, dict):
+            continue
+        if event_id and str(existing.get("event_id") or "").strip() == event_id:
+            return False
+        if set(existing.get("managed_event_names") or []) == set(managed_names):
+            return False
+    cleanup_queue.append({
+        "event_id": event_id,
+        "shop_order_id": str(event.get("shop_order_id") or "").strip(),
+        "managed_event_names": managed_names,
+        "events_path": str(event.get("native_ce_events_path") or "").strip(),
+        "spawns_path": str(event.get("native_ce_spawns_path") or "").strip(),
+        "queued_at": now_text or datetime.now(UTC).isoformat(),
+        "attempts": 0,
+    })
+    config.pop("console_shop_delivery_ce_cleanup_error", None)
+    return True
+
+
+async def process_console_paid_shop_delivery_cleanup(guild_id, config):
+    """Remove consumed paid-order CE nodes without touching map-group files."""
+    raw_queue = config.get("console_shop_delivery_ce_cleanup") if isinstance(config, dict) else None
+    if not isinstance(raw_queue, list) or not raw_queue:
+        return False
+
+    valid_queue = []
+    changed = False
+    for task in raw_queue:
+        if not isinstance(task, dict):
+            changed = True
+            continue
+        names = [str(name or "").strip() for name in (task.get("managed_event_names") or []) if str(name or "").strip()]
+        if not names:
+            changed = True
+            continue
+        task["managed_event_names"] = names
+        valid_queue.append(task)
+    if len(valid_queue) != len(raw_queue):
+        config["console_shop_delivery_ce_cleanup"] = valid_queue
+
+    active_queue = [task for task in valid_queue if not str(task.get("blocked_at") or "").strip()]
+    if not active_queue:
+        return changed
+
+    batches = {}
+    for task in active_queue:
+        key = (str(task.get("events_path") or "").strip(), str(task.get("spawns_path") or "").strip())
+        batches.setdefault(key, []).append(task)
+
+    for (events_path, spawns_path), tasks_for_paths in batches.items():
+        remove_names = sorted({name for task in tasks_for_paths for name in task.get("managed_event_names") or []})
+        try:
+            upload_success, built, messages = await asyncio.to_thread(
+                upload_console_ce_event_files,
+                guild_id,
+                config,
+                events_path,
+                spawns_path,
+                "",
+                False,
+                scenario_events_override=[],
+                preserve_existing=True,
+                remove_managed_event_names=remove_names,
+            )
+        except Exception as cleanup_error:
+            upload_success = False
+            built = {}
+            messages = [f"{type(cleanup_error).__name__}: {cleanup_error}"]
+
+        now_text = datetime.now(UTC).isoformat()
+        if upload_success:
+            completed_ids = {id(task) for task in tasks_for_paths}
+            valid_queue = [task for task in valid_queue if id(task) not in completed_ids]
+            config["console_shop_delivery_ce_cleanup"] = valid_queue
+            config.pop("console_shop_delivery_ce_cleanup_error", None)
+            print(
+                f"CONSOLE SHOP DELIVERY CE CLEANUP {guild_id}: success=True "
+                f"removed={len(remove_names)} events={built.get('events_path')} spawns={built.get('spawns_path')}"
+            )
+            changed = True
+            continue
+
+        status_text = native_ce_failed_status_text(messages)
+        for task in tasks_for_paths:
+            task["attempts"] = int(task.get("attempts") or 0) + 1
+            task["last_error"] = status_text[:1000]
+            task["blocked_at"] = now_text
+        config["console_shop_delivery_ce_cleanup"] = valid_queue
+        config["console_shop_delivery_ce_cleanup_error"] = status_text[:1000]
+        print(f"CONSOLE SHOP DELIVERY CE CLEANUP {guild_id}: success=False {status_text}")
+        changed = True
+        break
+    return changed
 
 
 def remember_native_ce_upload_warning(event, warning, now_text=None):
@@ -46609,6 +46736,11 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
         if not isinstance(config, dict) or not config:
             return {"ok": False, "built": {}, "messages": [f"No guild config found for {guild_id}."]}
         target_event_id = safe_int(event_id, 0)
+        # This function is called only by an explicit dashboard action.  It
+        # is therefore the owner-approved way to retry a cleanup that the
+        # background worker intentionally paused after a failure.
+        if config.get("scenario_events_cleanup_pending") and config.get("scenario_events_cleanup_blocked_at"):
+            config.pop("scenario_events_cleanup_blocked_at", None)
         cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
         active_dashboard_events = [
             event
@@ -46751,11 +46883,13 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
     if success and cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_pending"] = False
         config["scenario_events_cleanup_completed_at"] = now_text
+        config.pop("scenario_events_cleanup_blocked_at", None)
         config.pop("scenario_events_cleanup_error", None)
         config.pop("scenario_events_native_ce_cleanup_requested_at", None)
         changed = True
     elif cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_error"] = status_text
+        config["scenario_events_cleanup_blocked_at"] = now_text
         changed = True
     native_event_ids = {str(event.get("id") or "") for event in native_events if isinstance(event, dict)}
     for event in native_events:
@@ -47096,6 +47230,7 @@ def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
     kept = []
     changed = False
     removed_confirmed_native = False
+    queued_paid_shop_cleanup = False
     now_text = datetime.now(UTC).isoformat()
 
     for event in events:
@@ -47131,7 +47266,10 @@ def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
             event["updated_at"] = now_text
             kept.append(event)
         elif scenario_event_has_confirmed_native_upload(event):
-            removed_confirmed_native = True
+            if is_console_paid_shop_delivery_event(event):
+                queued_paid_shop_cleanup |= queue_console_paid_shop_delivery_cleanup(config, event, now_text)
+            else:
+                removed_confirmed_native = True
         changed = True
 
     config["scenario_events"] = kept
@@ -47141,6 +47279,9 @@ def mark_one_time_scenario_events_uploaded(config, require_native_upload=False):
         # next restart can no longer repeat its one-time definition.
         config["scenario_events_cleanup_pending"] = True
         config["scenario_events_native_ce_cleanup_requested_at"] = now_text
+        config.pop("scenario_events_cleanup_blocked_at", None)
+    if queued_paid_shop_cleanup:
+        config.pop("console_shop_delivery_ce_cleanup_error", None)
     return changed
 
 
@@ -49297,6 +49438,7 @@ async def _route_console_shop_delivery_unlocked(
         now_text = datetime.now(UTC).isoformat()
         config["scenario_events_cleanup_pending"] = True
         config["scenario_events_native_ce_cleanup_requested_at"] = now_text
+        config.pop("scenario_events_cleanup_blocked_at", None)
         config["scenario_events_cleanup_error"] = str(upload_status or "Shop delivery upload failed")[:1000]
         save_guild_configs_for_runtime(config)
         return False, "Native CE XML (terrain height)", upload_status
@@ -50444,6 +50586,12 @@ def migrate_base_dashboard_scenario_events_to_matching_profile(config):
 
 
 async def process_dashboard_scenario_xml_upload(guild_id, config):
+    # A consumed paid ground order has an intentionally narrow cleanup route.
+    # Process it first so it never falls through to the broad event-bundle
+    # updater (which may legitimately need unrelated airdrop map files).
+    if await process_console_paid_shop_delivery_cleanup(guild_id, config):
+        return True
+
     pending_events = pending_dashboard_scenario_xml_events(config)
     cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
     bridge_events = [
@@ -50544,10 +50692,12 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
     if upload_success and cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_pending"] = False
         config["scenario_events_cleanup_completed_at"] = now_text
+        config.pop("scenario_events_cleanup_blocked_at", None)
         config.pop("scenario_events_cleanup_error", None)
         config.pop("scenario_events_native_ce_cleanup_requested_at", None)
     elif cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_error"] = status_text
+        config["scenario_events_cleanup_blocked_at"] = now_text
     for event in events_to_update:
         attempts = int(event.get("upload_attempts") or 0) + 1
         event["upload_attempts"] = attempts
