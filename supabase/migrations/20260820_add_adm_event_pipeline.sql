@@ -122,6 +122,7 @@ create index if not exists discord_feed_outbox_claimed_idx
 create or replace function public.touch_adm_event_pipeline_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at := now();
@@ -155,33 +156,9 @@ alter table public.adm_ingest_events enable row level security;
 alter table public.adm_online_snapshots enable row level security;
 alter table public.discord_feed_outbox enable row level security;
 
-do $$
-declare
-  table_name text;
-begin
-  foreach table_name in array array[
-    'adm_ingest_sources',
-    'adm_ingest_routes',
-    'adm_ingest_events',
-    'adm_online_snapshots',
-    'discord_feed_outbox'
-  ]
-  loop
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public'
-        and tablename = table_name
-        and policyname = 'service role full access'
-    ) then
-      execute format(
-        'create policy %I on public.%I for all to public using (auth.role() = ''service_role'') with check (auth.role() = ''service_role'')',
-        'service role full access',
-        table_name
-      );
-    end if;
-  end loop;
-end
-$$;
+-- The Supabase service-role key bypasses RLS.  No browser-facing policy is
+-- created because source details, online snapshots and delivery payloads are
+-- internal bot data.
 
 comment on table public.adm_ingest_sources is
   'One controlled Nitrado/FTPS polling source. Credentials are intentionally stored outside this table.';
