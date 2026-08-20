@@ -1132,6 +1132,7 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "nitrado_temp_bans",
     "nitrado_perm_bans",
     "online_dashboard_message_id",
+    "mega_leaderboard_last_refresh_at",
     "pending_server_file_changes",
     "pve_heatmap_message_id",
     "restart_channel_id",
@@ -57304,6 +57305,26 @@ bot.tree.add_command(bounty_group)
 # =========================================================
 
 last_mega_leaderboard_message_ids = {}
+MEGA_LEADERBOARD_REFRESH_SECONDS = 60 * 60
+
+
+def mega_leaderboard_refresh_due(config, now=None):
+    """Return whether this server's automatic leaderboard refresh is due.
+
+    The Discord task loop executes once as soon as a bot process starts.  Keep
+    the successful refresh time in the saved server config so a Railway restart
+    cannot cause an extra leaderboard replacement before the full hour has
+    elapsed.
+    """
+    now = now or datetime.now(UTC)
+    last_refresh = parse_saved_datetime(
+        (config or {}).get("mega_leaderboard_last_refresh_at")
+    )
+    if not last_refresh:
+        return True, 0
+
+    elapsed_seconds = max(0, int((now - last_refresh).total_seconds()))
+    return elapsed_seconds >= MEGA_LEADERBOARD_REFRESH_SECONDS, elapsed_seconds
 
 
 # =========================================================
@@ -57509,7 +57530,7 @@ def build_mega_leaderboard_summary_embed():
     return style_embed(embed)
 
 
-async def post_or_update_mega_leaderboard(guild_id, config):
+async def post_or_update_mega_leaderboard(guild_id, config, force=False):
     """Delete the previous leaderboard message(s) and post a fresh one
     with three stacked embeds: summary header + Server scope + Global
     scope. Runs hourly."""
@@ -57519,6 +57540,12 @@ async def post_or_update_mega_leaderboard(guild_id, config):
     channel = bot.get_channel(channel_id) if channel_id else None
     if not channel:
         return False, f"{channel_key or 'leaderboard'} channel not found"
+
+    if not force:
+        refresh_due, elapsed_seconds = mega_leaderboard_refresh_due(config)
+        if not refresh_due:
+            remaining_seconds = max(0, MEGA_LEADERBOARD_REFRESH_SECONDS - elapsed_seconds)
+            return True, f"not due ({remaining_seconds}s remaining)"
 
     # ── Delete previous bot messages we tracked ─────────────────
     last_ids = last_mega_leaderboard_message_ids.get(str(guild_id), [])
@@ -57567,6 +57594,11 @@ async def post_or_update_mega_leaderboard(guild_id, config):
         pass
 
     last_mega_leaderboard_message_ids[str(guild_id)] = [message.id for message in sent_messages]
+    config["mega_leaderboard_last_refresh_at"] = datetime.now(UTC).isoformat()
+    try:
+        save_guild_configs_for_runtime(config)
+    except Exception as save_err:
+        print(f"[MEGA LEADERBOARD] {guild_id} refresh timestamp save failed: {save_err}")
     return True, "posted"
 
 
@@ -57627,7 +57659,7 @@ async def slash_leaderboard_create(interaction: discord.Interaction, server: str
     set_channel_key_disabled(config, "leaderboards", False)
     last_mega_leaderboard_message_ids.pop(guild_id, None)
     save_guild_configs_for_runtime(config)
-    ok, info = await post_or_update_mega_leaderboard(guild_id, config)
+    ok, info = await post_or_update_mega_leaderboard(guild_id, config, force=True)
     if ok:
         await interaction.followup.send(
             f"✅ Live leaderboard ready in {target.mention}. It will refresh **every hour** automatically.",
@@ -57671,7 +57703,7 @@ async def slash_leaderboard_setup(
     last_mega_leaderboard_message_ids.pop(guild_id, None)
     save_guild_configs_for_runtime(config)
     await interaction.response.defer(ephemeral=True, thinking=True)
-    ok, info = await post_or_update_mega_leaderboard(guild_id, config)
+    ok, info = await post_or_update_mega_leaderboard(guild_id, config, force=True)
     if ok:
         await interaction.followup.send(
             f"✅ Live leaderboard set up in {target.mention}. "
@@ -57711,7 +57743,7 @@ async def slash_leaderboard_refresh(interaction: discord.Interaction, server: st
         )
         return
     await interaction.response.defer(ephemeral=True, thinking=True)
-    ok, info = await post_or_update_mega_leaderboard(guild_id, config)
+    ok, info = await post_or_update_mega_leaderboard(guild_id, config, force=True)
     await interaction.followup.send(
         f"✅ Refreshed (`{info}`)." if ok else f"❌ Refresh failed: `{info}`",
         ephemeral=True,

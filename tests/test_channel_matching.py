@@ -28,6 +28,26 @@ class SupportTicketPanelTests(unittest.TestCase):
         self.assertIn("open_bot_support_ticket", command_source)
 
 
+class MegaLeaderboardRefreshTests(unittest.TestCase):
+    def test_automatic_refresh_is_hourly_and_survives_a_process_restart(self):
+        now = bot.datetime(2026, 8, 20, 12, 0, tzinfo=bot.UTC)
+        config = {}
+
+        self.assertEqual((True, 0), bot.mega_leaderboard_refresh_due(config, now))
+
+        config["mega_leaderboard_last_refresh_at"] = (
+            now - bot.timedelta(minutes=5)
+        ).isoformat()
+        due, elapsed = bot.mega_leaderboard_refresh_due(config, now)
+        self.assertFalse(due)
+        self.assertEqual(300, elapsed)
+
+        config["mega_leaderboard_last_refresh_at"] = (
+            now - bot.timedelta(hours=1)
+        ).isoformat()
+        self.assertEqual((True, 3600), bot.mega_leaderboard_refresh_due(config, now))
+
+
 class FakeRole:
     def __init__(self, name, role_id):
         self.name = name
