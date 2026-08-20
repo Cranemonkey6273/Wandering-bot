@@ -281,6 +281,83 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertIn('name="ItemWanderingBot_', built["events_text"])
         self.assertFalse(built["mapgroupproto_text"])
 
+    def test_shop_delivery_validation_ignores_existing_managed_airdrop(self):
+        config = {}
+        shop_event = bot.create_console_shop_delivery_events(
+            config,
+            {"WoodenPlank": 2},
+            3749,
+            12953,
+            "paid-order-targeted-validation",
+            "Player",
+            "123",
+        )[0]
+
+        # This is a pre-existing managed airdrop whose map-group definition is
+        # deliberately unavailable to the targeted two-file checkout merge.
+        # It must not make a new Item order fail validation.
+        old_airdrop = (
+            '<event name="StaticWanderingBot_26_airdrop"><nominal>1</nominal><min>1</min><max>1</max>'
+            '<lifetime>7200</lifetime><restock>0</restock><saferadius>0</saferadius>'
+            '<distanceradius>25</distanceradius><cleanupradius>100</cleanupradius><flags deletable="1" '
+            'init_random="0" remove_damaged="0"/><position>fixed</position><limit>child</limit>'
+            '<active>1</active><children><child lootmax="80" lootmin="40" max="1" min="1" '
+            'type="Wreck_Mi8_Crashed"/></children></event>'
+        )
+
+        def source(_config, _guild_id, key, _default_path=""):
+            if key == "events_path":
+                return f"<events>{old_airdrop}</events>", "/mission/db/events.xml", "events live"
+            if key == "spawns_path":
+                return "<eventposdef></eventposdef>", "/mission/cfgeventspawns.xml", "spawns live"
+            raise AssertionError(f"shop delivery must not read unrelated source {key}")
+
+        with patch.object(bot, "download_console_ce_source", side_effect=source):
+            built = bot.build_console_ce_event_files(
+                "guild-1",
+                config,
+                scenario_events_override=[shop_event],
+                preserve_existing=True,
+            )
+        # This test is about the target-validation boundary, not the separate
+        # live-source baseline guard exercised elsewhere.
+        valid, messages = bot.validate_console_ce_xml_bundle(built, check_scope=False)
+
+        self.assertTrue(valid, messages)
+        self.assertFalse(any("Wreck_Mi8_Crashed" in message for message in messages))
+
+    def test_checkout_push_accepts_only_the_new_paid_events(self):
+        config = {}
+        shop_event = bot.create_console_shop_delivery_events(
+            config,
+            {"WoodenPlank": 1},
+            3749,
+            12953,
+            "paid-order-direct-push",
+            "Player",
+            "123",
+        )[0]
+        built = {
+            "events_path": "/mission/db/events.xml",
+            "spawns_path": "/mission/cfgeventspawns.xml",
+            "managed_event_names": ["ItemWanderingBot_1_paid_order_direct_push"],
+        }
+        with patch.object(
+            bot,
+            "delivery_bridge_scenario_events",
+            side_effect=AssertionError("checkout must not enumerate existing bridge events"),
+        ), patch.object(
+            bot,
+            "upload_console_paid_shop_delivery_events",
+            return_value=(True, built, ["uploaded"]),
+        ) as upload, patch.object(bot, "save_guild_configs_for_runtime"):
+            success, _message = asyncio.run(
+                bot.auto_push_scenario_events_xml("guild-1", config, paid_shop_events=[shop_event])
+            )
+
+        self.assertTrue(success)
+        self.assertEqual([shop_event], upload.call_args.args[2])
+
     def test_failed_paid_shop_delivery_stays_eligible_for_worker_retry(self):
         event = {
             "id": 11,

@@ -44136,9 +44136,17 @@ def build_console_ce_event_files(
         if not record.get("skip_spawn")
         if str(record.get("name") or "").strip()
     })[:24]
+    # A targeted paid-order merge retains existing CE XML nodes exactly as it
+    # found them. Later validation must therefore inspect only the event names
+    # this invocation generated, rather than treating an older managed airdrop
+    # as part of this order.
+    output["preserve_existing"] = preserve_existing
     output["restart_required"] = bool(
         records
-        or native_ce_cleanup_is_explicitly_requested(config)
+        # A paid shop delivery deliberately merges only its own Item event and
+        # position nodes. A pending generic dashboard cleanup must never widen
+        # that checkout write into an unrelated CE maintenance pass.
+        or (native_ce_cleanup_is_explicitly_requested(config) and not preserve_existing)
         or repaired_revamp_events
         or repaired_revamp_spawns
         or removed_revamp_spawn_groups
@@ -44352,7 +44360,7 @@ def build_console_ce_event_files(
         record for record in records
         if record.get("use_eventgroup") or record.get("mapgroupproto_classes")
     ]
-    cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
+    cleanup_pending = native_ce_cleanup_is_explicitly_requested(config) and not preserve_existing
     repair_static_helicrash_proto = (
         allow_unowned_repairs
         and bool(mapgroupproto_records)
@@ -44714,10 +44722,18 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
                 environment_herd_names[territory_name] = territory_node
 
     allowed_families = ("Ambient", "Animal", "ContaminatedArea", "Infected", "Item", "Static", "Trajectory", "Vehicle")
+    targeted_validation_names = {
+        str(name or "").strip()
+        for name in (built.get("managed_event_names") or [])
+        if str(name or "").strip()
+    }
+    targeted_validation = bool(built.get("preserve_existing")) and bool(targeted_validation_names)
     generated_events = {}
     for event_node in events_root.findall("event"):
         name = str(event_node.get("name") or "")
         if not is_wandering_managed_name(name):
+            continue
+        if targeted_validation and name not in targeted_validation_names:
             continue
         if not name.startswith(allowed_families):
             messages.append(
@@ -44776,6 +44792,7 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         str(event_node.get("name") or ""): event_node
         for event_node in spawns_root.findall("event")
         if is_wandering_managed_name(event_node.get("name") or "")
+        if not targeted_validation or str(event_node.get("name") or "") in targeted_validation_names
     }
 
     for name in generated_events:
@@ -47116,7 +47133,7 @@ def scenario_event_mode_text(event):
     return f"{remaining} restart(s)"
 
 
-async def auto_push_scenario_events_xml(guild_id, config):
+async def auto_push_scenario_events_xml(guild_id, config, *, paid_shop_events=None):
     """Push merged events.xml / cfgeventspawns.xml / cfgspawnabletypes.xml to
     Nitrado right after an admin creates a new scenario event.
 
@@ -47126,6 +47143,38 @@ async def auto_push_scenario_events_xml(guild_id, config):
     the actual server restart.
     """
     try:
+        # Checkout passes the events created by this order directly. Do not
+        # enumerate the server's scenario-event list first: it can contain an
+        # unrelated airdrop with its own map-group requirements, which must
+        # never block or alter a paid Item delivery.
+        if paid_shop_events is not None:
+            shop_delivery_events = [
+                event
+                for event in paid_shop_events
+                if is_console_paid_shop_delivery_event(event)
+                and not scenario_event_has_confirmed_native_upload(event)
+            ]
+            if not shop_delivery_events:
+                return False, "⚠️ Shop delivery XML upload failed — no eligible item from this order was supplied."
+            upload_success, built, upload_messages = await asyncio.to_thread(
+                upload_console_paid_shop_delivery_events,
+                guild_id,
+                config,
+                shop_delivery_events,
+            )
+            if upload_success:
+                now_text = datetime.now(UTC).isoformat()
+                for event in shop_delivery_events:
+                    apply_native_ce_upload_metadata(event, built, upload_messages, now_text)
+                    event["updated_at"] = now_text
+                save_guild_configs_for_runtime(config)
+                return True, "✅ Shop delivery XML uploaded to Nitrado. It will appear after the next server restart."
+            last_msg = upload_messages[-1] if upload_messages else "no message"
+            return False, (
+                "⚠️ Shop delivery XML upload failed — the transaction will be rolled back. "
+                f"Reason: {last_msg}"
+            )
+
         delivery_events = delivery_bridge_scenario_events(config)
         if delivery_events:
             upload_success, delivery_path, upload_messages = await asyncio.to_thread(
@@ -49424,7 +49473,11 @@ async def _route_console_shop_delivery_unlocked(
             config, item_counts, x_value, z_value, order_id, player, discord_id
         )
         created_ids = {str(event.get("id")) for event in created_events}
-        upload_ok, upload_status = await auto_push_scenario_events_xml(guild_id, config)
+        upload_ok, upload_status = await auto_push_scenario_events_xml(
+            guild_id,
+            config,
+            paid_shop_events=created_events,
+        )
         if upload_ok:
             save_guild_configs_for_runtime(config)
             return True, "Native CE XML (terrain height)", upload_status
