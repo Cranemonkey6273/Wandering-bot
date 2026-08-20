@@ -188,11 +188,15 @@ adm_scan_locks = {}
 adm_scan_started_at = {}
 # Last ADM refresh outcome per runtime guild id (for operator troubleshooting).
 adm_last_refresh = {}
+# Snapshot of the most recently parsed ADM file. This records file/tail counts
+# separately from the dedupe cache so status can identify a wrong or stale
+# source rather than merely reporting how many lines were remembered.
+adm_last_parse_stats = {}
 # In-progress ADM scan stage per runtime guild id (for hangs/diagnostics).
 adm_scan_stage = {}
-# Nitrado/Cloudflare rate-limit backoff is now applied at both guild/token and
-# provider levels. Provider-level backoff is critical when one instance polls
-# many guilds or when a shared IP/service is temporarily blocked.
+# Nitrado/Cloudflare rate-limit backoff is scoped to the affected guild,
+# Nitrado service, and account token. A provider-wide block is available only
+# as an explicit emergency setting when Nitrado confirms an IP-wide limit.
 ADM_NITRADO_PROVIDER_BACKOFF_KEY = "provider:nitrado-adm"
 adm_rate_limit_backoff_until = {}
 # Optional Supabase state persistence for critical runtime state so restart/redeploy
@@ -204,6 +208,10 @@ SUPABASE_STATE_KEYS = {
     "processed_adm_lines",
     "processed_adm_events",
     "processed_kill_events",
+    # The ADM dedupe cache and the live roster must survive together.  If only
+    # the hashes survive a Railway redeploy, known connect lines are skipped
+    # correctly but the in-memory online-player board comes back empty.
+    "online_players",
     "adm_rate_limit_backoff_until",
     "adm_nitrado_request_state",
 }
@@ -220,10 +228,8 @@ adm_next_scan_at = {}
 # This lets the parser tell the difference between the latest live log and
 # an intentional cold-start history sweep.
 adm_parse_context = {}
-# Tracks which guilds have already had their last-24h ADM history swept
-# on this process boot. Reset every time the Railway container recycles
-# so a fresh restart re-ingests the previous day's events into the
-# dedupe store (the hash file is the canonical "already broadcast" gate).
+# Tracks profiles that have completed an explicitly enabled ADM history sweep
+# during this process boot. Normal deployments go straight to the live file.
 _adm_history_swept = {}
 # Maximum number of recently-seen ADM line hashes to keep per guild.
 # Must be high enough that lines still inside the ADM parse tail
@@ -8346,6 +8352,14 @@ def _supabase_state_rows():
         "processed_adm_lines": {str(guild_id): _ordered_keys_as_list(hashes) for guild_id, hashes in processed_lines.items()},
         "processed_adm_events": {str(guild_id): _ordered_keys_as_list(fingerprints) for guild_id, fingerprints in processed_adm_events.items()},
         "processed_kill_events": {str(guild_id): _ordered_keys_as_list(fingerprints) for guild_id, fingerprints in processed_kill_events.items()},
+        "online_players": {
+            str(guild_id): sorted(
+                str(player).strip()
+                for player in players
+                if str(player).strip()
+            )
+            for guild_id, players in online_players.items()
+        },
         "adm_rate_limit_backoff_until": dict(adm_rate_limit_backoff_until),
         "adm_nitrado_request_state": dict(adm_nitrado_request_state),
     }
@@ -11714,7 +11728,12 @@ def save_player_stats():
 
 def load_online_players():
     global online_players, online_players_loaded_mtime
-    data = load_json(ONLINE_PLAYERS_FILE)
+    # Prefer the durable shared state after a Railway restart.  The local JSON
+    # file remains a safe fallback for installations that have not connected
+    # Supabase yet.
+    data = _load_supabase_state({"online_players"}).get("online_players")
+    if data is None:
+        data = load_json(ONLINE_PLAYERS_FILE)
     try:
         online_players_loaded_mtime = os.path.getmtime(ONLINE_PLAYERS_FILE)
     except Exception:
@@ -11744,6 +11763,7 @@ def save_online_players():
         online_players_loaded_mtime = os.path.getmtime(ONLINE_PLAYERS_FILE)
     except Exception:
         online_players_loaded_mtime = time.time()
+    _mark_supabase_state_dirty("online_players")
 
 
 def load_longshot_records():
@@ -16610,6 +16630,34 @@ def adm_rate_limit_backoff_max_seconds():
         return 900
 
 
+def adm_provider_wide_backoff_enabled():
+    """Whether a Nitrado 429 should pause every customer on this bot.
+
+    Nitrado normally limits a service/account rather than every unrelated
+    customer using the same Railway process.  Keeping this off by default
+    prevents one busy or misconfigured server from freezing live feeds for
+    paying customers on different Nitrado services.  It remains available as
+    an emergency switch if Nitrado explicitly confirms an IP-wide block.
+    """
+    return str(os.getenv("WANDERING_ADM_PROVIDER_WIDE_BACKOFF", "")).strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
+def adm_history_sweep_hours():
+    """Return the optional cold-start ADM history lookback window.
+
+    Full history scans are intentionally disabled by default: a deployment
+    should resume the live file promptly, not make dozens of Nitrado requests
+    before it can post the next player connection.  Installations that need a
+    historical backfill can opt in with WANDERING_ADM_HISTORY_SWEEP_HOURS.
+    """
+    try:
+        return max(0, min(24, int(os.getenv("WANDERING_ADM_HISTORY_SWEEP_HOURS", "0"))))
+    except Exception:
+        return 0
+
+
 def adm_nitrado_request_spacing_seconds():
     try:
         return max(1.0, min(20.0, float(os.getenv("WANDERING_ADM_NITRADO_REQUEST_SPACING_SECONDS", "4"))))
@@ -16633,7 +16681,12 @@ def adm_nitrado_request_streak_decay_seconds():
 
 def _adm_nitrado_bucket_ids(guild_id, config=None):
     config = config if isinstance(config, dict) else {}
-    buckets = [ADM_NITRADO_PROVIDER_BACKOFF_KEY]
+    buckets = []
+    if adm_provider_wide_backoff_enabled():
+        buckets.append(ADM_NITRADO_PROVIDER_BACKOFF_KEY)
+    service_id = str(config.get("service_id") or "").strip()
+    if service_id:
+        buckets.append(f"service:{service_id}")
     token = str(config.get("nitrado_token") or "").strip()
     nitrado_user = str(config.get("nitrado_user") or "").strip()
     if token:
@@ -16749,13 +16802,16 @@ def pace_adm_nitrado_request(guild_id, config=None, *, stage="ADM"):
 def adm_rate_limit_backoff_keys(guild_id, config=None, *, include_provider=True):
     keys = [str(guild_id)]
     config = config if isinstance(config, dict) else {}
+    service_id = str(config.get("service_id") or "").strip()
+    if service_id:
+        keys.append(f"service:{service_id}")
     token = str(config.get("nitrado_token") or "").strip()
     nitrado_user = str(config.get("nitrado_user") or "").strip()
     if token:
         keys.append(f"token:{stable_line_hash(token)[:24]}")
     elif nitrado_user:
         keys.append(f"user:{normalize_discord_name(nitrado_user)}")
-    if include_provider:
+    if include_provider and adm_provider_wide_backoff_enabled():
         keys.append(ADM_NITRADO_PROVIDER_BACKOFF_KEY)
     return list(dict.fromkeys(keys))
 
@@ -16983,6 +17039,12 @@ RPT_EVENT_PREFIXES = (
     "Land_Wreck_", "StaticHeliCrash", "ContaminatedArea", "EventConvoy",
     "EventConvoyMilitary", "Wreck_Mi8", "Wreck_UH1Y", "Static_",
     "InfectedHorde", "Animal_", "DynamicEvent",
+    # Native CE event definitions generated by Wandering Bot deliberately use
+    # readable class names rather than vanilla's underscore-only convention.
+    # Keep them in the live RPT parser so their coordinate-bearing runtime
+    # entries are not silently reported as zero events.
+    "StaticWanderingBot_", "AnimalWanderingBot_", "InfectedWanderingBot_",
+    "VehicleWanderingBot_",
     "PoliceCar", "CivilianSedan", "Hatchback", "Sedan", "Olga",
     "Gunter", "Ada", "Sarka", "Truck", "M3S", "Offroad",
 )
@@ -17385,8 +17447,12 @@ def _rpt_friendly_event_type(raw_type):
         return "Helicopter crash / airdrop event"
     if lowered.startswith("infected") or lowered.startswith("zmb"):
         return "Infected horde event"
-    if lowered.startswith("animal_"):
+    if lowered.startswith("animal_") or lowered.startswith("animalwanderingbot_"):
         return "Animal event"
+    if lowered.startswith("staticwanderingbot_"):
+        return "Wandering Bot static event"
+    if lowered.startswith("vehiclewanderingbot_"):
+        return "Wandering Bot vehicle event"
     if any(
         token in lowered
         for token in (
@@ -17681,7 +17747,7 @@ async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnosti
         description=(
             f"DayZ server: **{server_label}**\n"
             f"Status: **fresh mission started**\n"
-            f"Spawn observations found in startup RPT: **{len(new_events)}**"
+            f"Runtime spawn observations found in startup RPT: **{len(new_events)}**"
         ),
         color=0xE74C3C,
     )
@@ -17700,6 +17766,16 @@ async def _post_rpt_restart_report(guild_id, guild, state, new_events, diagnosti
                 value=f"+{len(new_events) - 8} additional observation(s) omitted to stay under Discord embed limits.",
                 inline=False,
             )
+    else:
+        embed.add_field(
+            name="What zero means",
+            value=(
+                "No coordinate-bearing runtime spawn line was written to this startup RPT. "
+                "It is not a count of configured DayZ/Wandering Bot events; the tracker will add "
+                "an event when Nitrado's RPT records its class and coordinates."
+            ),
+            inline=False,
+        )
     lines = _rpt_restart_warning_summary(diagnostics)
     if lines:
         embed.add_field(name="Startup notes", value="\n".join(lines)[:1024], inline=False)
@@ -22996,6 +23072,18 @@ async def parse_adm(guild_id, config):
 
         lines = f.readlines()
 
+    guild_id = str(guild_id)
+    parse_context = adm_parse_context.get(guild_id, {})
+    tail_lines = lines[-adm_parse_tail_line_count():]
+    parse_stats = {
+        "ts": time.time(),
+        "source_path": str(parse_context.get("source_path") or ""),
+        "file_line_count": len(lines),
+        "tail_line_count": len(tail_lines),
+        "new_line_count": 0,
+    }
+    adm_last_parse_stats[guild_id] = parse_stats
+
     channels = config.get("channels", {})
 
     killfeed_channel = resolve_feed_channel(guild_id, config, "killfeed", required=True)
@@ -23010,7 +23098,7 @@ async def parse_adm(guild_id, config):
     dashboard_live_feed_changed = False
     player_audit_changed = False
 
-    for raw_line in lines[-adm_parse_tail_line_count():]:
+    for raw_line in tail_lines:
 
         line = raw_line.strip()
 
@@ -23077,6 +23165,7 @@ async def parse_adm(guild_id, config):
         if line_hash in processed_lines[guild_id]:
             continue
 
+        parse_stats["new_line_count"] += 1
         remember_processed_line(guild_id, line_hash)
 
         # Hash dedupe is the normal replay guard. The age guard above is
@@ -24369,6 +24458,23 @@ async def parse_adm(guild_id, config):
             f"{context.get('source_path') or 'current ADM'}"
         )
 
+    # A deployment can happen between the old local roster being written and
+    # Supabase being enabled. Rebuild an empty roster from the ADM tail even
+    # when every line in that tail is already in the persisted dedupe cache.
+    # This updates the one live online board without replaying old join/leave
+    # messages into Discord.
+    if not online_players.get(str(guild_id)):
+        recovered, recovery_reason = reconcile_online_state_from_cached_adm(
+            guild_id,
+            config,
+            source="post-ADM recovery",
+        )
+        if recovered:
+            online_state_changed = True
+            online_state_reason = recovery_reason or "ADM roster recovery"
+
+    parse_stats["online_player_count"] = len(online_players.get(str(guild_id), set()))
+
     if online_state_changed:
         await upsert_online_dashboard_message(guild_id, config, online_state_reason or "ADM live sync")
 
@@ -24470,17 +24576,24 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
     set_adm_scan_stage(guild_id, "scanning-history")
     print(f"[ADM SEARCH] Searching latest ADM for {guild_display_name(guild_id)} ({guild_id})")
 
-    # 🗓️ First refresh after bot startup → also ingest the previous 24h
-    # of ADM files so we don't miss any kills/events that landed in a
-    # rotated log Nitrado has since closed. After this initial sweep the
-    # fast ADM loop keeps tailing only the current latest log. Per-line hash
-    # dedupe in parse_adm guarantees nothing is ever re-broadcast.
-    cold_start = not bool(_adm_history_swept.get(str(guild_id)))
+    # 🗓️ An optional cold-start history sweep. It is disabled by default so a
+    # Railway deployment resumes live player feeds immediately instead of
+    # walking every rotated ADM file and hitting Nitrado's API limit first.
+    # Per-line dedupe still prevents any live-file replay.
+    history_hours = adm_history_sweep_hours()
+    cold_start = history_hours > 0 and not bool(_adm_history_swept.get(str(guild_id)))
     if cold_start:
         set_adm_scan_stage(guild_id, "history-sweep")
         history_diagnostics = []
         try:
-            history_logs = await asyncio.to_thread(list_adm_logs, config, 24, history_diagnostics, True, guild_id)
+            history_logs = await asyncio.to_thread(
+                list_adm_logs,
+                config,
+                history_hours,
+                history_diagnostics,
+                True,
+                guild_id,
+            )
         except Exception as err:
             print(f"[ADM COLD-START] history listing failed: {err}")
             history_logs = []
@@ -24490,7 +24603,10 @@ async def _refresh_adm_for_guild_locked(guild_id, config, *, force=False):
         # Walk oldest → newest so events arrive in chronological order.
         history_logs = list(reversed(history_logs))
         if history_logs:
-            print(f"[ADM COLD-START] sweeping last 24h: {len(history_logs)} log(s) for {guild_display_name(guild_id)}")
+            print(
+                f"[ADM COLD-START] sweeping last {history_hours}h: "
+                f"{len(history_logs)} log(s) for {guild_display_name(guild_id)}"
+            )
         for older in history_logs[:-1]:
             try:
                 set_adm_scan_stage(guild_id, f"history-download:{older.get('path')}")
@@ -24700,7 +24816,11 @@ async def adm_loop():
             jitter = random.uniform(0, max(1.0, min(stagger_cap, float(ADM_LOOP_SECONDS))))
             adm_next_scan_at[guild_id] = now + jitter
 
-    provider_backoff_until = active_adm_rate_limit_backoff_until("", {})
+    provider_backoff_until = (
+        active_adm_rate_limit_backoff_until("", {})
+        if adm_provider_wide_backoff_enabled()
+        else 0
+    )
     if provider_backoff_until > now:
         # When provider-wide backoff is active, every ADM call should wait anyway.
         # Skip the cycle to reduce pointless calls and noisy WAITING logs.
@@ -29977,7 +30097,7 @@ async def admstatus(ctx):
 
     embed.add_field(
         name="Remembered ADM Lines",
-        value=str(len(processed_lines.get(str(guild_id), set()))),
+        value=f"{len(processed_lines.get(str(guild_id), set()))} (dedupe cache)",
         inline=True
     )
 
@@ -29985,6 +30105,26 @@ async def admstatus(ctx):
         name="Killfeed Channel",
         value="Set" if channels.get("killfeed") else "Missing",
         inline=True
+    )
+
+    embed.add_field(
+        name="Connection Feed",
+        value=(
+            "Disabled" if is_channel_key_disabled(config, "connections")
+            else "Set" if channels.get("connections")
+            else "Missing"
+        ),
+        inline=True,
+    )
+
+    embed.add_field(
+        name="Live Online Board",
+        value=(
+            "Disabled" if is_channel_key_disabled(config, "online")
+            else "Set" if channels.get("online")
+            else "Missing"
+        ),
+        inline=True,
     )
 
     status_key = str(guild_id)
@@ -30036,6 +30176,22 @@ async def admstatus(ctx):
             name="ADM Backoff",
             value="None",
             inline=True
+        )
+
+    parse_stats = adm_last_parse_stats.get(status_key, {})
+    if isinstance(parse_stats, dict) and parse_stats:
+        source_path = str(parse_stats.get("source_path") or "").strip()
+        source_label = os.path.basename(source_path) if source_path else "local ADM cache"
+        embed.add_field(
+            name="Latest ADM Snapshot",
+            value=(
+                f"Source: `{source_label[:180]}`\n"
+                f"File lines: `{int(parse_stats.get('file_line_count', 0) or 0)}` • "
+                f"scanned tail: `{int(parse_stats.get('tail_line_count', 0) or 0)}`\n"
+                f"New since prior scan: `{int(parse_stats.get('new_line_count', 0) or 0)}` • "
+                f"tracked online: `{int(parse_stats.get('online_player_count', 0) or 0)}`"
+            ),
+            inline=False,
         )
 
     embed.set_thumbnail(url=BOT_IMAGE)

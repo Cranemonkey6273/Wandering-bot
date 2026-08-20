@@ -986,6 +986,62 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertNotIn(line_hash, bot.processed_lines[guild_id])
         self.assertNotIn(fingerprint, bot.processed_adm_events[guild_id])
 
+    def test_online_roster_is_included_in_durable_supabase_state(self):
+        with mock.patch.object(
+            bot,
+            "online_players",
+            {"guild-online-state": {"Alice", " Bob ", ""}},
+        ):
+            payload = bot._supabase_state_rows()
+
+        self.assertEqual(["Alice", "Bob"], payload["online_players"]["guild-online-state"])
+
+    def test_load_online_players_prefers_durable_supabase_state(self):
+        original = bot.online_players
+        try:
+            with mock.patch.object(
+                bot,
+                "_load_supabase_state",
+                return_value={"online_players": {"guild-online-state": ["Alice", " Bob ", ""]}},
+            ), mock.patch.object(bot, "load_json") as local_load:
+                bot.load_online_players()
+
+            self.assertEqual({"Alice", "Bob"}, bot.online_players["guild-online-state"])
+            local_load.assert_not_called()
+        finally:
+            bot.online_players = original
+
+    def test_adm_rate_limit_is_scoped_to_the_affected_service_by_default(self):
+        config = {
+            "service_id": "service-a",
+            "nitrado_token": "customer-a-token",
+        }
+        with mock.patch.dict(
+            bot.os.environ,
+            {"WANDERING_ADM_PROVIDER_WIDE_BACKOFF": "0"},
+            clear=False,
+        ):
+            keys = bot.adm_rate_limit_backoff_keys("guild-a", config)
+
+        self.assertIn("guild-a", keys)
+        self.assertIn("service:service-a", keys)
+        self.assertTrue(any(key.startswith("token:") for key in keys))
+        self.assertNotIn(bot.ADM_NITRADO_PROVIDER_BACKOFF_KEY, keys)
+
+    def test_adm_history_sweep_is_disabled_until_explicitly_enabled(self):
+        with mock.patch.dict(
+            bot.os.environ,
+            {"WANDERING_ADM_HISTORY_SWEEP_HOURS": "0"},
+            clear=False,
+        ):
+            self.assertEqual(0, bot.adm_history_sweep_hours())
+        with mock.patch.dict(
+            bot.os.environ,
+            {"WANDERING_ADM_HISTORY_SWEEP_HOURS": "24"},
+            clear=False,
+        ):
+            self.assertEqual(24, bot.adm_history_sweep_hours())
+
     def test_nitrado_ban_feed_matches_decorated_renamed_original(self):
         channel = FakeChannel("nitrado-ban", 100)
 

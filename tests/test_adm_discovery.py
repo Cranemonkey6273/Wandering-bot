@@ -481,22 +481,31 @@ class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             bot.adm_rate_limit_backoff_until.clear()
             bot.adm_rate_limit_backoff_until.update(old_backoff)
 
-    def test_adm_rate_limit_backoff_is_shared_across_nitrado_tokens(self):
+    def test_adm_rate_limit_backoff_does_not_pause_unrelated_nitrado_customers(self):
         old_backoff = dict(bot.adm_rate_limit_backoff_until)
-        config_a = {"nitrado_token": "account-a-token", "nitrado_user": "ni123"}
-        config_b = {"nitrado_token": "account-b-token", "nitrado_user": "ni456"}
+        config_a = {"nitrado_token": "account-a-token", "nitrado_user": "ni123", "service_id": "service-a"}
+        config_b = {"nitrado_token": "account-b-token", "nitrado_user": "ni456", "service_id": "service-b"}
         try:
-            bot.adm_rate_limit_backoff_until.clear()
-            bot.set_adm_rate_limit_backoff("guild-a:cherno", config_a)
+            with patch.dict(os.environ, {"WANDERING_ADM_PROVIDER_WIDE_BACKOFF": "0"}, clear=False):
+                bot.adm_rate_limit_backoff_until.clear()
+                bot.set_adm_rate_limit_backoff("guild-a:cherno", config_a)
 
-            self.assertGreater(bot.active_adm_rate_limit_backoff_until("guild-b:livo", config_b), time.time())
-            self.assertIn(bot.ADM_NITRADO_PROVIDER_BACKOFF_KEY, bot.adm_rate_limit_backoff_until)
+                self.assertLessEqual(bot.active_adm_rate_limit_backoff_until("guild-b:livo", config_b), time.time())
+            self.assertNotIn(bot.ADM_NITRADO_PROVIDER_BACKOFF_KEY, bot.adm_rate_limit_backoff_until)
             self.assertNotIn("account-a-token", "".join(bot.adm_rate_limit_backoff_until.keys()))
-            bot.clear_adm_rate_limit_backoff("guild-a:cherno", config_a)
-            self.assertGreater(bot.active_adm_rate_limit_backoff_until("guild-b:livo", config_b), time.time())
         finally:
             bot.adm_rate_limit_backoff_until.clear()
             bot.adm_rate_limit_backoff_until.update(old_backoff)
+
+    def test_rpt_parser_recognizes_native_wandering_bot_event_class_with_coordinates(self):
+        _restarts, events = bot.parse_rpt_for_events(
+            "12:00:00 [CE] Event spawned StaticWanderingBot_55_airdrop at <5000, 12, 6000>"
+        )
+
+        self.assertEqual(1, len(events))
+        self.assertEqual("StaticWanderingBot_55_airdrop", events[0]["type"])
+        self.assertEqual(5000.0, events[0]["x"])
+        self.assertEqual(6000.0, events[0]["z"])
 
     def test_rpt_log_search_reuses_adm_directory_and_stops_after_a_match(self):
         original_get = bot.requests.get
