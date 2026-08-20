@@ -1768,6 +1768,7 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertEqual("free_bot", bot.channel_subscription_tier({"dashboard": {"tier": "free"}}))
         self.assertEqual("dashboard", bot.channel_subscription_tier({"dashboard": {"tier": "basic"}}))
         self.assertEqual("dashboard_ai", bot.channel_subscription_tier({"dashboard": {"tier": "pro"}}))
+        self.assertEqual("dashboard_ultimate", bot.channel_subscription_tier({"dashboard": {"tier": "owner"}}))
 
     def test_explicit_restore_rejects_channel_outside_current_plan(self):
         config = {
