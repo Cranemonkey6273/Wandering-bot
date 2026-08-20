@@ -20931,7 +20931,7 @@ async def apply_setup_configuration(
             value=(
                 "`/wallet` - check wallet\n"
                 "`/shop` - view black market\n"
-                "`/buy item_name x z [y]` - queue an item delivery; leave Y blank for automatic terrain height\n"
+                "`/buy item_name x z [y]` - queue an item delivery. Omit Y or type `terrain` for normal ground/terrain height (XML); enter an exact Y only for a roof/elevated Object Spawner JSON delivery. `0` is not ground level.\n"
                 "`/addwage`, `/listwages`, `/removewage`, `/collectincome` - wages and income\n"
                 "`/tools rentvehicle vehicle_name rental_hours x z` - queue vehicle rental\n"
                 "Shop admin: `/addshopitem`, `/editshopitem`, `/toggleshopitem`, `/removeshopitem`, `/givepennies`, `/tools shopcategories`, `/tools importtypesxml`, `/server shopbackfill`, `/server bulkprice`\n"
@@ -20976,7 +20976,7 @@ async def apply_setup_configuration(
                 "Console exact-Y object spawns are prepared automatically on the first elevated shop order from the verified live "
                 "`cfggameplay.json`. If automatic exact-Y setup ever fails, an owner can run `/console setupobjects` "
                 "with its defaults; no mission paths need to be entered. Add custom spawns with `/console addobject`.\n"
-                "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z` and may supply optional Y height for roofs or elevated platforms. Blank Y is grounded to terrain for the next restart.\n"
+                "Item spawning: add shop items with `/addshopitem`; players use `/buy item_name x z` and may supply an exact Y only for roofs/elevated platforms. Omit Y or type `terrain` for normal terrain-grounded XML delivery; `0` is not ground level and uses the exact-height Object Spawner JSON route.\n"
                 "Vehicle resets/rentals: players use `/tools rentvehicle vehicle_name rental_hours x z`; the vehicle entry is written into the same restart delivery XML.\n"
                 "In-game message rotation: the server owner can use `/setdayzmessages messages:... interval_minutes:...` to upload a safe XML message file. Check your Nitrado FTP path before changing the default."
             ),
@@ -27191,7 +27191,7 @@ async def helpme(ctx):
     embed.add_field(
         name="DayZ Restart Deliveries",
         value=(
-            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x z`; optional Y supports roofs/elevated positions while blank Y is grounded to terrain.\n"
+            "Items: add shop entries with `/addshopitem`; players use `/buy item_name x z`; omit Y or type `terrain` for normal terrain-grounded XML delivery. Enter an exact Y only for roofs/elevated positions; `0` is not ground level and uses Object Spawner JSON.\n"
             "Vehicles: players use `/tools rentvehicle vehicle_name rental_hours x z`; the bot writes vehicle spawns into the restart XML.\n"
             "Console hosts: `init.c` is not exposed. Use `/console setupobjects`, `/console addobject`, and `/console exportobjects` for the `cfggameplay.json` object-spawner flow."
         ),
@@ -49385,6 +49385,20 @@ def shop_delivery_item_counts(item_name, item_config, quantity):
     return {name: count for name, count in counts.items() if name and count > 0}
 
 
+def shop_delivery_height(y_value):
+    """Interpret a shop height option without making ground delivery ambiguous.
+
+    Discord's slash UI can make an empty optional text field awkward on some
+    clients.  ``terrain`` (plus a few clear aliases) is therefore an explicit
+    ground-delivery choice.  Numeric zero remains an exact world Y coordinate,
+    never a synonym for terrain height.
+    """
+    text = str(y_value or "").strip()
+    if text.lower() in {"", "terrain", "ground", "auto", "automatic"}:
+        return False, 0.0
+    return True, parse_dayz_map_number(text)
+
+
 def shop_delivery_size_error(item_counts):
     """Reject an expanded order before charging if it is unsafe to deliver."""
     total_items = sum(max(0, safe_int(count, 0)) for count in (item_counts or {}).values())
@@ -49657,12 +49671,14 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
     server_label = dayz_server_display_name(guild_id, config)
     x_value = parse_dayz_map_number(x)
     z_value = parse_dayz_map_number(z)
-    y_supplied = str(y or "").strip() != ""
-    y_value = parse_dayz_map_number(y) if y_supplied else 0.0
+    y_supplied, y_value = shop_delivery_height(y)
     quantity = max(1, min(99, safe_int(quantity, 1)))
 
     if x_value is None or z_value is None or y_value is None:
-        await ctx.send("Use numeric DayZ X/Z map coordinates. Y is optional: leave it blank for automatic terrain height, or enter an exact Y for a roof/elevated spawn.")
+        await ctx.send(
+            "Use numeric DayZ X/Z map coordinates. For normal ground level, omit Y or type `terrain` so DayZ finds the terrain height through XML. "
+            "Enter an exact Y only for a roof/elevated Object Spawner JSON delivery — `0` is not ground level."
+        )
         return
 
     item_name, item_config, error = resolve_purchase_item(guild_id, item_name)
@@ -49864,7 +49880,11 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
 
     embed.add_field(
         name="Height",
-        value=f"Exact Y: {y_value}" if y_supplied else "Automatic terrain height",
+        value=(
+            f"Exact Y: {y_value}\nObject Spawner JSON delivery (use only for roofs/elevated locations)."
+            if y_supplied
+            else "Automatic terrain height\nNo exact Y selected: native CE XML ground delivery. Use blank or `terrain`, never `0`, for ground level."
+        ),
         inline=False,
     )
 
@@ -60319,7 +60339,7 @@ async def liveevents_channel(interaction: discord.Interaction, channel: discord.
     item_name="Item",
     x="DayZ map X coordinate",
     z="DayZ map Z coordinate",
-    y="Optional exact Y height for roofs; leave blank for terrain height",
+    y="Type terrain for normal ground; exact Y only for roofs (0 is not ground)",
     quantity="How many to buy",
     server="Server profile ID if this Discord runs multiple DayZ servers, for example livo or cherno",
 )

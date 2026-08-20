@@ -125,6 +125,13 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertEqual({}, counts)
         self.assertIn("no valid delivery items", bot.shop_delivery_size_error(counts))
 
+    def test_terrain_height_alias_uses_native_ground_route_not_exact_zero(self):
+        self.assertEqual((False, 0.0), bot.shop_delivery_height("terrain"))
+        self.assertEqual((False, 0.0), bot.shop_delivery_height("ground"))
+        self.assertEqual((False, 0.0), bot.shop_delivery_height(""))
+        self.assertEqual((True, 0.0), bot.shop_delivery_height("0"))
+        self.assertEqual((True, 42.5), bot.shop_delivery_height("42.5"))
+
     def test_single_server_autocomplete_returns_only_server(self):
         class Guild:
             id = 987654321
