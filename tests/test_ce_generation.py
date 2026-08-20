@@ -237,6 +237,90 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
             for position in positions
         }))
 
+    def test_shop_delivery_merge_does_not_read_or_rebuild_unrelated_map_group_xml(self):
+        config = {
+            "scenario_events": [{
+                "id": 9,
+                "event_type": "airdrop",
+                "name": "Existing airdrop",
+                "class_name": "Wreck_Mi8_Crashed",
+                "created_by": "dashboard",
+                "enabled": True,
+                "upload_status": "uploaded",
+            }],
+        }
+        shop_event = bot.create_console_shop_delivery_events(
+            config,
+            {"WoodenPlank": 2},
+            3749,
+            12953,
+            "paid-order-1",
+            "Player",
+            "123",
+        )[0]
+        requested_sources = []
+
+        def source(_config, _guild_id, key, _default_path=""):
+            requested_sources.append(key)
+            if key == "events_path":
+                return "<events><event name=\"ExistingAirDrop\"><nominal>1</nominal></event></events>", "/mission/db/events.xml", "events live"
+            if key == "spawns_path":
+                return "<eventposdef><event name=\"ExistingAirDrop\"><pos x=\"1\" z=\"2\" a=\"0\" /></event></eventposdef>", "/mission/cfgeventspawns.xml", "spawns live"
+            raise AssertionError(f"shop delivery must not read unrelated source {key}")
+
+        with patch.object(bot, "download_console_ce_source", side_effect=source):
+            built = bot.build_console_ce_event_files(
+                "guild-1",
+                config,
+                scenario_events_override=[shop_event],
+                preserve_existing=True,
+            )
+
+        self.assertEqual(["events_path", "spawns_path"], requested_sources)
+        self.assertIn('name="ExistingAirDrop"', built["events_text"])
+        self.assertIn('name="ItemWanderingBot_', built["events_text"])
+        self.assertFalse(built["mapgroupproto_text"])
+
+    def test_failed_paid_shop_delivery_stays_eligible_for_worker_retry(self):
+        event = {
+            "id": 11,
+            "created_by": "shop_delivery",
+            "event_type": "shop_delivery",
+            "delivery_route": "native_xml_only",
+            "shop_order_id": "paid-order-retry",
+            "upload_status": "failed",
+            "upload_attempts": 1,
+            "enabled": True,
+        }
+
+        self.assertEqual([event], bot.pending_dashboard_scenario_xml_events({"scenario_events": [event]}))
+
+    def test_pending_paid_shop_delivery_moves_from_hidden_base_to_matching_profile(self):
+        event = {
+            "id": 12,
+            "created_by": "shop_delivery",
+            "event_type": "shop_delivery",
+            "delivery_route": "native_xml_only",
+            "shop_order_id": "paid-order-profile",
+            "upload_status": "failed",
+            "upload_attempts": 1,
+        }
+        config = {
+            "server_map": "chernarus",
+            "scenario_events": [event],
+            "server_profiles": {
+                "cherno": {"server_map": "chernarus"},
+                "livo": {"server_map": "livonia"},
+            },
+        }
+
+        self.assertTrue(bot.migrate_base_dashboard_scenario_events_to_matching_profile(config))
+        self.assertEqual([], config["scenario_events"])
+        migrated = config["server_profiles"]["cherno"]["scenario_events"]
+        self.assertEqual("paid-order-profile", migrated[0]["shop_order_id"])
+        self.assertEqual("waiting_for_bot_upload", migrated[0]["upload_status"])
+        self.assertEqual(0, migrated[0]["upload_attempts"])
+
     def test_completed_native_shop_delivery_requests_xml_cleanup(self):
         config = {
             "scenario_events": [{
