@@ -123,3 +123,12 @@ Then run the SQL migration in `supabase/migrations/20260819_add_bot_state_store.
 
 If you keep using the anonymous key, set `SUPABASE_KEY` instead of
 `SUPABASE_SERVICE_ROLE_KEY` and ensure row-level access still allows your bot role.
+
+### Central ADM event-pipeline foundation
+
+For a larger customer base, apply `supabase/migrations/20260820_add_adm_event_pipeline.sql`
+after the state-store migration. It creates the durable source scheduler, parsed
+event store, online-player snapshots, and Discord delivery outbox used by the
+future central ADM collector. The migration intentionally stores only a Nitrado
+token fingerprint: customer Nitrado and FTP credentials must remain in encrypted
+worker configuration or deployment secrets, never in Supabase event rows.
