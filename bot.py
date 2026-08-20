@@ -1989,6 +1989,7 @@ async def get_or_create_feed_channel(
     private=False,
     force=False,
     repair_existing=False,
+    allow_existing_layout_create=False,
 ):
     channels = config.setdefault("channels", {})
     if is_channel_key_disabled(config, key) and not force:
@@ -2026,9 +2027,13 @@ async def get_or_create_feed_channel(
         channels.pop(key, None)
 
     # Owners who choose their own channel layout must map routes explicitly
-    # in Dashboard -> Feed Routing. Even a forced feed repair must not create
-    # or guess a channel in this mode.
-    if str(config.get("channel_delivery_mode") or "managed").lower() == "existing":
+    # in Dashboard -> Feed Routing. A normal feed repair must not create or
+    # guess a channel in this mode.  The only exception is an explicit owner
+    # request to create/restore that exact bot channel or channel pack.
+    if (
+        str(config.get("channel_delivery_mode") or "managed").lower() == "existing"
+        and not allow_existing_layout_create
+    ):
         return None
 
     if preferred_existing:
@@ -9670,7 +9675,14 @@ def format_channel_restore_packs():
     return "\n".join(lines)
 
 
-async def restore_disabled_bot_channels(guild, config, channel_key=None, channel_keys=None):
+async def restore_disabled_bot_channels(
+    guild,
+    config,
+    channel_key=None,
+    channel_keys=None,
+    create_missing=False,
+):
+    """Restore mapped bot channels, optionally creating explicitly requested ones."""
     disabled = list(disabled_channel_keys(config))
     if channel_key:
         resolved = resolve_channel_key(channel_key)
@@ -9706,6 +9718,7 @@ async def restore_disabled_bot_channels(guild, config, channel_key=None, channel
                 private=key in PRIVATE_FEED_CHANNEL_KEYS,
                 force=True,
                 repair_existing=True,
+                allow_existing_layout_create=create_missing,
             )
 
         if channel:
@@ -57542,11 +57555,12 @@ async def slash_leaderboard_create(interaction: discord.Interaction, server: str
         default_channel_name_for_config("leaderboards", config),
         force=True,
         repair_existing=True,
+        allow_existing_layout_create=True,
     )
     if not target:
         await interaction.followup.send(
-            "This server is set to use its existing Discord channel layout, so I won't create a new "
-            "channel. Use `/leaderboard setup` and choose the channel you want instead.",
+            "I couldn't create or repair the leaderboard channel. Check that I can manage channels "
+            "and try `/leaderboard create` again.",
             ephemeral=True,
         )
         return
@@ -60023,7 +60037,12 @@ async def slash_restorechannels(interaction: discord.Interaction, channel_key: s
 
     await interaction.response.defer(ephemeral=True)
     config = guild_configs.setdefault(str(interaction.guild.id), {"guild_name": interaction.guild.name, "channels": {}})
-    restored, error = await restore_disabled_bot_channels(interaction.guild, config, channel_key)
+    restored, error = await restore_disabled_bot_channels(
+        interaction.guild,
+        config,
+        channel_key,
+        create_missing=bool(channel_key),
+    )
     if error:
         await interaction.followup.send(error, ephemeral=True)
         return
@@ -60059,7 +60078,12 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
         await interaction.followup.send(f"Unknown channel pack `{pack_key}`.", ephemeral=True)
         return
 
-    restored, error = await restore_disabled_bot_channels(interaction.guild, config, channel_keys=keys)
+    restored, error = await restore_disabled_bot_channels(
+        interaction.guild,
+        config,
+        channel_keys=keys,
+        create_missing=True,
+    )
     if error:
         await interaction.followup.send(error, ephemeral=True)
         return
@@ -60071,7 +60095,7 @@ async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_c
         )
         return
     await interaction.followup.send(
-        f"Restored `{pack_key}` — {description}:\n" + "\n".join(restored[:30]),
+        f"Ready `{pack_key}` — {description}:\n" + "\n".join(restored[:30]),
         ephemeral=True
     )
 bot.tree.add_command(extra_tools_group)
