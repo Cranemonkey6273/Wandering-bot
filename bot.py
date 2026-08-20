@@ -43684,7 +43684,35 @@ def patch_cfgeffectarea_gas_particle(value, mode):
     return changed, matched, target
 
 
-def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path=""):
+def build_console_ce_event_files(
+    guild_id,
+    config,
+    events_path="",
+    spawns_path="",
+    spawnabletypes_path="",
+    scenario_events_override=None,
+    preserve_existing=False,
+    remove_managed_event_names=None,
+):
+    """Build a safe native-CE update.
+
+    ``preserve_existing`` is deliberately narrow: console shop deliveries are
+    ordinary Item events and must not rebuild unrelated airdrop/map-group
+    configuration.  That matters when a customer's unrelated map XML is
+    malformed: the paid delivery can still safely merge its own event and
+    position records, while the malformed file remains untouched.
+    """
+    preserve_existing = bool(preserve_existing)
+    override_events = (
+        [event for event in scenario_events_override if isinstance(event, dict)]
+        if isinstance(scenario_events_override, list)
+        else None
+    )
+    targeted_remove_names = {
+        str(name or "").strip()
+        for name in (remove_managed_event_names or [])
+        if str(name or "").strip()
+    }
     events_text, resolved_events_path, events_source = download_console_ce_source(config, guild_id, "events_path", events_path)
     spawns_text, resolved_spawns_path, spawns_source = download_console_ce_source(config, guild_id, "spawns_path", spawns_path)
     ce_map_key = infer_map_key_from_ce_paths(guild_id, resolved_events_path, resolved_spawns_path)
@@ -43741,10 +43769,23 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
     elif spawns_parse_warning:
         warnings.append(spawns_parse_warning)
 
-    removed_events = remove_wandering_ce_nodes(events_root)
-    removed_spawns = remove_wandering_ce_nodes(spawns_root)
-    removed_spawn_children = cleanup_wandering_marked_spawn_children(spawns_root)
-    allow_unowned_repairs = console_ce_allow_unowned_repairs(config)
+    if preserve_existing:
+        removed_events = 0
+        removed_spawns = 0
+        removed_spawn_children = 0
+        for root in (events_root, spawns_root):
+            for child in list(root):
+                if getattr(child, "tag", None) == "event" and str(child.get("name") or "").strip() in targeted_remove_names:
+                    root.remove(child)
+                    if root is events_root:
+                        removed_events += 1
+                    else:
+                        removed_spawns += 1
+    else:
+        removed_events = remove_wandering_ce_nodes(events_root)
+        removed_spawns = remove_wandering_ce_nodes(spawns_root)
+        removed_spawn_children = cleanup_wandering_marked_spawn_children(spawns_root)
+    allow_unowned_repairs = console_ce_allow_unowned_repairs(config) and not preserve_existing
     if allow_unowned_repairs:
         removed_revamp_events, removed_revamp_spawns, removed_revamp_names = cleanup_legacy_revamp_wooden_crate_events(
             events_root,
@@ -43807,11 +43848,25 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
         removed_stale_spawn_only, removed_stale_spawn_names = 0, []
 
     records = []
-    for event in native_ce_scenario_events(config):
+    for event in (override_events if override_events is not None else native_ce_scenario_events(config)):
         event_records, event_warnings = console_ce_records_for_event(event, map_key=ce_map_key)
         records.extend(event_records)
         warnings.extend(event_warnings)
     warnings.extend(apply_console_ce_scene_spawn_clearance(records, spawns_root))
+
+    # A retry may follow a partial FTP/API upload. Replace just the delivery's
+    # own records before adding them again, never the customer's whole managed
+    # CE set.
+    if preserve_existing:
+        replace_names = {
+            str(record.get("name") or "").strip()
+            for record in records
+            if str(record.get("name") or "").strip()
+        }
+        for root in (events_root, spawns_root):
+            for child in list(root):
+                if getattr(child, "tag", None) == "event" and str(child.get("name") or "").strip() in replace_names:
+                    root.remove(child)
 
     records_reusing_existing_definitions = [
         record for record in records
@@ -44053,7 +44108,9 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
 
     animal_records = [record for record in records if record.get("animal_territory")]
     zombie_records = [record for record in records if record.get("zombie_territory")]
-    should_cleanup_environment = bool(records) or native_ce_cleanup_is_explicitly_requested(config)
+    should_cleanup_environment = bool(animal_records) or (
+        native_ce_cleanup_is_explicitly_requested(config) and not preserve_existing
+    )
     if should_cleanup_environment:
         if not mission_base:
             output.setdefault("source_fallbacks", []).append(
@@ -44123,7 +44180,9 @@ def build_console_ce_event_files(guild_id, config, events_path="", spawns_path="
             f"removed `{removed_blocks}` old managed block(s) and `{removed_zones}` old managed zone(s)."
         )
 
-    should_cleanup_zombie_territories = bool(zombie_records) or native_ce_cleanup_is_explicitly_requested(config)
+    should_cleanup_zombie_territories = bool(zombie_records) or (
+        native_ce_cleanup_is_explicitly_requested(config) and not preserve_existing
+    )
     if should_cleanup_zombie_territories:
         zombie_text, resolved_zombie_path, zombie_source = download_console_zombie_territories_source(
             config,
@@ -45353,8 +45412,27 @@ def prune_stale_animal_territory_files(config, built):
     return deleted, failed
 
 
-def upload_console_ce_event_files(guild_id, config, events_path="", spawns_path="", spawnabletypes_path="", consume_restart=False):
-    built = build_console_ce_event_files(guild_id, config, events_path, spawns_path, spawnabletypes_path)
+def upload_console_ce_event_files(
+    guild_id,
+    config,
+    events_path="",
+    spawns_path="",
+    spawnabletypes_path="",
+    consume_restart=False,
+    scenario_events_override=None,
+    preserve_existing=False,
+    remove_managed_event_names=None,
+):
+    built = build_console_ce_event_files(
+        guild_id,
+        config,
+        events_path,
+        spawns_path,
+        spawnabletypes_path,
+        scenario_events_override=scenario_events_override,
+        preserve_existing=preserve_existing,
+        remove_managed_event_names=remove_managed_event_names,
+    )
     messages = list(built["messages"])
     validation_ok, validation_messages = validate_console_ce_xml_bundle(built)
     messages.extend(validation_messages)
@@ -46206,6 +46284,34 @@ def scenario_event_upload_needs_resolution(event):
     )
 
 
+def is_console_paid_shop_delivery_event(event):
+    """Return true only for a durable, terrain-height console shop order."""
+    return bool(
+        isinstance(event, dict)
+        and str(event.get("created_by") or "") == "shop_delivery"
+        and str(event.get("event_type") or "") == "shop_delivery"
+        and str(event.get("delivery_route") or "").strip().lower() == "native_xml_only"
+        and str(event.get("shop_order_id") or "").strip()
+    )
+
+
+def upload_console_paid_shop_delivery_events(guild_id, config, events):
+    """Merge paid ground deliveries without rebuilding unrelated CE map files."""
+    shop_events = [event for event in (events or []) if is_console_paid_shop_delivery_event(event)]
+    if not shop_events:
+        return False, {}, ["No eligible console shop delivery events were supplied."]
+    return upload_console_ce_event_files(
+        guild_id,
+        config,
+        "",
+        "",
+        "",
+        False,
+        scenario_events_override=shop_events,
+        preserve_existing=True,
+    )
+
+
 def remember_native_ce_upload_warning(event, warning, now_text=None):
     warnings = event.get("native_ce_upload_warnings")
     if not isinstance(warnings, list):
@@ -46401,6 +46507,7 @@ def mark_native_ce_source_required(config, event, messages, now_text):
 
 def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
     guild_id = str(guild_id)
+    targeted_shop_upload = False
     try:
         load_guild_configs()
         config = config_for_server_runtime(guild_id)
@@ -46508,14 +46615,24 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
                     "Native CE upload blocked: no explicit dashboard event create, edit, delete, or retry request is pending."
                 ],
             }
-        success, built, messages = upload_console_ce_event_files(
-            guild_id,
-            config,
-            "",
-            "",
-            "",
-            False,
+        targeted_shop_upload = bool(native_events) and all(
+            is_console_paid_shop_delivery_event(event) for event in native_events
         )
+        if targeted_shop_upload:
+            success, built, messages = upload_console_paid_shop_delivery_events(
+                guild_id,
+                config,
+                native_events,
+            )
+        else:
+            success, built, messages = upload_console_ce_event_files(
+                guild_id,
+                config,
+                "",
+                "",
+                "",
+                False,
+            )
     except Exception as error:
         success = False
         built = {}
@@ -46536,13 +46653,13 @@ def dashboard_upload_console_ce_event_files(guild_id, event_id=0):
     changed = False
     affected_events = []
     cleanup_pending = native_ce_cleanup_is_explicitly_requested(config)
-    if success and cleanup_pending:
+    if success and cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_pending"] = False
         config["scenario_events_cleanup_completed_at"] = now_text
         config.pop("scenario_events_cleanup_error", None)
         config.pop("scenario_events_native_ce_cleanup_requested_at", None)
         changed = True
-    elif cleanup_pending:
+    elif cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_error"] = status_text
         changed = True
     native_event_ids = {str(event.get("id") or "") for event in native_events if isinstance(event, dict)}
@@ -46807,6 +46924,32 @@ async def auto_push_scenario_events_xml(guild_id, config):
                 "Bridge XML uploaded to Nitrado. Event will spawn through the DayZ bridge after the next server restart."
                 if delivery_events
                 else "No live event XML upload was needed."
+            )
+
+        shop_delivery_events = [
+            event
+            for event in native_events
+            if is_console_paid_shop_delivery_event(event)
+            and not scenario_event_has_confirmed_native_upload(event)
+        ]
+        if shop_delivery_events:
+            upload_success, built, upload_messages = await asyncio.to_thread(
+                upload_console_paid_shop_delivery_events,
+                guild_id,
+                config,
+                shop_delivery_events,
+            )
+            if upload_success:
+                now_text = datetime.now(UTC).isoformat()
+                for event in shop_delivery_events:
+                    apply_native_ce_upload_metadata(event, built, upload_messages, now_text)
+                    event["updated_at"] = now_text
+                save_guild_configs_for_runtime(config)
+                return True, "✅ Shop delivery XML uploaded to Nitrado. It will appear after the next server restart."
+            last_msg = upload_messages[-1] if upload_messages else "no message"
+            return False, (
+                "⚠️ Shop delivery XML upload failed — the transaction will be rolled back. "
+                f"Reason: {last_msg}"
             )
 
         upload_success, built, upload_messages = await asyncio.to_thread(
@@ -50260,16 +50403,30 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         print(f"DASHBOARD SCENARIO BRIDGE UPLOAD {guild_id}: processed={len(bridge_events)}")
         return changed
 
+    shop_delivery_events = [
+        event for event in pending_events
+        if is_console_paid_shop_delivery_event(event)
+    ]
+    targeted_shop_upload = bool(shop_delivery_events)
+    events_to_update = shop_delivery_events if targeted_shop_upload else pending_events
     try:
-        upload_success, built, messages = await asyncio.to_thread(
-            upload_console_ce_event_files,
-            guild_id,
-            config,
-            "",
-            "",
-            "",
-            False,
-        )
+        if targeted_shop_upload:
+            upload_success, built, messages = await asyncio.to_thread(
+                upload_console_paid_shop_delivery_events,
+                guild_id,
+                config,
+                shop_delivery_events,
+            )
+        else:
+            upload_success, built, messages = await asyncio.to_thread(
+                upload_console_ce_event_files,
+                guild_id,
+                config,
+                "",
+                "",
+                "",
+                False,
+            )
         source_blocked = native_ce_upload_blocked_messages(messages)
         status_text = (
             f"Native CE XML uploaded to {built.get('events_path')} and {built.get('spawns_path')}"
@@ -50286,14 +50443,14 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
         status_text = f"Native CE XML upload failed: {type(ce_error).__name__}: {ce_error}"
 
     now_text = datetime.now(UTC).isoformat()
-    if upload_success and cleanup_pending:
+    if upload_success and cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_pending"] = False
         config["scenario_events_cleanup_completed_at"] = now_text
         config.pop("scenario_events_cleanup_error", None)
         config.pop("scenario_events_native_ce_cleanup_requested_at", None)
-    elif cleanup_pending:
+    elif cleanup_pending and not targeted_shop_upload:
         config["scenario_events_cleanup_error"] = status_text
-    for event in pending_events:
+    for event in events_to_update:
         attempts = int(event.get("upload_attempts") or 0) + 1
         event["upload_attempts"] = attempts
         event["updated_at"] = now_text
@@ -50310,7 +50467,7 @@ async def process_dashboard_scenario_xml_upload(guild_id, config):
             event["upload_error"] = status_text
             event["status"] = "Native CE XML upload failed"
     try:
-        queue_scenario_event_discord_notice(config, upload_success, built, messages, pending_events, "Dashboard worker")
+        queue_scenario_event_discord_notice(config, upload_success, built, messages, events_to_update, "Dashboard worker")
     except Exception as notice_error:
         messages.append(f"Discord notice queue skipped after upload state update: {type(notice_error).__name__}: {notice_error}")
     print(f"DASHBOARD SCENARIO NATIVE CE UPLOAD {guild_id}: success={upload_success} {status_text}")
