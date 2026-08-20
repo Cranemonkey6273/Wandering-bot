@@ -497,6 +497,36 @@ class AdmDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             bot.adm_rate_limit_backoff_until.clear()
             bot.adm_rate_limit_backoff_until.update(old_backoff)
 
+    def test_rpt_rate_limit_does_not_pause_the_adm_feed(self):
+        config = {
+            "nitrado_token": "rpt-token",
+            "service_id": "rpt-service",
+            "nitrado_user": "ni123",
+        }
+        old_adm_backoff = dict(bot.adm_rate_limit_backoff_until)
+        old_rpt_backoff = dict(bot.rpt_rate_limit_backoff_until)
+
+        class RateLimitedResponse:
+            status_code = 429
+            text = "Nitrado/Cloudflare rate limit"
+
+        try:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.rpt_rate_limit_backoff_until.clear()
+            with patch.object(bot, "pace_adm_nitrado_request"), patch.object(
+                bot.requests, "get", return_value=RateLimitedResponse()
+            ) as request_get, patch.dict(os.environ, {"WANDERING_RPT_RATE_LIMIT_BACKOFF_SECONDS": "600"}, clear=False):
+                self.assertEqual([], bot.list_rpt_logs(config))
+
+            self.assertEqual(1, request_get.call_count)
+            self.assertGreater(bot.active_rpt_rate_limit_backoff_until(config), time.time())
+            self.assertLessEqual(bot.active_adm_rate_limit_backoff_until("guild-a", config), time.time())
+        finally:
+            bot.adm_rate_limit_backoff_until.clear()
+            bot.adm_rate_limit_backoff_until.update(old_adm_backoff)
+            bot.rpt_rate_limit_backoff_until.clear()
+            bot.rpt_rate_limit_backoff_until.update(old_rpt_backoff)
+
     def test_rpt_parser_recognizes_native_wandering_bot_event_class_with_coordinates(self):
         _restarts, events = bot.parse_rpt_for_events(
             "12:00:00 [CE] Event spawned StaticWanderingBot_55_airdrop at <5000, 12, 6000>"

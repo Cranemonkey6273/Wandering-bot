@@ -8700,6 +8700,10 @@ CHANNEL_SETUP_PACKS = {
         "general_chat",
         "killfeed",
         "online",
+        # Leaderboards are a core community feature on every plan, including
+        # free installations. The hourly board uses the same ADM stats the
+        # bot already tracks for kills, connections and longshots.
+        "leaderboards",
         "help_channel",
     ],
     "live": list(CHANNEL_RESTORE_PACKS["live"]),
@@ -17050,6 +17054,50 @@ RPT_EVENT_PREFIXES = (
 )
 
 rpt_event_tracker = {}
+# RPT is an optional diagnostic feature. Its Nitrado/Cloudflare limit must
+# never pause the core ADM connection/kill feed for the same customer.
+rpt_rate_limit_backoff_until = {}
+
+
+def rpt_rate_limit_backoff_key(config):
+    config = config if isinstance(config, dict) else {}
+    service_id = str(config.get("service_id") or "").strip()
+    if service_id:
+        return f"service:{service_id}"
+    token = str(config.get("nitrado_token") or "").strip()
+    if token:
+        return f"token:{stable_line_hash(token)[:24]}"
+    return "unknown"
+
+
+def rpt_rate_limit_backoff_seconds():
+    try:
+        return max(60, min(3600, int(os.getenv("WANDERING_RPT_RATE_LIMIT_BACKOFF_SECONDS", "600"))))
+    except Exception:
+        return 600
+
+
+def active_rpt_rate_limit_backoff_until(config):
+    return float(rpt_rate_limit_backoff_until.get(rpt_rate_limit_backoff_key(config), 0) or 0)
+
+
+def set_rpt_rate_limit_backoff(config, *, stage="RPT"):
+    key = rpt_rate_limit_backoff_key(config)
+    seconds = rpt_rate_limit_backoff_seconds()
+    until = time.time() + seconds
+    rpt_rate_limit_backoff_until[key] = max(
+        float(rpt_rate_limit_backoff_until.get(key, 0) or 0),
+        until,
+    )
+    print(f"[RPT BACKOFF] {key}: {stage} paused for {seconds}s; ADM feeds remain active.")
+    return seconds
+
+
+def rpt_tracker_loop_minutes():
+    try:
+        return max(5, min(60, int(os.getenv("WANDERING_RPT_TRACKER_MINUTES", "10"))))
+    except Exception:
+        return 10
 
 
 def load_rpt_event_tracker():
@@ -17108,6 +17156,8 @@ def list_rpt_logs(config):
         if header_error:
             print(f"[RPT TRACKER] Nitrado auth error: {header_error}")
         return []
+    if active_rpt_rate_limit_backoff_until(config) > time.time():
+        return []
     matching = {}
     for search_path in nitrado_rpt_search_paths(config):
         try:
@@ -17123,7 +17173,10 @@ def list_rpt_logs(config):
                     "status": response.status_code,
                     "error": response.text[:300],
                 }):
-                    set_adm_rate_limit_backoff("", config)
+                    set_rpt_rate_limit_backoff(config, stage="list")
+                    # Cloudflare has already declined this service. Do not turn
+                    # one refusal into a burst across every candidate folder.
+                    break
                 continue
             entries = response.json().get("data", {}).get("entries", [])
             for entry in entries:
@@ -17163,7 +17216,7 @@ def fetch_latest_rpt_content(config):
                 "status": dl_resp.status_code,
                 "error": dl_resp.text[:300],
             }):
-                set_adm_rate_limit_backoff("", config)
+                set_rpt_rate_limit_backoff(config, stage="download token")
             return None, None, None
         token_url = dl_resp.json().get("data", {}).get("token", {}).get("url")
         if not token_url:
@@ -17175,7 +17228,7 @@ def fetch_latest_rpt_content(config):
                 "status": file_resp.status_code,
                 "error": file_resp.text[:300],
             }):
-                set_adm_rate_limit_backoff("", config)
+                set_rpt_rate_limit_backoff(config, stage="download file")
             return None, None, None
         text = file_resp.content.decode("utf-8", errors="replace")
         return latest.get("path"), latest.get("modified_at", ""), text
@@ -17798,6 +17851,11 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     if not guild:
         return "Guild not found."
 
+    rpt_backoff_until = active_rpt_rate_limit_backoff_until(config)
+    if rpt_backoff_until > time.time():
+        remaining = max(1, int(rpt_backoff_until - time.time()))
+        return f"RPT tracker cooling down for about {remaining}s after a Nitrado/Cloudflare limit; ADM feeds are unaffected."
+
     configured_channel_id = _safe_channel_id(config.get("channels", {}).get("rpt_admin"))
     state_channel_id = _safe_channel_id(state.get("channel_id"))
     channel_id = configured_channel_id or state_channel_id
@@ -17917,13 +17975,17 @@ async def refresh_rpt_event_tracker(guild_id, config, force_restart_post=False):
     return f"OK — {len(kept)} live event(s), restart={saw_new_restart}, restarts_total={state.get('restart_marker_count', 0)}"
 
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=rpt_tracker_loop_minutes())
 async def rpt_event_tracker_loop():
     for guild_id, config in active_adm_config_items():
         try:
             if not config.get("rpt_tracker_enabled", True):
                 continue
             if not config.get("nitrado_token") or not config.get("service_id"):
+                continue
+            if active_adm_rate_limit_backoff_until(guild_id, config) > time.time():
+                # Core feeds take priority; never spend an optional RPT request
+                # while this service is cooling down from an ADM API limit.
                 continue
             await refresh_rpt_event_tracker(guild_id, config)
             if await process_console_shop_object_delivery_cleanup(config):
