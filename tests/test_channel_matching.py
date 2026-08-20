@@ -1189,6 +1189,36 @@ class ChannelMatchingTests(unittest.TestCase):
         finally:
             bot.guild_configs = previous_configs
 
+    def test_server_profile_object_spawner_state_persists(self):
+        previous_configs = bot.guild_configs
+        try:
+            bot.guild_configs = {
+                "guild-a": {
+                    "guild_name": "Merged",
+                    "server_profiles": {
+                        "cherno": {
+                            "profile_name": "Wandering Around Cherno",
+                            "server_map": "chernarus",
+                            "channels": {},
+                        },
+                    },
+                }
+            }
+
+            config = bot.config_for_server_runtime("guild-a:cherno")
+            config["console_object_spawner"] = {
+                "enabled": True,
+                "object_path": "/dayzxb_missions/dayzOffline.chernarusplus/custom/WanderingBotObjects.json",
+                "objects": [{"id": 4, "name": "Hacksaw"}],
+            }
+
+            self.assertTrue(bot.persist_server_profile_runtime_config(config))
+            persisted = bot.guild_configs["guild-a"]["server_profiles"]["cherno"]["console_object_spawner"]
+            self.assertTrue(persisted["enabled"])
+            self.assertEqual("Hacksaw", persisted["objects"][0]["name"])
+        finally:
+            bot.guild_configs = previous_configs
+
     def test_base_dashboard_scenario_event_migrates_to_matching_profile(self):
         config = {
             "guild_name": "Merged",

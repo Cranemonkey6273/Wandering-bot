@@ -107,6 +107,24 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertEqual("", bot.shop_delivery_size_error(allowed))
         self.assertIn("safe maximum", bot.shop_delivery_size_error(oversized))
 
+    def test_shop_bundle_expands_legacy_text_rows_into_real_classnames(self):
+        bundle = {
+            "type": "bundle",
+            "bundle_items": ["2x Hacksaw", "SharpeningStone, 3"],
+        }
+
+        self.assertEqual(
+            {"Hacksaw": 4, "SharpeningStone": 6},
+            bot.shop_delivery_item_counts("Tool Starter Kit", bundle, 2),
+        )
+
+    def test_empty_bundle_is_rejected_before_any_charge(self):
+        bundle = {"type": "bundle", "bundle_items": []}
+
+        counts = bot.shop_delivery_item_counts("Empty Kit", bundle, 1)
+        self.assertEqual({}, counts)
+        self.assertIn("no valid delivery items", bot.shop_delivery_size_error(counts))
+
     def test_single_server_autocomplete_returns_only_server(self):
         class Guild:
             id = 987654321
@@ -705,6 +723,53 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         order_payload = __import__("json").loads(uploads[2][1])
         self.assertEqual("Hacksaw", order_payload["Objects"][0]["name"])
         self.assertEqual([8194.0, 42.5, 9092.0], order_payload["Objects"][0]["pos"])
+
+    def test_exact_height_bundle_writes_every_expanded_item_to_object_spawner(self):
+        guild_id = "987650008"
+        config = {"server_map": "chernarus", "server_platform": "xbox"}
+        live_path = "/dayzxb_missions/dayzOffline.chernarusplus/cfggameplay.json"
+        live_cfg = '{"version":129,"WorldsData":{"objectSpawnersArr":[]}}'
+        uploads = []
+
+        def upload(_config, path, content):
+            uploads.append((path, content))
+            return True, "uploaded"
+
+        bot.guild_configs[guild_id] = config
+        try:
+            with (
+                patch.object(
+                    bot,
+                    "download_live_cfggameplay_source",
+                    return_value=(True, "verified live", live_cfg, live_path),
+                ),
+                patch.object(bot, "upload_text_file_to_nitrado", side_effect=upload),
+                patch.object(bot, "save_guild_configs_for_runtime"),
+            ):
+                ok, route, message = asyncio.run(
+                    bot.route_console_shop_delivery(
+                        guild_id,
+                        config,
+                        {"Hacksaw": 1, "SharpeningStone": 2},
+                        8194,
+                        9092,
+                        True,
+                        42.5,
+                        "order-tool-kit",
+                        "Player",
+                        "123",
+                    )
+                )
+        finally:
+            bot.guild_configs.pop(guild_id, None)
+
+        self.assertTrue(ok, message)
+        self.assertEqual("Object Spawner JSON (exact Y)", route)
+        self.assertIn("Verified 3 object(s)", message)
+        order_payload = __import__("json").loads(uploads[-1][1])
+        self.assertEqual(["Hacksaw", "SharpeningStone", "SharpeningStone"], [
+            row["name"] for row in order_payload["Objects"]
+        ])
 
     def test_exact_height_purchase_revalidates_saved_ready_state_against_live_cfg(self):
         guild_id = "987650005"

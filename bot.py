@@ -1157,6 +1157,10 @@ SERVER_PROFILE_PERSIST_KEYS = (
     "schedule_reminder_sent_markers",
     "schedule_reminders_enabled",
     "safe_zone_offenses",
+    # Exact-height console purchases keep their pending Object Spawner source
+    # here.  This must follow the selected server profile; otherwise a normal
+    # reload/deploy makes the next write start with an empty object list.
+    "console_object_spawner",
     "scenario_event_discord_notice_last_signature",
     "scenario_event_discord_notice_last_ts",
     "scenario_event_discord_notices",
@@ -37438,13 +37442,30 @@ def shop_bundle_items(item_config):
         return []
     rows = []
     for raw in item_config.get("bundle_items", []):
-        if not isinstance(raw, dict):
-            continue
-        item_name = str(raw.get("item") or raw.get("name") or "").strip()
-        try:
-            quantity = int(raw.get("quantity", 1) or 1)
-        except (TypeError, ValueError):
-            quantity = 1
+        if isinstance(raw, dict):
+            item_name = str(raw.get("item") or raw.get("name") or "").strip()
+            try:
+                quantity = int(raw.get("quantity", 1) or 1)
+            except (TypeError, ValueError):
+                quantity = 1
+        else:
+            # Early dashboard releases stored bundle rows as text.  Continue
+            # accepting those records so a valid legacy kit expands into its
+            # actual DayZ classes rather than falling through as a fake item.
+            text = str(raw or "").strip()
+            if not text or text.startswith("..."):
+                continue
+            match = re.match(
+                r"^(?:(\d+)\s*[xX×]\s*)?([A-Za-z0-9_]+)(?:\s*(?:[,xX×:]|\s)\s*(\d+))?$",
+                text,
+            )
+            if not match:
+                continue
+            item_name = str(match.group(2) or "").strip()
+            try:
+                quantity = int(match.group(1) or match.group(3) or 1)
+            except (TypeError, ValueError):
+                quantity = 1
         quantity = max(1, min(999, quantity))
         if item_name:
             rows.append({"item": item_name, "quantity": quantity})
@@ -49354,8 +49375,9 @@ async def shop(ctx, server: str = ""):
 def shop_delivery_item_counts(item_name, item_config, quantity):
     """Expand a shop item or bundle into classname -> total quantity."""
     counts = defaultdict(int)
+    is_bundle = isinstance(item_config, dict) and str(item_config.get("type") or "").lower() == "bundle"
     bundle_items = shop_bundle_items(item_config)
-    if bundle_items:
+    if is_bundle:
         for row in bundle_items:
             counts[str(row["item"])] += max(1, safe_int(row.get("quantity"), 1)) * quantity
     else:
@@ -49366,6 +49388,8 @@ def shop_delivery_item_counts(item_name, item_config, quantity):
 def shop_delivery_size_error(item_counts):
     """Reject an expanded order before charging if it is unsafe to deliver."""
     total_items = sum(max(0, safe_int(count, 0)) for count in (item_counts or {}).values())
+    if total_items <= 0:
+        return "This bundle has no valid delivery items configured. Ask a server admin to update the bundle; no balance was charged."
     if total_items > MAX_SHOP_DELIVERY_ITEMS_PER_ORDER:
         return (
             f"That order expands to {total_items} spawned items. The safe maximum is "
@@ -49468,6 +49492,10 @@ async def _route_console_shop_delivery_unlocked(
     discord_id,
 ):
     """Write a paid console order through the supported DayZ file route."""
+    delivery_input_error = shop_delivery_size_error(item_counts)
+    if delivery_input_error:
+        return False, "Console shop delivery", f"{delivery_input_error} No shop balance was charged."
+
     if not y_supplied:
         created_events = create_console_shop_delivery_events(
             config, item_counts, x_value, z_value, order_id, player, discord_id
@@ -49516,6 +49544,7 @@ async def _route_console_shop_delivery_unlocked(
     settings = console_object_spawner_config(config)
 
     original_objects = copy.deepcopy(settings.get("objects", []))
+    created_objects = []
     now_text = datetime.now(UTC).isoformat()
     next_id = next_console_object_id(settings)
     for class_name, total_count in item_counts.items():
@@ -49544,8 +49573,17 @@ async def _route_console_shop_delivery_unlocked(
                 "shop_delivery_discord_id": str(discord_id),
             })
             settings["objects"].append(record)
+            created_objects.append(record)
+
+    if not created_objects:
+        settings["objects"] = original_objects
+        return False, "Object Spawner JSON (exact Y)", "The bundle did not expand into any valid DayZ objects. No shop balance was charged."
 
     target_path = str(settings.get("object_path") or CONSOLE_OBJECT_SPAWNER_PATH)
+    print(
+        f"[CONSOLE SHOP DELIVERY] {guild_id}: staging {len(created_objects)} exact-height Object Spawner "
+        f"object(s) at {target_path}."
+    )
     upload_ok, upload_message = await asyncio.to_thread(
         upload_text_file_to_nitrado,
         config,
@@ -49559,7 +49597,14 @@ async def _route_console_shop_delivery_unlocked(
     settings["last_shop_delivery_upload_at"] = now_text
     settings["last_shop_delivery_order_id"] = str(order_id)
     save_guild_configs_for_runtime(config)
-    return True, "Object Spawner JSON (exact Y)", str(upload_message or "Object Spawner JSON uploaded")
+    print(
+        f"[CONSOLE SHOP DELIVERY] {guild_id}: verified {len(created_objects)} exact-height Object Spawner "
+        f"object(s) at {target_path}."
+    )
+    return True, "Object Spawner JSON (exact Y)", (
+        f"Verified {len(created_objects)} object(s) in {target_path}. "
+        f"{str(upload_message or 'Object Spawner JSON uploaded')}"
+    )
 
 
 async def route_console_shop_delivery(
@@ -49625,8 +49670,8 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
         await ctx.send(error)
         return
 
+    is_bundle = str(item_config.get("type") or "").lower() == "bundle"
     bundle_items = shop_bundle_items(item_config)
-    is_bundle = bool(bundle_items)
 
     if not is_bundle and not is_shop_sellable_item(item_name, item_config.get("category")):
         await ctx.send("That class is not allowed in the player shop.")
@@ -49638,6 +49683,9 @@ async def buy(ctx, item_name: str, x: str, z: str, quantity: int = 1, server: st
         return
 
     if is_bundle:
+        if not bundle_items:
+            await ctx.send("That bundle has no valid DayZ items configured. The order was not charged; a server admin needs to update the bundle.")
+            return
         invalid_items = [row["item"] for row in bundle_items if not is_shop_sellable_item(row["item"], "")]
         if invalid_items:
             await ctx.send("That bundle contains a class that is not allowed in the player shop.")
