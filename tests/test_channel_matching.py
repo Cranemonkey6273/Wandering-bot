@@ -1701,6 +1701,7 @@ class ChannelMatchingTests(unittest.TestCase):
 
         self.assertEqual("", error)
         self.assertIn("killfeed", keys)
+        self.assertIn("leaderboards", keys)
         self.assertIn("help_channel", keys)
         self.assertNotIn("pve_quests", keys)
         self.assertLess(len(keys), 15)
@@ -1722,6 +1723,7 @@ class ChannelMatchingTests(unittest.TestCase):
         ultimate = bot.channel_setup_tier_keys({"dashboard": {"tier": "dashboard_ultimate"}})
 
         self.assertIn("killfeed", free)
+        self.assertIn("leaderboards", free)
         self.assertNotIn("pve_quests", free)
         self.assertIn("pve_quests", ultimate)
         self.assertGreater(len(ultimate), len(free))

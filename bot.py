@@ -8700,6 +8700,10 @@ CHANNEL_SETUP_PACKS = {
         "general_chat",
         "killfeed",
         "online",
+        # Leaderboards are a core community feature on every plan, including
+        # free installations. The hourly board uses the same ADM stats the
+        # bot already tracks for kills, connections and longshots.
+        "leaderboards",
         "help_channel",
     ],
     "live": list(CHANNEL_RESTORE_PACKS["live"]),
