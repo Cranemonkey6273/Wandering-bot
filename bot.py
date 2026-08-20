@@ -8792,7 +8792,10 @@ CHANNEL_SUBSCRIPTION_TIER_ALIASES = {
     "dashboard_ai": "dashboard_ai",
     "ultimate": "dashboard_ultimate",
     "dashboard_ultimate": "dashboard_ultimate",
-    "owner": "owner",
+    # The private owner tier uses the same customer-facing choice as
+    # Ultimate. It must never be advertised as a public "every channel"
+    # option in a customer command menu.
+    "owner": "dashboard_ultimate",
 }
 
 CHANNEL_SUBSCRIPTION_TIER_LABELS = {
@@ -8800,7 +8803,6 @@ CHANNEL_SUBSCRIPTION_TIER_LABELS = {
     "dashboard": "Basic",
     "dashboard_ai": "Pro",
     "dashboard_ultimate": "Ultimate",
-    "owner": "Owner",
 }
 
 
@@ -60113,7 +60115,6 @@ async def slash_restorechannels(interaction: discord.Interaction, channel_key: s
     app_commands.Choice(name="Basic — channels included with Basic", value="dashboard"),
     app_commands.Choice(name="Pro — channels included with Pro", value="dashboard_ai"),
     app_commands.Choice(name="Ultimate — every included channel", value="dashboard_ultimate"),
-    app_commands.Choice(name="Owner — every channel", value="owner"),
 ])
 async def slash_restorechannelpack(interaction: discord.Interaction, pack: app_commands.Choice[str]):
     if not has_interaction_admin_power(interaction):
