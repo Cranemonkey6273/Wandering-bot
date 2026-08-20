@@ -338,6 +338,104 @@ class ShopDeliveryRoutingTests(unittest.TestCase):
         self.assertTrue(config["scenario_events_cleanup_pending"])
         self.assertTrue(config["scenario_events_native_ce_cleanup_requested_at"])
 
+    def test_completed_paid_console_delivery_queues_two_file_cleanup_not_generic_cleanup(self):
+        config = {
+            "scenario_events": [{
+                "id": 2,
+                "created_by": "shop_delivery",
+                "event_type": "shop_delivery",
+                "delivery_route": "native_xml_only",
+                "shop_order_id": "paid-order-cleanup",
+                "enabled": True,
+                "permanent": False,
+                "remaining_restarts": 1,
+                "native_ce_uploaded_at": "2026-08-11T12:00:00+00:00",
+                "native_ce_events_path": "/mission/db/events.xml",
+                "native_ce_spawns_path": "/mission/cfgeventspawns.xml",
+                "native_ce_managed_event_names": ["ItemWanderingBot_2_paid_order_cleanup"],
+            }]
+        }
+
+        self.assertTrue(bot.mark_one_time_scenario_events_uploaded(config, require_native_upload=True))
+        self.assertEqual([], config["scenario_events"])
+        self.assertNotIn("scenario_events_cleanup_pending", config)
+        queued = config["console_shop_delivery_ce_cleanup"]
+        self.assertEqual(["ItemWanderingBot_2_paid_order_cleanup"], queued[0]["managed_event_names"])
+
+    def test_paid_console_delivery_cleanup_uses_only_the_two_saved_ce_files(self):
+        config = {
+            "console_shop_delivery_ce_cleanup": [{
+                "event_id": "2",
+                "managed_event_names": ["ItemWanderingBot_2_paid_order_cleanup"],
+                "events_path": "/mission/db/events.xml",
+                "spawns_path": "/mission/cfgeventspawns.xml",
+            }]
+        }
+        with patch.object(bot, "upload_console_ce_event_files", return_value=(True, {
+            "events_path": "/mission/db/events.xml",
+            "spawns_path": "/mission/cfgeventspawns.xml",
+        }, [])) as upload:
+            changed = asyncio.run(bot.process_console_paid_shop_delivery_cleanup("guild-1", config))
+
+        self.assertTrue(changed)
+        self.assertEqual([], config["console_shop_delivery_ce_cleanup"])
+        self.assertEqual(
+            ["guild-1", config, "/mission/db/events.xml", "/mission/cfgeventspawns.xml", "", False],
+            list(upload.call_args.args),
+        )
+        self.assertEqual([], upload.call_args.kwargs["scenario_events_override"])
+        self.assertTrue(upload.call_args.kwargs["preserve_existing"])
+        self.assertEqual(["ItemWanderingBot_2_paid_order_cleanup"], upload.call_args.kwargs["remove_managed_event_names"])
+
+    def test_paid_console_delivery_cleanup_preserves_unowned_ce_records(self):
+        requested_sources = []
+
+        def source(_config, _guild_id, key, _default_path=""):
+            requested_sources.append(key)
+            if key == "events_path":
+                return (
+                    '<events><event name="CommunityAirDrop" /><event name="ItemWanderingBot_2_paid_order_cleanup" /></events>',
+                    "/mission/db/events.xml",
+                    "events live",
+                )
+            if key == "spawns_path":
+                return (
+                    '<eventposdef><event name="CommunityAirDrop"><pos x="1" z="2" /></event>'
+                    '<event name="ItemWanderingBot_2_paid_order_cleanup"><pos x="3" z="4" /></event></eventposdef>',
+                    "/mission/cfgeventspawns.xml",
+                    "spawns live",
+                )
+            raise AssertionError(f"shop cleanup must not read unrelated source {key}")
+
+        with patch.object(bot, "download_console_ce_source", side_effect=source):
+            built = bot.build_console_ce_event_files(
+                "guild-1",
+                {},
+                scenario_events_override=[],
+                preserve_existing=True,
+                remove_managed_event_names=["ItemWanderingBot_2_paid_order_cleanup"],
+            )
+
+        self.assertEqual(["events_path", "spawns_path"], requested_sources)
+        self.assertIn('name="CommunityAirDrop"', built["events_text"])
+        self.assertNotIn('name="ItemWanderingBot_2_paid_order_cleanup"', built["events_text"])
+        self.assertIn('name="CommunityAirDrop"', built["spawns_text"])
+        self.assertNotIn('name="ItemWanderingBot_2_paid_order_cleanup"', built["spawns_text"])
+        self.assertFalse(built["mapgroupproto_text"])
+
+    def test_failed_generic_cleanup_is_paused_after_one_attempt(self):
+        config = {
+            "scenario_events": [],
+            "scenario_events_cleanup_pending": True,
+            "scenario_events_native_ce_cleanup_requested_at": "2026-08-11T12:00:00+00:00",
+        }
+        with patch.object(bot, "upload_console_ce_event_files", return_value=(False, {}, ["Nitrado temporary failure"])) as upload:
+            self.assertTrue(asyncio.run(bot.process_dashboard_scenario_xml_upload("guild-1", config)))
+            self.assertFalse(asyncio.run(bot.process_dashboard_scenario_xml_upload("guild-1", config)))
+
+        self.assertEqual(1, upload.call_count)
+        self.assertTrue(config["scenario_events_cleanup_blocked_at"])
+
     def test_exact_height_object_is_cleaned_from_source_after_restart(self):
         config = {
             "console_object_spawner": {
