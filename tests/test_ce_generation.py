@@ -4086,6 +4086,56 @@ class CeUploadAuthorizationAndBackupTests(unittest.TestCase):
 
         self.assertEqual([], upload_calls)
 
+    def test_vehicle_reset_queue_pass_runs_before_slow_server_work(self):
+        first_config = {"restart_interval_hours": 4, "restart_start_hour": 0}
+        second_config = {"restart_interval_hours": 4, "restart_start_hour": 0}
+        calls = []
+
+        async def no_results(*_args, **_kwargs):
+            return []
+
+        async def process_cfgignorelist(guild_id, *_args, **_kwargs):
+            calls.append(f"cfgignorelist:{guild_id}")
+            return [(True, "prepared")]
+
+        async def no_dashboard_upload(*_args, **_kwargs):
+            return False
+
+        async def inline_to_thread(function, *args, **kwargs):
+            return function(*args, **kwargs)
+
+        def queue_reset(guild_id, _config, _now):
+            calls.append(f"queue:{guild_id}")
+            if guild_id == "guild-second":
+                return {
+                    "event_type": "vehicle_reset_all",
+                    "reset_method": "cfgignorelist",
+                    "created_by": "dashboard_vehicle_reset_schedule",
+                }
+            return None
+
+        def slow_damage(guild_id, _config, _now):
+            calls.append(f"damage:{guild_id}")
+            return []
+
+        with patch.object(bot, "active_adm_config_items", return_value=[
+            ("guild-first", first_config),
+            ("guild-second", second_config),
+        ]), \
+             patch.object(bot, "mark_server_control_scheduler_status", return_value=False), \
+             patch.object(bot, "queue_due_vehicle_reset_schedule", side_effect=queue_reset), \
+             patch.object(bot, "apply_due_damage_schedule", side_effect=slow_damage), \
+             patch.object(bot, "process_cfgignorelist_vehicle_reset_events", new=process_cfgignorelist), \
+             patch.object(bot, "process_economy_vehicle_reset_events", new=no_results), \
+             patch.object(bot, "process_dashboard_scenario_xml_upload", new=no_dashboard_upload), \
+             patch.object(bot, "_restart_schedule_matches", return_value=False), \
+             patch.object(bot.asyncio, "to_thread", new=inline_to_thread):
+            asyncio.run(bot.restart_delivery_processor())
+
+        self.assertLess(calls.index("queue:guild-first"), calls.index("damage:guild-first"))
+        self.assertLess(calls.index("queue:guild-second"), calls.index("damage:guild-first"))
+        self.assertLess(calls.index("cfgignorelist:guild-second"), calls.index("damage:guild-first"))
+
     def test_bridge_upload_does_not_queue_native_ce_cleanup(self):
         config = {}
         event = {"id": 1, "event_type": "airdrop"}
