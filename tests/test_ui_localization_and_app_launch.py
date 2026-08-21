@@ -152,6 +152,21 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
             self.assertNotIn("Wandering Bot is now live on Google Play", template)
             self.assertNotIn("Get it on Google Play", template)
 
+    def test_dashboard_map_atmosphere_assets_are_served_for_all_supported_maps(self):
+        """The command-centre backdrop must not silently fall back to a flat theme."""
+        with dashboard.APP.test_client() as client:
+            for map_key in ("chernarus", "livonia", "sakhal"):
+                response = client.get(f"/dashboard-atmosphere/{map_key}")
+                try:
+                    self.assertEqual(200, response.status_code, map_key)
+                    self.assertIn("image/png", response.content_type, map_key)
+                    self.assertGreater(len(response.data), 50_000, map_key)
+                finally:
+                    response.close()
+
+        self.assertIn("/dashboard-atmosphere/{{ server.map_key }}", dashboard.PAGE_TEMPLATE)
+        self.assertIn('document.body.dataset.section === "reviews"', dashboard.PAGE_TEMPLATE)
+
     def test_dayz_app_has_a_public_search_page_and_google_play_schema(self):
         page = dashboard.PUBLIC_SEO_PAGES["dayz-server-app"]
 

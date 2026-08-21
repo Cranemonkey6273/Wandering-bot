@@ -102,6 +102,11 @@ MAP_IMAGE_FILES = {
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_FILE", os.path.join(APP_ROOT, "livonia_map.jpg")),
     "sakhal": os.getenv("WANDERING_SAKHAL_MAP_FILE", os.path.join(APP_ROOT, "sakhal_map.webp")),
 }
+DASHBOARD_ATMOSPHERE_IMAGE_FILES = {
+    "chernarus": os.path.join(APP_ROOT, "dashboard_assets", "chernarus-atmosphere.png"),
+    "livonia": os.path.join(APP_ROOT, "dashboard_assets", "livonia-atmosphere.png"),
+    "sakhal": os.path.join(APP_ROOT, "dashboard_assets", "sakhal-atmosphere.png"),
+}
 DEFAULT_MAP_IMAGE_SOURCES = {
     "chernarus": os.getenv("WANDERING_CHERNARUS_MAP_URL", "https://i.redd.it/a2mn8bzx93gd1.jpeg"),
     "livonia": os.getenv("WANDERING_LIVONIA_MAP_URL", "https://i.imgur.com/nzEp9wF.jpeg"),
@@ -7550,6 +7555,200 @@ PAGE_TEMPLATE = """
       .command-top-nav summary { min-height: 2.35rem; padding: .5rem .65rem; }
       .command-top-nav .nav-menu { top: 9.8rem; }
     }
+
+    /* The command centre is intentionally a different shell to the marketing
+       site: the active map supplies atmosphere, while live controls stay
+       readable on the glass panels above it. */
+    @keyframes dashboard-mist-drift {
+      0%, 100% { transform: translate3d(-3%, 0, 0) scale(1.04); opacity: .25; }
+      50% { transform: translate3d(3%, -1.5%, 0) scale(1.1); opacity: .38; }
+    }
+    @keyframes dashboard-snowfall {
+      from { background-position: 0 0, 28px -48px, 0 0; }
+      to { background-position: 42px 170px, -18px 104px, 0 0; }
+    }
+    body[data-theme="command"] {
+      --sidebar-w: 15.75rem;
+      --dashboard-map-image: linear-gradient(135deg, #0b1d21, #071014);
+      background:
+        linear-gradient(90deg, rgba(1, 8, 10, .94) 0%, rgba(3, 11, 14, .80) 38%, rgba(3, 10, 13, .62) 100%),
+        linear-gradient(180deg, rgba(2, 8, 10, .25), rgba(1, 6, 8, .88)),
+        var(--dashboard-map-image) center / cover fixed,
+        #03070a;
+    }
+    body[data-theme="command"]::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: .32;
+      background:
+        radial-gradient(ellipse 66% 24% at 72% 26%, rgba(181, 224, 223, .24), transparent 72%),
+        radial-gradient(ellipse 54% 19% at 48% 78%, rgba(124, 194, 188, .15), transparent 70%);
+      filter: blur(18px);
+      animation: dashboard-mist-drift 18s ease-in-out infinite;
+    }
+    body[data-theme="command"][data-map-key="sakhal"]::after {
+      opacity: .52;
+      filter: none;
+      background-image:
+        radial-gradient(circle, rgba(242, 251, 255, .88) 0 1px, transparent 1.7px),
+        radial-gradient(circle, rgba(225, 245, 255, .63) 0 1px, transparent 1.5px),
+        linear-gradient(180deg, rgba(170, 214, 255, .10), transparent 58%);
+      background-size: 72px 94px, 118px 126px, 100% 100%;
+      animation: dashboard-snowfall 10s linear infinite;
+    }
+    body[data-theme="command"] main { position: relative; z-index: 1; max-width: 118rem; padding: 1.15rem clamp(1rem, 2.4vw, 2.6rem) 3.5rem; }
+    body[data-theme="command"] header {
+      z-index: 8;
+      min-height: 4.2rem;
+      background: linear-gradient(90deg, rgba(3, 12, 15, .92), rgba(4, 14, 18, .65));
+      border-bottom-color: rgba(170, 241, 236, .15);
+    }
+    body[data-theme="command"] .command-sidebar {
+      z-index: 9;
+      width: var(--sidebar-w);
+      padding: 1rem .82rem .9rem;
+      border-right-color: rgba(170, 241, 236, .18);
+      background:
+        linear-gradient(180deg, rgba(2, 12, 16, .96) 0%, rgba(4, 18, 22, .93) 42%, rgba(1, 8, 10, .98) 100%),
+        var(--dashboard-map-image) center / cover;
+    }
+    body[data-theme="command"] .command-sidebar::after {
+      content: "";
+      position: absolute;
+      right: 0;
+      bottom: 18%;
+      left: 0;
+      height: 10rem;
+      pointer-events: none;
+      background: linear-gradient(180deg, transparent, rgba(115, 225, 216, .06));
+    }
+    .command-logo { position: relative; z-index: 1; gap: .64rem; margin-bottom: .78rem; }
+    .command-logo-frame {
+      min-height: 8.6rem;
+      aspect-ratio: 16 / 8.7;
+      border-radius: .9rem;
+      border-color: rgba(194, 249, 244, .45);
+      background:
+        linear-gradient(135deg, rgba(1, 11, 14, .16), rgba(1, 11, 14, .72)),
+        var(--dashboard-map-image) center / cover;
+      box-shadow: 0 1.2rem 2.4rem rgba(0, 0, 0, .42), inset 0 1px 0 rgba(255, 255, 255, .10);
+    }
+    .command-logo-mark {
+      position: absolute;
+      z-index: 2;
+      top: .58rem;
+      left: .58rem;
+      width: 2.65rem;
+      height: 2.65rem;
+      object-fit: cover;
+      border: 1px solid rgba(206, 255, 250, .7);
+      border-radius: .6rem;
+      background: #071114;
+      box-shadow: 0 .55rem 1.3rem rgba(0, 0, 0, .42);
+    }
+    .command-logo-character { position: absolute; inset: auto .55rem -.15rem auto; width: 7.3rem; height: 8.2rem; padding: 0; filter: drop-shadow(0 16px 16px rgba(0, 0, 0, .55)); }
+    .command-logo strong { color: #f2fdfd; font-size: 1.04rem; letter-spacing: .035em; text-transform: uppercase; }
+    .command-logo small { line-height: 1.35; }
+    .command-side-nav, .command-quick { position: relative; z-index: 1; }
+    .command-side-nav { gap: .34rem; }
+    .command-side-nav a, .command-quick a {
+      min-height: 2.42rem;
+      border-color: rgba(161, 237, 231, .08);
+      border-radius: .58rem;
+      background: rgba(8, 25, 30, .44);
+      color: #c5d9db;
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+    .command-side-nav a:hover, .command-side-nav a.active, .command-quick a:hover {
+      transform: translateX(2px);
+      border-color: rgba(255, 181, 93, .74);
+      background: linear-gradient(90deg, rgba(255, 159, 67, .28), rgba(25, 83, 87, .46));
+    }
+    .command-quick { background: linear-gradient(180deg, transparent, rgba(2, 11, 13, .45)); }
+    body[data-theme="command"] .google-play-launch {
+      min-height: 0;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      padding: .72rem .86rem;
+      border-radius: .85rem;
+      background: linear-gradient(90deg, rgba(12, 50, 37, .88), rgba(4, 18, 23, .82));
+      box-shadow: 0 .8rem 2rem rgba(0, 0, 0, .18);
+    }
+    body[data-theme="command"] .google-play-launch__copy strong { font-size: .95rem; }
+    body[data-theme="command"] .google-play-launch__copy span { font-size: .78rem; }
+    body[data-theme="command"] .google-play-launch__button { min-height: 2.5rem; padding: .52rem .72rem; font-size: .78rem; }
+    body[data-theme="command"] .hero {
+      min-height: 12.2rem;
+      padding: clamp(1.15rem, 2.8vw, 2.3rem);
+      border-color: rgba(172, 241, 236, .25);
+      border-radius: 1rem;
+      overflow: hidden;
+      background:
+        linear-gradient(92deg, rgba(2, 12, 15, .94) 0%, rgba(3, 14, 18, .80) 45%, rgba(2, 11, 14, .27) 100%),
+        var(--dashboard-map-image) center 48% / cover;
+      box-shadow: 0 1.3rem 3.2rem rgba(0, 0, 0, .36), inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+    body[data-theme="command"] .hero::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(circle at 85% 22%, rgba(255, 180, 91, .20), transparent 26%);
+    }
+    body[data-theme="command"] .hero > * { position: relative; z-index: 1; }
+    body[data-theme="command"] .command-title-mark { margin-bottom: .28rem; font-size: .8rem; letter-spacing: .13em; }
+    body[data-theme="command"] .hero h1 { max-width: 46rem; font-size: clamp(1.25rem, 2.2vw, 2rem); letter-spacing: .055em; }
+    body[data-theme="command"] .hero .muted { max-width: 52rem; font-size: .9rem; line-height: 1.48; }
+    body[data-theme="command"] .hero > img { width: 5.35rem; height: 5.35rem; border-radius: .85rem; }
+    body[data-theme="command"] .command-metrics { gap: .8rem; }
+    .command-metric {
+      min-height: 6.2rem;
+      border-radius: .82rem;
+      background: linear-gradient(155deg, rgba(14, 36, 42, .90), rgba(4, 15, 19, .94));
+      box-shadow: 0 .9rem 2.2rem rgba(0, 0, 0, .25), inset 0 1px 0 rgba(255, 255, 255, .06);
+    }
+    body[data-theme="command"] .section-panel,
+    body[data-theme="command"] .card,
+    body[data-theme="command"] .admin-panel,
+    body[data-theme="command"] .wide,
+    body[data-theme="command"] .command-card {
+      border-color: rgba(174, 241, 236, .17);
+      border-radius: .88rem;
+      background: linear-gradient(145deg, rgba(8, 24, 29, .92), rgba(4, 13, 17, .93));
+      box-shadow: 0 1.1rem 2.8rem rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .045);
+      backdrop-filter: blur(10px);
+    }
+    body[data-theme="command"] .admin-panel::before, .command-card::before { height: .14rem; opacity: .94; }
+    body[data-theme="command"][data-map-key="livonia"] { --accent: #9ee38d; --orange: #e8c56f; --orange-line: rgba(232, 197, 111, .44); }
+    body[data-theme="command"][data-map-key="sakhal"] { --accent: #a3e5ff; --orange: #ccecff; --orange-line: rgba(163, 229, 255, .44); }
+    body[data-theme="command"][data-map-key="sakhal"] .command-sidebar { background-image: linear-gradient(180deg, rgba(2, 11, 19, .95), rgba(3, 13, 21, .94)), var(--dashboard-map-image); }
+    /* These selectors deliberately match the older atmosphere rules above.
+       Keeping them later in the sheet lets the scenic command-centre artwork
+       win without touching the public marketing pages. */
+    body[data-theme="command"][data-atmosphere="on"] .google-play-launch { display: none; }
+    body[data-theme="command"][data-atmosphere="on"] .hero {
+      background:
+        linear-gradient(92deg, rgba(2, 12, 15, .94) 0%, rgba(3, 14, 18, .76) 45%, rgba(2, 11, 14, .20) 100%),
+        var(--dashboard-map-image) center 48% / cover;
+    }
+    body[data-theme="command"][data-atmosphere="on"] .hero::after {
+      background: radial-gradient(circle at 85% 22%, rgba(255, 180, 91, .24), transparent 27%);
+    }
+    body[data-theme="command"][data-atmosphere="on"] .section-panel,
+    body[data-theme="command"][data-atmosphere="on"] .card,
+    body[data-theme="command"][data-atmosphere="on"] .admin-panel,
+    body[data-theme="command"][data-atmosphere="on"] .wide {
+      background: linear-gradient(145deg, rgba(8, 24, 29, .89), rgba(4, 13, 17, .93));
+    }
+    @media (max-width: 760px) {
+      body[data-theme="command"] { background-attachment: scroll; }
+      body[data-theme="command"] .command-sidebar { width: 100%; min-height: 0; padding: .82rem; }
+      .command-logo-frame { min-height: 7.2rem; }
+      body[data-theme="command"] .hero { min-height: 10.5rem; }
+      body[data-theme="command"] .google-play-launch { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 {% set server = servers[0] if servers else none %}
@@ -7561,7 +7760,7 @@ PAGE_TEMPLATE = """
 {% set shop_economy_section = 'economy' if section_allowed('economy') else 'shop' %}
 {% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
 {% set logout_path = '/agent/logout' if auth.kind == 'agent_account' else '/logout' %}
-<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}" data-app-embed="{{ 'true' if request.args.get('app_embed') == '1' else 'false' }}" data-map-key="{{ server.map_key if server else '' }}" data-atmosphere="on"{% if server %} style="--dashboard-map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
+<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}" data-app-embed="{{ 'true' if request.args.get('app_embed') == '1' else 'false' }}" data-map-key="{{ server.map_key if server else '' }}" data-atmosphere="on"{% if server %} style="--dashboard-map-image: url('/dashboard-atmosphere/{{ server.map_key }}');"{% endif %}>
   <header>
     <div class="brand">
       <img src="/brand-image" alt="Wandering Bot logo">
@@ -7698,6 +7897,7 @@ PAGE_TEMPLATE = """
   <aside class="command-sidebar" aria-label="Command dashboard navigation">
     <div class="command-logo">
       <div class="command-logo-frame">
+        <img class="command-logo-mark" src="/brand-image" alt="Wandering Bot logo" width="56" height="56" decoding="async" fetchpriority="high">
         <img class="command-logo-character" src="/brand-character" alt="Wandering Bot character" width="180" height="180" decoding="async" fetchpriority="high">
       </div>
       <div>
@@ -15034,7 +15234,10 @@ PAGE_TEMPLATE = """
         const key = `wanderingReviewPrompt:${prompt.dataset.reviewGuild || "global"}`;
         const now = Date.now();
         const nextAllowed = Number(localStorage.getItem(key) || "0");
-        if (now >= nextAllowed) {
+        // A review reminder must never cover live controls or builders.  The
+        // review page is always available in the sidebar; surface this small
+        // prompt only while the member is already looking at that page.
+        if (document.body.dataset.section === "reviews" && now >= nextAllowed) {
           window.setTimeout(() => { prompt.hidden = false; }, 18000);
         }
         prompt.querySelector("[data-review-dismiss]")?.addEventListener("click", () => {
@@ -45065,6 +45268,15 @@ def map_image(map_key: str):
         except (urllib.error.URLError, OSError):
             return redirect(source)
         return APP.response_class(image_bytes, mimetype=content_type)
+    return ("", 404)
+
+
+@APP.get("/dashboard-atmosphere/<map_key>")
+def dashboard_atmosphere_image(map_key: str):
+    """Serve the non-interactive map-specific dashboard backdrop."""
+    path = DASHBOARD_ATMOSPHERE_IMAGE_FILES.get(map_key_for(map_key), "")
+    if path and os.path.isfile(path):
+        return send_file(path, max_age=60 * 60 * 24 * 30)
     return ("", 404)
 
 
