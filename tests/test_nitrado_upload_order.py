@@ -47,6 +47,13 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.original_ftp_verify_retry_seconds = bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS
         self.calls = []
 
+        def default_live_source(_config, target_path):
+            if str(target_path or "").replace("\\", "/").endswith("_territories.xml"):
+                return True, "downloaded", TERRITORY_XML
+            return True, "downloaded", SPAWNS_XML
+
+        bot.download_text_file_from_nitrado = default_live_source
+
     def tearDown(self):
         bot.upload_text_file_to_nitrado_api = self.original_api
         bot.upload_text_file_to_nitrado_ftp = self.original_ftp
@@ -370,6 +377,35 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("unmarked live territory", message)
         self.assertEqual([], self.calls)
+
+    def test_generic_protected_writer_blocks_territory_file_that_loses_owner_zone(self):
+        existing = (
+            '<territory-type><territory color="1291845632">'
+            '<zone name="OwnerCity" x="1" z="2" r="80" dmin="2" dmax="4" smin="0" smax="0" />'
+            '</territory></territory-type>'
+        )
+        upload = '<territory-type><territory color="1291845632" /></territory-type>'
+
+        def download(*_args):
+            self.calls.append("download")
+            return True, "downloaded", existing
+
+        def upload_api(*_args):
+            self.calls.append("upload")
+            return True, "uploaded"
+
+        bot.download_text_file_from_nitrado = download
+        bot.upload_text_file_to_nitrado_api = upload_api
+
+        ok, message = bot.upload_text_file_to_nitrado(
+            {},
+            "/dayzxb_missions/dayzOffline.chernarusplus/env/zombie_territories.xml",
+            upload,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("unmarked live territory", message)
+        self.assertEqual(["download"], self.calls)
 
     def test_native_ce_upload_rolls_back_when_final_bundle_mismatches(self):
         original_build = bot.build_console_ce_event_files
