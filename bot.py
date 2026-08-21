@@ -50570,12 +50570,57 @@ class VehicleResetExcludeView(discord.ui.View):
 async def restart_delivery_processor():
 
     now = datetime.now(UTC)
+    runtime_configs = list(active_adm_config_items())
+    queued_cfgignorelist_resets = set()
+    processed_cfgignorelist_resets = set()
 
-    for guild_id, config in active_adm_config_items():
+    # Queue scheduled vehicle resets before any network work.  The rest of
+    # this worker can download, upload, or wait on Nitrado for another
+    # server.  Doing that work first meant a temporary API delay on one
+    # customer could make a different customer's 15-minute preflight window
+    # pass before its reset was even queued.
+    for guild_id, config in runtime_configs:
+        try:
+            scheduler_status_changed = mark_server_control_scheduler_status(config, now)
+            queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
+            if queued_reset:
+                print(f"SCHEDULED VEHICLE RESET QUEUED {guild_id}: {queued_reset.get('id')}")
+                if is_scheduled_cfgignorelist_vehicle_reset(queued_reset):
+                    queued_cfgignorelist_resets.add(str(guild_id))
+
+            if scheduler_status_changed and not queued_reset:
+                save_guild_configs_for_runtime(config)
+        except Exception as error:
+            print(f"DELIVERY XML SCHEDULE ERROR {guild_id}: {error}")
+            if mark_server_control_scheduler_status(config, now, error):
+                save_guild_configs_for_runtime(config)
+
+    # Prepare every reset queued above before routine per-server work.  This
+    # ensures a slow damage/API request for an earlier server cannot hold up
+    # the actual cfgignorelist upload for a later server that is about to
+    # restart.
+    for guild_id, config in runtime_configs:
+        if str(guild_id) not in queued_cfgignorelist_resets:
+            continue
+        try:
+            cfgignorelist_results = await process_cfgignorelist_vehicle_reset_events(guild_id, config)
+            if cfgignorelist_results:
+                processed_cfgignorelist_resets.add(str(guild_id))
+                for ok, message in cfgignorelist_results:
+                    print(f"CFGIGNORELIST VEHICLE RESET {guild_id}: ok={ok} {message}")
+        except Exception as error:
+            print(f"CFGIGNORELIST VEHICLE RESET {guild_id}: ok=False {error}")
+            if mark_server_control_scheduler_status(config, now, error):
+                save_guild_configs_for_runtime(config)
+
+    for guild_id, config in runtime_configs:
 
         try:
-
-            scheduler_status_changed = mark_server_control_scheduler_status(config, now)
+            # The queued reset was just handled in the protected preflight
+            # pass.  Match the normal cfgignorelist-reset behavior and leave
+            # the rest of this server's routine work for the next minute.
+            if str(guild_id) in processed_cfgignorelist_resets:
+                continue
 
             applied_damage = await asyncio.to_thread(
                 apply_due_damage_schedule,
@@ -50595,10 +50640,6 @@ async def restart_delivery_processor():
                         f"{damage_result.get('message') or ''}"
                     )
 
-            queued_reset = queue_due_vehicle_reset_schedule(guild_id, config, now)
-            if queued_reset:
-                print(f"SCHEDULED VEHICLE RESET QUEUED {guild_id}: {queued_reset.get('id')}")
-
             cfgignorelist_results = await process_cfgignorelist_vehicle_reset_events(guild_id, config)
             if cfgignorelist_results:
                 for ok, message in cfgignorelist_results:
@@ -50612,9 +50653,6 @@ async def restart_delivery_processor():
 
             if await process_dashboard_scenario_xml_upload(guild_id, config):
                 save_guild_configs_for_runtime(config)
-            elif scheduler_status_changed:
-                save_guild_configs_for_runtime(config)
-
             restart_interval = config.get(
                 "restart_interval_hours",
                 DEFAULT_RESTART_INTERVAL_HOURS
