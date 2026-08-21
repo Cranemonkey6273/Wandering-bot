@@ -38,6 +38,8 @@ from dayz_file_intelligence import (
     dayz_object_spawner_ref_is_blocked,
     dayz_xml_root_for_path,
     validate_named_xml_upload_preserves_existing,
+    validate_territory_xml_upload_preserves_unmanaged_content,
+    validate_xml_upload_not_effectively_empty,
     validate_upload_not_dangerously_shrunken,
     validate_dayz_upload_text,
 )
@@ -38703,6 +38705,8 @@ def console_ce_path_suffix(key):
         return "db/types.xml"
     if key == "cfgenvironment_path":
         return "cfgenvironment.xml"
+    if key == "zombie_territories_path":
+        return "env/zombie_territories.xml"
     if key == "cfgeffectarea_path":
         return "cfgEffectArea.json"
     if key == "cfggameplay_path":
@@ -44235,9 +44239,9 @@ def build_console_ce_event_files(
 
     animal_records = [record for record in records if record.get("animal_territory")]
     zombie_records = [record for record in records if record.get("zombie_territory")]
-    should_cleanup_environment = bool(animal_records) or (
-        native_ce_cleanup_is_explicitly_requested(config) and not preserve_existing
-    )
+    # Generic cleanup must not touch the owner's environment file. It is only
+    # merged when the active request genuinely creates/updates an animal pack.
+    should_cleanup_environment = bool(animal_records)
     if should_cleanup_environment:
         if not mission_base:
             output.setdefault("source_fallbacks", []).append(
@@ -44307,9 +44311,10 @@ def build_console_ce_event_files(
             f"removed `{removed_blocks}` old managed block(s) and `{removed_zones}` old managed zone(s)."
         )
 
-    should_cleanup_zombie_territories = bool(zombie_records) or (
-        native_ce_cleanup_is_explicitly_requested(config) and not preserve_existing
-    )
+    # Generic cleanup must never rewrite a shared live zombie territory file.
+    # Those files often contain owner-created zones. With no active Wandering
+    # Bot zombie scenario to merge, leave the file completely untouched.
+    should_cleanup_zombie_territories = bool(zombie_records)
     if should_cleanup_zombie_territories:
         zombie_text, resolved_zombie_path, zombie_source = download_console_zombie_territories_source(
             config,
@@ -45396,6 +45401,26 @@ def upload_protected_ce_file_to_nitrado(
     prefer_ftp=False,
     allowed_removed_names=None,
 ):
+    spec = dayz_file_spec_for_path(path)
+    if spec and not dayz_is_backup_path(path) and not str(restore_text or "").strip():
+        return False, (
+            f"Refusing to upload `{label}`: no verified in-memory copy of the live file is available. "
+            "Wandering Bot will not write a protected DayZ file without an exact pre-write source."
+        )
+    territory_ok, territory_message = validate_territory_xml_upload_preserves_unmanaged_content(
+        path,
+        restore_text,
+        text_content,
+    )
+    if not territory_ok:
+        return False, territory_message
+    nonempty_ok, nonempty_message = validate_xml_upload_not_effectively_empty(
+        path,
+        restore_text,
+        text_content,
+    )
+    if not nonempty_ok:
+        return False, nonempty_message
     shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(path, restore_text, text_content)
     if not shrink_ok:
         return False, shrink_message

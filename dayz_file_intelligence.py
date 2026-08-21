@@ -14,6 +14,7 @@ import math
 import os
 import re
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -766,7 +767,7 @@ def validate_named_xml_upload_preserves_existing(
 
     existing_names = named_children(existing_root)
     upload_names = named_children(upload_root)
-    if not existing_names or not upload_names:
+    if not existing_names:
         return True, ""
 
     allowed = {str(name or "").strip().lower() for name in (allowed_removed_names or set()) if str(name or "").strip()}
@@ -786,6 +787,131 @@ def validate_named_xml_upload_preserves_existing(
         f"<{child_tag} name=...> record(s): {sample}. This guard prevents Wandering Bot from "
         "emptying or replacing live CE files; merge only WanderingBot-managed records instead."
     )
+
+
+def _parse_dayz_xml_with_comments(text: Any) -> ET.Element:
+    """Parse XML without discarding the ownership comments used by CE merges."""
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    return ET.fromstring(str(text or "").encode("utf-8"), parser=parser)
+
+
+def _is_wandering_bot_territory_comment(node: ET.Element) -> bool:
+    if node.tag is not ET.Comment:
+        return False
+    text = str(node.text or "").strip().lower()
+    return "wandering bot:" in text and "managed" in text and "territory" in text
+
+
+def _xml_attributes_signature(node: ET.Element) -> tuple[tuple[str, str], ...]:
+    return tuple(sorted((str(key), str(value)) for key, value in node.attrib.items()))
+
+
+def _unmanaged_territory_records(root: ET.Element) -> Counter:
+    """Return every customer/vanilla territory record that a merge must retain."""
+    records = Counter()
+    for territory in root.findall("territory"):
+        managed_next_zone = False
+        saw_unmanaged_content = False
+        saw_zone = False
+        for child in list(territory):
+            if child.tag is ET.Comment:
+                managed_next_zone = _is_wandering_bot_territory_comment(child)
+                continue
+            if child.tag == "zone":
+                saw_zone = True
+                if not managed_next_zone:
+                    records[("zone", _xml_attributes_signature(territory), _xml_attributes_signature(child))] += 1
+                    saw_unmanaged_content = True
+                managed_next_zone = False
+                continue
+            # Unknown children are customer data too. Treat them as protected
+            # records instead of allowing a merge to silently discard them.
+            records[("child", _xml_attributes_signature(territory), str(child.tag), _xml_attributes_signature(child))] += 1
+            managed_next_zone = False
+            saw_unmanaged_content = True
+        if not saw_zone and not saw_unmanaged_content:
+            records[("empty-territory", _xml_attributes_signature(territory))] += 1
+    return records
+
+
+def validate_territory_xml_upload_preserves_unmanaged_content(
+    target_path: Any,
+    existing_text: Any,
+    upload_text: Any,
+) -> tuple[bool, str]:
+    """Block every territory upload that would discard owner or vanilla data.
+
+    Territory XML can be small, so byte-size checks alone cannot reliably spot
+    an empty replacement. Only a zone immediately preceded by a Wandering Bot
+    ownership marker may be replaced or removed.
+    """
+    filename = dayz_filename_for_path(target_path)
+    if not filename.endswith("_territories.xml") or dayz_is_backup_path(target_path):
+        return True, ""
+
+    existing = str(existing_text or "").strip()
+    upload = str(upload_text or "").strip()
+    if not existing:
+        return False, (
+            f"Refusing to upload `{target_path}`: the verified live territory source is missing. "
+            "Wandering Bot will not replace it from an empty or fallback source."
+        )
+    if not upload:
+        return False, f"Refusing to upload `{target_path}`: territory upload content is empty."
+
+    try:
+        existing_root = _parse_dayz_xml_with_comments(existing)
+        upload_root = _parse_dayz_xml_with_comments(upload)
+    except Exception as error:
+        return False, f"Refusing to upload `{target_path}`: could not compare live territory data before upload: {error}"
+
+    if existing_root.tag != "territory-type" or upload_root.tag != "territory-type":
+        return False, f"Refusing to upload `{target_path}`: territory root changed while preserving live data."
+
+    missing = _unmanaged_territory_records(existing_root) - _unmanaged_territory_records(upload_root)
+    if not missing:
+        return True, ""
+
+    return False, (
+        f"Refusing to upload `{target_path}`: it would remove `{sum(missing.values())}` unmarked live territory "
+        "record(s). Only records immediately marked `Wandering Bot: managed ... territory` may be changed."
+    )
+
+
+def validate_xml_upload_not_effectively_empty(
+    target_path: Any,
+    existing_text: Any,
+    upload_text: Any,
+) -> tuple[bool, str]:
+    """Reject a protected XML write that reduces a populated file to its root.
+
+    Some mission XML files have no named direct records, so the named-record
+    guard cannot detect an `<env />` or equivalent empty-file replacement.
+    This is deliberately a final, file-agnostic circuit breaker: cleanup may
+    leave managed records in place, but it may never empty a live XML file.
+    """
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec or spec.kind != "xml" or dayz_is_backup_path(target_path):
+        return True, ""
+
+    existing = str(existing_text or "").strip()
+    upload = str(upload_text or "").strip()
+    if not existing or not upload:
+        return True, ""
+    try:
+        existing_root = _parse_dayz_xml(existing)
+        upload_root = _parse_dayz_xml(upload)
+    except Exception as error:
+        return False, f"Refusing to upload `{target_path}`: could not compare live XML structure before upload: {error}"
+
+    existing_nodes = sum(1 for _ in existing_root.iter()) - 1
+    upload_nodes = sum(1 for _ in upload_root.iter()) - 1
+    if existing_nodes > 0 and upload_nodes == 0:
+        return False, (
+            f"Refusing to upload `{target_path}`: it would replace a populated live XML file with an empty root. "
+            "Wandering Bot has stopped the destructive write."
+        )
+    return True, ""
 
 
 def validate_upload_not_dangerously_shrunken(

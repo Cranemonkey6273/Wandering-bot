@@ -351,6 +351,26 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(ok, message)
         self.assertEqual(["upload", "verify"], self.calls)
 
+    def test_ce_protected_upload_blocks_territory_file_that_loses_owner_zone(self):
+        existing = (
+            '<territory-type><territory color="1291845632">'
+            '<zone name="OwnerCity" x="1" z="2" r="80" dmin="2" dmax="4" smin="0" smax="0" />'
+            '</territory></territory-type>'
+        )
+        upload = '<territory-type><territory color="1291845632" /></territory-type>'
+
+        ok, message = bot.upload_protected_ce_file_to_nitrado(
+            {},
+            "zombie_territories.xml",
+            "/dayzxb_missions/dayzOffline.chernarusplus/env/zombie_territories.xml",
+            upload,
+            restore_text=existing,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("unmarked live territory", message)
+        self.assertEqual([], self.calls)
+
     def test_native_ce_upload_rolls_back_when_final_bundle_mismatches(self):
         original_build = bot.build_console_ce_event_files
         original_validate = bot.validate_console_ce_xml_bundle
