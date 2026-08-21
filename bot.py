@@ -21721,6 +21721,67 @@ def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
         return False
 
 
+def protected_dayz_path_is_bot_owned(target_path):
+    """Whether a protected target is a new private Wandering Bot file."""
+    filename = os.path.basename(str(target_path or "").replace("\\", "/")).lower()
+    return "wanderingbot" in filename
+
+
+def validate_live_protected_dayz_replacement(config, target_path, text_content):
+    """Last pre-write interlock for every existing protected DayZ file.
+
+    Every write route, including ones outside the scenario builder, passes this
+    function immediately before it can request an API/FTP upload. It reads the
+    live target again, then rejects a write that would shrink, empty or remove
+    live records. A missing source is allowed only for a new private
+    WanderingBot-named file; shared mission files are never recreated.
+    """
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec or dayz_is_backup_path(target_path):
+        return True, ""
+
+    live_ok, live_message, live_text = download_text_file_from_nitrado(config, target_path)
+    if not live_ok or not str(live_text or "").strip():
+        if protected_dayz_path_is_bot_owned(target_path):
+            return True, "New private Wandering Bot file; no existing live source was found."
+        detail = live_message if not live_ok else f"{live_message} (download returned empty content)"
+        return False, (
+            f"Refusing to write `{target_path}`: the current live DayZ file could not be re-read immediately before upload: {detail}. "
+            "Shared mission files are never recreated from generated content."
+        )
+
+    valid_live, valid_message = validate_protected_dayz_xml_upload(target_path, live_text)
+    if not valid_live:
+        return False, f"Refusing to write `{target_path}`: live source validation failed before upload: {valid_message}"
+
+    territory_ok, territory_message = validate_territory_xml_upload_preserves_unmanaged_content(
+        target_path,
+        live_text,
+        text_content,
+    )
+    if not territory_ok:
+        return False, territory_message
+    nonempty_ok, nonempty_message = validate_xml_upload_not_effectively_empty(
+        target_path,
+        live_text,
+        text_content,
+    )
+    if not nonempty_ok:
+        return False, nonempty_message
+    shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(target_path, live_text, text_content)
+    if not shrink_ok:
+        return False, shrink_message
+    preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(
+        target_path,
+        live_text,
+        text_content,
+        allowed_removed_names=wandering_allowed_removed_names_from_source_text(live_text),
+    )
+    if not preserve_ok:
+        return False, preserve_message
+    return True, "Live protected source re-read and preservation checks passed."
+
+
 def upload_text_file_to_nitrado(config, target_path, text_content):
     try:
         valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
@@ -21729,6 +21790,13 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
 
         protected_spec = dayz_file_spec_for_path(target_path)
         if protected_spec:
+            preflight_ok, preflight_message = validate_live_protected_dayz_replacement(
+                config,
+                target_path,
+                text_content,
+            )
+            if not preflight_ok:
+                return False, preflight_message
             api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
             if api_success:
                 verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
