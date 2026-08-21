@@ -2899,6 +2899,9 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
         self.assertIn("Killfeed, build feed, connected and disconnected player feeds", public_plans["free_bot"]["public_features"])
         self.assertIn("Online survivor board, hourly leaderboards, Discord setup and server rules", public_plans["free_bot"]["public_features"])
+        self.assertIn("Up to 3 DayZ servers included", public_plans["dashboard"]["public_features"])
+        self.assertIn("Up to 4 DayZ servers included", public_plans["dashboard_ai"]["public_features"])
+        self.assertIn("Up to 5 DayZ servers included", public_plans["dashboard_ultimate"]["public_features"])
         self.assertIn("Android app access with the same features and permissions as your dashboard", public_plans["dashboard"]["public_features"])
         self.assertIn("Android app access with the same features and permissions as your dashboard", public_plans["dashboard_ai"]["public_features"])
         self.assertIn("Private DayZ AI agent on dashboard and app, with separate project conversations", public_plans["dashboard_ultimate"]["public_features"])
@@ -2912,6 +2915,27 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04", public_plans["dashboard_ai"]["payment_url"])
         self.assertEqual("https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05", public_plans["dashboard_ultimate"]["payment_url"])
         self.assertEqual("Price shown at checkout", public_plans["dashboard_ultimate"]["public_price_text"])
+
+    def test_plan_server_allowances_use_current_limits_and_migrate_old_defaults(self):
+        defaults = dashboard.default_billing_plan_map()
+        self.assertEqual(1, defaults["free_bot"]["server_limit"])
+        self.assertEqual(3, defaults["dashboard"]["server_limit"])
+        self.assertEqual(4, defaults["dashboard_ai"]["server_limit"])
+        self.assertEqual(5, defaults["dashboard_ultimate"]["server_limit"])
+
+        saved = {
+            "billing_plans": {
+                "dashboard": {"server_limit": 2},
+                "dashboard_ai": {"server_limit": 3},
+                "dashboard_ultimate": {"server_limit": 4},
+            },
+        }
+        with patch.object(dashboard, "load_store", return_value=saved):
+            plans = {plan["id"]: plan for plan in dashboard.dashboard_billing_plans()}
+
+        self.assertEqual(3, plans["dashboard"]["server_limit"])
+        self.assertEqual(4, plans["dashboard_ai"]["server_limit"])
+        self.assertEqual(5, plans["dashboard_ultimate"]["server_limit"])
 
     def test_mobile_server_controls_start_at_basic_and_follow_dashboard_plan_status(self):
         def access_for(tier, status="subscription"):
