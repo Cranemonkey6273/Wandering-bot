@@ -7749,6 +7749,299 @@ PAGE_TEMPLATE = """
       body[data-theme="command"] .hero { min-height: 10.5rem; }
       body[data-theme="command"] .google-play-launch { grid-template-columns: 1fr; }
     }
+
+    /* The command theme is a real application shell, not the old dashboard
+       with a scenic card placed inside it.  This final layer owns the desktop
+       architecture: a compact identity/navigation rail and one map-led work
+       surface. */
+    body[data-theme="command"] {
+      --sidebar-w: 15.5rem;
+      background:
+        linear-gradient(90deg, rgba(2, 9, 11, .62) 0%, rgba(3, 11, 14, .34) 47%, rgba(2, 9, 11, .58) 100%),
+        linear-gradient(180deg, rgba(1, 8, 10, .12), rgba(1, 7, 9, .70)),
+        var(--dashboard-map-image) center / cover fixed,
+        #03070a;
+    }
+    body[data-theme="command"]::before { opacity: .22; filter: saturate(.86) contrast(1.04) brightness(.78); }
+    body[data-theme="command"][data-map-key="chernarus"]::after,
+    body[data-theme="command"][data-map-key="livonia"]::after { opacity: .34; }
+    body[data-theme="command"] .command-logo-watermark { display: none; }
+    body[data-theme="command"] .command-sidebar {
+      background:
+        linear-gradient(180deg, rgba(4, 12, 14, .96), rgba(2, 8, 10, .98)),
+        var(--dashboard-map-image) center / cover;
+      box-shadow: 1.35rem 0 3.5rem rgba(0, 0, 0, .36);
+    }
+    body[data-theme="command"] .command-logo {
+      display: grid;
+      grid-template-columns: 3.35rem minmax(0, 1fr);
+      align-items: center;
+      gap: .72rem;
+      margin: .15rem 0 1.15rem;
+    }
+    body[data-theme="command"] .command-logo-frame {
+      width: 3.35rem;
+      min-height: 3.35rem;
+      height: 3.35rem;
+      aspect-ratio: 1;
+      border-radius: .82rem;
+      background: rgba(4, 13, 16, .82);
+      box-shadow: 0 .7rem 1.7rem rgba(0, 0, 0, .34);
+    }
+    body[data-theme="command"] .command-logo-mark {
+      position: static;
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      border-radius: .72rem;
+      box-shadow: none;
+    }
+    body[data-theme="command"] .command-logo-character { display: none; }
+    body[data-theme="command"] .command-logo strong {
+      font-size: .82rem;
+      letter-spacing: .15em;
+      color: #8ded80;
+    }
+    body[data-theme="command"] .command-logo small {
+      margin-top: .08rem;
+      color: #a9b9b9;
+      font-size: .69rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    body[data-theme="command"] .command-status { margin-top: .32rem; font-size: .64rem; }
+    body[data-theme="command"] .command-login-actions {
+      order: 5;
+      margin-top: auto;
+      margin-bottom: 0;
+      opacity: .76;
+    }
+    body[data-theme="command"] .command-login-actions a {
+      min-height: 1.9rem;
+      border-radius: .42rem;
+      background: rgba(11, 27, 30, .58);
+      font-size: .68rem;
+    }
+    body[data-theme="command"] .command-side-nav {
+      order: 3;
+      gap: .14rem;
+      margin-top: .2rem;
+    }
+    body[data-theme="command"] .command-side-nav a,
+    body[data-theme="command"] .command-quick a {
+      min-height: 2rem;
+      padding: .4rem .48rem;
+      border: 1px solid transparent;
+      border-radius: .42rem;
+      background: transparent;
+      color: #aebfc0;
+      font-size: .77rem;
+      font-weight: 700;
+      transition: color .16s ease, background .16s ease, border-color .16s ease, transform .16s ease;
+    }
+    body[data-theme="command"] .command-side-nav a::before,
+    body[data-theme="command"] .command-quick a::before {
+      content: "";
+      width: .32rem;
+      height: .32rem;
+      flex: 0 0 .32rem;
+      border: 1px solid rgba(140, 229, 216, .70);
+      border-radius: 50%;
+      opacity: .58;
+    }
+    body[data-theme="command"] .command-side-nav a.active,
+    body[data-theme="command"] .command-side-nav a:hover,
+    body[data-theme="command"] .command-quick a:hover {
+      transform: none;
+      border-color: rgba(178, 241, 235, .20);
+      background: linear-gradient(90deg, rgba(185, 154, 73, .26), rgba(30, 48, 42, .44));
+      box-shadow: inset .16rem 0 0 #e6ad55;
+      color: #f4f8f4;
+    }
+    body[data-theme="command"] .command-side-nav a.active::before { background: #8ded80; border-color: #8ded80; opacity: 1; }
+    body[data-theme="command"] .command-quick {
+      order: 4;
+      margin-top: .65rem;
+      padding-top: .7rem;
+      border-top-color: rgba(179, 240, 232, .13);
+    }
+    body[data-theme="command"] .command-quick span { font-size: .62rem; letter-spacing: .13em; }
+
+    @media (min-width: 761px) {
+      body[data-theme="command"] > header {
+        position: fixed;
+        z-index: 20;
+        top: 1rem;
+        right: 1.35rem;
+        left: auto;
+        width: auto;
+        min-height: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+      }
+      body[data-theme="command"] > header .brand,
+      body[data-theme="command"] > header nav,
+      body[data-theme="command"] > header .command-top-nav { display: none; }
+      body[data-theme="command"] > main {
+        max-width: none;
+        margin-left: var(--sidebar-w);
+        padding: 1.15rem clamp(1.15rem, 2.4vw, 2.8rem) 4rem;
+      }
+    }
+    body[data-theme="command"][data-atmosphere="on"] .hero {
+      min-height: clamp(17.5rem, 28vh, 22.5rem);
+      align-items: flex-start;
+      padding: clamp(1.5rem, 3vw, 2.6rem);
+      border-color: rgba(207, 240, 231, .28);
+      border-radius: 1.1rem;
+      background:
+        linear-gradient(92deg, rgba(1, 9, 11, .84) 0%, rgba(2, 10, 13, .59) 47%, rgba(2, 9, 12, .08) 100%),
+        var(--dashboard-map-image) center 48% / cover;
+      box-shadow: 0 1.45rem 3.8rem rgba(0, 0, 0, .26), inset 0 1px 0 rgba(255, 255, 255, .10);
+    }
+    body[data-theme="command"] .hero::before { height: .19rem; }
+    body[data-theme="command"] .hero > img { display: none; }
+    body[data-theme="command"] .command-title-mark {
+      margin: 0 0 .55rem;
+      color: #b6ee9c;
+      font-family: inherit;
+      font-size: .66rem;
+      font-weight: 900;
+      letter-spacing: .18em;
+      line-height: 1.2;
+      text-shadow: none;
+    }
+    body[data-theme="command"] .command-title-mark + .muted { display: none; }
+    body[data-theme="command"] .hero h1 {
+      max-width: 44rem;
+      color: #f6faf7;
+      font-size: clamp(2rem, 4vw, 3.45rem);
+      font-weight: 760;
+      letter-spacing: -.045em;
+      line-height: .98;
+      text-transform: none;
+    }
+    body[data-theme="command"] .command-hero-meta {
+      margin: .5rem 0 0;
+      color: #e3c9a0;
+      font-size: clamp(.92rem, 1.5vw, 1.14rem);
+      letter-spacing: .01em;
+    }
+    body[data-theme="command"] .hero .muted {
+      max-width: 38rem;
+      margin-top: .82rem;
+      color: rgba(222, 236, 234, .84);
+      font-size: .88rem;
+      line-height: 1.5;
+    }
+    body[data-theme="command"] .hero .pills { display: none; }
+
+    body[data-theme="command"] .command-overview { gap: 1rem; }
+    body[data-theme="command"] .command-metrics {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0;
+      overflow: hidden;
+      border: 1px solid rgba(211, 239, 232, .20);
+      border-radius: 1rem;
+      background: linear-gradient(145deg, rgba(7, 15, 17, .91), rgba(8, 15, 14, .82));
+      box-shadow: 0 1.1rem 3rem rgba(0, 0, 0, .24), inset 0 1px 0 rgba(255, 255, 255, .05);
+      backdrop-filter: blur(13px);
+    }
+    body[data-theme="command"] .command-metric {
+      min-height: 10.2rem;
+      padding: 1.45rem clamp(.9rem, 2vw, 1.85rem);
+      border: 0;
+      border-right: 1px solid rgba(211, 239, 232, .17);
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+    body[data-theme="command"] .command-metric:last-child { border-right: 0; }
+    body[data-theme="command"] .command-metric span { color: #8fa6a5; font-size: .68rem; letter-spacing: .12em; }
+    body[data-theme="command"] .command-metric strong {
+      margin-top: .65rem;
+      color: #f4f6ee;
+      font-size: clamp(1.8rem, 3.2vw, 3.1rem);
+      font-weight: 500;
+      letter-spacing: -.045em;
+      text-shadow: none;
+    }
+    body[data-theme="command"] .command-metric.command-health strong { color: #8ded80; font-size: clamp(1.6rem, 2.5vw, 2.4rem); }
+    body[data-theme="command"] .command-metric .command-restart-value { color: #f2c469; font-size: clamp(1.15rem, 2vw, 2.15rem); line-height: 1.08; }
+    body[data-theme="command"] .command-metric small { margin-top: .55rem; color: #bdccc9; font-size: .78rem; }
+    body[data-theme="command"] .command-summary-grid {
+      display: grid;
+      grid-template-columns: minmax(16rem, 1.06fr) minmax(15rem, .88fr) minmax(13rem, .66fr);
+      gap: 1rem;
+    }
+    body[data-theme="command"] .command-summary-grid .command-card { min-height: 17rem; }
+    body[data-theme="command"] .command-survivor-list { display: grid; padding: .25rem 1.1rem .85rem; }
+    body[data-theme="command"] .command-survivor {
+      display: grid;
+      grid-template-columns: .55rem minmax(0, 1fr) auto;
+      align-items: center;
+      gap: .55rem;
+      min-height: 2.75rem;
+      border-bottom: 1px solid rgba(203, 235, 225, .13);
+      color: inherit;
+      text-decoration: none;
+    }
+    body[data-theme="command"] .command-survivor:last-child { border-bottom: 0; }
+    body[data-theme="command"] .command-survivor:hover strong { color: #b6ee9c; }
+    body[data-theme="command"] .command-survivor-dot { width: .45rem; height: .45rem; border-radius: 50%; background: #67d7c7; box-shadow: 0 0 .8rem rgba(103, 215, 199, .54); }
+    body[data-theme="command"] .command-survivor strong { display: block; color: #eef5f0; font-size: .83rem; }
+    body[data-theme="command"] .command-survivor small { display: block; margin-top: .1rem; color: #a7b7b5; font-size: .7rem; }
+    body[data-theme="command"] .command-survivor-bars { display: flex; align-items: end; gap: .16rem; height: 1rem; }
+    body[data-theme="command"] .command-survivor-bars i { width: .24rem; background: #aec7bd; opacity: .8; }
+    body[data-theme="command"] .command-survivor-bars i:nth-child(1) { height: .52rem; }
+    body[data-theme="command"] .command-survivor-bars i:nth-child(2) { height: .88rem; }
+    body[data-theme="command"] .command-survivor-bars i:nth-child(3) { height: .68rem; }
+    body[data-theme="command"] .command-empty-state.compact { padding: 1rem 0; }
+    body[data-theme="command"] .command-empty-state.compact p { margin-bottom: 0; }
+    body[data-theme="command"] .command-tool-list { display: grid; gap: 1rem; padding: 1.25rem 1.2rem; }
+    body[data-theme="command"] .command-tool-list a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .28rem .7rem; color: #c9d8d4; text-decoration: none; }
+    body[data-theme="command"] .command-tool-list a:hover span { color: #b6ee9c; }
+    body[data-theme="command"] .command-tool-list strong { color: #edf3ec; font-size: .82rem; }
+    body[data-theme="command"] .command-tool-list i { grid-column: 1 / -1; display: block; height: .27rem; overflow: hidden; border-radius: 999px; background: rgba(194, 226, 216, .14); }
+    body[data-theme="command"] .command-tool-list i::after { content: ""; display: block; width: var(--tool-level, 0%); height: 100%; border-radius: inherit; background: linear-gradient(90deg, #8ddf96, #d7c06f); }
+    body[data-theme="command"] .command-restart-body { display: grid; align-content: center; min-height: 13.2rem; padding: 1.25rem 1.2rem; }
+    body[data-theme="command"] .command-restart-body > strong { color: #f2c469; font-size: clamp(1.25rem, 2vw, 2rem); line-height: 1.05; }
+    body[data-theme="command"] .command-restart-body > span { margin-top: .55rem; color: #b3c2bf; font-size: .78rem; }
+    body[data-theme="command"] .command-restart-body .button { width: max-content; margin-top: 1.15rem; }
+    body[data-theme="command"] .command-grid,
+    body[data-theme="command"] .command-row { gap: 1rem; }
+    body[data-theme="command"] .command-card {
+      border-color: rgba(206, 239, 230, .17);
+      border-radius: .95rem;
+      background: linear-gradient(145deg, rgba(5, 14, 16, .91), rgba(8, 18, 18, .84));
+      box-shadow: 0 1.05rem 3rem rgba(0, 0, 0, .23), inset 0 1px 0 rgba(255, 255, 255, .045);
+      backdrop-filter: blur(12px);
+    }
+    body[data-theme="command"] .command-card-head { padding: 1rem 1.15rem; }
+    body[data-theme="command"] .command-card-head h2,
+    body[data-theme="command"] .command-card-head h3 { color: #f2f5f1; letter-spacing: .1em; }
+    body[data-theme="command"] .command-empty-state { padding: 1.35rem 1.15rem; }
+    body[data-theme="command"] .section-panel,
+    body[data-theme="command"] .admin-panel,
+    body[data-theme="command"] .card,
+    body[data-theme="command"] .wide {
+      border-color: rgba(206, 239, 230, .17);
+      border-radius: .95rem;
+      background: linear-gradient(145deg, rgba(5, 14, 16, .89), rgba(8, 18, 18, .84));
+    }
+    @media (max-width: 760px) {
+      body[data-theme="command"] .command-logo { grid-template-columns: 3rem minmax(0, 1fr); }
+      body[data-theme="command"] .command-logo-frame { width: 3rem; min-height: 3rem; height: 3rem; }
+      body[data-theme="command"] .hero { min-height: 15rem; padding: 1.25rem; }
+      body[data-theme="command"] .hero h1 { font-size: clamp(1.8rem, 9vw, 2.6rem); }
+      body[data-theme="command"] .command-metrics { grid-template-columns: 1fr; }
+      body[data-theme="command"] .command-metric { min-height: 0; border-right: 0; border-bottom: 1px solid rgba(211, 239, 232, .15); }
+      body[data-theme="command"] .command-metric:last-child { border-bottom: 0; }
+      body[data-theme="command"] .command-summary-grid { grid-template-columns: 1fr; }
+      body[data-theme="command"] .command-summary-grid .command-card { min-height: 0; }
+    }
   </style>
 </head>
 {% set server = servers[0] if servers else none %}
@@ -7990,10 +8283,11 @@ PAGE_TEMPLATE = """
     {% endif %}
     <section class="hero">
       <div>
-        <p class="command-title-mark">Wandering Bot</p>
+        <p class="command-title-mark">Wandering Bot · Command Centre</p>
         <p class="muted">{{ generated_at }}</p>
-        <h1>{{ 'AI Sandbox' if auth.kind == 'agent_account' else view_title }}</h1>
-        <p class="muted">{% if auth.kind == 'agent_account' %}Private sandbox workspace for planning, approvals, controlled jobs, and credits. Discord server access is not required for this account.{% else %}Live readout for {{ auth.label }}. Server dashboards use private ID/password logins. Link another server from Admin Center when you manage more than one.{% endif %}</p>
+        <h1>{{ 'AI Sandbox' if auth.kind == 'agent_account' else (server.dayz_name if server and server.dayz_name else view_title) }}</h1>
+        <p class="command-hero-meta">{% if auth.kind == 'agent_account' %}Private coding workspace{% else %}{{ (server.map|capitalize) if server else 'Chernarus' }} · {{ server.platform_label if server else 'Xbox' }}{% if server and server.dashboard_access.tier and server.dashboard_access.tier != 'none' %} · {{ server.dashboard_access.tier|capitalize }} plan{% endif %}{% endif %}</p>
+        <p class="muted">{% if auth.kind == 'agent_account' %}Private sandbox workspace for planning, approvals, controlled jobs, and credits. Discord server access is not required for this account.{% else %}Live control for feeds, events, players, files and loadouts. Every tool remains scoped to this server.{% endif %}</p>
         {% if server %}
         <div class="pills">
           <span class="pill ok">{{ server.guild_name }}</span>
@@ -8220,12 +8514,45 @@ PAGE_TEMPLATE = """
       {% set active_event_count = (server.scenario_events|selectattr('enabled')|list|length) if server else 0 %}
       {% set zone_count = (server.zones|length) if server else 0 %}
       <div class="command-metrics">
-        <div class="command-metric"><span>DayZ Online</span><strong>{{ (server.online|length) if server else summary.online }}</strong><small>{{ server.discord_member_count if server else summary.discord_members }} Discord members</small></div>
-        <div class="command-metric command-metric-secondary"><span>Uptime</span><strong>Live</strong><small>{{ generated_at }}</small></div>
-        <div class="command-metric"><span>PVE Events</span><strong>{{ server.scenario_events|length if server else 0 }}</strong><small>{{ active_event_count }} active</small></div>
-        <div class="command-metric"><span>Zones</span><strong>{{ zone_count }}</strong><small>{{ zone_count }} mapped</small></div>
-        <div class="command-metric"><span>Shop Items</span><strong>{{ summary.shop_items }}</strong><small>Economy ready</small></div>
-        <div class="command-metric command-metric-secondary"><span>Last Refresh</span><strong>{{ generated_clock }}</strong><small>Dashboard sync</small></div>
+        <div class="command-metric command-health"><span>Server health</span><strong>{{ 'Healthy' if server and server.owner_status and server.owner_status.key == 'ready' else ('Needs check' if server else 'Ready') }}</strong><small>{{ server.owner_status.detail if server and server.owner_status else ('Dashboard and server profile loaded' if server else 'Choose a server to begin') }}</small></div>
+        <div class="command-metric"><span>Survivors online</span><strong>{{ (server.online|length) if server else summary.online }}</strong><small>{{ server.discord_member_count if server else summary.discord_members }} Discord members</small></div>
+        <div class="command-metric"><span>Next restart</span><strong class="command-restart-value">{{ restart_status.next_restart_local if restart_status.enabled else 'Not scheduled' }}</strong><small>{{ restart_status.status if restart_status else 'Restart schedule unavailable' }}</small></div>
+      </div>
+
+      <div class="command-summary-grid">
+        <article class="command-card command-survivor-card">
+          <div class="command-card-head">
+            <h3>Recent players</h3>
+            <a href="/admin?section=leaderboards{{ server_qs }}">View all</a>
+          </div>
+          <div class="command-survivor-list">
+            {% for player in (server.leaders if server else [])[:5] %}
+            <a class="command-survivor" href="/admin?section=leaderboards{{ server_qs }}">
+              <span class="command-survivor-dot"></span>
+              <span><strong>{{ player.name }}</strong><small>{{ player.kills|default(0) }} kills · {{ player.deaths|default(0) }} deaths</small></span>
+              <span class="command-survivor-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+            </a>
+            {% else %}
+            <div class="command-empty-state compact"><strong>No survivor activity yet</strong><p>Player activity will appear here as soon as the feed receives it.</p></div>
+            {% endfor %}
+          </div>
+        </article>
+        <article class="command-card command-tools-card">
+          <div class="command-card-head"><h3>Server tools</h3></div>
+          <div class="command-tool-list">
+            <a href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}"><span>PVE events</span><strong>{{ server.scenario_events|length if server else 0 }}</strong><i style="--tool-level: {{ [active_event_count * 16, 100]|min }}%"></i></a>
+            <a href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><span>Zones mapped</span><strong>{{ zone_count }}</strong><i style="--tool-level: {{ [zone_count * 20, 100]|min }}%"></i></a>
+            <a href="/admin?section={{ shop_economy_section }}{{ server_qs }}"><span>Shop items</span><strong>{{ summary.shop_items }}</strong><i style="--tool-level: 72%"></i></a>
+          </div>
+        </article>
+        <article class="command-card command-restart-card">
+          <div class="command-card-head"><h3>Next restart</h3></div>
+          <div class="command-restart-body">
+            <strong>{{ restart_status.next_restart_local if restart_status.enabled else 'Not scheduled' }}</strong>
+            <span>{{ restart_status.status if restart_status else 'Set a restart schedule in Admin Center' }}</span>
+            <a class="button" href="/admin?section=access&setup_tool=control{{ server_qs }}{{ profile_qs }}#restart-controls">View schedule</a>
+          </div>
+        </article>
       </div>
 
       <div class="command-grid">

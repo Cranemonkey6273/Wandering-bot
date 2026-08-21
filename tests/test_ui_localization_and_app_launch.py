@@ -167,6 +167,21 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertIn("/dashboard-atmosphere/{{ server.map_key }}", dashboard.PAGE_TEMPLATE)
         self.assertIn('document.body.dataset.section === "reviews"', dashboard.PAGE_TEMPLATE)
 
+    def test_command_dashboard_uses_the_server_led_control_centre_layout(self):
+        """Keep the approved command-centre shell from regressing to the old card grid."""
+        for marker in (
+            "Wandering Bot · Command Centre",
+            "command-hero-meta",
+            "Server health",
+            "Survivors online",
+            "Next restart",
+            "command-summary-grid",
+            "Recent players",
+            "Server tools",
+            "command-logo-watermark { display: none;",
+        ):
+            self.assertIn(marker, dashboard.PAGE_TEMPLATE)
+
     def test_dayz_app_has_a_public_search_page_and_google_play_schema(self):
         page = dashboard.PUBLIC_SEO_PAGES["dayz-server-app"]
 
