@@ -1700,7 +1700,7 @@ DEFAULT_BILLING_PLANS = [
         "id": "free_bot",
         "name": "Wandering Bot Free",
         "price_text": "Free",
-        "description": "Basic Discord bot access while dashboard tools stay locked.",
+        "description": "Discord starter pack with killfeed, build, connection, online-board and leaderboard feeds. Dashboard controls stay locked.",
         "server_limit": 1,
         "enabled": True,
         "features": {"leaderboards": True, "embeds": True, "server_rules": True},
@@ -2724,7 +2724,7 @@ PUBLIC_LANDING_TEMPLATE = """
   {% if android_play_store_url %}
   <aside class="google-play-launch" aria-label="Wandering Bot Android app">
     <span class="google-play-launch__badge">Android app live</span>
-    <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Install the Android app for mobile DayZ server control, feeds, guides and dashboard access.</span></div>
+    <div class="google-play-launch__copy"><strong>Wandering Bot is now live on Google Play</strong><span>Dashboard plans include the Android app with the same server controls, feeds and permissions as the web dashboard.</span></div>
     <a class="google-play-launch__button" href="{{ android_play_store_url }}" target="_blank" rel="external noopener">Get it on Google Play</a>
   </aside>
   {% endif %}
@@ -2768,7 +2768,7 @@ PUBLIC_LANDING_TEMPLATE = """
           <div class="step"><div class="num">4</div><div><strong>Open the dashboard</strong><span>Enable dashboard login for trusted admins, then manage live events, XML tools, shop, economy, zones, and moderation from the web panel.</span></div></div>
           <div class="step"><div class="num">5</div><div><strong>Bring players in</strong><span>Players can use <code>/linkgamer</code>. Staff can review links, run events, and keep the server tools organised from Discord or the dashboard.</span></div></div>
         </div>
-        <div class="search-copy"><strong>Free bot access includes</strong><span>Private <code>/setup</code> guidance, ADM connection checks, core Discord player and server feeds, leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web control tools.</span></div>
+        <div class="search-copy"><strong>Free bot access includes</strong><span>Private <code>/setup</code> guidance, ADM connection checks, killfeed, build feed, connected and disconnected player feeds, the online survivor board, hourly leaderboards, Discord channel setup, and server rules. The dashboard plans below add the web and mobile control tools.</span></div>
       </aside>
     </section>
     {% if page.path == "/" %}
@@ -2799,14 +2799,14 @@ PUBLIC_LANDING_TEMPLATE = """
       <header>
         <p class="eyebrow">Android app live on Google Play — iPhone coming soon</p>
         <h2>Activate, monitor and control your server from your phone</h2>
-        <p>The Wandering Bot Android app is live on Google Play now, with the iPhone version coming soon. Use the same permission-checked controls on a touch screen: activate server tools, check live feeds and status, run authorised actions, and prepare DayZ file or gameplay changes away from your desktop.</p>
+        <p>The Wandering Bot Android app is live on Google Play now, with the iPhone version coming soon. Every dashboard plan includes the app, with exactly the same permission-checked tools as its web dashboard: activate server tools, check live feeds and status, run authorised actions, and prepare DayZ file or gameplay changes away from your desktop.</p>
       </header>
       <div class="app-grid">
         <article class="app-card"><strong>Server control on touch</strong><span>Use your phone to check feeds and server status, manage supported dashboard controls, and keep your DayZ community moving without needing a desktop.</span></article>
         <article class="app-card"><strong>DayZ files and gameplay</strong><span>Prepare and review XML or JSON file changes, adjust supported gameplay settings, and keep every live upload behind the same clear review and approval step.</span></article>
-        <article class="app-card"><strong>Protected mobile access</strong><span>The Android and iPhone app uses the same permission-checked backend as the dashboard, so credentials, billing, file uploads, restarts and staff roles stay protected.</span></article>
+        <article class="app-card"><strong>Protected mobile access</strong><span>The Android and iPhone app uses the same permission-checked backend and plan entitlements as the dashboard, so credentials, billing, file uploads, restarts and staff roles stay protected.</span></article>
       </div>
-      <div class="app-note"><strong>Included with Ultimate</strong><span>The Android app is live now and uses the same account access as Wandering Bot. The iPhone companion is coming soon for owners and trusted staff who want supported server tools, gameplay settings and DayZ file work from their phone.</span></div>
+      <div class="app-note"><strong>Included with every dashboard plan</strong><span>The Android app is live now and mirrors the subscribed dashboard plan. Basic and Pro keep the private AI sandbox locked on both web and mobile; it is an Ultimate-only tool. The iPhone companion is coming soon for owners and trusted staff who want supported server tools, gameplay settings and DayZ file work from their phone.</span></div>
     </section>
     {% endif %}
     {% if page.guide_hub %}
@@ -3886,7 +3886,7 @@ APP_DASHBOARD_TEMPLATE = """
       right: 0;
       bottom: 0;
       display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(3.5rem, 1fr));
       gap: .2rem;
       padding: .42rem .5rem calc(.42rem + env(safe-area-inset-bottom));
       background: rgba(255, 255, 255, .98);
@@ -4022,9 +4022,9 @@ APP_DASHBOARD_TEMPLATE = """
       <div class="tool-grid">
         <a class="tool-row" href="{{ app_urls.start }}"><b>Setup</b><strong>Get started</strong><span>Add the bot, connect another Discord, check server slots or contact support.</span></a>
         <a class="tool-row" href="{{ app_urls.feeds }}"><b>Live</b><strong>Server feeds</strong><span>Review recent ADM activity for the selected DayZ server.</span></a>
-        <a class="tool-row" href="{{ app_urls.events }}"><b>Events</b><strong>Airdrop builder</strong><span>Create guarded airdrops and confirm live spawns from the RPT tracker.</span></a>
-        <a class="tool-row" href="{{ app_urls.economy }}"><b>Economy</b><strong>Shop control</strong><span>Search items and change prices, limits or availability.</span></a>
-        <a class="tool-row" href="{{ app_urls.control }}"><b>Operations</b><strong>Server control</strong><span>Manage restarts, raid damage and vehicle resets.</span></a>
+        {% if mobile_feature_access.events %}<a class="tool-row" href="{{ app_urls.events }}"><b>Events</b><strong>Airdrop builder</strong><span>Create guarded airdrops and confirm live spawns from the RPT tracker.</span></a>{% endif %}
+        {% if mobile_feature_access.economy %}<a class="tool-row" href="{{ app_urls.economy }}"><b>Economy</b><strong>Shop control</strong><span>Search items and change prices, limits or availability.</span></a>{% endif %}
+        {% if mobile_feature_access.control %}<a class="tool-row" href="{{ app_urls.control }}"><b>Operations</b><strong>Server control</strong><span>Manage restarts, raid damage and vehicle resets.</span></a>{% endif %}
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
         <a class="tool-row" href="{{ crafting_library_url }}"><b>Survival</b><strong>Crafting library</strong><span>Free vanilla recipes, base-building stages and ingredient visuals for players.</span></a>
         <a class="tool-row" href="{{ files_library_url }}"><b>Files</b><strong>DayZ files explained</strong><span>See what every core file controls, which files link together and what common XML terms mean.</span></a>
@@ -4151,6 +4151,7 @@ APP_DASHBOARD_TEMPLATE = """
     {% endif %}
 
     {% elif server and app_view == 'economy' %}
+    {% if mobile_feature_access.economy %}
     <section class="page-intro"><h2>Shop and economy</h2><p>Fast item management for the Discord shop. Changes stay scoped to {{ server.guild_name }}.</p></section>
     <section class="section">
       <div class="section-head"><h2>Find an item</h2><details class="info"><summary aria-label="About shop changes">i</summary><div>Price is the Discord economy cost. Daily limit is per player; use 0 for no daily cap. This does not edit DayZ types.xml.</div></details></div>
@@ -4193,8 +4194,12 @@ APP_DASHBOARD_TEMPLATE = """
         {% else %}<p class="muted">No shop items matched that search.</p>{% endfor %}
       </div>
     </section>
+    {% else %}
+    <section class="section"><div class="section-head"><h2>Shop and economy locked</h2></div><p>This server's current dashboard plan does not include shop and economy controls.</p></section>
+    {% endif %}
 
     {% elif server and app_view == 'control' %}
+    {% if mobile_feature_access.control %}
     {% set restart_on = selected_config.get('restart_schedule_enabled') == true and selected_config.get('restart_schedule_confirmed') == true %}
     {% set vehicle = selected_config.get('vehicle_reset_schedule', {}) %}
     {% set vehicle_on = selected_config.get('vehicle_reset_schedule_enabled') == true or vehicle.get('enabled') == true %}
@@ -4263,6 +4268,9 @@ APP_DASHBOARD_TEMPLATE = """
         </div>
       </details>
     </section>
+    {% else %}
+    <section class="section"><div class="section-head"><h2>Server controls locked</h2></div><p>This server's current dashboard plan does not include server controls.</p></section>
+    {% endif %}
 
     {% elif server and app_view == 'help' %}
     <section class="page-intro"><h2>DayZ field guide</h2><p>Practical explanations for new server owners, written around safe file handling.</p></section>
@@ -4371,9 +4379,9 @@ staminaMinCap = 100.0</pre><p>Keep a backup so you can compare or roll back afte
     <a class="{{ 'active' if app_view == 'start' else '' }}" href="{{ app_urls.start }}">Start</a>
     <a class="{{ 'active' if app_view == 'home' else '' }}" href="{{ app_urls.home }}">Home</a>
     <a class="{{ 'active' if app_view == 'feeds' else '' }}" href="{{ app_urls.feeds }}">Feeds</a>
-    <a class="{{ 'active' if app_view == 'events' else '' }}" href="{{ app_urls.events }}">Events</a>
-    <a class="{{ 'active' if app_view == 'economy' else '' }}" href="{{ app_urls.economy }}">Economy</a>
-    <a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>
+    {% if mobile_feature_access.events %}<a class="{{ 'active' if app_view == 'events' else '' }}" href="{{ app_urls.events }}">Events</a>{% endif %}
+    {% if mobile_feature_access.economy %}<a class="{{ 'active' if app_view == 'economy' else '' }}" href="{{ app_urls.economy }}">Economy</a>{% endif %}
+    {% if mobile_feature_access.control %}<a class="{{ 'active' if app_view == 'control' else '' }}" href="{{ app_urls.control }}">Control</a>{% endif %}
     <a class="{{ 'active' if app_view == 'help' else '' }}" href="{{ app_urls.help }}">Guides</a>
     <a href="{{ crafting_library_url }}">Crafting</a>
   </nav>
@@ -24076,8 +24084,8 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
             "Free Wandering Bot invite",
             f"{server_limit} DayZ server{'s' if server_limit != 1 else ''} included",
             "Private /setup guidance and ADM connection checks",
-            "Core Discord player and server activity feeds",
-            "Leaderboards, Discord setup and server rules",
+            "Killfeed, build feed, connected and disconnected player feeds",
+            "Online survivor board, hourly leaderboards, Discord setup and server rules",
         ]
 
     feature_labels = []
@@ -24105,14 +24113,17 @@ def public_billing_plan_features(plan: dict[str, Any]) -> list[str]:
         "dashboard_ultimate": [
             "Everything in Pro dashboard access",
             f"Up to {server_limit} DayZ servers included",
-            "Private DayZ AI agent with separate project conversations",
+            "Private DayZ AI agent on dashboard and app, with separate project conversations",
             "Explain XML/JSON errors, prepare events and draft reviewed DayZ files",
             f"{AGENT_ULTIMATE_INCLUDED_CREDITS} included AI credits, with secure top-ups when needed",
-            "Android app live on Google Play; Apple companion application coming soon",
-            "Activate and control supported server tools, gameplay and DayZ file work from your phone",
         ],
     }
-    return list(dict.fromkeys(plan_highlights.get(plan_id, []) + feature_labels))
+    mobile_access = (
+        ["Android app access with the same features and permissions as your dashboard"]
+        if dashboard_plan_rank(plan_id) >= dashboard_plan_rank("dashboard")
+        else []
+    )
+    return list(dict.fromkeys(plan_highlights.get(plan_id, []) + mobile_access + feature_labels))
 
 
 def public_billing_plans_for_homepage() -> list[dict[str, Any]]:
@@ -44252,6 +44263,54 @@ MOBILE_APP_VIEW_SECTIONS = {
     "control": "access",
     "help": "presets",
 }
+MOBILE_APP_VIEW_FEATURES = {
+    "events": "pve_quests",
+    "economy": "shop",
+    "control": "server_control",
+}
+
+
+def mobile_app_access_for_auth(auth: dict[str, Any] | None) -> bool:
+    """Return whether this dashboard account has the mobile control app.
+
+    The app is not a separate paid add-on.  It starts with the first dashboard
+    control tier and follows the same active/trial/lifetime status check as the
+    web dashboard.  The free Discord bot plan deliberately remains below that
+    threshold, while an older active dashboard record without a saved tier
+    keeps the existing Basic-dashboard fallback.
+    """
+    if not isinstance(auth, dict):
+        return False
+    if auth.get("kind") == "owner":
+        return True
+    if auth.get("kind") != "guild":
+        return False
+    guild_id = normalize_guild_id(auth.get("guild_id"))
+    guild_configs = load_store("guild_configs", {})
+    config = guild_configs.get(guild_id) if isinstance(guild_configs, dict) else {}
+    access = config.get("dashboard") if isinstance(config, dict) and isinstance(config.get("dashboard"), dict) else {}
+    if dashboard_access_plan_status(access) not in {"trial", "subscription", "lifetime"}:
+        return False
+    tier = dashboard_access_tier(access)
+    if tier in BILLING_PLAN_ORDER:
+        return dashboard_plan_rank(tier) >= dashboard_plan_rank("dashboard")
+    # Legacy dashboard records with an active status predate plan IDs. The web
+    # dashboard already treats them as Basic, so the mobile app must do the
+    # same rather than inventing a second entitlement system.
+    return bool(access)
+
+
+def mobile_app_feature_access(auth: dict[str, Any], access: Any, config: Any = None) -> dict[str, bool]:
+    """Expose a mobile tool only when its matching dashboard feature is live."""
+    if auth.get("kind") == "owner":
+        return {view: True for view in MOBILE_APP_VIEW_FEATURES}
+    if not isinstance(access, dict) or not access:
+        config = config if isinstance(config, dict) else {}
+        access = config.get("dashboard") if isinstance(config.get("dashboard"), dict) else {}
+    return {
+        view: dashboard_access_feature_allowed(access, feature)
+        for view, feature in MOBILE_APP_VIEW_FEATURES.items()
+    }
 
 
 def normalize_mobile_app_view(value: Any) -> str:
@@ -45452,6 +45511,14 @@ def mobile_app():
         if current_agent_account_auth():
             return redirect("/agent?section=ai-agent")
         return mobile_app_welcome()
+    if not mobile_app_access_for_auth(auth):
+        return (
+            mobile_app_welcome(
+                "Mobile server controls are included from Wandering Bot Basic upward. "
+                "The free Crafting, Files and Loot Tiers guides remain available without a dashboard account."
+            ),
+            403,
+        )
     payload = dashboard_app_selected_state(auth)
     selected_config = payload["selected_config"]
     selected_access = payload["selected_access"]
@@ -45510,11 +45577,8 @@ def mobile_app():
         )
     tracker_store = load_store("rpt_event_tracker", {}) if payload["app_view"] == "events" else {}
     airdrop_preset_ids = ("military_crate", "wooden_crate", "medical_crate", "building_crate", "food_crate")
-    event_access_allowed = auth.get("kind") == "owner" or (
-        dashboard_access_feature_allowed(selected_access, "pve_quests")
-        if selected_access
-        else dashboard_feature_allowed(selected_config, "pve_quests")
-    )
+    mobile_feature_access = mobile_app_feature_access(auth, selected_access, selected_config)
+    event_access_allowed = mobile_feature_access["events"]
     slot_guild_configs = load_store("guild_configs", {})
     if not isinstance(slot_guild_configs, dict):
         slot_guild_configs = {}
@@ -45578,6 +45642,7 @@ def mobile_app():
         scenario_guard_options=SCENARIO_GUARD_CLASS_OPTIONS,
         app_live_events=mobile_scenario_tracker_rows(tracker_store, profile_runtime_id),
         event_access_allowed=event_access_allowed,
+        mobile_feature_access=mobile_feature_access,
         dashboard_review_summary=review_summary(),
         support_url=SUPPORT_DISCORD_URL,
         support_email=PUBLIC_SUPPORT_EMAIL,

@@ -2897,8 +2897,11 @@ class DashboardServerControlTests(unittest.TestCase):
 
         self.assertEqual({"free_bot", "dashboard", "dashboard_ai", "dashboard_ultimate"}, set(public_plans))
         self.assertIn("Private /setup guidance and ADM connection checks", public_plans["free_bot"]["public_features"])
-        self.assertIn("Activate and control supported server tools, gameplay and DayZ file work from your phone", public_plans["dashboard_ultimate"]["public_features"])
-        self.assertIn("Android app live on Google Play; Apple companion application coming soon", public_plans["dashboard_ultimate"]["public_features"])
+        self.assertIn("Killfeed, build feed, connected and disconnected player feeds", public_plans["free_bot"]["public_features"])
+        self.assertIn("Online survivor board, hourly leaderboards, Discord setup and server rules", public_plans["free_bot"]["public_features"])
+        self.assertIn("Android app access with the same features and permissions as your dashboard", public_plans["dashboard"]["public_features"])
+        self.assertIn("Android app access with the same features and permissions as your dashboard", public_plans["dashboard_ai"]["public_features"])
+        self.assertIn("Private DayZ AI agent on dashboard and app, with separate project conversations", public_plans["dashboard_ultimate"]["public_features"])
         self.assertIn("DayZ files", public_plans["dashboard_ultimate"]["public_ai_agent_summary"])
         self.assertEqual("Add Wandering Bot", public_plans["free_bot"]["public_cta"])
         self.assertEqual("Buy now", public_plans["dashboard"]["public_cta"])
@@ -2909,6 +2912,36 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertEqual("https://buy.stripe.com/cNidR3aXL6Qf5PU7xVbEA04", public_plans["dashboard_ai"]["payment_url"])
         self.assertEqual("https://buy.stripe.com/3cI00daXL5Mb4LQaK7bEA05", public_plans["dashboard_ultimate"]["payment_url"])
         self.assertEqual("Price shown at checkout", public_plans["dashboard_ultimate"]["public_price_text"])
+
+    def test_mobile_server_controls_start_at_basic_and_follow_dashboard_plan_status(self):
+        def access_for(tier, status="subscription"):
+            return {"dashboard": {"tier": tier, "plan_status": status, "enabled": True}}
+
+        auth = {"kind": "guild", "guild_id": "guild-1"}
+        with patch.object(dashboard, "load_store", return_value={"guild-1": access_for("free_bot")}):
+            self.assertFalse(dashboard.mobile_app_access_for_auth(auth))
+        with patch.object(dashboard, "load_store", return_value={"guild-1": access_for("dashboard")}):
+            self.assertTrue(dashboard.mobile_app_access_for_auth(auth))
+        with patch.object(dashboard, "load_store", return_value={"guild-1": access_for("dashboard_ai")}):
+            self.assertTrue(dashboard.mobile_app_access_for_auth(auth))
+        with patch.object(dashboard, "load_store", return_value={"guild-1": access_for("dashboard_ultimate")}):
+            self.assertTrue(dashboard.mobile_app_access_for_auth(auth))
+        with patch.object(dashboard, "load_store", return_value={"guild-1": access_for("dashboard", "suspended")}):
+            self.assertFalse(dashboard.mobile_app_access_for_auth(auth))
+        self.assertTrue(dashboard.mobile_app_access_for_auth({"kind": "owner"}))
+
+    def test_mobile_feature_access_uses_the_same_dashboard_features(self):
+        basic = {"tier": "dashboard", "plan_status": "subscription"}
+        pro = {"tier": "dashboard_ai", "plan_status": "subscription"}
+
+        with patch.object(dashboard, "dashboard_billing_plans", return_value=list(dashboard.default_billing_plan_map().values())):
+            basic_tools = dashboard.mobile_app_feature_access({"kind": "guild"}, basic)
+            pro_tools = dashboard.mobile_app_feature_access({"kind": "guild"}, pro)
+
+        self.assertEqual({"events": True, "economy": True, "control": True}, basic_tools)
+        self.assertEqual({"events": True, "economy": True, "control": True}, pro_tools)
+        with patch.object(dashboard, "load_store", return_value={"guild-1": {"dashboard": pro}}):
+            self.assertFalse(dashboard.ai_agent_access_for_auth({"kind": "guild", "guild_id": "guild-1"}, {})["allowed"])
 
     def test_saved_free_billing_plan_keeps_its_checkout_url(self):
         saved = {
