@@ -2039,6 +2039,7 @@ APP_WELCOME_TEMPLATE = """
       <a class="secondary" href="/setup-guide">Read the full setup guide</a>
       <a class="secondary" href="{{ crafting_library_url }}">Browse free Crafting &amp; Survival library</a>
       <a class="secondary" href="{{ files_library_url }}">Understand DayZ server files</a>
+      <a class="secondary" href="{{ validator_url }}">Validate DayZ XML &amp; JSON files</a>
       <a class="secondary" href="{{ tiers_library_url }}">View DayZ loot tier maps</a>
     </section>
 
@@ -2088,6 +2089,52 @@ APP_WELCOME_TEMPLATE = """
         button.setAttribute("aria-pressed", show ? "true" : "false");
       });
     });
+  </script>
+</body>
+</html>
+"""
+
+PUBLIC_FILE_VALIDATOR_TEMPLATE = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>DayZ JSON &amp; XML Validator | Wandering Bot</title>
+  <meta name="description" content="Free DayZ JSON and XML validator that identifies syntax errors, locations, incomplete files and recognised DayZ file checks.">
+  <meta name="theme-color" content="#071114">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/brand-image">
+  <style>
+    :root { color-scheme:dark; --bg:#061014; --panel:rgba(7,20,25,.9); --panel-strong:rgba(4,12,15,.96); --line:rgba(103,245,231,.21); --gold:#f0ad53; --green:#91efac; --teal:#83e8db; --muted:#a8bdc1; --text:#f1fbfb; --bad:#ff9aa9; --warn:#ffd292; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    * { box-sizing:border-box; } html { min-height:100%; background:var(--bg); } body { margin:0; min-height:100svh; color:var(--text); background:linear-gradient(115deg,rgba(2,11,14,.94),rgba(4,17,20,.69)), url('/map-image/chernarus') center/cover fixed; padding:env(safe-area-inset-top) 0 calc(1rem + env(safe-area-inset-bottom)); }
+    a { color:inherit; } button,input,textarea,select { font:inherit; } .shell { width:min(70rem,calc(100% - 1rem)); margin:0 auto; display:grid; gap:.8rem; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.75rem 0; } .brand { display:flex; align-items:center; gap:.6rem; text-decoration:none; font-weight:900; } .brand img { width:2.55rem; height:2.55rem; border:1px solid var(--line); border-radius:.55rem; object-fit:cover; } .brand span { color:var(--green); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; } .top-links { display:flex; flex-wrap:wrap; gap:.45rem; } .top-links a { padding:.45rem .6rem; border:1px solid var(--line); border-radius:.45rem; color:var(--muted); font-size:.78rem; font-weight:800; text-decoration:none; }
+    .hero,.workspace,.result,.guide { border:1px solid var(--line); border-radius:.85rem; background:linear-gradient(145deg,var(--panel),var(--panel-strong)); box-shadow:0 1.1rem 2.8rem rgba(0,0,0,.29); backdrop-filter:blur(13px); } .hero { display:grid; gap:.85rem; padding:1.1rem; border-top-color:rgba(240,173,83,.72); } .eyebrow { margin:0; color:var(--gold); font-size:.73rem; font-weight:900; letter-spacing:.1em; text-transform:uppercase; } h1 { margin:0; max-width:15ch; font-size:clamp(2rem,8vw,3.8rem); line-height:.96; letter-spacing:-.045em; } .hero p:last-child { margin:0; max-width:62ch; color:var(--muted); line-height:1.52; }
+    .workspace { display:grid; gap:.8rem; padding:1rem; } .workspace-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; flex-wrap:wrap; } h2 { margin:0; font-size:1.05rem; } .status { border:1px solid var(--line); border-radius:999px; padding:.28rem .52rem; color:var(--muted); font-size:.74rem; font-weight:850; } form { display:grid; gap:.7rem; } .input-grid { display:grid; gap:.65rem; } label { display:grid; gap:.3rem; color:var(--muted); font-size:.78rem; font-weight:800; } input,select,textarea { width:100%; border:1px solid var(--line); border-radius:.55rem; padding:.7rem; color:var(--text); background:rgba(2,11,14,.83); } textarea { min-height:20rem; resize:vertical; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.84rem; line-height:1.45; } input[type=file] { padding:.45rem; } .field-help { margin:0; color:var(--muted); font-size:.76rem; line-height:1.4; } .actions { display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; } button { min-height:2.8rem; border:1px solid rgba(240,173,83,.72); border-radius:.55rem; padding:.62rem .85rem; background:linear-gradient(180deg,#f2b967,#d98231); color:#16100a; font-weight:950; cursor:pointer; } button:disabled { opacity:.65; cursor:wait; } .clear { border-color:var(--line); background:rgba(4,16,19,.88); color:var(--muted); } .privacy { color:var(--muted); font-size:.75rem; }
+    .result { display:none; gap:.75rem; padding:1rem; } .result.visible { display:grid; } .result[data-tone=ok] { border-color:rgba(145,239,172,.52); } .result[data-tone=warn] { border-color:rgba(255,210,146,.58); } .result[data-tone=bad] { border-color:rgba(255,154,169,.62); } .result-head { display:flex; gap:.65rem; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; } .result-head h2 { font-size:1.1rem; } .result-badge { border:1px solid var(--line); border-radius:999px; padding:.3rem .55rem; font-size:.76rem; font-weight:900; } .result[data-tone=ok] .result-badge { color:var(--green); border-color:rgba(145,239,172,.48); } .result[data-tone=warn] .result-badge { color:var(--warn); border-color:rgba(255,210,146,.5); } .result[data-tone=bad] .result-badge { color:var(--bad); border-color:rgba(255,154,169,.55); } .result-summary { margin:0; color:var(--text); line-height:1.5; } .location { width:max-content; max-width:100%; padding:.38rem .55rem; border-left:2px solid var(--gold); background:rgba(240,173,83,.1); color:#ffedcf; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.8rem; overflow-wrap:anywhere; } .checks { display:grid; gap:.45rem; } .check { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.55rem; align-items:start; padding:.55rem .6rem; border:1px solid rgba(103,245,231,.13); border-radius:.5rem; background:rgba(2,11,14,.48); color:var(--muted); font-size:.83rem; line-height:1.42; } .check strong { color:var(--text); } .check[data-status=ok]::before { content:'✓'; color:var(--green); font-weight:900; } .check[data-status=warn]::before { content:'!'; color:var(--warn); font-weight:900; } .check[data-status=bad]::before { content:'×'; color:var(--bad); font-weight:900; }
+    .guide { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; padding:.85rem; } .guide div { padding:.15rem .25rem; } .guide strong { display:block; color:var(--teal); font-size:.83rem; } .guide span { display:block; margin-top:.26rem; color:var(--muted); font-size:.77rem; line-height:1.38; } code { color:#ffdcaa; }
+    @media (min-width:760px) { .input-grid { grid-template-columns:minmax(13rem,.8fr) minmax(0,1.2fr); } .workspace { padding:1.15rem; } .hero { padding:1.45rem; } } @media (max-width:620px) { .guide { grid-template-columns:1fr; } .topbar { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar"><a class="brand" href="/app"><img src="/brand-image" alt="Wandering Bot"><span>Wandering Bot · Free file tools</span></a><nav class="top-links"><a href="/app">App home</a><a href="{{ files_library_url }}">File guide</a></nav></header>
+    <section class="hero"><p class="eyebrow">Free before login</p><h1>Check DayZ JSON and XML before upload.</h1><p>Paste a file or choose one from your device. The checker identifies JSON and XML syntax faults, reports the exact line and column, recognises common DayZ filenames, and tells you when a file is merely readable versus ready to review for upload.</p></section>
+    <section class="workspace" aria-labelledby="validator-heading"><div class="workspace-head"><div><h2 id="validator-heading">File validator</h2><p class="field-help">Nothing is uploaded to a server. The check runs only on the text you provide.</p></div><span class="status" data-validator-status>Waiting for a file</span></div>
+      <form data-file-validator><div class="input-grid"><label>Expected filename or relative path <input name="filename" maxlength="180" placeholder="types.xml, events.xml, custom/MyObjects.json …" autocomplete="off"><span class="field-help">Add the real filename to unlock the matching DayZ check. For custom JSON, include <code>custom/</code> or <code>pra/</code>.</span></label><label>Choose a local file <input type="file" accept=".xml,.json,text/xml,application/json" data-validator-file><span class="field-help">Choosing a file only fills the box below; it is not uploaded.</span></label></div><label>Paste file contents <textarea name="content" required spellcheck="false" placeholder="Paste JSON or XML here…"></textarea></label><div class="actions"><button type="submit">Check file</button><button class="clear" type="button" data-validator-clear>Clear</button><span class="privacy">No login, Discord, Nitrado or server access is involved.</span></div></form>
+    </section>
+    <section class="result" data-validator-result aria-live="polite"><div class="result-head"><div><h2 data-validator-title>Result</h2><p class="result-summary" data-validator-summary></p></div><span class="result-badge" data-validator-badge></span></div><code class="location" data-validator-location hidden></code><div class="checks" data-validator-checks></div></section>
+    <section class="guide"><div><strong>1. Syntax</strong><span>Finds invalid JSON, broken XML tags, missing brackets and incomplete files.</span></div><div><strong>2. File identity</strong><span>Uses the filename and root/schema when Wandering Bot recognises the DayZ file type.</span></div><div><strong>3. Upload guidance</strong><span>Explains whether the text passed parsing, needs a fix, or needs a fuller DayZ review.</span></div></section>
+  </main>
+  <script>
+    (function () {
+      const form=document.querySelector('[data-file-validator]'), file=form.querySelector('[data-validator-file]'), text=form.elements.content, filename=form.elements.filename, result=document.querySelector('[data-validator-result]'), status=document.querySelector('[data-validator-status]');
+      const show=(data)=>{ result.className='result visible'; result.dataset.tone=data.tone||'warn'; document.querySelector('[data-validator-title]').textContent=data.title||'File check'; document.querySelector('[data-validator-summary]').textContent=data.summary||''; document.querySelector('[data-validator-badge]').textContent=data.badge||'Checked'; const location=document.querySelector('[data-validator-location]'); location.hidden=!data.location; location.textContent=data.location||''; const checks=document.querySelector('[data-validator-checks]'); checks.replaceChildren(); (data.checks||[]).forEach((check)=>{const row=document.createElement('div');row.className='check';row.dataset.status=check.status||'warn';const copy=document.createElement('div');const strong=document.createElement('strong');strong.textContent=check.title;const detail=document.createElement('span');detail.textContent=check.detail;copy.append(strong,document.createElement('br'),detail);row.append(copy);checks.append(row);}); status.textContent=data.badge||'Checked'; };
+      file.addEventListener('change',()=>{const selected=file.files&&file.files[0];if(!selected)return;filename.value=selected.name;const reader=new FileReader();reader.onload=()=>{text.value=String(reader.result||'');status.textContent='Ready to check';};reader.onerror=()=>{status.textContent='Could not read that file';};reader.readAsText(selected);});
+      form.addEventListener('submit',async(event)=>{event.preventDefault();const button=form.querySelector('button[type=submit]');button.disabled=true;status.textContent='Checking…';try{const response=await fetch('/api/public/file-validator',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({filename:filename.value,content:text.value})});const data=await response.json();show(data);}catch(error){show({tone:'bad',title:'Could not run the check',summary:'Try again in a moment. No server file was changed.',badge:'Unavailable',checks:[{status:'bad',title:'Validator request failed',detail:String(error&&error.message||'Unknown browser error')} ]});}finally{button.disabled=false;}});
+      document.querySelector('[data-validator-clear]').addEventListener('click',()=>{form.reset();result.className='result';status.textContent='Waiting for a file';text.focus();});
+    })();
   </script>
 </body>
 </html>
@@ -2228,6 +2275,7 @@ CRAFTING_LIBRARY_TEMPLATE = """
       <a class="{{ 'active' if library_mode == 'illnesses' else '' }}" href="{{ illness_url }}">Illnesses &amp; treatment</a>
       <a class="{{ 'active' if library_mode == 'files' else '' }}" href="{{ files_url }}">Files explained</a>
       <a class="{{ 'active' if library_mode == 'tiers' else '' }}" href="{{ tiers_url }}">Loot tiers &amp; maps</a>
+      <a href="/validate{% if app_source %}?source={{ app_source|urlencode }}{% endif %}">File validator</a>
     </nav>
 
     {% if library_mode == 'tiers' %}
@@ -4028,6 +4076,7 @@ APP_DASHBOARD_TEMPLATE = """
         <a class="tool-row" href="{{ app_urls.help }}"><b>Learn</b><strong>DayZ field guide</strong><span>Understand files, backups and safe editing before making changes.</span></a>
         <a class="tool-row" href="{{ crafting_library_url }}"><b>Survival</b><strong>Crafting library</strong><span>Free vanilla recipes, base-building stages and ingredient visuals for players.</span></a>
         <a class="tool-row" href="{{ files_library_url }}"><b>Files</b><strong>DayZ files explained</strong><span>See what every core file controls, which files link together and what common XML terms mean.</span></a>
+        <a class="tool-row" href="{{ validator_url }}"><b>Free utility</b><strong>XML &amp; JSON validator</strong><span>Check complete files for syntax, incomplete text and recognised DayZ file requirements before an upload.</span></a>
         <a class="tool-row" href="{{ tiers_library_url }}"><b>Maps</b><strong>Loot tiers explained</strong><span>Switch between Chernarus, Livonia and Sakhal tier maps and learn how tier values control loot eligibility.</span></a>
         {% if mobile_ai_agent_allowed %}<a class="tool-row" href="{{ mobile_ai_agent_url }}"><b>Ultimate AI</b><strong>DayZ AI agent</strong><span>Ask questions, repair errors and prepare validated DayZ file drafts in separate conversations.</span></a>{% endif %}
       </div>
@@ -4275,6 +4324,7 @@ APP_DASHBOARD_TEMPLATE = """
     {% elif server and app_view == 'help' %}
     <section class="page-intro"><h2>DayZ field guide</h2><p>Practical explanations for new server owners, written around safe file handling.</p></section>
     <section class="notice safe-notice"><strong>Need a file-by-file reference?</strong> <a href="{{ files_library_url }}">Open DayZ Files Explained</a> for linked-file maps and the complete terms glossary.</section>
+    <section class="notice safe-notice"><strong>Need to check a file first?</strong> <a href="{{ validator_url }}">Open the free XML &amp; JSON validator</a> for syntax errors, incomplete text and recognised DayZ file requirements.</section>
     <section class="notice safe-notice"><strong>Golden rule:</strong> download the current live file first, edit a copy, validate the complete file, and only then upload it to the exact mission path.</section>
     <section class="section">
       <div class="section-head"><h2>How the files work together</h2><details class="info"><summary aria-label="About linked DayZ files">i</summary><div>A DayZ change is often a small package of linked files rather than one isolated snippet. Follow the links below before uploading.</div></details></div>
@@ -6360,7 +6410,7 @@ PAGE_TEMPLATE = """
         max-height: 21rem;
       }
     }
-    @media (max-width: 1180px) {
+    @media (max-width: 760px) {
       body[data-theme="command"] { --sidebar-w: 0rem; }
       body[data-theme="command"] header { left: 0; }
       body[data-theme="command"] main { margin-left: 0; padding-top: 4.8rem; }
@@ -6900,6 +6950,33 @@ PAGE_TEMPLATE = """
     .inspect-link:hover, .inspect-link:focus-visible { border-color: var(--accent); outline: none; }
     .loadout-reference-panel { display: grid; gap: .55rem; margin-top: .8rem; border-top: 1px solid var(--line); padding-top: .8rem; }
     .loadout-reference-panel h3 { margin: 0; }
+    .loadout-studio-hub { position: relative; overflow: hidden; border-color: rgba(103,245,231,.28); background: linear-gradient(135deg, rgba(7,31,37,.92), rgba(4,12,15,.96) 55%, rgba(43,31,9,.74)); }
+    .loadout-studio-hub::after { content: ""; position: absolute; inset: auto -8rem -11rem auto; width: 22rem; height: 22rem; border-radius: 50%; background: radial-gradient(circle, rgba(255,159,67,.16), transparent 66%); pointer-events: none; }
+    .loadout-studio-hub > * { position: relative; z-index: 1; }
+    .loadout-studio-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; margin-top: .9rem; }
+    .loadout-studio-card { display: grid; gap: .8rem; min-height: 17rem; padding: 1rem; border: 1px solid rgba(103,245,231,.22); border-radius: .75rem; color: var(--text); text-decoration: none; background: linear-gradient(160deg, rgba(9,32,39,.94), rgba(3,11,14,.92)); box-shadow: inset 0 .16rem 0 rgba(103,245,231,.52), 0 1rem 2.4rem rgba(0,0,0,.18); transition: border-color .16s ease, transform .16s ease, background .16s ease; }
+    .loadout-studio-card[data-loadout-kind="vehicle"] { border-color: rgba(255,159,67,.32); background: linear-gradient(160deg, rgba(54,38,10,.78), rgba(5,13,16,.94)); box-shadow: inset 0 .16rem 0 rgba(255,159,67,.68), 0 1rem 2.4rem rgba(0,0,0,.18); }
+    .loadout-studio-card:hover, .loadout-studio-card:focus-visible { border-color: var(--accent); transform: translateY(-2px); outline: none; }
+    .loadout-studio-card[data-loadout-kind="vehicle"]:hover, .loadout-studio-card[data-loadout-kind="vehicle"]:focus-visible { border-color: var(--orange); }
+    .loadout-studio-card-head { display: flex; align-items: flex-start; gap: .7rem; }
+    .loadout-studio-card-icon { display: grid; place-items: center; width: 2.45rem; height: 2.45rem; flex: 0 0 auto; border: 1px solid rgba(103,245,231,.34); border-radius: .55rem; color: #aef8f0; background: rgba(103,245,231,.1); font-size: 1.2rem; }
+    .loadout-studio-card[data-loadout-kind="vehicle"] .loadout-studio-card-icon { border-color: rgba(255,159,67,.42); color: #fff0d9; background: rgba(255,159,67,.12); }
+    .loadout-studio-card h4 { margin: 0 0 .24rem; color: #effcff; font-size: 1.05rem; }
+    .loadout-studio-card p { margin: 0; color: #b5c7cb; font-size: .86rem; line-height: 1.45; }
+    .loadout-studio-checks { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+    .loadout-studio-checks li { display: flex; gap: .48rem; justify-content: flex-start; color: #c7d7da; font-size: .82rem; }
+    .loadout-studio-checks li::before { content: "✓"; color: #86edd0; font-weight: 900; }
+    .loadout-studio-card[data-loadout-kind="vehicle"] .loadout-studio-checks li::before { color: #ffd28f; }
+    .loadout-studio-cta { width: max-content; margin-top: auto; padding: .48rem .65rem; border: 1px solid rgba(103,245,231,.36); border-radius: .45rem; color: #effcff; background: rgba(103,245,231,.1); font-size: .8rem; font-weight: 850; }
+    .loadout-studio-card[data-loadout-kind="vehicle"] .loadout-studio-cta { border-color: rgba(255,159,67,.45); color: #fff2df; background: rgba(255,159,67,.13); }
+    .loadout-studio-policy { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; margin-top: .8rem; padding-top: .8rem; border-top: 1px solid rgba(103,245,231,.16); }
+    .loadout-studio-policy div { padding: .55rem .6rem; border-left: 2px solid rgba(103,245,231,.55); background: rgba(2,12,15,.36); }
+    .loadout-studio-policy strong { display: block; color: #effcff; font-size: .78rem; }
+    .loadout-studio-policy span { display: block; margin-top: .18rem; color: #9cb4b8; font-size: .73rem; line-height: 1.35; }
+    .loadout-studio-tabs { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0 0 .85rem; padding: .5rem; border: 1px solid rgba(103,245,231,.18); border-radius: .65rem; background: rgba(2,12,15,.62); }
+    .loadout-studio-tabs a { flex: 1 1 14rem; min-height: 2.55rem; display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .5rem .65rem; border: 1px solid rgba(103,245,231,.16); border-radius: .48rem; color: #b5c7cb; text-decoration: none; font-size: .82rem; font-weight: 800; }
+    .loadout-studio-tabs a.active, .loadout-studio-tabs a:hover, .loadout-studio-tabs a:focus-visible { border-color: rgba(103,245,231,.52); background: rgba(103,245,231,.11); color: #effcff; outline: none; }
+    .loadout-studio-tabs a[data-loadout-kind="vehicle"].active, .loadout-studio-tabs a[data-loadout-kind="vehicle"]:hover, .loadout-studio-tabs a[data-loadout-kind="vehicle"]:focus-visible { border-color: rgba(255,159,67,.62); background: rgba(255,159,67,.13); }
     .inline-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .45rem; align-items: end; }
     .reference-item-head { display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: .55rem; align-items: center; min-height: 3.4rem; border: 1px solid var(--line); border-radius: .5rem; background: #070b08; padding: .45rem; }
     .reference-item-head img { width: 3rem; height: 3rem; border: 1px solid var(--line); border-radius: .4rem; object-fit: contain; background: var(--panel-2); }
@@ -6944,6 +7021,10 @@ PAGE_TEMPLATE = """
     .tool-switcher { display: flex; flex-wrap: wrap; gap: .45rem; margin: .75rem 0 1rem; }
     .tool-switcher a { border: 1px solid var(--line); border-radius: .5rem; padding: .55rem .75rem; background: #070b08; color: var(--text); font-weight: 800; }
     .tool-switcher a.active { background: var(--panel-2); border-color: var(--accent); color: var(--gold); }
+    .tool-switcher-label { display: inline-flex; align-items: center; min-height: 2.35rem; margin-left: .25rem; padding: 0 .42rem; color: var(--muted); font-size: .7rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+    .tool-switcher-label:first-child { margin-left: 0; }
+    .tool-switcher a.loadout-studio-link { border-color: rgba(103,245,231,.3); background: rgba(103,245,231,.08); color: #d9fffb; }
+    .tool-switcher a.loadout-studio-link.active { border-color: var(--accent); background: rgba(103,245,231,.16); color: #effcff; }
     .picker-select { min-width: 0; width: 100%; }
     .save-preview { white-space: pre-wrap; max-height: 22rem; overflow: auto; border: 1px solid var(--line); border-radius: .5rem; padding: .75rem; background: #070b08; color: var(--text); }
     .recipe-list { display: grid; gap: .65rem; margin-top: .85rem; }
@@ -7120,6 +7201,8 @@ PAGE_TEMPLATE = """
       .loadout-item-grid { max-height: 28rem; overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .loadout-item-card { min-height: 4.5rem; }
       .loadout-selected-slot span, .embed-preview span { overflow-wrap: anywhere; }
+      .loadout-studio-grid, .loadout-studio-policy { grid-template-columns: 1fr; }
+      .loadout-studio-card { min-height: 0; }
       body[data-section="pve"] .admin-form label { gap: .25rem; }
       body[data-section="pve"] .admin-form .field-help { display: none; }
       body[data-section="pve"] .admin-form label:focus-within .field-help { display: block; }
@@ -7322,13 +7405,17 @@ PAGE_TEMPLATE = """
       outline: none;
     }
 
-    /* The grouped navigation replaces the old permanently open command sidebar. */
-    body[data-theme="command"] { --sidebar-w: 0rem; }
-    body[data-theme="command"] header { left: 0; }
-    body[data-theme="command"] header .brand { display: flex; }
-    body[data-theme="command"] header > nav.command-top-nav { display: flex; }
-    body[data-theme="command"] .command-sidebar { display: none; }
-    body[data-theme="command"] main { margin-left: 0; }
+    /* The full command menu stays down the left at desktop and tablet widths.
+       A separate top strip made the dashboard feel cramped and hid the route
+       names people need while working. */
+    @media (min-width: 761px) {
+      body[data-theme="command"] { --sidebar-w: 13.25rem; }
+      body[data-theme="command"] header { left: var(--sidebar-w); }
+      body[data-theme="command"] header .brand { display: none; }
+      body[data-theme="command"] header > nav.command-top-nav { display: none; }
+      body[data-theme="command"] .command-sidebar { display: flex; }
+      body[data-theme="command"] main { margin-left: var(--sidebar-w); }
+    }
 
     /* Large, useful desktop previews without changing the selected classname. */
     @media (hover: hover) and (pointer: fine) {
@@ -7649,6 +7736,7 @@ PAGE_TEMPLATE = """
       <a class="{{ 'active' if active_section == 'player-audit' else '' }}" href="/owner?section=player-audit{{ server_qs }}{{ profile_qs }}">Player Audit</a>
       <a class="{{ 'active' if active_section == 'reviews' else '' }}" href="/owner?section=reviews">Reviews</a>
       <a class="{{ 'active' if active_section == 'help' else '' }}" href="/owner?section=help">Help & Guides</a>
+      <a href="/validate">Free File Validator</a>
       {% if section_allowed('ai-agent') %}<a class="{{ 'active' if active_section == 'ai-agent' else '' }}" href="/owner?section=ai-agent">AI Sandbox</a>{% endif %}
       <a class="command-side-special" href="/owner?section=owner#dayz-reference-library">Vanilla Files & Updates</a>
       {% else %}
@@ -7658,6 +7746,7 @@ PAGE_TEMPLATE = """
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
       {% if section_allowed('xml-workshop') %}<a class="{{ 'active' if active_section == 'xml-workshop' else '' }}" href="/admin?section=xml-workshop{{ server_qs }}{{ profile_qs }}">XML & Loadouts</a>{% endif %}
+      <a href="/validate">Free File Validator</a>
       {% if section_allowed('presets') %}<a class="{{ 'active' if active_section == 'presets' else '' }}" href="/admin?section=presets{{ server_qs }}">Preset Files</a>{% endif %}
       {% if section_allowed('economy') or section_allowed('shop') %}<a class="{{ 'active' if active_section in ['economy', 'shop'] else '' }}" href="/admin?section={{ shop_economy_section }}{{ server_qs }}">Shop & Economy</a>{% endif %}
       {% if section_allowed('leaderboards') %}<a class="{{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
@@ -8096,9 +8185,9 @@ PAGE_TEMPLATE = """
       <a class="category-link" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}"><strong>Zones & Radar</strong><span>Safe zones, PVP zones, radar pings and ban/action rules.</span></a>
       <a class="category-link" href="/admin?section=members{{ server_qs }}"><strong>Members</strong><span>Server player list, Discord IDs, kick and ban actions.</span></a>
       <a class="category-link" href="/admin?section={{ shop_economy_section }}{{ server_qs }}{% if shop_economy_section == 'economy' %}#economy-common-tasks{% else %}#shop-control{% endif %}"><strong>Shop & Economy</strong><span>Items, bundles, prices, wallets, wages and rewards.</span></a>
-      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}{{ profile_qs }}"><strong>XML & Loadouts</strong><span>Edit types.xml, build filled bags, loadouts and vehicle cargo recipes.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loadouts{{ server_qs }}{{ profile_qs }}"><strong>Loadout Studio</strong><span>Build player kits and vehicle cargo in one organised place, then move to XML tools when needed.</span></a>
       {% if section_allowed('presets') %}<a class="category-link" href="/admin?section=presets{{ server_qs }}"><strong>Preset Files</strong><span>Download ready-made gameplay, weather and loot economy files.</span></a>{% endif %}
-      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}"><strong>Player Loadout</strong><span>Build spawn gear inside XML Workshop with slots, bags and cargo.</span></a>
+      <a class="category-link" href="/admin?section=xml-workshop&xml_tool=loot{{ server_qs }}{{ profile_qs }}"><strong>XML Tools</strong><span>Edit types.xml, build filled bags and prepare supported XML recipes.</span></a>
       <a class="category-link" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}"><strong>Airdrops & Events</strong><span>Track airdrops, hordes, gas zones, animals and vehicles.</span></a>
       <a class="category-link" href="/admin?section=heatmaps{{ server_qs }}{{ profile_qs }}"><strong>Map & Heatmaps</strong><span>PVP, PVE, infected, animal and build activity.</span></a>
       <a class="category-link" href="/admin?section=help{{ server_qs }}"><strong>Help & Guides</strong><span>Walkthroughs, setup notes and what each control does.</span></a>
@@ -11721,12 +11810,46 @@ PAGE_TEMPLATE = """
         </div>
       </div>
       <nav class="tool-switcher" aria-label="XML workshop tools">
-        {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers"), ("player-loadout", "Player Loadouts"), ("vehicle-loadout", "Vehicle Loadouts"), ("qr-code", "In-Game QR"), ("saved", "Saved Recipes")] %}
+        <span class="tool-switcher-label">World &amp; XML</span>
+        {% for key, label in [("loot", "Types Editor"), ("airdrop", "Airdrop Builder"), ("container", "Bags & Containers")] %}
+        <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}{{ profile_qs }}">{{ label }}</a>
+        {% endfor %}
+        <span class="tool-switcher-label">Loadouts</span>
+        <a class="loadout-studio-link {{ 'active' if xml_tool == 'loadouts' else '' }}" href="/admin?section=xml-workshop&xml_tool=loadouts{{ server_qs }}{{ profile_qs }}">Loadout Studio</a>
+        <a class="{{ 'active' if xml_tool == 'player-loadout' else '' }}" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}">Player</a>
+        <a class="{{ 'active' if xml_tool == 'vehicle-loadout' else '' }}" href="/admin?section=xml-workshop&xml_tool=vehicle-loadout{{ server_qs }}{{ profile_qs }}">Vehicle</a>
+        <span class="tool-switcher-label">Utilities</span>
+        {% for key, label in [("qr-code", "In-Game QR"), ("saved", "Saved Recipes")] %}
         <a class="{{ 'active' if xml_tool == key else '' }}" href="/admin?section=xml-workshop&xml_tool={{ key }}{{ server_qs }}{{ profile_qs }}">{{ label }}</a>
         {% endfor %}
         <a href="/admin?section=dayz-converter{{ server_qs }}{{ profile_qs }}">Event Format Exchange</a>
       </nav>
       <div class="panel-grid">
+        {% if xml_tool == "loadouts" %}
+        <article class="admin-panel full loadout-studio-hub" id="loadout-studio">
+          <div class="section-head">
+            <div><h3>Loadout Studio</h3><p class="tool-note">Player and vehicle loadouts live together here, but their rules never mix. Pick the type you are building, then use its dedicated workbench.</p></div>
+            <div class="pills"><span class="pill ok">Pristine only</span><span class="pill">Reference-checked</span><span class="pill">Draft first</span></div>
+          </div>
+          <div class="loadout-studio-grid">
+            <a class="loadout-studio-card" data-loadout-kind="player" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder">
+              <div class="loadout-studio-card-head"><span class="loadout-studio-card-icon" aria-hidden="true">♟</span><div><h4>Player Loadouts</h4><p>Build a survivor's equipped gear, clothing storage and exact compatible attachments.</p></div></div>
+              <ul class="loadout-studio-checks"><li>Slot-compatible equipment only</li><li>Supplies fill real free clothing, vest and backpack space</li><li>Child attachments follow the selected parent item</li></ul>
+              <span class="loadout-studio-cta">Open player builder →</span>
+            </a>
+            <a class="loadout-studio-card" data-loadout-kind="vehicle" href="/admin?section=xml-workshop&xml_tool=vehicle-loadout{{ server_qs }}{{ profile_qs }}#vehicle-loadout-builder">
+              <div class="loadout-studio-card-head"><span class="loadout-studio-card-icon" aria-hidden="true">▣</span><div><h4>Vehicle Loadouts</h4><p>Choose a real vehicle variant, then give it only its valid parts and cargo.</p></div></div>
+              <ul class="loadout-studio-checks"><li>Exact model and part-reference checks</li><li>Compatible cargo and attachment positions</li><li>Pristine vehicle cargo with a clear output recipe</li></ul>
+              <span class="loadout-studio-cta">Open vehicle builder →</span>
+            </a>
+          </div>
+          <div class="loadout-studio-policy" aria-label="Loadout Studio safeguards">
+            <div><strong>1. Choose the right builder</strong><span>Player and vehicle rules are kept separately from the first click.</span></div>
+            <div><strong>2. Use the active DayZ reference</strong><span>Only supported items, parts and children are offered for the selected item.</span></div>
+            <div><strong>3. Export a clean draft</strong><span>Every item is pristine and the saved recipe remains reviewable before use.</span></div>
+          </div>
+        </article>
+        {% endif %}
         {% if xml_tool == "loot" %}
         <article class="admin-panel full types-editor-panel{% if types_factory_preload.xml_text %} types-loaded{% endif %}" data-types-editor data-map-key="{{ types_factory_preload.map or (server.map if server else 'chernarus')|lower }}" data-guild-id="{{ server.guild_id if server else '' }}">
           <input class="types-editor-file-input" type="file" accept=".xml,text/xml" data-types-file>
@@ -12139,6 +12262,10 @@ PAGE_TEMPLATE = """
             <div><h3>Player Loadout</h3><p class="tool-note">Build a validated DayZ spawn-gear JSON using slot-compatible items from the selected reference library. Every equipped item, attachment and cargo item is locked to pristine.</p></div>
             <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
           </div>
+          <nav class="loadout-studio-tabs" aria-label="Loadout Studio builders">
+            <a class="active" data-loadout-kind="player" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder"><span>Player builder</span><span>Gear, storage &amp; children</span></a>
+            <a data-loadout-kind="vehicle" href="/admin?section=xml-workshop&xml_tool=vehicle-loadout{{ server_qs }}{{ profile_qs }}#vehicle-loadout-builder"><span>Vehicle builder</span><span>Parts &amp; cargo</span></a>
+          </nav>
           {% for warning in player_loadout_warnings %}<div class="notice warning"><strong>Reference warning</strong><span>{{ warning }}</span></div>{% endfor %}
           <form class="admin-form player-loadout-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
@@ -12269,6 +12396,10 @@ PAGE_TEMPLATE = """
             <div><h3>Vehicle Loadout</h3><p class="tool-note">Choose the exact vehicle variant, preserve its real attachment slots, then add compatible cargo. Cargo is always generated pristine.</p></div>
             <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
           </div>
+          <nav class="loadout-studio-tabs" aria-label="Loadout Studio builders">
+            <a data-loadout-kind="player" href="/admin?section=xml-workshop&xml_tool=player-loadout{{ server_qs }}{{ profile_qs }}#player-loadout-builder"><span>Player builder</span><span>Gear, storage &amp; children</span></a>
+            <a class="active" data-loadout-kind="vehicle" href="/admin?section=xml-workshop&xml_tool=vehicle-loadout{{ server_qs }}{{ profile_qs }}#vehicle-loadout-builder"><span>Vehicle builder</span><span>Parts &amp; cargo</span></a>
+          </nav>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="server_profile_id" value="{{ selected_dayz_profile_id if selected_dayz_profile else '' }}">
@@ -34707,7 +34838,210 @@ def mobile_app_welcome(error: str = ""):
         crafting_library_url=f"/crafting?{query}" if query else "/crafting",
         files_library_url=f"/crafting?tab=files&{query}" if query else "/crafting?tab=files",
         tiers_library_url=f"/crafting?tab=tiers&{query}" if query else "/crafting?tab=tiers",
+        validator_url=f"/validate?{query}" if query else "/validate",
     )
+
+
+PUBLIC_FILE_VALIDATOR_MAX_CHARS = 1_500_000
+
+
+def _public_validator_filename(value: Any) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    segments = [segment.strip() for segment in raw.split("/") if segment.strip() not in {"", ".", ".."}]
+    safe_segments = [re.sub(r"[^A-Za-z0-9._-]", "", segment) for segment in segments]
+    safe_segments = [segment for segment in safe_segments if segment]
+    return "/".join(safe_segments[-5:])[:180]
+
+
+def _public_validator_dayz_path(filename: str, kind: str) -> str:
+    if not filename:
+        return ""
+    clean = filename.lower()
+    has_relative_path = "/" in clean
+    candidates = (clean,) if has_relative_path else (clean, f"db/{clean}", f"env/{clean}")
+    for candidate in candidates:
+        try:
+            spec = dayz_file_spec_for_path(candidate)
+            expected_root = dayz_xml_root_for_path(candidate) if kind == "xml" else ""
+        except (TypeError, ValueError):
+            continue
+        if spec or expected_root:
+            return candidate
+    return ""
+
+
+def _public_validator_hint(kind: str, message: str) -> str:
+    lower = str(message or "").lower()
+    if kind == "json":
+        if "expecting property name" in lower:
+            return "A JSON key is missing double quotes, or there is a trailing comma just before this point."
+        if "expecting ',' delimiter" in lower:
+            return "A comma, closing bracket or closing brace is missing just before this point."
+        if "unterminated string" in lower:
+            return "A quoted value was opened but not closed. Check the quote before this point."
+        if "extra data" in lower:
+            return "One complete JSON value has already ended, but more text follows. Keep one root object or array per file."
+        return "Check commas, double quotes and matching braces/brackets around the reported position."
+    if "mismatched tag" in lower:
+        return "An opening XML tag and a closing XML tag do not match. Compare the tag just before this position."
+    if "no element found" in lower or "unclosed token" in lower or "unexpected end" in lower:
+        return "The file ends before XML is complete. It may be truncated or be missing a closing tag."
+    if "invalid token" in lower:
+        return "XML has an invalid character, missing quote or malformed tag near this position."
+    return "Check the XML tags, quotes and closing tags around the reported position."
+
+
+def _public_validator_structural_checks(filename: str, kind: str, parsed: Any) -> list[dict[str, str]]:
+    """Flag common incomplete DayZ records without pretending an unknown file is invalid.
+
+    A public checker cannot compare a paste against a customer's protected live
+    file, so these are deliberately review warnings.  Actual named-file upload
+    validation remains the authority for a hard pass/fail result.
+    """
+    checks: list[dict[str, str]] = []
+    clean_filename = dayz_filename_for_path(filename)
+
+    def warn(title: str, detail: str) -> None:
+        if len(checks) < 12:
+            checks.append({"status": "warn", "title": title, "detail": detail})
+
+    if kind == "json":
+        if isinstance(parsed, dict) and not parsed:
+            warn("Structurally empty JSON", "The root object is {}. It is valid JSON but has no settings or records to review.")
+        elif isinstance(parsed, list) and not parsed:
+            warn("Structurally empty JSON", "The root array is []. It is valid JSON but has no records to review.")
+        elif isinstance(parsed, dict) and isinstance(parsed.get("Objects"), list) and not parsed["Objects"]:
+            warn("ObjectSpawner has no objects", "Objects is an empty array. The file may be intentional, but it will not place any objects.")
+        return checks
+
+    if not isinstance(parsed, ET.Element):
+        return checks
+    if clean_filename == "types.xml":
+        for index, record in enumerate(parsed.findall("type"), start=1):
+            name = str(record.get("name") or "").strip()
+            if not name:
+                warn(f"Type record {index} has no name", "Every <type> record needs a non-empty name attribute.")
+                continue
+            missing = [tag for tag in ("nominal", "lifetime", "restock", "min") if record.find(tag) is None]
+            if missing:
+                warn(f"Type `{name}` looks incomplete", f"Missing expected value(s): {', '.join(f'<{tag}>' for tag in missing)}. Check against the active map/version record.")
+    elif clean_filename == "events.xml":
+        for index, record in enumerate(parsed.findall("event"), start=1):
+            name = str(record.get("name") or "").strip()
+            if not name:
+                warn(f"Event record {index} has no name", "Every <event> record needs the exact event name used by its matching positions.")
+                continue
+            missing = [tag for tag in ("nominal", "min", "max", "lifetime", "restock", "children") if record.find(tag) is None]
+            if missing:
+                warn(f"Event `{name}` looks incomplete", f"Missing expected value(s): {', '.join(f'<{tag}>' for tag in missing)}. Compare it with the matching active event family before upload.")
+    elif clean_filename == "cfgeventspawns.xml":
+        for index, record in enumerate(parsed.findall("event"), start=1):
+            name = str(record.get("name") or "").strip()
+            if not name:
+                warn(f"Position event {index} has no name", "Every position event needs a name that exactly matches db/events.xml.")
+            elif not record.findall("pos"):
+                warn(f"Position event `{name}` has no positions", "The event is readable but will not supply a direct spawn location.")
+    elif clean_filename in {"cfgspawnabletypes.xml", "cfgignorelist.xml"}:
+        for index, record in enumerate(parsed.findall("type"), start=1):
+            if not str(record.get("name") or "").strip():
+                warn(f"Type record {index} has no name", "Every <type> record needs a non-empty name attribute.")
+    elif clean_filename in {"mapgroupproto.xml", "mapgrouppos.xml"}:
+        for index, record in enumerate(parsed.findall("group"), start=1):
+            if not str(record.get("name") or "").strip():
+                warn(f"Group record {index} has no name", "Every <group> record needs a non-empty name so linked files can identify it.")
+    return checks
+
+
+def public_file_validation_report(filename: Any, content: Any) -> dict[str, Any]:
+    clean_name = _public_validator_filename(filename)
+    text = str(content or "")
+    if not text.strip():
+        return {
+            "tone": "bad", "title": "Nothing to check", "badge": "Add file text",
+            "summary": "Paste the complete JSON or XML file, then run the check.", "location": "",
+            "checks": [{"status": "bad", "title": "No file contents", "detail": "The checker received an empty text box."}],
+        }
+    if len(text) > PUBLIC_FILE_VALIDATOR_MAX_CHARS:
+        return {
+            "tone": "bad", "title": "File is too large for the public checker", "badge": "Use a smaller file",
+            "summary": "This free checker accepts up to 1.5 million characters. Use a local editor for a larger full file, or paste the broken section with its surrounding lines.", "location": "",
+            "checks": [{"status": "bad", "title": "Size limit reached", "detail": f"Received {len(text):,} characters."}],
+        }
+    stripped = text.lstrip()
+    extension = clean_name.rsplit(".", 1)[-1].lower() if "." in clean_name else ""
+    kind = "json" if extension == "json" or stripped.startswith(("{", "[")) else "xml" if extension == "xml" or stripped.startswith("<") else ""
+    if not kind:
+        return {
+            "tone": "bad", "title": "File type is not recognised", "badge": "Name it or paste valid text",
+            "summary": "Use a .json or .xml filename, or paste text that begins with a JSON bracket or an XML tag.", "location": "",
+            "checks": [{"status": "bad", "title": "Cannot identify JSON or XML", "detail": "The text does not begin with a supported file format."}],
+        }
+
+    checks: list[dict[str, str]] = []
+    parsed: Any = None
+    root_name = ""
+    schema_name = ""
+    try:
+        if kind == "json":
+            parsed = json.loads(text)
+            checks.append({"status": "ok", "title": "Valid JSON syntax", "detail": "The JSON parser reached the end of the file without a syntax error."})
+            schema_name = str(dayz_json_schema_name(parsed) or "").strip()
+            shape = "object" if isinstance(parsed, dict) else "array" if isinstance(parsed, list) else type(parsed).__name__
+            checks.append({"status": "ok", "title": "Readable JSON structure", "detail": f"Top-level value: {shape}.{(' Recognised as ' + schema_name + '.') if schema_name else ''}"})
+        else:
+            root = ET.fromstring(text)
+            root_name = str(root.tag or "").strip()
+            parsed = root
+            checks.append({"status": "ok", "title": "Well-formed XML", "detail": f"The XML parser reached the end of the file. Root element: <{root_name}>."})
+    except json.JSONDecodeError as error:
+        location = f"Line {error.lineno}, column {error.colno}"
+        return {
+            "tone": "bad", "title": "JSON syntax error", "badge": "Needs a fix",
+            "summary": _public_validator_hint("json", error.msg), "location": location,
+            "checks": [{"status": "bad", "title": location, "detail": str(error.msg)}],
+        }
+    except ET.ParseError as error:
+        position = getattr(error, "position", None) or ("?", "?")
+        location = f"Line {position[0]}, column {position[1]}"
+        return {
+            "tone": "bad", "title": "XML syntax error", "badge": "Needs a fix",
+            "summary": _public_validator_hint("xml", str(error)), "location": location,
+            "checks": [{"status": "bad", "title": location, "detail": str(error)}],
+        }
+
+    structural_checks = _public_validator_structural_checks(clean_name, kind, parsed)
+    dayz_path = _public_validator_dayz_path(clean_name, kind)
+    if dayz_path:
+        try:
+            valid, message = validate_dayz_upload_text(dayz_path, text)
+        except (TypeError, ValueError) as error:
+            valid, message = False, str(error)
+        message = str(message or "")
+        if valid:
+            checks.append({"status": "ok", "title": "Recognised DayZ file check passed", "detail": message or f"{clean_name} passed its matching DayZ validation."})
+            checks.extend(structural_checks)
+            if structural_checks:
+                return {
+                    "tone": "warn", "title": "DayZ checks passed, but the structure needs review", "badge": "Review required",
+                    "summary": "The file is readable and passed its named DayZ validation, but the record-level warning below may indicate an incomplete or ineffective change.", "location": "", "checks": checks,
+                }
+            return {
+                "tone": "ok", "title": "File passes the available checks", "badge": "Ready to review",
+                "summary": "Syntax and the recognised DayZ file check passed. Keep a backup and review the target mission/path before any live upload.", "location": "", "checks": checks,
+            }
+        checks.append({"status": "bad", "title": "Recognised DayZ file check failed", "detail": message or "This file is readable, but it does not meet the expected DayZ requirements."})
+        return {
+            "tone": "bad", "title": "Syntax is valid, but the DayZ file check failed", "badge": "Needs a fix",
+            "summary": "The text can be read, but it should not be uploaded until the recognised DayZ issue below is fixed.", "location": "", "checks": checks,
+        }
+
+    checks.extend(structural_checks)
+    file_label = clean_name or (f"<{root_name}> XML" if kind == "xml" else "JSON")
+    checks.append({"status": "warn", "title": "No filename-specific DayZ rule selected", "detail": "Give the exact DayZ filename, such as types.xml, events.xml or cfgGameplay.json. For custom JSON, include the relative path, for example custom/MyObjects.json."})
+    return {
+        "tone": "warn", "title": f"{kind.upper()} syntax is valid", "badge": "Syntax passed",
+        "summary": f"{file_label} is readable {kind.upper()}, but syntax alone does not prove it is a complete or safe DayZ upload.", "location": "", "checks": checks,
+    }
 
 
 def dashboard_bot_invite_url() -> str:
@@ -43945,9 +44279,9 @@ def page(mode: str, auth: dict[str, Any]):
         pve_tool = "events"
     if active_section == "pve" and request.args.get("edit_event"):
         pve_tool = "builder"
-    xml_tool = str(request.args.get("xml_tool") or "loot").strip().lower()
-    if xml_tool not in {"loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "qr-code", "saved"}:
-        xml_tool = "player-loadout"
+    xml_tool = str(request.args.get("xml_tool") or "loadouts").strip().lower()
+    if xml_tool not in {"loadouts", "loot", "airdrop", "container", "player-loadout", "vehicle-loadout", "qr-code", "saved"}:
+        xml_tool = "loadouts"
     if active_section == "xml-workshop" and request.args.get("factory_map"):
         xml_tool = "loot"
     types_factory_preload: dict[str, Any] = {}
@@ -44934,6 +45268,24 @@ def crafting_library_page():
     )
 
 
+@APP.get("/validate")
+def public_file_validator_page():
+    source = native_app_source()
+    query = urllib.parse.urlencode({"source": source}) if source else ""
+    return render_template_string(
+        PUBLIC_FILE_VALIDATOR_TEMPLATE,
+        files_library_url=f"/crafting?tab=files&{query}" if query else "/crafting?tab=files",
+    )
+
+
+@APP.post("/api/public/file-validator")
+def public_file_validator_api():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        payload = request.form.to_dict(flat=True)
+    return jsonify(public_file_validation_report(payload.get("filename"), payload.get("content")))
+
+
 def zone_draft_from_image_click(mode: str):
     auth, error = require_page_auth(owner_only=(mode == "owner"))
     if error:
@@ -45753,6 +46105,7 @@ def mobile_app():
         crafting_library_url=(f"/crafting?source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting"),
         files_library_url=(f"/crafting?tab=files&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=files"),
         tiers_library_url=(f"/crafting?tab=tiers&source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/crafting?tab=tiers"),
+        validator_url=(f"/validate?source={urllib.parse.quote(native_app_source())}" if native_app_source() else "/validate"),
         app_qs=payload["app_qs"],
         restart_status=restart_status,
         restart_warning_values=dashboard_positive_int_list(
