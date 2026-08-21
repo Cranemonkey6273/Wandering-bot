@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from _bot_loader import import_bot_module  # noqa: E402
-from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken  # noqa: E402
+from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_territory_xml_upload_preserves_unmanaged_content, validate_xml_upload_not_effectively_empty, validate_upload_not_dangerously_shrunken  # noqa: E402
 
 bot = import_bot_module()
 
@@ -361,6 +361,50 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("AKM", message)
+
+    def test_named_record_guard_blocks_empty_named_file_replacement(self):
+        ok, message = validate_named_xml_upload_preserves_existing(
+            "/mission/db/events.xml",
+            '<events><event name="AmbientHen" /><event name="VehicleTruck01" /></events>',
+            "<events></events>",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("AmbientHen", message)
+
+    def test_territory_guard_blocks_loss_of_unmarked_owner_zones(self):
+        existing = (
+            '<territory-type><territory color="1291845632">'
+            '<zone name="OwnerCity" x="1" z="2" r="80" dmin="2" dmax="4" smin="0" smax="0" />'
+            '<!-- Wandering Bot: managed zombie territory zone BotEvent -->'
+            '<zone name="BotEvent" x="3" z="4" r="50" dmin="1" dmax="2" smin="0" smax="0" />'
+            '</territory></territory-type>'
+        )
+        upload = (
+            '<territory-type><territory color="1291845632">'
+            '<!-- Wandering Bot: managed zombie territory zone AnotherBotEvent -->'
+            '<zone name="AnotherBotEvent" x="5" z="6" r="50" dmin="1" dmax="2" smin="0" smax="0" />'
+            '</territory></territory-type>'
+        )
+
+        ok, message = validate_territory_xml_upload_preserves_unmanaged_content(
+            "/mission/env/zombie_territories.xml",
+            existing,
+            upload,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("unmarked live territory", message)
+
+    def test_xml_guard_blocks_populated_environment_being_replaced_by_empty_root(self):
+        ok, message = validate_xml_upload_not_effectively_empty(
+            "/mission/cfgenvironment.xml",
+            '<env><territories><file path="env/zombie_territories.xml" /></territories></env>',
+            "<env />",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("empty root", message)
 
     def test_shrink_guard_blocks_zero_byte_live_file_replacement(self):
         existing = "<events>" + "".join(f'<event name="Event{i}" />' for i in range(300)) + "</events>"
