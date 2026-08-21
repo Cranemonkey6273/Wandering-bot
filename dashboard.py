@@ -8234,7 +8234,7 @@ PAGE_TEMPLATE = """
       <a class="command-side-special" href="/owner?section=owner#dayz-reference-library">Vanilla Files & Updates</a>
       {% else %}
       <a class="{{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
-      {% if customer_billing_plans %}<a href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
+      {% if customer_billing_plans %}<a class="{{ 'active' if active_section == 'upgrade' else '' }}" href="/admin?section=upgrade{{ server_qs }}">Upgrade</a>{% endif %}
       <a class="{{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('pve') %}<a class="{{ 'active' if active_section == 'pve' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}">Airdrops & Events</a>{% endif %}
       {% if section_allowed('zones') %}<a class="{{ 'active' if active_section == 'zones' else '' }}" href="/admin?section=zones{{ server_qs }}{{ profile_qs }}">Zones & Radar</a>{% endif %}
@@ -8286,7 +8286,7 @@ PAGE_TEMPLATE = """
         <p class="command-title-mark">Wandering Bot · Command Centre</p>
         <p class="muted">{{ generated_at }}</p>
         <h1>{{ 'AI Sandbox' if auth.kind == 'agent_account' else (server.dayz_name if server and server.dayz_name else view_title) }}</h1>
-        <p class="command-hero-meta">{% if auth.kind == 'agent_account' %}Private coding workspace{% else %}{{ (server.map|capitalize) if server else 'Chernarus' }} · {{ server.platform_label if server else 'Xbox' }}{% if server and server.dashboard_access.tier and server.dashboard_access.tier != 'none' %} · {{ server.dashboard_access.tier|capitalize }} plan{% endif %}{% endif %}</p>
+        <p class="command-hero-meta">{% if auth.kind == 'agent_account' %}Private coding workspace{% else %}{{ (server.map|capitalize) if server else 'Chernarus' }} · {{ server.platform_label if server else 'Xbox' }}{% if server and server.dashboard_access.tier and server.dashboard_access.tier != 'none' %} · {{ server.dashboard_access.tier|replace('dashboard_', '')|replace('_', ' ')|title }} plan{% endif %}{% endif %}</p>
         <p class="muted">{% if auth.kind == 'agent_account' %}Private sandbox workspace for planning, approvals, controlled jobs, and credits. Discord server access is not required for this account.{% else %}Live control for feeds, events, players, files and loadouts. Every tool remains scoped to this server.{% endif %}</p>
         {% if server %}
         <div class="pills">
@@ -8405,7 +8405,7 @@ PAGE_TEMPLATE = """
       <a class="tab-link" href="/owner?section=owner#dayz-reference-library">Vanilla Files</a>
       {% else %}
       <a class="tab-link {{ 'active' if active_section == 'overview' else '' }}" href="/admin?section=overview{{ server_qs }}">Start Here</a>
-      {% if customer_billing_plans %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</a>{% endif %}
+      {% if customer_billing_plans %}<a class="tab-link {{ 'active' if active_section == 'upgrade' else '' }}" href="/admin?section=upgrade{{ server_qs }}">Upgrade</a>{% endif %}
       {% if servers|length > 1 %}<a class="tab-link" href="/admin?section=overview{{ server_qs }}#servers">Servers</a>{% endif %}
       <a class="tab-link {{ 'active' if active_section == 'access' else '' }}" href="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}">Admin Center</a>
       {% if section_allowed('leaderboards') %}<a class="tab-link {{ 'active' if active_section == 'leaderboards' else '' }}" href="/admin?section=leaderboards{{ server_qs }}">Leaderboards</a>{% endif %}
@@ -8442,7 +8442,7 @@ PAGE_TEMPLATE = """
           <option value="/owner?section=owner#dayz-reference-library">Vanilla Files & Updates</option>
           {% else %}
           <option value="/admin?section=overview{{ server_qs }}" {{ 'selected' if active_section == 'overview' else '' }}>Start Here</option>
-          {% if customer_billing_plans %}<option value="/admin?section=overview{{ server_qs }}#dashboard-upgrade">Upgrade</option>{% endif %}
+          {% if customer_billing_plans %}<option value="/admin?section=upgrade{{ server_qs }}" {{ 'selected' if active_section == 'upgrade' else '' }}>Upgrade</option>{% endif %}
           {% if servers|length > 1 %}<option value="/admin?section=overview{{ server_qs }}#servers">Servers</option>{% endif %}
           <option value="/{{ 'owner' if mode == 'owner' else 'admin' }}?section=access&setup_tool=servers{{ server_qs }}" {{ 'selected' if active_section == 'access' else '' }}>Admin Center</option>
           {% if section_allowed('leaderboards') %}<option value="/admin?section=leaderboards{{ server_qs }}" {{ 'selected' if active_section == 'leaderboards' else '' }}>Leaderboards</option>{% endif %}
@@ -8555,6 +8555,9 @@ PAGE_TEMPLATE = """
         </article>
       </div>
 
+      {# The overview is intentionally a concise status screen. Detailed modules
+         below live on their own pages and are no longer rendered here. #}
+      {% if false %}
       <div class="command-grid">
         <article class="command-card">
           <div class="command-card-head">
@@ -8758,6 +8761,46 @@ PAGE_TEMPLATE = """
       <p class="tool-note" style="margin-top:.75rem">Stripe can calculate upgrade or downgrade differences only after customer subscriptions and the Stripe Customer Portal/webhook flow are connected. Payment links and buy buttons start checkout, but they do not know an existing subscription on their own.</p>
     </section>
     {% endif %}
+      {% endif %}
+    {% endif %}
+
+    {% if active_section == "upgrade" and customer_billing_plans %}
+    <section class="section-panel" id="dashboard-upgrade">
+      <div class="section-head">
+        <div>
+          <h2>Dashboard Plan</h2>
+          <p class="tool-note">Review your current access and available upgrades. Checkout only opens when a plan is selected.</p>
+        </div>
+        {% if server %}<span class="pill">{{ server.dashboard_access.tier }}</span>{% endif %}
+      </div>
+      <div class="billing-plan-grid">
+        {% for plan in customer_billing_plans %}
+        <article class="billing-plan-card {{ 'current' if plan.current else '' }}">
+          <div class="row-between">
+            <div>
+              <h4>{{ plan.name }}</h4>
+              <p>{{ plan.price_text or 'Contact owner' }}</p>
+            </div>
+            <span class="pill {{ 'ok' if plan.current else '' }}">{{ 'Current' if plan.current else 'Available' }}</span>
+          </div>
+          <p>{{ plan.description }}</p>
+          <div class="billing-feature-list">
+            {% for feature in plan.public_features %}
+            <span class="on">{{ feature }}</span>
+            {% endfor %}
+          </div>
+          {% if plan.current %}
+          <button type="button" disabled>Current plan</button>
+          {% elif plan.checkout_url %}
+          <a class="button" href="{{ plan.checkout_url }}" {% if plan.external_checkout %}target="_blank" rel="noopener"{% endif %}>{{ plan.upgrade_cta }}</a>
+          {% else %}
+          <button type="button" disabled>Checkout not connected</button>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      <p class="tool-note" style="margin-top:.75rem">Stripe calculates upgrade or downgrade differences only after subscriptions and the Stripe Customer Portal/webhook flow are connected.</p>
+    </section>
     {% endif %}
 
     {% if active_section == "leaderboards" %}
@@ -15374,6 +15417,7 @@ PAGE_TEMPLATE = """
     {% endif %}
 
     {% if active_section == "overview" %}
+    {% if false %}
     <section class="grid">
       <article class="card"><h3>Economy</h3><p class="muted">{{ summary.wallets }} wallets, {{ summary.delivery_queue }} queued deliveries and {{ summary.wages }} active wages.</p></article>
       <article class="card"><h3>Automations</h3><p class="muted">{{ summary.embed_templates }} message templates, {{ summary.welcome_automations }} welcomes, {{ summary.utility_configs }} utilities and {{ summary.reaction_role_panels }} role panels.</p></article>
@@ -15405,6 +15449,7 @@ PAGE_TEMPLATE = """
       <article class="card"><h2>No guilds configured</h2><p class="muted">Run the Discord setup flow, then refresh this dashboard.</p></article>
       {% endfor %}
     </section>
+    {% endif %}
     {% endif %}
   </main>
   <footer class="dashboard-footer" aria-label="Wandering Bot support and legal links">
@@ -44483,7 +44528,7 @@ def dashboard_xml_workshop_redirect_path(mode: str, xml_tool: str, params: dict[
 
 def page(mode: str, auth: dict[str, Any]):
     active_section = str(request.args.get("section") or "overview").strip().lower()
-    valid_sections = {"overview", "leaderboards", "live-feeds", "player-audit", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "presets", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
+    valid_sections = {"overview", "upgrade", "leaderboards", "live-feeds", "player-audit", "automations", "factions", "zones", "members", "heatmaps", "pve", "economy", "shop", "presets", "xml-workshop", "reviews", "dayz-converter", "loot-engine", "visual-loadout", "bulk-economy", "server-rules", "moderation", "server-control", "help", "access", "billing", "owner", "ai-agent"}
     if auth.get("kind") == "agent_account":
         active_section = "ai-agent"
     if active_section == "visual-loadout":
