@@ -2114,20 +2114,20 @@ PUBLIC_FILE_VALIDATOR_TEMPLATE = """
     :root { color-scheme:dark; --bg:#061014; --panel:rgba(7,20,25,.9); --panel-strong:rgba(4,12,15,.96); --line:rgba(103,245,231,.21); --gold:#f0ad53; --green:#91efac; --teal:#83e8db; --muted:#a8bdc1; --text:#f1fbfb; --bad:#ff9aa9; --warn:#ffd292; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
     * { box-sizing:border-box; } html { min-height:100%; background:var(--bg); } body { margin:0; min-height:100svh; color:var(--text); background:linear-gradient(115deg,rgba(2,11,14,.94),rgba(4,17,20,.69)), url('/map-image/chernarus') center/cover fixed; padding:env(safe-area-inset-top) 0 calc(1rem + env(safe-area-inset-bottom)); }
     a { color:inherit; } button,input,textarea,select { font:inherit; } .shell { width:min(70rem,calc(100% - 1rem)); margin:0 auto; display:grid; gap:.8rem; }
-    .topbar { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.75rem 0; } .brand { display:flex; align-items:center; gap:.6rem; text-decoration:none; font-weight:900; } .brand img { width:2.55rem; height:2.55rem; border:1px solid var(--line); border-radius:.55rem; object-fit:cover; } .brand span { color:var(--green); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; } .top-links { display:flex; flex-wrap:wrap; gap:.45rem; } .top-links a { padding:.45rem .6rem; border:1px solid var(--line); border-radius:.45rem; color:var(--muted); font-size:.78rem; font-weight:800; text-decoration:none; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:.75rem; padding:.75rem 0; } .brand { display:flex; align-items:center; gap:.6rem; font-weight:900; } .brand img { width:2.55rem; height:2.55rem; border:1px solid var(--line); border-radius:.55rem; object-fit:cover; } .brand span { color:var(--green); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; } .top-links { display:flex; flex-wrap:wrap; gap:.45rem; } .top-links a { padding:.45rem .6rem; border:1px solid var(--line); border-radius:.45rem; color:var(--muted); font-size:.78rem; font-weight:800; text-decoration:none; }
     .hero,.workspace,.result,.guide { border:1px solid var(--line); border-radius:.85rem; background:linear-gradient(145deg,var(--panel),var(--panel-strong)); box-shadow:0 1.1rem 2.8rem rgba(0,0,0,.29); backdrop-filter:blur(13px); } .hero { display:grid; gap:.85rem; padding:1.1rem; border-top-color:rgba(240,173,83,.72); } .eyebrow { margin:0; color:var(--gold); font-size:.73rem; font-weight:900; letter-spacing:.1em; text-transform:uppercase; } h1 { margin:0; max-width:15ch; font-size:clamp(2rem,8vw,3.8rem); line-height:.96; letter-spacing:-.045em; } .hero p:last-child { margin:0; max-width:62ch; color:var(--muted); line-height:1.52; }
-    .workspace { display:grid; gap:.8rem; padding:1rem; } .workspace-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; flex-wrap:wrap; } h2 { margin:0; font-size:1.05rem; } .status { border:1px solid var(--line); border-radius:999px; padding:.28rem .52rem; color:var(--muted); font-size:.74rem; font-weight:850; } form { display:grid; gap:.7rem; } .input-grid { display:grid; gap:.65rem; } label { display:grid; gap:.3rem; color:var(--muted); font-size:.78rem; font-weight:800; } input,select,textarea { width:100%; border:1px solid var(--line); border-radius:.55rem; padding:.7rem; color:var(--text); background:rgba(2,11,14,.83); } textarea { min-height:20rem; resize:vertical; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.84rem; line-height:1.45; } input[type=file] { padding:.45rem; } .field-help { margin:0; color:var(--muted); font-size:.76rem; line-height:1.4; } .actions { display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; } button { min-height:2.8rem; border:1px solid rgba(240,173,83,.72); border-radius:.55rem; padding:.62rem .85rem; background:linear-gradient(180deg,#f2b967,#d98231); color:#16100a; font-weight:950; cursor:pointer; } button:disabled { opacity:.65; cursor:wait; } .clear { border-color:var(--line); background:rgba(4,16,19,.88); color:var(--muted); } .privacy { color:var(--muted); font-size:.75rem; }
+    .workspace { display:grid; gap:1rem; padding:1rem; } .workspace-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; flex-wrap:wrap; } h2 { margin:0; font-size:1.05rem; } .status { border:1px solid var(--line); border-radius:999px; padding:.28rem .52rem; color:var(--muted); font-size:.74rem; font-weight:850; } form { display:grid; gap:.9rem; } .validator-steps { display:grid; gap:.7rem; } .validator-step { display:grid; grid-template-columns:2.15rem minmax(0,1fr); gap:.65rem; align-items:start; padding:.78rem; border:1px solid rgba(103,245,231,.14); border-radius:.65rem; background:rgba(2,11,14,.42); } .validator-step-index { display:grid; place-items:center; width:2.15rem; height:2.15rem; border:1px solid rgba(240,173,83,.65); border-radius:50%; color:var(--gold); font-weight:900; } .validator-step-copy { display:grid; gap:.3rem; min-width:0; } .validator-step-copy > strong { color:var(--text); font-size:.84rem; } label { display:grid; gap:.3rem; color:var(--muted); font-size:.78rem; font-weight:800; } input,select,textarea { width:100%; border:1px solid var(--line); border-radius:.55rem; padding:.7rem; color:var(--text); background:rgba(2,11,14,.83); } textarea { min-height:22rem; resize:vertical; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.84rem; line-height:1.45; } input[type=file] { padding:.45rem; } .validator-editor { gap:.55rem; } .validator-editor-title { display:flex; align-items:baseline; justify-content:space-between; gap:.65rem; color:var(--text); } .validator-editor-title small { color:var(--muted); font-size:.72rem; font-weight:700; } .field-help { margin:0; color:var(--muted); font-size:.76rem; line-height:1.4; } .actions { display:flex; flex-wrap:wrap; gap:.55rem; align-items:center; } button { min-height:2.8rem; border:1px solid rgba(240,173,83,.72); border-radius:.55rem; padding:.62rem .85rem; background:linear-gradient(180deg,#f2b967,#d98231); color:#16100a; font-weight:950; cursor:pointer; } button:disabled { opacity:.65; cursor:wait; } .clear { border-color:var(--line); background:rgba(4,16,19,.88); color:var(--muted); } .privacy { color:var(--muted); font-size:.75rem; }
     .result { display:none; gap:.75rem; padding:1rem; } .result.visible { display:grid; } .result[data-tone=ok] { border-color:rgba(145,239,172,.52); } .result[data-tone=warn] { border-color:rgba(255,210,146,.58); } .result[data-tone=bad] { border-color:rgba(255,154,169,.62); } .result-head { display:flex; gap:.65rem; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; } .result-head h2 { font-size:1.1rem; } .result-badge { border:1px solid var(--line); border-radius:999px; padding:.3rem .55rem; font-size:.76rem; font-weight:900; } .result[data-tone=ok] .result-badge { color:var(--green); border-color:rgba(145,239,172,.48); } .result[data-tone=warn] .result-badge { color:var(--warn); border-color:rgba(255,210,146,.5); } .result[data-tone=bad] .result-badge { color:var(--bad); border-color:rgba(255,154,169,.55); } .result-summary { margin:0; color:var(--text); line-height:1.5; } .location { width:max-content; max-width:100%; padding:.38rem .55rem; border-left:2px solid var(--gold); background:rgba(240,173,83,.1); color:#ffedcf; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.8rem; overflow-wrap:anywhere; } .checks { display:grid; gap:.45rem; } .check { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.55rem; align-items:start; padding:.55rem .6rem; border:1px solid rgba(103,245,231,.13); border-radius:.5rem; background:rgba(2,11,14,.48); color:var(--muted); font-size:.83rem; line-height:1.42; } .check strong { color:var(--text); } .check[data-status=ok]::before { content:'✓'; color:var(--green); font-weight:900; } .check[data-status=warn]::before { content:'!'; color:var(--warn); font-weight:900; } .check[data-status=bad]::before { content:'×'; color:var(--bad); font-weight:900; }
     .guide { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; padding:.85rem; } .guide div { padding:.15rem .25rem; } .guide strong { display:block; color:var(--teal); font-size:.83rem; } .guide span { display:block; margin-top:.26rem; color:var(--muted); font-size:.77rem; line-height:1.38; } code { color:#ffdcaa; }
-    @media (min-width:760px) { .input-grid { grid-template-columns:minmax(13rem,.8fr) minmax(0,1.2fr); } .workspace { padding:1.15rem; } .hero { padding:1.45rem; } } @media (max-width:620px) { .guide { grid-template-columns:1fr; } .topbar { align-items:flex-start; flex-direction:column; } }
+    @media (min-width:760px) { .validator-steps { grid-template-columns:repeat(2,minmax(0,1fr)); } .workspace { padding:1.15rem; } .hero { padding:1.45rem; } } @media (max-width:620px) { .guide { grid-template-columns:1fr; } .topbar { align-items:flex-start; flex-direction:column; } }
   </style>
 </head>
 <body>
   <main class="shell">
-    <header class="topbar"><a class="brand" href="/app"><img src="/brand-image" alt="Wandering Bot"><span>Wandering Bot · Free file tools</span></a><nav class="top-links"><a href="/app">App home</a><a href="{{ files_library_url }}">File guide</a></nav></header>
+    <header class="topbar"><div class="brand"><img src="/brand-image" alt="Wandering Bot"><span>Wandering Bot · Free file validator</span></div><nav class="top-links"><a href="{{ files_library_url }}">DayZ file guide</a></nav></header>
     <section class="hero"><p class="eyebrow">Free before login</p><h1>Check DayZ JSON and XML before upload.</h1><p>Paste a file or choose one from your device. The checker identifies JSON and XML syntax faults, reports the exact line and column, recognises common DayZ filenames, and tells you when a file is merely readable versus ready to review for upload.</p></section>
     <section class="workspace" aria-labelledby="validator-heading"><div class="workspace-head"><div><h2 id="validator-heading">File validator</h2><p class="field-help">Nothing is uploaded to a server. The check runs only on the text you provide.</p></div><span class="status" data-validator-status>Waiting for a file</span></div>
-      <form data-file-validator><div class="input-grid"><label>Expected filename or relative path <input name="filename" maxlength="180" placeholder="types.xml, events.xml, custom/MyObjects.json …" autocomplete="off"><span class="field-help">Add the real filename to unlock the matching DayZ check. For custom JSON, include <code>custom/</code> or <code>pra/</code>.</span></label><label>Choose a local file <input type="file" accept=".xml,.json,text/xml,application/json" data-validator-file><span class="field-help">Choosing a file only fills the box below; it is not uploaded.</span></label></div><label>Paste file contents <textarea name="content" required spellcheck="false" placeholder="Paste JSON or XML here…"></textarea></label><div class="actions"><button type="submit">Check file</button><button class="clear" type="button" data-validator-clear>Clear</button><span class="privacy">No login, Discord, Nitrado or server access is involved.</span></div></form>
+      <form data-file-validator><div class="validator-steps"><section class="validator-step"><span class="validator-step-index">1</span><div class="validator-step-copy"><strong>Name the file</strong><label>Filename or relative path <input name="filename" maxlength="180" placeholder="types.xml, events.xml, custom/MyObjects.json …" autocomplete="off"></label><span class="field-help">Recommended: it unlocks the exact DayZ check. For custom JSON, include <code>custom/</code> or <code>pra/</code>.</span></div></section><section class="validator-step"><span class="validator-step-index">2</span><div class="validator-step-copy"><strong>Or choose it from this device</strong><label>Local file <input type="file" accept=".xml,.json,text/xml,application/json" data-validator-file></label><span class="field-help">The file stays on this device. Choosing it only fills the editor below.</span></div></section></div><label class="validator-editor"><span class="validator-editor-title"><span>3. File contents</span><small>Paste XML or JSON, or let a selected local file fill this area.</small></span><textarea name="content" required spellcheck="false" placeholder="Paste JSON or XML here…"></textarea></label><div class="actions"><button type="submit">Check file</button><button class="clear" type="button" data-validator-clear>Clear</button><span class="privacy">No login, Discord, Nitrado or server access is involved.</span></div></form>
     </section>
     <section class="result" data-validator-result aria-live="polite"><div class="result-head"><div><h2 data-validator-title>Result</h2><p class="result-summary" data-validator-summary></p></div><span class="result-badge" data-validator-badge></span></div><code class="location" data-validator-location hidden></code><div class="checks" data-validator-checks></div></section>
     <section class="guide"><div><strong>1. Syntax</strong><span>Finds invalid JSON, broken XML tags, missing brackets and incomplete files.</span></div><div><strong>2. File identity</strong><span>Uses the filename and root/schema when Wandering Bot recognises the DayZ file type.</span></div><div><strong>3. Upload guidance</strong><span>Explains whether the text passed parsing, needs a fix, or needs a fuller DayZ review.</span></div></section>
@@ -6100,6 +6100,61 @@ PAGE_TEMPLATE = """
     body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(8) {
       min-width: 13rem;
     }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table {
+      width: max-content;
+      min-width: 92rem;
+      table-layout: auto;
+    }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th,
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td {
+      overflow-wrap: normal;
+      word-break: normal;
+    }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(1),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(1) { min-width: 3.25rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(2),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(2) { min-width: 6.5rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(3),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(3) { min-width: 10rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(4),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(4) { min-width: 13rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(5),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(5) { min-width: 12.5rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(6),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(6) { min-width: 4.75rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(7),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(7) { min-width: 17.5rem; }
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table th:nth-child(8),
+    body[data-theme="command"][data-section="pve"] [data-pve-panel="events"] .item-table td:nth-child(8) { min-width: 21rem; }
+    body[data-theme="command"][data-section="pve"] .pve-event-intro {
+      max-width: 78ch;
+      margin: -.2rem 0 1rem;
+      color: #b8c9c8;
+      line-height: 1.5;
+    }
+    body[data-theme="command"][data-section="pve"] .event-table-shell {
+      overflow-x: auto;
+      margin-top: .85rem;
+      border: 1px solid rgba(143, 221, 213, .19);
+      border-radius: .75rem;
+      background: rgba(2, 11, 14, .32);
+      scrollbar-color: rgba(240, 173, 83, .7) rgba(2, 11, 14, .65);
+    }
+    body[data-theme="command"][data-section="pve"] .event-table-bar {
+      position: sticky;
+      left: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      min-width: 100%;
+      padding: .66rem .85rem;
+      border-bottom: 1px solid rgba(143, 221, 213, .15);
+      background: linear-gradient(90deg, rgba(7, 22, 25, .98), rgba(5, 16, 18, .96));
+    }
+    body[data-theme="command"][data-section="pve"] .event-table-bar strong { color: #f3f7f3; font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; }
+    body[data-theme="command"][data-section="pve"] .event-table-bar span { color: #a8bdc1; font-size: .75rem; }
+    body[data-theme="command"][data-section="pve"] .event-table-shell .item-table { margin: 0; border: 0; }
     .command-check {
       display: inline-flex;
       align-items: center;
@@ -8866,8 +8921,8 @@ PAGE_TEMPLATE = """
     <section class="section-panel" id="live-feeds">
       <div class="section-head">
         <div>
-          <h2>Live Feeds</h2>
-          <p class="tool-note">Choose which ADM feeds are visible here. Discord channel routes stay separate, so noisy feeds can live on the dashboard without posting into your merged Discord.</p>
+          <h2>Choose dashboard feeds</h2>
+          <p class="tool-note">Select the ADM activity you want to keep in this dashboard. Discord channel routes stay separate, so staff can review detail here without creating noisy Discord channels.</p>
         </div>
         {% if server and server.dayz_profiles %}<span class="pill">{{ server.dayz_profiles|length }} DayZ servers</span>{% elif server %}<span class="pill">{{ server.dashboard_live_feed_rows|length }} shown / {{ server.dashboard_live_feed_total }} stored</span>{% endif %}
       </div>
@@ -11736,7 +11791,8 @@ PAGE_TEMPLATE = """
         <article class="admin-panel full" data-pve-panel="events">
           {% set scenario_summary = server.scenario_summary if server and server.scenario_summary else {} %}
           {% set scenario_tracker = server.scenario_tracker if server and server.scenario_tracker else {} %}
-          <h3>Live Event Manager</h3>
+          <h3>Event deployments</h3>
+          <p class="tool-note pve-event-intro">Review what is scheduled for this DayZ server, confirm the delivery state, then use the row controls to edit, pause, retry or remove it. Technical file paths stay inside each event’s details so the working list remains readable.</p>
           <div class="mini-grid">
             <div class="mini-card"><span class="muted">Total</span><strong>{{ server.scenario_events|length if server else 0 }}</strong></div>
             <div class="mini-card"><span class="muted">Active</span><strong>{{ server.scenario_events|selectattr('enabled')|list|length if server else 0 }}</strong></div>
@@ -11759,6 +11815,8 @@ PAGE_TEMPLATE = """
             </label>
             <span class="pill">DayZ server scoped</span>
           </div>
+          <div class="event-table-shell">
+            <div class="event-table-bar"><strong>Scheduled events</strong><span>Scroll sideways to see every field and action.</span></div>
           <table class="item-table">
             <thead><tr><th>ID</th><th>Type</th><th>Name</th><th>Class</th><th>Position</th><th>Runs</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
@@ -11820,6 +11878,7 @@ PAGE_TEMPLATE = """
               {% endfor %}
             </tbody>
           </table>
+          </div>
         </article>
       </div>
     </section>
@@ -42277,7 +42336,7 @@ VALID_DASHBOARD_THEMES = {
 COMMAND_SECTION_META = {
     "overview": {"kicker": "Start", "title": "Start Here", "body": "Live server state plus plain shortcuts for the jobs admins need most."},
     "leaderboards": {"kicker": "Progression", "title": "Leaderboards", "body": "Review player rankings, activity totals and competitive server stats."},
-    "live-feeds": {"kicker": "Intel", "title": "Live Feeds", "body": "Read selected ADM feeds in the dashboard without needing every feed to post into Discord."},
+    "live-feeds": {"kicker": "Monitoring", "title": "ADM feed inbox", "body": "Review selected ADM activity in the dashboard without needing every feed to post into Discord."},
     "player-audit": {"kicker": "Staff Intel", "title": "Player Audit", "body": "Review the rolling 24-hour ADM activity trail, last known locations and player actions for the selected DayZ server."},
     "automations": {"kicker": "Discord", "title": "Discord Setup", "body": "Build automated Discord panels, announcements and welcome flows for the selected server."},
     "factions": {"kicker": "Groups", "title": "Factions", "body": "Manage faction records, balances, wages and server-linked group data."},

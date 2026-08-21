@@ -182,6 +182,25 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         ):
             self.assertIn(marker, dashboard.PAGE_TEMPLATE)
 
+    def test_public_file_validator_is_independent_from_the_app(self):
+        """The public validator must not send visitors into the signed-in app."""
+        with dashboard.APP.test_client() as client:
+            response = client.get("/validate")
+
+        self.assertEqual(200, response.status_code)
+        html = response.get_data(as_text=True)
+        self.assertIn("Free file validator", html)
+        self.assertIn("validator-steps", html)
+        self.assertIn("DayZ file guide", html)
+        self.assertNotIn("App home", html)
+        self.assertNotIn('href="/app"', html)
+
+    def test_live_feed_and_event_workspace_labels_are_unambiguous(self):
+        self.assertEqual("ADM feed inbox", dashboard.COMMAND_SECTION_META["live-feeds"]["title"])
+        self.assertIn("Choose dashboard feeds", dashboard.PAGE_TEMPLATE)
+        self.assertIn("Event deployments", dashboard.PAGE_TEMPLATE)
+        self.assertIn("event-table-shell", dashboard.PAGE_TEMPLATE)
+
     def test_dayz_app_has_a_public_search_page_and_google_play_schema(self):
         page = dashboard.PUBLIC_SEO_PAGES["dayz-server-app"]
 
