@@ -7138,6 +7138,100 @@ PAGE_TEMPLATE = """
       .pill { font-size: .76rem; }
     }
 
+    /* Map-aware dashboard atmosphere.  It stays behind a dark, readable
+       workspace and can be switched off per browser without changing server
+       configuration. */
+    body[data-theme="command"] { isolation: isolate; }
+    body[data-theme="command"]::before,
+    body[data-theme="command"]::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      transition: opacity .24s ease;
+    }
+    body[data-theme="command"]::before {
+      background:
+        linear-gradient(110deg, rgba(2, 10, 13, .92) 0%, rgba(3, 13, 16, .76) 48%, rgba(2, 8, 11, .92) 100%),
+        radial-gradient(circle at 78% 15%, rgba(103, 245, 231, .10), transparent 31%),
+        var(--dashboard-map-image, none);
+      background-position: center, center, center;
+      background-size: cover, cover, cover;
+      filter: saturate(.72) contrast(1.08) brightness(.55);
+      opacity: .72;
+      animation: dashboard-map-drift 46s ease-in-out infinite alternate;
+    }
+    body[data-theme="command"]::after { opacity: 0; }
+    body[data-theme="command"][data-map-key="chernarus"]::after,
+    body[data-theme="command"][data-map-key="livonia"]::after {
+      background:
+        radial-gradient(ellipse at 12% 74%, rgba(181, 216, 211, .14), transparent 24%),
+        radial-gradient(ellipse at 72% 48%, rgba(181, 216, 211, .10), transparent 28%),
+        linear-gradient(180deg, transparent 48%, rgba(139, 182, 174, .10) 74%, transparent 100%);
+      background-size: 150% 100%, 140% 100%, 100% 100%;
+      animation: dashboard-mist-drift 32s ease-in-out infinite alternate;
+      opacity: .68;
+    }
+    body[data-theme="command"][data-map-key="sakhal"]::after,
+    body[data-theme="command"][data-map-key="namalsk"]::after {
+      background-image:
+        radial-gradient(circle, rgba(236, 249, 255, .82) 0 1px, transparent 1.5px),
+        radial-gradient(circle, rgba(236, 249, 255, .55) 0 1px, transparent 1.7px),
+        radial-gradient(circle, rgba(236, 249, 255, .38) 0 1px, transparent 1.5px);
+      background-position: 0 0, 31px -48px, 74px -22px;
+      background-size: 118px 118px, 164px 164px, 227px 227px;
+      animation: dashboard-snowfall 25s linear infinite;
+      opacity: .26;
+    }
+    body[data-theme="command"][data-atmosphere="off"]::before,
+    body[data-theme="command"][data-atmosphere="off"]::after { opacity: 0; animation-play-state: paused; }
+    body[data-theme="command"] main,
+    body[data-theme="command"] .dashboard-footer { position: relative; z-index: 1; }
+    body[data-theme="command"][data-atmosphere="on"] .section-panel,
+    body[data-theme="command"][data-atmosphere="on"] .card,
+    body[data-theme="command"][data-atmosphere="on"] .admin-panel,
+    body[data-theme="command"][data-atmosphere="on"] .wide {
+      background: linear-gradient(180deg, rgba(20, 34, 41, .88), rgba(7, 15, 18, .94));
+      backdrop-filter: blur(12px) saturate(1.04);
+    }
+    body[data-theme="command"][data-atmosphere="on"] .hero {
+      background:
+        linear-gradient(120deg, rgba(8, 24, 29, .91), rgba(3, 10, 13, .86) 60%),
+        radial-gradient(circle at 86% 0%, rgba(255, 159, 67, .18), transparent 32%);
+      backdrop-filter: blur(12px) saturate(1.04);
+    }
+    .dashboard-atmosphere-toggle {
+      min-height: 2rem;
+      border-color: rgba(103, 245, 231, .25);
+      background: rgba(5, 20, 24, .78);
+      color: #b9d0d5;
+      font-size: .72rem;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .dashboard-atmosphere-toggle[aria-pressed="true"] {
+      border-color: rgba(103, 245, 231, .48);
+      background: linear-gradient(135deg, rgba(103, 245, 231, .16), rgba(255, 159, 67, .14));
+      color: #effcff;
+    }
+    @keyframes dashboard-map-drift {
+      from { transform: scale(1.015) translate3d(-.35%, -.2%, 0); }
+      to { transform: scale(1.055) translate3d(.35%, .25%, 0); }
+    }
+    @keyframes dashboard-mist-drift {
+      from { transform: translate3d(-1.5%, 0, 0) scale(1.03); }
+      to { transform: translate3d(1.5%, -.8%, 0) scale(1.07); }
+    }
+    @keyframes dashboard-snowfall {
+      from { background-position: 0 -118px, 31px -212px, 74px -249px; }
+      to { background-position: 24px 118px, 73px 164px, 114px 227px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      body[data-theme="command"]::before,
+      body[data-theme="command"]::after { animation: none !important; }
+    }
+
     /* Command dashboard: grouped, keyboard-accessible top navigation. */
     .command-top-nav {
       display: flex;
@@ -7371,16 +7465,16 @@ PAGE_TEMPLATE = """
     }
   </style>
 </head>
-<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}" data-app-embed="{{ 'true' if request.args.get('app_embed') == '1' else 'false' }}">
-  {% set server = servers[0] if servers else none %}
-  {% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
-  {% set profile_qs = '&server_profile_id=' ~ selected_dayz_profile.id if selected_dayz_profile else '' %}
-  {% set auth_qs = '&token=' ~ request.args.get('token')|urlencode if request.args.get('token') else '' %}
-  {% set dashboard_qs = server_qs ~ profile_qs ~ auth_qs %}
-  {% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
-  {% set shop_economy_section = 'economy' if section_allowed('economy') else 'shop' %}
-  {% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
-  {% set logout_path = '/agent/logout' if auth.kind == 'agent_account' else '/logout' %}
+{% set server = servers[0] if servers else none %}
+{% set server_qs = '&guild_id=' ~ server.guild_id if server else '' %}
+{% set profile_qs = '&server_profile_id=' ~ selected_dayz_profile.id if selected_dayz_profile else '' %}
+{% set auth_qs = '&token=' ~ request.args.get('token')|urlencode if request.args.get('token') else '' %}
+{% set dashboard_qs = server_qs ~ profile_qs ~ auth_qs %}
+{% set dashboard_path = '/owner' if auth.kind == 'owner' else '/agent' if auth.kind == 'agent_account' else '/admin' %}
+{% set shop_economy_section = 'economy' if section_allowed('economy') else 'shop' %}
+{% set login_path = '/agent/login' if auth.kind == 'agent_account' else '/login' %}
+{% set logout_path = '/agent/logout' if auth.kind == 'agent_account' else '/logout' %}
+<body data-section="{{ active_section }}" data-pve-tool="{{ pve_tool }}" data-app-embed="{{ 'true' if request.args.get('app_embed') == '1' else 'false' }}" data-map-key="{{ server.map_key if server else '' }}" data-atmosphere="on"{% if server %} style="--dashboard-map-image: url('/map-image/{{ server.map_key }}');"{% endif %}>
   <header>
     <div class="brand">
       <img src="/brand-image" alt="Wandering Bot logo">
@@ -7468,6 +7562,7 @@ PAGE_TEMPLATE = """
           <option value="command">Command</option>
         </select>
       </label>
+      {% if server %}<button type="button" class="dashboard-atmosphere-toggle" data-atmosphere-toggle aria-pressed="true" title="Turn the map background and gentle weather motion on or off">Atmosphere: On</button>{% endif %}
       <button type="button" data-theme-choice="default" title="Wandering" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('default')"></button>
       <button type="button" data-theme-choice="forest" title="Forest" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('forest')"></button>
       <button type="button" data-theme-choice="amber" title="Amber" onclick="window.wanderingApplyThemeChoice && window.wanderingApplyThemeChoice('amber')"></button>
@@ -12041,7 +12136,7 @@ PAGE_TEMPLATE = """
         {% if xml_tool == "player-loadout" %}
         <article class="admin-panel full" id="player-loadout-builder">
           <div class="section-head">
-            <div><h3>Player Loadout</h3><p class="tool-note">Build a validated DayZ spawn-gear JSON using slot-compatible items from the selected reference library.</p></div>
+            <div><h3>Player Loadout</h3><p class="tool-note">Build a validated DayZ spawn-gear JSON using slot-compatible items from the selected reference library. Every equipped item, attachment and cargo item is locked to pristine.</p></div>
             <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
           </div>
           {% for warning in player_loadout_warnings %}<div class="notice warning"><strong>Reference warning</strong><span>{{ warning }}</span></div>{% endfor %}
@@ -12124,7 +12219,7 @@ PAGE_TEMPLATE = """
                           <img src="{{ item.image_url }}" loading="lazy" decoding="async" onerror="this.onerror=null;this.src='{{ item.fallback_image_url or '/item-thumb/General' }}';" alt="">
                           <strong>{{ item.label or item.name }}</strong>
                           <code>{{ item.name }}</code>
-                          <small>{{ item.category }}{% if item.size %} - {{ item.size }} slots{% endif %}</small>
+                          <small>{{ item.category }} · Pristine{% if item.size %} · {{ item.size }} slots{% endif %}</small>
                         </button>
                         {% else %}
                         <p class="muted">No valid active-reference items for this slot yet.</p>
@@ -12171,7 +12266,7 @@ PAGE_TEMPLATE = """
         {% if xml_tool == "vehicle-loadout" %}
         <article class="admin-panel full" id="vehicle-loadout-builder">
           <div class="section-head">
-            <div><h3>Vehicle Loadout</h3><p class="tool-note">Choose the exact vehicle variant, preserve its real attachment slots, then add compatible cargo.</p></div>
+            <div><h3>Vehicle Loadout</h3><p class="tool-note">Choose the exact vehicle variant, preserve its real attachment slots, then add compatible cargo. Cargo is always generated pristine.</p></div>
             <div class="pills"><span class="pill ok">{{ server.map|upper if server else 'CHERNARUS' }}</span><span class="pill">{{ server.platform_label if server else 'Console' }}</span><span class="pill">{{ dayz_ce_file_version }}</span></div>
           </div>
           <form class="admin-form" method="post" action="/api/admin/xml-workshop" data-route="/api/admin/xml-workshop">
@@ -15160,6 +15255,37 @@ PAGE_TEMPLATE = """
       window.addEventListener("pageshow", () => closeGroups());
     }
 
+    function installDashboardAtmosphere() {
+      if (window.__wanderingDashboardAtmosphere) return;
+      window.__wanderingDashboardAtmosphere = true;
+      const body = document.body;
+      const controls = Array.from(document.querySelectorAll("[data-atmosphere-toggle]"));
+      if (!body || !controls.length) {
+        if (body && !body.dataset.mapKey) body.dataset.atmosphere = "off";
+        return;
+      }
+      const storageKey = "wanderingDashboardAtmosphere";
+      const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const stored = (() => {
+        try { return window.localStorage.getItem(storageKey); } catch (error) { return null; }
+      })();
+      const apply = (enabled, persist = false) => {
+        const on = Boolean(enabled);
+        body.dataset.atmosphere = on ? "on" : "off";
+        controls.forEach((button) => {
+          button.setAttribute("aria-pressed", on ? "true" : "false");
+          button.textContent = on ? "Atmosphere: On" : "Atmosphere: Off";
+        });
+        if (persist) {
+          try { window.localStorage.setItem(storageKey, on ? "on" : "off"); } catch (error) {}
+        }
+      };
+      apply(stored ? stored === "on" : !prefersReducedMotion.matches);
+      controls.forEach((button) => {
+        button.addEventListener("click", () => apply(body.dataset.atmosphere !== "on", true));
+      });
+    }
+
     function installDashboardImagePreview() {
       if (window.__wanderingDashboardImagePreview) return;
       window.__wanderingDashboardImagePreview = true;
@@ -15238,6 +15364,7 @@ PAGE_TEMPLATE = """
     }
 
     installCommandNavigation();
+    installDashboardAtmosphere();
     installDashboardImagePreview();
     installDashboardCoreClicks();
     const DIRECT_DASHBOARD_SAVE_ROUTES = {
@@ -15603,7 +15730,7 @@ PAGE_TEMPLATE = """
         card.appendChild(img);
         card.appendChild(title);
         const meta = document.createElement("small");
-        meta.textContent = [item.category || "General", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
+        meta.textContent = [item.category || "General", "Pristine", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
         card.appendChild(meta);
         visual.appendChild(card);
       });
@@ -15660,7 +15787,7 @@ PAGE_TEMPLATE = """
         const classname = document.createElement("code");
         classname.textContent = item.name || "";
         const meta = document.createElement("small");
-        meta.textContent = [item.category || "General", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
+        meta.textContent = [item.category || "General", "Pristine", item.size ? `${item.size} slots` : "", item.capacity ? `${item.capacity} cap` : ""].filter(Boolean).join(" - ");
         card.appendChild(img);
         card.appendChild(title);
         card.appendChild(classname);
@@ -17107,6 +17234,7 @@ PAGE_TEMPLATE = """
     document.addEventListener("click", async (event) => {
       const categoryButton = event.target.closest("[data-loadout-category]");
       if (categoryButton) {
+        event.preventDefault();
         loadoutState.category = categoryButton.dataset.loadoutCategory || "all";
         categoryButton.closest("[data-loadout-categories]")?.querySelectorAll("[data-loadout-category]").forEach((button) => {
           button.classList.toggle("active", button === categoryButton);
@@ -17116,21 +17244,25 @@ PAGE_TEMPLATE = """
       }
       const slotButton = event.target.closest("[data-loadout-slot]");
       if (slotButton && slotButton.closest("[data-visual-loadout-page]")) {
+        event.preventDefault();
         setSelectedLoadoutSlot(slotButton.dataset.loadoutSlot || "");
         return;
       }
       const cargoBox = event.target.closest("[data-cargo-container]");
       if (cargoBox && !event.target.closest("[data-remove-cargo]")) {
+        event.preventDefault();
         setSelectedLoadoutSlot(`cargo:${cargoBox.dataset.cargoContainer || ""}`);
         return;
       }
       const itemButton = event.target.closest("[data-loadout-item]");
       if (itemButton) {
+        event.preventDefault();
         equipLoadoutItem(itemButton.dataset.loadoutItem || "");
         return;
       }
       const attachButton = event.target.closest("[data-add-attachment]");
       if (attachButton && loadoutState.selected) {
+        event.preventDefault();
         const slot = loadoutState.selected;
         const group = visualLoadoutSlotGroup(slot);
         const attached = visualLoadoutAttachedChildren(slot, group);
@@ -17144,6 +17276,7 @@ PAGE_TEMPLATE = """
       }
       const removeCargo = event.target.closest("[data-remove-cargo]");
       if (removeCargo) {
+        event.preventDefault();
         const container = removeCargo.dataset.removeCargo || "";
         const index = Number(removeCargo.dataset.cargoIndex || 0);
         if (loadoutState.cargo[container]) loadoutState.cargo[container].splice(index, 1);
@@ -17152,6 +17285,7 @@ PAGE_TEMPLATE = """
       }
       const clearSelected = event.target.closest("[data-clear-selected-slot]");
       if (clearSelected && loadoutState.selected && !loadoutState.selected.startsWith("cargo:")) {
+        event.preventDefault();
         delete loadoutState.cloth[loadoutState.selected];
         delete loadoutState.attachments[loadoutState.selected];
         delete loadoutState.weaponAttachments[loadoutState.selected];
@@ -17161,6 +17295,7 @@ PAGE_TEMPLATE = """
       }
       const resetButton = event.target.closest("[data-reset-loadout]");
       if (resetButton) {
+        event.preventDefault();
         resetVisualLoadout();
         return;
       }

@@ -811,6 +811,18 @@ class DashboardServerControlTests(unittest.TestCase):
         weapon = next(row for row in payload["attachmentSlotItemSets"] if row["slotName"] == "shoulderL")["discreteItemSets"][0]
         self.assertEqual({"healthMin": 1.0, "healthMax": 1.0}, weapon["attributes"])
 
+    def test_dashboard_keeps_loadout_controls_local_and_atmosphere_is_optional(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn('data-map-key="{{ server.map_key if server else \'\' }}"', template)
+        self.assertIn('data-atmosphere-toggle', template)
+        self.assertIn('function installDashboardAtmosphere()', template)
+        self.assertIn('wanderingDashboardAtmosphere', template)
+        self.assertIn('dashboard-snowfall', template)
+        self.assertIn('Every equipped item, attachment and cargo item is locked to pristine.', template)
+        self.assertIn('event.preventDefault();\n        setSelectedLoadoutSlot(slotButton.dataset.loadoutSlot || "");', template)
+        self.assertIn('event.preventDefault();\n        equipLoadoutItem(itemButton.dataset.loadoutItem || "");', template)
+
     def test_vehicle_loadout_preserves_reference_attachment_slot_groups(self):
         detail = dashboard.vehicle_reference_detail("chernarus", "Truck_01_Covered")
         self.assertTrue(detail["available"])
