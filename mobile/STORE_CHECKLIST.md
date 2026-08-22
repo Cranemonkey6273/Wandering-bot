@@ -42,7 +42,7 @@ unless it is later given working DNS, HTTPS and its own association response.
    The ready-to-upload portrait phone screenshots are in `mobile/store-assets/phone/`.
 9. Use `PRODUCTION_ACCESS_ANSWERS.md` when the production-access questionnaire opens. Keep every answer factual for the build being submitted.
 10. Confirm the first-use tour, dashboard review form, Google Play rating link and support links work in the uploaded closed-test build.
-11. Upload Android version `1.0.4` (version code `5`) so the In-Game QR entry and newest offline guides reach existing users.
+11. Upload Android version `1.0.5` (version code `6`) so the free validator, In-Game QR entry and newest offline guides reach existing users.
 
 The Android Play build opens:
 

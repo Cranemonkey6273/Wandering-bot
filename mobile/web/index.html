@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#020706">
   <meta name="color-scheme" content="dark">
   <title>Wandering Bot</title>
-  <link rel="stylesheet" href="./styles.css?v=1.0.4">
+  <link rel="stylesheet" href="./styles.css?v=1.0.5">
 </head>
 <body>
   <div class="app-shell">
@@ -71,6 +71,23 @@
           <button type="button" data-section="files"><span>🗂️</span><strong data-i18n="DayZ files">DayZ files</strong><small data-i18n="Files, links and terms">Files, links and terms</small></button>
           <button type="button" data-section="tiers"><span>🗺️</span><strong data-i18n="Loot tiers">Loot tiers</strong><small data-i18n="Chernarus, Livonia, Sakhal">Chernarus, Livonia, Sakhal</small></button>
         </div>
+
+        <section class="validator-tool-card" aria-labelledby="validator-tool-title">
+          <div class="validator-tool-icon" aria-hidden="true"><span>{ }</span><small>XML</small></div>
+          <div class="online-tool-copy">
+            <div class="tool-badges">
+              <span data-i18n="Free tool">Free tool</span>
+              <span data-i18n="No account required">No account required</span>
+            </div>
+            <p class="eyebrow" data-i18n="Nothing is uploaded">Nothing is uploaded</p>
+            <h2 id="validator-tool-title" data-i18n="DayZ JSON &amp; XML Validator">DayZ JSON &amp; XML Validator</h2>
+            <p data-i18n="Check a file before it ever reaches your server. It detects JSON/XML syntax faults and reports the exact line and column.">Check a file before it ever reaches your server. It detects JSON/XML syntax faults and reports the exact line and column.</p>
+            <button id="open-validator" class="qr-action validator-action" type="button">
+              <span data-i18n="Open free validator">Open free validator</span>
+              <small data-i18n="No login needed">No login needed</small>
+            </button>
+          </div>
+        </section>
 
         <section class="online-tool-card" aria-labelledby="qr-tool-title">
           <img src="./qr-maker-preview.png" alt="A completed scannable QR code scene inside DayZ" data-i18n-alt="A completed scannable QR code scene inside DayZ">
@@ -143,7 +160,7 @@
       <button type="button" data-section="tiers"><span>🗺️</span><small data-i18n="Tiers">Tiers</small></button>
     </nav>
   </div>
-  <script src="./translations.js?v=1.0.4"></script>
-  <script src="./app.js?v=1.0.4"></script>
+  <script src="./translations.js?v=1.0.5"></script>
+  <script src="./app.js?v=1.0.5"></script>
 </body>
 </html>

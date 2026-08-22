@@ -55,6 +55,9 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         self.assertIn("open-dashboard", html)
         self.assertIn("open-qr-builder", html)
         self.assertIn("xml_tool=qr-code", script)
+        self.assertIn("open-validator", html)
+        self.assertIn("/validate?source=native_android", script)
+        self.assertIn("No account required", html)
         self.assertIn("source=native_android", script)
         self.assertIn("qr-maker-preview.png", html)
 
@@ -64,7 +67,7 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         translations = (WEB / "translations.js").read_text(encoding="utf-8")
 
         self.assertIn('id="language-select"', html)
-        self.assertIn('src="./translations.js?v=1.0.4"', html)
+        self.assertIn('src="./translations.js?v=1.0.5"', html)
         self.assertIn("wanderingUiLanguage", script)
         self.assertIn("localStorage.setItem", script)
         self.assertIn("navigator.language", script)

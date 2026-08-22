@@ -1,5 +1,6 @@
 const DASHBOARD_URL = "https://dayzwanderingbot.com/app?source=native_android";
 const QR_BUILDER_URL = "https://dayzwanderingbot.com/admin?section=xml-workshop&xml_tool=qr-code&source=native_android";
+const VALIDATOR_URL = "https://dayzwanderingbot.com/validate?source=native_android";
 const LANGUAGE_STORAGE_KEY = "wanderingUiLanguage";
 const SUPPORTED_LANGUAGES = new Set(["en", "de", "fr", "es", "pl"]);
 const TRANSLATIONS = globalThis.WANDERING_MOBILE_TRANSLATIONS || {en: {}};
@@ -102,6 +103,10 @@ function updateConnection() {
   qrBuilder.disabled = !online;
   qrBuilder.setAttribute("aria-disabled", String(!online));
   qrBuilder.querySelector("small").textContent = online ? t("Secure dashboard sign-in required") : t("Reconnect to continue");
+  const validator = byId("open-validator");
+  validator.disabled = !online;
+  validator.setAttribute("aria-disabled", String(!online));
+  validator.querySelector("small").textContent = online ? t("No login needed") : t("Reconnect to continue");
 }
 
 function openOnlineUrl(url) {
@@ -114,6 +119,7 @@ function openOnlineUrl(url) {
 
 function openDashboard() { openOnlineUrl(DASHBOARD_URL); }
 function openQrBuilder() { openOnlineUrl(QR_BUILDER_URL); }
+function openValidator() { openOnlineUrl(VALIDATOR_URL); }
 
 async function getLibrary(name) {
   if (state.libraries[name]) return state.libraries[name];
@@ -304,6 +310,7 @@ window.addEventListener("load", () => {
   byId("language-select").addEventListener("change", (event) => setLanguage(event.target.value));
   byId("open-dashboard").addEventListener("click", openDashboard);
   byId("open-qr-builder").addEventListener("click", openQrBuilder);
+  byId("open-validator").addEventListener("click", openValidator);
   byId("library-search").addEventListener("input", (event) => { state.search = event.target.value; renderLibrary(); });
   byId("platform-filter").addEventListener("change", (event) => { state.platform = event.target.value; renderLibrary(); });
   byId("map-filter").addEventListener("change", (event) => { state.map = event.target.value; renderLibrary(); });

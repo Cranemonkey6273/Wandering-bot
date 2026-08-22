@@ -5524,6 +5524,124 @@ PAGE_TEMPLATE = """
       opacity: .88;
       pointer-events: none;
     }
+    .command-finder-launch {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .6rem;
+      width: 100%;
+      min-height: 2.4rem;
+      margin: 0 0 .7rem;
+      padding: .5rem .65rem;
+      border: 1px solid rgba(103,245,231,.22);
+      border-radius: .5rem;
+      background: linear-gradient(100deg, rgba(17,42,48,.92), rgba(7,19,23,.88));
+      color: #e8f6f7;
+      font-size: .78rem;
+      font-weight: 850;
+      text-align: left;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    }
+    .command-finder-launch:hover,
+    .command-finder-launch:focus-visible { border-color: rgba(255,159,67,.62); background: linear-gradient(100deg, rgba(38,44,36,.95), rgba(9,24,28,.92)); }
+    .command-finder-launch kbd {
+      flex: 0 0 auto;
+      padding: .14rem .32rem;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: .3rem;
+      background: rgba(0,0,0,.34);
+      color: #a9c2c6;
+      font: 700 .62rem/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    .visually-hidden {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden !important;
+      clip: rect(0, 0, 0, 0) !important;
+      white-space: nowrap !important;
+      border: 0 !important;
+    }
+    .command-finder {
+      width: min(38rem, calc(100vw - 2rem));
+      max-height: min(42rem, calc(100svh - 2rem));
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid rgba(103,245,231,.34);
+      border-radius: .85rem;
+      background: #071216;
+      color: #eaf6f7;
+      box-shadow: 0 2rem 6rem rgba(0,0,0,.68), 0 0 0 1px rgba(255,159,67,.1);
+    }
+    .command-finder::backdrop { background: rgba(0,5,7,.76); backdrop-filter: blur(8px); }
+    .command-finder-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1rem .8rem;
+      border-bottom: 1px solid rgba(103,245,231,.14);
+      background: linear-gradient(120deg, rgba(20,51,58,.74), rgba(7,18,22,.98));
+    }
+    .command-finder-head strong { display: block; color: #fff; font-size: 1.05rem; }
+    .command-finder-head span { display: block; margin-top: .18rem; color: #9fb6ba; font-size: .76rem; }
+    .command-finder-close { min-width: 2.2rem; min-height: 2.2rem; padding: .25rem; border-radius: .45rem; background: rgba(5,14,17,.84); }
+    .command-finder-body { display: grid; gap: .75rem; padding: .9rem 1rem 1rem; }
+    .command-finder-search { position: relative; }
+    .command-finder-search input { padding-left: 2.35rem; background: #030b0e; }
+    .command-finder-search::before { content: "\\2315"; position: absolute; z-index: 1; left: .82rem; top: .72rem; color: var(--orange); font-size: 1rem; }
+    .command-finder-results { display: grid; gap: .35rem; max-height: 24rem; overflow-y: auto; padding-right: .15rem; }
+    .command-finder-result {
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      align-items: center;
+      gap: .75rem;
+      min-height: 3rem;
+      padding: .58rem .68rem;
+      border: 1px solid rgba(103,245,231,.12);
+      border-radius: .5rem;
+      background: rgba(4,14,17,.86);
+      color: #e2eff1;
+      font-weight: 800;
+    }
+    .command-finder-result small { color: #78969b; font-size: .64rem; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
+    .command-finder-result:hover,
+    .command-finder-result:focus-visible { border-color: rgba(255,159,67,.58); background: rgba(39,34,23,.92); color: #fff; }
+    .command-finder-empty { padding: 1.4rem .8rem; color: #9fb6ba; text-align: center; }
+    .dashboard-toast-stack {
+      position: fixed;
+      z-index: 220;
+      right: 1rem;
+      bottom: 3rem;
+      display: grid;
+      gap: .55rem;
+      width: min(24rem, calc(100vw - 2rem));
+      pointer-events: none;
+    }
+    .dashboard-toast {
+      display: grid;
+      grid-template-columns: auto minmax(0,1fr);
+      align-items: start;
+      gap: .65rem;
+      padding: .78rem .85rem;
+      border: 1px solid rgba(103,245,231,.32);
+      border-left: .22rem solid #67f5e7;
+      border-radius: .55rem;
+      background: rgba(5,17,20,.97);
+      color: #eaf6f7;
+      box-shadow: 0 1rem 2.6rem rgba(0,0,0,.48);
+      animation: dashboard-toast-in .18s ease-out both;
+    }
+    .dashboard-toast::before { content: "\\2713"; color: #8ded63; font-weight: 950; }
+    .dashboard-toast[data-tone="error"] { border-color: rgba(255,97,89,.55); border-left-color: #ff6159; }
+    .dashboard-toast[data-tone="error"]::before { content: "!"; color: #ff8b85; }
+    .dashboard-toast[data-tone="warning"] { border-color: rgba(255,159,67,.55); border-left-color: var(--orange); }
+    .dashboard-toast[data-tone="warning"]::before { content: "i"; color: var(--orange); }
+    .dashboard-toast.is-leaving { animation: dashboard-toast-out .16s ease-in both; }
+    @keyframes dashboard-toast-in { from { opacity: 0; transform: translateY(.65rem) scale(.98); } }
+    @keyframes dashboard-toast-out { to { opacity: 0; transform: translateY(.45rem) scale(.98); } }
     .command-status { display: flex; align-items: center; gap: .35rem; color: #8ded63; font-size: .74rem; font-weight: 900; text-transform: uppercase; }
     .command-dot { width: .48rem; height: .48rem; border-radius: 50%; background: #8ded63; box-shadow: 0 0 12px rgba(141,237,99,.65); }
     .command-server-form {
@@ -8291,6 +8409,9 @@ PAGE_TEMPLATE = """
       <a href="{{ login_path }}">Switch Login</a>
       <a href="{{ logout_path }}">Logout</a>
     </div>
+    <button class="command-finder-launch" type="button" data-command-finder-open>
+      <span>Find a dashboard tool</span><kbd>Ctrl K</kbd>
+    </button>
     <nav class="command-side-nav">
       {% if auth.kind == "agent_account" %}
       <a class="active" href="/agent?section=ai-agent">AI Sandbox</a>
@@ -8343,6 +8464,20 @@ PAGE_TEMPLATE = """
     {% endif %}
   </aside>
   <img class="command-logo-watermark" src="/brand-image" alt="Wandering Bot logo" width="64" height="64" loading="lazy" decoding="async">
+  <dialog class="command-finder" data-command-finder aria-labelledby="command-finder-title">
+    <div class="command-finder-head">
+      <div><strong id="command-finder-title">Find a dashboard tool</strong><span>Search the tools available on this server and plan.</span></div>
+      <button class="command-finder-close" type="button" data-command-finder-close aria-label="Close tool finder">&times;</button>
+    </div>
+    <div class="command-finder-body">
+      <label class="command-finder-search">
+        <span class="visually-hidden">Search dashboard tools</span>
+        <input type="search" data-command-finder-input placeholder="Search events, feeds, loadouts, players..." autocomplete="off">
+      </label>
+      <div class="command-finder-results" data-command-finder-results></div>
+    </div>
+  </dialog>
+  <div class="dashboard-toast-stack" data-dashboard-toasts role="status" aria-live="polite" aria-atomic="true"></div>
   <main>
     {% if request.args.get('app_embed') == '1' %}
     <a class="app-embed-back" href="/app?source={{ request.args.get('source', 'native_android')|urlencode }}&view=home{{ server_qs }}{{ profile_qs }}">&larr; Back to mobile app</a>
@@ -11594,10 +11729,10 @@ PAGE_TEMPLATE = """
         <div>
           <h2>PVE Live Ops</h2>
           <p class="tool-note">Events, drops, hordes, gas zones, vehicles and quest status for the selected server.</p>
-          <nav class="command-subnav" aria-label="PVE tools">
-            <a class="{{ 'active' if pve_tool == 'events' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}#pve-workshop">Live Events</a>
-            <a class="{{ 'active' if pve_tool == 'builder' else '' }}" href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}#pve-workshop">Event Builder</a>
-            <a class="{{ 'active' if pve_tool == 'quests' else '' }}" href="/admin?section=pve&pve_tool=quests{{ server_qs }}{{ profile_qs }}#pve-workshop">Quest Board</a>
+          <nav class="command-subnav" aria-label="PVE tools" data-pve-nav>
+            <a class="{{ 'active' if pve_tool == 'events' else '' }}" href="/admin?section=pve&pve_tool=events{{ server_qs }}{{ profile_qs }}#pve-workshop" data-pve-tool-target="events">Live Events</a>
+            <a class="{{ 'active' if pve_tool == 'builder' else '' }}" href="/admin?section=pve&pve_tool=builder{{ server_qs }}{{ profile_qs }}#pve-workshop" data-pve-tool-target="builder">Event Builder</a>
+            <a class="{{ 'active' if pve_tool == 'quests' else '' }}" href="/admin?section=pve&pve_tool=quests{{ server_qs }}{{ profile_qs }}#pve-workshop" data-pve-tool-target="quests">Quest Board</a>
           </nav>
           <p class="tool-note">Use the tabs to manage live events, build new deployments, or review quest status.</p>
         </div>
@@ -16177,10 +16312,200 @@ PAGE_TEMPLATE = """
       });
     }
 
+    function showDashboardToast(message, tone = "success", timeout = 4200) {
+      const stack = document.querySelector("[data-dashboard-toasts]");
+      if (!stack || !message) return;
+      const toast = document.createElement("div");
+      toast.className = "dashboard-toast";
+      toast.dataset.tone = tone;
+      toast.textContent = String(message);
+      stack.appendChild(toast);
+      const remove = () => {
+        toast.classList.add("is-leaving");
+        window.setTimeout(() => toast.remove(), 180);
+      };
+      window.setTimeout(remove, Math.max(1600, timeout));
+    }
+    window.wanderingDashboardToast = showDashboardToast;
+
+    function installCommandFinder() {
+      if (window.__wanderingCommandFinder) return;
+      window.__wanderingCommandFinder = true;
+      const dialog = document.querySelector("[data-command-finder]");
+      const input = dialog?.querySelector("[data-command-finder-input]");
+      const results = dialog?.querySelector("[data-command-finder-results]");
+      const launchers = Array.from(document.querySelectorAll("[data-command-finder-open]"));
+      if (!dialog || !input || !results || !launchers.length) return;
+
+      const links = [];
+      const seen = new Set();
+      document.querySelectorAll(".command-side-nav a, .command-quick a, .command-top-nav a").forEach((link) => {
+        const label = String(link.textContent || "").replace(/\\s+/g, " ").trim();
+        const href = link.getAttribute("href") || "";
+        if (!label || !href || href === "#" || seen.has(`${label}|${href}`)) return;
+        if (/logout/i.test(label)) return;
+        seen.add(`${label}|${href}`);
+        const area = link.closest(".command-quick") ? "Quick action" : link.closest(".command-top-nav") ? "Navigation" : "Dashboard";
+        links.push({label, href, area, search: `${label} ${area}`.toLowerCase()});
+      });
+
+      const render = () => {
+        const query = input.value.trim().toLowerCase();
+        const matches = links.filter((item) => !query || item.search.includes(query)).slice(0, 14);
+        results.replaceChildren();
+        if (!matches.length) {
+          const empty = document.createElement("div");
+          empty.className = "command-finder-empty";
+          empty.textContent = "No available dashboard tool matches that search.";
+          results.appendChild(empty);
+          return;
+        }
+        matches.forEach((item) => {
+          const link = document.createElement("a");
+          link.className = "command-finder-result";
+          link.href = item.href;
+          const label = document.createElement("span");
+          label.textContent = item.label;
+          const area = document.createElement("small");
+          area.textContent = item.area;
+          link.append(label, area);
+          link.addEventListener("click", () => dialog.close());
+          results.appendChild(link);
+        });
+      };
+      const open = () => {
+        render();
+        if (typeof dialog.showModal === "function") dialog.showModal();
+        else dialog.setAttribute("open", "");
+        window.setTimeout(() => { input.focus(); input.select(); }, 0);
+      };
+      const close = () => {
+        if (typeof dialog.close === "function") dialog.close();
+        else dialog.removeAttribute("open");
+      };
+      launchers.forEach((button) => button.addEventListener("click", open));
+      dialog.querySelector("[data-command-finder-close]")?.addEventListener("click", close);
+      input.addEventListener("input", render);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          results.querySelector("a")?.focus();
+        }
+        if (event.key === "Enter") {
+          const first = results.querySelector("a");
+          if (first) { event.preventDefault(); first.click(); }
+        }
+      });
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog) close();
+      });
+      document.addEventListener("keydown", (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+          event.preventDefault();
+          if (dialog.open) close(); else open();
+        }
+      });
+    }
+
+    function installPveWorkspaceNavigation() {
+      if (window.__wanderingPveWorkspaceNavigation) return;
+      window.__wanderingPveWorkspaceNavigation = true;
+      const nav = document.querySelector("[data-pve-nav]");
+      if (!nav || document.body.dataset.section !== "pve") return;
+      const links = Array.from(nav.querySelectorAll("[data-pve-tool-target]"));
+      const allowed = new Set(links.map((link) => link.dataset.pveToolTarget));
+      const apply = (tool, updateHistory = false) => {
+        const safeTool = allowed.has(tool) ? tool : "events";
+        document.body.dataset.pveTool = safeTool;
+        links.forEach((link) => {
+          const active = link.dataset.pveToolTarget === safeTool;
+          link.classList.toggle("active", active);
+          link.setAttribute("aria-current", active ? "page" : "false");
+        });
+        document.querySelectorAll("[data-pve-panel]").forEach((panel) => {
+          panel.setAttribute("aria-hidden", panel.dataset.pvePanel === safeTool ? "false" : "true");
+        });
+        if (updateHistory) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("pve_tool", safeTool);
+          url.hash = "pve-workshop";
+          window.history.pushState({pveTool: safeTool}, "", url);
+        }
+      };
+      links.forEach((link) => link.addEventListener("click", (event) => {
+        event.preventDefault();
+        apply(link.dataset.pveToolTarget, true);
+      }));
+      window.addEventListener("popstate", () => {
+        apply(new URLSearchParams(window.location.search).get("pve_tool") || "events", false);
+      });
+      apply(document.body.dataset.pveTool || "events", false);
+    }
+
+    function installScenarioActionForms() {
+      if (window.__wanderingScenarioActionForms) return;
+      window.__wanderingScenarioActionForms = true;
+      document.addEventListener("submit", async (event) => {
+        const form = event.target?.closest?.("[data-scenario-action-form]");
+        if (!form) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+        if (form.dataset.saving === "1") return;
+        if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) return;
+        const button = event.submitter || form.querySelector('button[type="submit"]');
+        const original = button?.textContent || "";
+        const action = String(form.elements.action?.value || "update");
+        const eventId = String(form.elements.event_id?.value || "");
+        form.dataset.saving = "1";
+        if (button) { button.disabled = true; button.textContent = "Working..."; }
+        try {
+          const payload = {};
+          new FormData(form).forEach((value, key) => { payload[key] = value; });
+          const token = new URLSearchParams(window.location.search).get("token");
+          const route = token ? `${form.dataset.route}?token=${encodeURIComponent(token)}` : form.dataset.route;
+          const response = await fetch(secureDashboardUrl(route), {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json", "X-Requested-With": "fetch"},
+            credentials: "same-origin",
+            body: JSON.stringify(payload),
+          });
+          let body = {};
+          try { body = await response.json(); } catch (error) {}
+          if (!response.ok || body.ok === false) throw new Error(body.error || "The event action was rejected.");
+          const row = document.querySelector(`[data-scenario-event-row="${CSS.escape(eventId)}"]`);
+          if (action === "delete" || action === "cancel") {
+            const detail = row?.nextElementSibling?.matches(".event-detail-row") ? row.nextElementSibling : null;
+            detail?.remove();
+            row?.remove();
+          } else if (row) {
+            const status = row.querySelector("[data-scenario-status] .scenario-status-title");
+            if (status) status.textContent = body.event?.status || (action === "pause" ? "Paused" : "Upload starting");
+            if (action === "pause") row.dataset.eventEnabled = "false";
+          }
+          const note = body.note || (action === "delete" ? "Event deleted." : action === "cancel" ? "Event cancelled." : action === "pause" ? "Event paused." : "Event upload queued.");
+          const result = form.querySelector(".result");
+          if (result) result.textContent = note;
+          showDashboardToast(note, body.upload_worker_error ? "warning" : "success", 5600);
+        } catch (error) {
+          const message = error?.message || String(error);
+          const result = form.querySelector(".result");
+          if (result) { result.textContent = message; result.classList.add("error"); }
+          showDashboardToast(message, "error", 6500);
+        } finally {
+          delete form.dataset.saving;
+          if (button && button.isConnected) { button.disabled = false; button.textContent = original; }
+        }
+      }, true);
+    }
+
     installCommandNavigation();
     installDashboardAtmosphere();
     installDashboardImagePreview();
     installDashboardCoreClicks();
+    installCommandFinder();
+    installPveWorkspaceNavigation();
+    installScenarioActionForms();
     const DIRECT_DASHBOARD_SAVE_ROUTES = {
       "/api/admin/embed-template": {bodyKey: "template", message: "Saved embed template."},
       "/api/admin/welcome-automation": {bodyKey: "automation", message: "Saved welcome automation."},
@@ -16327,14 +16652,20 @@ PAGE_TEMPLATE = """
         let body = {};
         try { body = await response.json(); } catch (error) {}
         if (!response.ok) {
-          directDashboardResult(form, body.error || "Save rejected.", true);
+          const message = body.error || "Save rejected.";
+          directDashboardResult(form, message, true);
+          showDashboardToast(message, "error", 6500);
           return false;
         }
         const record = body[routeInfo.bodyKey];
         directDashboardFallbackUpsert(routePath, record, form);
-        directDashboardResult(form, body.note || routeInfo.message || "Saved.", false);
+        const message = body.note || routeInfo.message || "Saved.";
+        directDashboardResult(form, message, false);
+        showDashboardToast(message, "success");
       } catch (error) {
-        directDashboardResult(form, `Save failed: ${error && error.message ? error.message : error}`, true);
+        const message = `Save failed: ${error && error.message ? error.message : error}`;
+        directDashboardResult(form, message, true);
+        showDashboardToast(message, "error", 6500);
       } finally {
         delete form.dataset.directSaving;
         if (button) {
