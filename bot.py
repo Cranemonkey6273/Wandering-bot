@@ -7105,6 +7105,12 @@ DEFAULT_WANDERING_EMOJIS = {
     "warning": "⚠️"
 }
 
+WANDERING_APPLICATION_EMOJI_PREFIX = "wb_"
+WANDERING_APPLICATION_EMOJI_MAX_BYTES = 256 * 1024
+WANDERING_CUSTOM_EMOJI_PATTERN = re.compile(
+    r"^<(a?):([A-Za-z0-9_]{2,32}):(\d{15,24})>$"
+)
+
 WANDERING_EMOJI_SHOWCASE_LINES = [
     "Look at me. I have my own face now. Absolutely terrifying brand development.",
     "Official Wandering Bot emoji sighting. Please clap, or at least pretend this is normal.",
@@ -7140,9 +7146,7 @@ AI_IMAGE_PROMPTS = {
 }
 
 
-def load_wandering_emojis():
-    global wandering_emojis
-
+def configured_wandering_emoji_map():
     loaded = {}
     env_value = os.getenv("WANDERING_EMOJIS_JSON", "").strip()
 
@@ -7156,11 +7160,148 @@ def load_wandering_emojis():
     if isinstance(file_value, dict):
         loaded.update(file_value)
 
-    wandering_emojis = {
+    return {
         str(key): str(value)
         for key, value in loaded.items()
         if value
     }
+
+
+def load_wandering_emojis():
+    global wandering_emojis
+    wandering_emojis = configured_wandering_emoji_map()
+
+
+def wandering_application_emoji_name(key):
+    safe_key = re.sub(r"[^a-z0-9_]", "_", str(key or "").strip().lower())
+    safe_key = re.sub(r"_+", "_", safe_key).strip("_") or "emoji"
+    return f"{WANDERING_APPLICATION_EMOJI_PREFIX}{safe_key}"[:32]
+
+
+def wandering_emoji_key_from_application_name(name):
+    normalized = str(name or "").strip().lower()
+    for prefix in (WANDERING_APPLICATION_EMOJI_PREFIX, "wandering_"):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix):]
+            break
+
+    known_keys = set(DEFAULT_WANDERING_EMOJIS) | set(wandering_emojis)
+    return normalized if normalized in known_keys else ""
+
+
+def parse_wandering_custom_emoji(value):
+    match = WANDERING_CUSTOM_EMOJI_PATTERN.fullmatch(str(value or "").strip())
+    if not match:
+        return None
+    return {
+        "animated": bool(match.group(1)),
+        "name": match.group(2),
+        "id": match.group(3),
+    }
+
+
+async def fetch_wandering_application_emojis():
+    fetcher = getattr(bot, "fetch_application_emojis", None)
+    if not callable(fetcher):
+        raise RuntimeError(
+            "This discord.py version does not support Discord application emojis."
+        )
+    return list(await fetcher())
+
+
+async def refresh_wandering_application_emojis():
+    application_emojis = await fetch_wandering_application_emojis()
+    applied = {}
+    for emoji in application_emojis:
+        key = wandering_emoji_key_from_application_name(getattr(emoji, "name", ""))
+        if not key:
+            continue
+        applied[key] = str(emoji)
+
+    # Application emojis deliberately win over old guild-specific mentions.
+    # The bot can use these in every guild where the application is installed.
+    wandering_emojis.update(applied)
+    return applied
+
+
+async def download_wandering_emoji_asset(source):
+    parsed = parse_wandering_custom_emoji(source)
+    if not parsed:
+        raise ValueError("The configured value is not a Discord custom emoji mention.")
+
+    extension = "gif" if parsed["animated"] else "png"
+    url = (
+        f"https://cdn.discordapp.com/emojis/{parsed['id']}.{extension}"
+        "?size=128&quality=lossless"
+    )
+
+    def download():
+        response = requests.get(
+            url,
+            headers={"User-Agent": "WanderingBot/1.0 application-emoji-migration"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        return bytes(response.content or b"")
+
+    image = await asyncio.to_thread(download)
+    if not image:
+        raise ValueError("Discord returned an empty emoji image.")
+    if len(image) > WANDERING_APPLICATION_EMOJI_MAX_BYTES:
+        raise ValueError(
+            f"Emoji image is {len(image)} bytes; Discord allows 256 KiB."
+        )
+    return image
+
+
+async def sync_wandering_application_emojis():
+    configured = configured_wandering_emoji_map()
+    application_emojis = await fetch_wandering_application_emojis()
+    existing = {}
+    for emoji in application_emojis:
+        key = wandering_emoji_key_from_application_name(getattr(emoji, "name", ""))
+        if key:
+            existing[key] = emoji
+
+    report = {
+        "created": [],
+        "existing": [],
+        "skipped": [],
+        "failed": [],
+    }
+
+    creator = getattr(bot, "create_application_emoji", None)
+    if not callable(creator):
+        raise RuntimeError(
+            "This discord.py version cannot create Discord application emojis."
+        )
+
+    for key, source in configured.items():
+        if key in existing:
+            wandering_emojis[key] = str(existing[key])
+            report["existing"].append(key)
+            continue
+
+        if not parse_wandering_custom_emoji(source):
+            report["skipped"].append(key)
+            continue
+
+        try:
+            image = await download_wandering_emoji_asset(source)
+            emoji = await creator(
+                name=wandering_application_emoji_name(key),
+                image=image,
+            )
+            wandering_emojis[key] = str(emoji)
+            existing[key] = emoji
+            report["created"].append(key)
+        except Exception as error:
+            report["failed"].append(f"{key}: {error}")
+
+    # Pick up application emojis that already existed but were not present in
+    # the legacy JSON configuration.
+    await refresh_wandering_application_emojis()
+    return report
 
 
 def wb_emoji(key, fallback=None):
@@ -51313,7 +51454,6 @@ async def wanderingemoji(interaction: discord.Interaction):
         f"{icon} {line}",
         ephemeral=False
     )
-
 @bot.tree.command(name="online", description="Show currently online survivors")
 @app_commands.describe(server="Optional merged-server id, for example cherno or livo")
 @app_commands.autocomplete(server=server_profile_autocomplete)
@@ -56350,6 +56490,54 @@ extra_tools_group = app_commands.Group(
 )
 
 
+@extra_tools_group.command(
+    name="syncbotemojis",
+    description="Bot owner only: make Wandering Bot emojis global"
+)
+async def syncbotemojis(interaction: discord.Interaction):
+    if not await is_global_bot_owner(interaction.user):
+        await interaction.response.send_message(
+            "This command is restricted to the Wandering Bot owner.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        report = await sync_wandering_application_emojis()
+    except Exception as error:
+        await interaction.followup.send(
+            f"Application emoji sync could not start: `{error}`",
+            ephemeral=True,
+        )
+        return
+
+    def summary_line(label, values, empty="None"):
+        rendered = ", ".join(str(value) for value in values) or empty
+        if len(rendered) > 900:
+            rendered = rendered[:897] + "..."
+        return f"**{label}:** {rendered}"
+
+    configured_count = len(configured_wandering_emoji_map())
+    lines = [
+        "Wandering Bot application emoji sync finished.",
+        summary_line("Created globally", report["created"]),
+        summary_line("Already global", report["existing"]),
+        summary_line("Skipped (Unicode/non-custom)", report["skipped"]),
+        summary_line("Failed", report["failed"]),
+    ]
+    if configured_count == 0:
+        lines.append(
+            "No legacy custom emojis are configured. Add the old emoji mentions "
+            "to `WANDERING_EMOJIS_JSON`, then run this command once."
+        )
+    lines.append(
+        "Application emojis can now be used by Wandering Bot in every server "
+        "where the bot is installed."
+    )
+    await interaction.followup.send("\n".join(lines), ephemeral=True)
+
+
 @extra_tools_group.command(name="editradarzone", description="Admin: change a radar zone's alert channel and/or ping role")
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(
@@ -61218,6 +61406,14 @@ async def on_ready():
     load_manhunts()
     load_daily_challenges()
     load_wandering_emojis()
+    try:
+        application_emoji_map = await refresh_wandering_application_emojis()
+        print(
+            "WANDERING APPLICATION EMOJIS LOADED: "
+            f"{len(application_emoji_map)}"
+        )
+    except Exception as error:
+        print(f"WANDERING APPLICATION EMOJI LOAD ERROR: {error}")
     print(f"WANDERING EMOJIS LOADED: {len(wandering_emojis)}")
     load_shop()
     load_wallets()
