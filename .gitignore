@@ -1,3 +1,10 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# High-resolution/local emoji build sources are deliberately excluded from
+# production deployments. Discord-ready exports and manifests stay tracked.
+/assets/wandering_emojis/static/
+/assets/wandering_emojis/animation_keyframes/
+/assets/wandering_emojis/animated/
+/assets/wandering_emojis/Wandering-Bot-*.zip
