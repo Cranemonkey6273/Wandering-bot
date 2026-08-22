@@ -6568,6 +6568,20 @@ PAGE_TEMPLATE = """
       text-decoration: none;
     }
     .admin-panel form { margin-top: .75rem; }
+    .onboarding-intro { grid-column: 1 / -1; display: grid; gap: .45rem; padding: .85rem; border: 1px solid color-mix(in srgb, var(--accent) 52%, var(--line)); border-left: 4px solid var(--accent); border-radius: .55rem; background: linear-gradient(120deg, rgba(13,42,47,.72), rgba(8,13,12,.88)); }
+    .onboarding-intro strong { color: var(--text); font-size: 1rem; }
+    .onboarding-intro p { margin: 0; color: var(--muted); line-height: 1.45; }
+    .onboarding-flow { display: flex; flex-wrap: wrap; gap: .35rem; margin: .05rem 0 0; padding: 0; list-style: none; }
+    .onboarding-flow li { padding: .28rem .5rem; border: 1px solid var(--line); border-radius: 999px; background: rgba(2,10,11,.58); color: var(--text); font-size: .76rem; font-weight: 850; }
+    .onboarding-step { grid-column: 1 / -1; min-width: 0; margin: 0; padding: .8rem; border: 1px solid rgba(103,245,231,.18); border-radius: .6rem; background: rgba(2,12,14,.46); }
+    .onboarding-step legend { display: flex; align-items: center; gap: .55rem; max-width: 100%; padding: 0 .35rem; color: var(--text); font-weight: 900; }
+    .onboarding-step-number { display: grid; place-items: center; flex: 0 0 auto; width: 1.8rem; height: 1.8rem; border: 1px solid var(--gold); border-radius: 50%; color: var(--gold); background: rgba(2,9,10,.9); }
+    .onboarding-step legend small { color: var(--muted); font-size: .78rem; font-weight: 700; line-height: 1.25; }
+    .onboarding-step-fields, .onboarding-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin-top: .55rem; }
+    .onboarding-choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .onboarding-choice-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; min-width: 0; padding: .7rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(1,8,10,.5); }
+    .onboarding-choice-card h5 { grid-column: 1 / -1; margin: 0; color: var(--gold); font-size: .9rem; }
+    .onboarding-choice-card .full { grid-column: 1 / -1; }
     .result { min-height: 1.25rem; }
     .owner-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
     .owner-tile { border: 1px solid var(--line); border-radius: .5rem; padding: .85rem; background: var(--panel-3); }
@@ -7261,6 +7275,8 @@ PAGE_TEMPLATE = """
       .loadout-item-grid { max-height: 28rem; overflow-y: auto; -webkit-overflow-scrolling: touch; }
       .loadout-item-card { min-height: 4.5rem; }
       .loadout-selected-slot span, .embed-preview span { overflow-wrap: anywhere; }
+      .onboarding-step-fields, .onboarding-choice-grid, .onboarding-choice-card { grid-template-columns: 1fr; }
+      .onboarding-step legend { align-items: flex-start; }
       .loadout-studio-grid, .loadout-studio-policy { grid-template-columns: 1fr; }
       .loadout-studio-card { min-height: 0; }
       body[data-section="pve"] .admin-form label { gap: .25rem; }
@@ -10708,6 +10724,14 @@ PAGE_TEMPLATE = """
             <input class="hidden-field" name="guild_id" value="{{ server.guild_id if server else '' }}">
             <input class="hidden-field" name="return_to" value="/admin?section=access&setup_tool=onboarding&guild_id={{ server.guild_id if server else '' }}#member-onboarding-form">
             <div class="server-lock"><span>Server</span><input value="{{ server.guild_name if server else 'No server selected' }}" readonly></div>
+            <div class="onboarding-intro">
+              <strong>Set up the member journey in this order</strong>
+              <p>Start with the rules message, decide what happens after a player links their gamertag, then add optional Cherno/Livonia/Bot choices. You only need to fill the parts you actually use.</p>
+              <ol class="onboarding-flow"><li>1. Rules gate</li><li>2. Link journey</li><li>3. Server choices</li><li>4. Messages</li></ol>
+            </div>
+            <fieldset class="onboarding-step">
+              <legend><span class="onboarding-step-number">1</span><span>Rules gate <small>Where a new member starts and what completing the rules unlocks.</small></span></legend>
+              <div class="onboarding-step-fields">
             <label>Gate enabled
               <select name="enabled">
                 <option value="true" {% if onboarding.enabled %}selected{% endif %}>On</option>
@@ -10765,6 +10789,11 @@ PAGE_TEMPLATE = """
                 <option value="false" {% if not onboarding.require_rules_before_linked_role %}selected{% endif %}>No</option>
               </select>
             </label>
+              </div>
+            </fieldset>
+            <fieldset class="onboarding-step">
+              <legend><span class="onboarding-step-number">2</span><span>Server choices <small>Optional reaction roles for members who choose a server or bot access.</small></span></legend>
+              <div class="onboarding-step-fields">
             <div class="full embed-preview">
               <strong>Server choice roles</strong>
               <span>{{ onboarding.choice_channel_label }}{% if onboarding.choice_message_id %} -> message {{ onboarding.choice_message_id }}{% endif %}</span>
@@ -10792,6 +10821,12 @@ PAGE_TEMPLATE = """
                 <option value="true" {% if onboarding.choice_single %}selected{% endif %}>One choice only</option>
               </select>
             </label>
+              </div>
+            </fieldset>
+            <fieldset class="onboarding-step">
+              <legend><span class="onboarding-step-number">3</span><span>Choice roles and welcomes <small>Leave a card alone if you do not offer that choice to members.</small></span></legend>
+              <div class="onboarding-choice-grid">
+                <section class="onboarding-choice-card"><h5>Cherno</h5>
             <label>Cherno reaction
               <input name="choice_cherno_emoji" value="{{ onboarding.choice_cherno_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
@@ -10808,6 +10843,8 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label class="full">Cherno welcome message <textarea name="choice_cherno_welcome_message">{{ onboarding.choice_cherno_welcome_message }}</textarea></label>
+                </section>
+                <section class="onboarding-choice-card"><h5>Second server</h5>
             <label>Second server reaction (Livonia / Sakhal)
               <input name="choice_livo_emoji" value="{{ onboarding.choice_livo_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
@@ -10824,6 +10861,8 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label class="full">Second server welcome message <textarea name="choice_livo_welcome_message">{{ onboarding.choice_livo_welcome_message }}</textarea></label>
+                </section>
+                <section class="onboarding-choice-card"><h5>Wandering Bot</h5>
             <label>Bot reaction
               <input name="choice_bot_emoji" value="{{ onboarding.choice_bot_emoji }}" list="onboarding-emoji-options" placeholder="Choose or paste an emoji">
             </label>
@@ -10840,6 +10879,12 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label class="full">Bot welcome message <textarea name="choice_bot_welcome_message">{{ onboarding.choice_bot_welcome_message }}</textarea></label>
+                </section>
+              </div>
+            </fieldset>
+            <fieldset class="onboarding-step">
+              <legend><span class="onboarding-step-number">4</span><span>Member messages <small>What members see as they enter, accept rules and link their gamertag.</small></span></legend>
+              <div class="onboarding-step-fields">
             <label class="full">Join message <textarea name="welcome_message">{{ onboarding.welcome_message }}</textarea></label>
             <label class="full">After rules message <textarea name="accepted_message">{{ onboarding.accepted_message }}</textarea></label>
             <label class="full">After link message <textarea name="linked_message">{{ onboarding.linked_message }}</textarea></label>
@@ -10848,6 +10893,8 @@ PAGE_TEMPLATE = """
               <span>{{ 'On' if onboarding.enabled else 'Off' }} -> {{ onboarding.rules_channel_label }} -> {{ onboarding.next_channel_label }} -> {{ onboarding.choice_channel_label }}</span>
               <small>Rules accepted embed: {{ onboarding.accepted_channel_label }} | Rules: {{ onboarding.rules_role_label }} | Linked: {{ onboarding.linked_role_label }} | Choice mode: {{ 'one only' if onboarding.choice_single else 'multiple allowed' }}</small>
             </div>
+              </div>
+            </fieldset>
             <div class="full modal-actions"><button type="submit">Save Onboarding Gate</button><span class="result muted"></span></div>
           </form>
         </article>

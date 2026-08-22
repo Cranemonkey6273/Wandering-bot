@@ -241,6 +241,10 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertIn('data-onboarding-saved-value="{{ onboarding.choice_cherno_role_id }}"', template)
         self.assertIn("preserveUnavailableOnboardingSelections()", template)
         self.assertIn("retainEmptyValues", template)
+        self.assertIn("Set up the member journey in this order", template)
+        self.assertIn("Rules gate", template)
+        self.assertIn("Choice roles and welcomes", template)
+        self.assertIn("Member messages", template)
 
     def test_onboarding_save_allows_an_intentional_blank_role_selection(self):
         state = {
