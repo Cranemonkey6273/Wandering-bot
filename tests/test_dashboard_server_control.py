@@ -822,6 +822,8 @@ class DashboardServerControlTests(unittest.TestCase):
         self.assertIn('Every equipped item, attachment and cargo item is locked to pristine.', template)
         self.assertIn('event.preventDefault();\n        setSelectedLoadoutSlot(slotButton.dataset.loadoutSlot || "");', template)
         self.assertIn('event.preventDefault();\n        equipLoadoutItem(itemButton.dataset.loadoutItem || "");', template)
+        self.assertIn('event.preventDefault();\n        const form = vehicleCard.closest("form");', template)
+        self.assertIn('event.preventDefault();\n        const picker = vehicleCargoCard.closest("[data-item-picker]");', template)
 
     def test_vehicle_loadout_preserves_reference_attachment_slot_groups(self):
         detail = dashboard.vehicle_reference_detail("chernarus", "Truck_01_Covered")

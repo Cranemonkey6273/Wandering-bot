@@ -191,6 +191,8 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Free file validator", html)
         self.assertIn("validator-steps", html)
+        self.assertIn("Wandering Bot home", html)
+        self.assertIn('href="/"', html)
         self.assertIn("DayZ file guide", html)
         self.assertNotIn("App home", html)
         self.assertNotIn('href="/app"', html)
