@@ -22242,18 +22242,30 @@ def swap_verified_ftp_stage_into_live(config, target_path, stage_path, *, allow_
     clean_target = canonical_remote_path(target_path)
     clean_stage = canonical_remote_path(stage_path)
     rollback_path = f"{clean_target}.wanderingbot-swap-old-{secrets.token_hex(8)}"
-    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-    if ftp_error:
-        return False, ftp_error, ""
-
-    variants = [
-        (clean_target, clean_stage, rollback_path),
-        (clean_target.lstrip("/"), clean_stage.lstrip("/"), rollback_path.lstrip("/")),
+    folder = canonical_remote_path(os.path.dirname(clean_target)) or "/"
+    live_base = os.path.basename(clean_target)
+    stage_base = os.path.basename(clean_stage)
+    rollback_base = os.path.basename(rollback_path)
+    attempts = [
+        (folder, live_base, stage_base, rollback_base),
+        (folder.lstrip("/") or "/", live_base, stage_base, rollback_base),
+        (None, clean_target, clean_stage, rollback_path),
+        (None, clean_target.lstrip("/"), clean_stage.lstrip("/"), rollback_path.lstrip("/")),
     ]
     errors = []
-    try:
-        for live_name, stage_name, rollback_name in variants:
-            moved_live = False
+    for cwd_target, live_name, stage_name, rollback_name in attempts:
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            errors.append(ftp_error)
+            continue
+        moved_live = False
+        try:
+            if cwd_target is not None:
+                try:
+                    ftp.cwd(cwd_target)
+                except Exception as cwd_error:
+                    errors.append(f"could not enter `{cwd_target}` for atomic rename: {cwd_error}")
+                    continue
             try:
                 ftp.rename(live_name, rollback_name)
                 moved_live = True
@@ -22264,7 +22276,7 @@ def swap_verified_ftp_stage_into_live(config, target_path, stage_path, *, allow_
             try:
                 ftp.rename(stage_name, live_name)
                 return True, f"Verified stage swapped into `{clean_target}` via {ftp_host}.", (
-                    canonical_remote_path(rollback_name) if moved_live else ""
+                    rollback_path if moved_live else ""
                 )
             except Exception as swap_error:
                 restore_error = ""
@@ -22274,11 +22286,17 @@ def swap_verified_ftp_stage_into_live(config, target_path, stage_path, *, allow_
                     except Exception as error:
                         restore_error = f"; immediate rollback rename also failed: {error}"
                 errors.append(f"could not swap `{stage_name}` into `{live_name}`: {swap_error}{restore_error}")
-    finally:
-        try:
-            ftp.quit()
-        except Exception:
-            pass
+                if restore_error:
+                    # Preserve both recovery files and tell the caller which
+                    # exact rollback file must be restored.  Never discard the
+                    # verified stage while the live path is in an uncertain
+                    # state.
+                    return False, errors[-1], rollback_path
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                pass
     return False, "; ".join(errors[-4:]) or "FTP stage swap failed.", ""
 
 
@@ -22286,16 +22304,30 @@ def rollback_ftp_stage_swap(config, target_path, rollback_path):
     clean_target = canonical_remote_path(target_path)
     clean_rollback = canonical_remote_path(rollback_path)
     failed_path = f"{clean_target}.wanderingbot-failed-{secrets.token_hex(8)}"
-    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
-    if ftp_error:
-        return False, ftp_error
+    folder = canonical_remote_path(os.path.dirname(clean_target)) or "/"
+    live_base = os.path.basename(clean_target)
+    rollback_base = os.path.basename(clean_rollback)
+    failed_base = os.path.basename(failed_path)
+    attempts = [
+        (folder, live_base, rollback_base, failed_base),
+        (folder.lstrip("/") or "/", live_base, rollback_base, failed_base),
+        (None, clean_target, clean_rollback, failed_path),
+        (None, clean_target.lstrip("/"), clean_rollback.lstrip("/"), failed_path.lstrip("/")),
+    ]
     errors = []
-    try:
-        for live_name, rollback_name, failed_name in (
-            (clean_target, clean_rollback, failed_path),
-            (clean_target.lstrip("/"), clean_rollback.lstrip("/"), failed_path.lstrip("/")),
-        ):
-            moved_failed = False
+    for cwd_target, live_name, rollback_name, failed_name in attempts:
+        ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+        if ftp_error:
+            errors.append(ftp_error)
+            continue
+        moved_failed = False
+        try:
+            if cwd_target is not None:
+                try:
+                    ftp.cwd(cwd_target)
+                except Exception as cwd_error:
+                    errors.append(f"could not enter `{cwd_target}` for rollback rename: {cwd_error}")
+                    continue
             try:
                 ftp.rename(live_name, failed_name)
                 moved_failed = True
@@ -22309,13 +22341,16 @@ def rollback_ftp_stage_swap(config, target_path, rollback_path):
                 if moved_failed:
                     try:
                         ftp.rename(failed_name, live_name)
-                    except Exception:
-                        pass
-    finally:
-        try:
-            ftp.quit()
-        except Exception:
-            pass
+                    except Exception as restore_error:
+                        return False, (
+                            f"FTP rollback rename failed and the failed live file could not be restored: "
+                            f"{error}; {restore_error}"
+                        )
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                pass
     return False, "; ".join(errors[-4:]) or "FTP rollback rename failed."
 
 
@@ -22399,8 +22434,34 @@ def upload_protected_dayz_xml_to_nitrado_ftp_verified(config, target_path, text_
         allow_create=allow_create,
     )
     if not swap_ok:
-        delete_remote_file_from_nitrado_ftp(config, stage_path)
-        return False, f"Protected stage swap failed; live `{label}` was left unchanged: {swap_message}"
+        recovery_ok = True
+        recovery_message = "The live path was never promoted."
+        if rollback_path:
+            recovery_ok, recovery_message = rollback_ftp_stage_swap(
+                config,
+                clean_target,
+                rollback_path,
+            )
+            if recovery_ok and str(previous_text or "").strip():
+                restored_ok, restored_message = verify_protected_ftp_stage(
+                    config,
+                    label,
+                    clean_target,
+                    previous_text,
+                )
+                recovery_ok = recovery_ok and restored_ok
+                recovery_message = f"{recovery_message} {restored_message}"
+        if recovery_ok:
+            delete_remote_file_from_nitrado_ftp(config, stage_path)
+            return False, (
+                f"Protected stage swap failed; live `{label}` was left unchanged: {swap_message}. "
+                f"Recovery check: {recovery_message}"
+            )
+        return False, (
+            f"Protected stage swap failed and automatic recovery is incomplete for `{label}`: "
+            f"{swap_message}. Recovery error: {recovery_message}. The verified stage and rollback "
+            f"files were preserved for manual recovery; no further protected file may be written."
+        )
 
     live_verify_ok, live_verify_message = verify_protected_ftp_stage(
         config,

@@ -529,6 +529,69 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertEqual((stage, target), fake.renames[1])
         self.assertEqual(fake.renames[0][1], rollback_path)
 
+    def test_stage_swap_supports_nitrado_folder_relative_renames(self):
+        target = "/mission/db/events.xml"
+        stage = f"{target}.wanderingbot-stage-test"
+
+        class FolderRelativeFtp:
+            def __init__(self):
+                self.cwd_calls = []
+                self.renames = []
+
+            def cwd(self, folder):
+                self.cwd_calls.append(folder)
+
+            def rename(self, source, destination):
+                if "/" in source or "/" in destination:
+                    raise RuntimeError("Nitrado requires names relative to the current folder")
+                self.renames.append((source, destination))
+
+            def quit(self):
+                return None
+
+        fake = FolderRelativeFtp()
+        bot.connect_nitrado_ftp = lambda _config: (fake, "test.ftp", "")
+
+        ok, message, rollback_path = self.original_swap_stage({}, target, stage)
+
+        self.assertTrue(ok, message)
+        self.assertEqual(["/mission/db"], fake.cwd_calls)
+        self.assertEqual("events.xml", fake.renames[0][0])
+        self.assertIn(".wanderingbot-swap-old-", fake.renames[0][1])
+        self.assertEqual(("events.xml.wanderingbot-stage-test", "events.xml"), fake.renames[1])
+        self.assertTrue(rollback_path.startswith("/mission/db/events.xml.wanderingbot-swap-old-"))
+
+    def test_stage_rollback_supports_nitrado_folder_relative_renames(self):
+        target = "/mission/db/events.xml"
+        rollback = f"{target}.wanderingbot-swap-old-test"
+
+        class FolderRelativeFtp:
+            def __init__(self):
+                self.cwd_calls = []
+                self.renames = []
+
+            def cwd(self, folder):
+                self.cwd_calls.append(folder)
+
+            def rename(self, source, destination):
+                if "/" in source or "/" in destination:
+                    raise RuntimeError("Nitrado requires names relative to the current folder")
+                self.renames.append((source, destination))
+
+            def quit(self):
+                return None
+
+        fake = FolderRelativeFtp()
+        bot.connect_nitrado_ftp = lambda _config: (fake, "test.ftp", "")
+
+        ok, message = self.original_rollback_swap({}, target, rollback)
+
+        self.assertTrue(ok, message)
+        self.assertEqual(["/mission/db"], fake.cwd_calls)
+        self.assertEqual("events.xml", fake.renames[0][0])
+        self.assertIn(".wanderingbot-failed-", fake.renames[0][1])
+        self.assertEqual(("events.xml.wanderingbot-swap-old-test", "events.xml"), fake.renames[1])
+
     def test_stage_swap_failure_renames_previous_live_file_back_immediately(self):
         target = "/mission/db/events.xml"
         stage = f"{target}.wanderingbot-stage-test"
