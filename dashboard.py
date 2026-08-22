@@ -16414,7 +16414,7 @@ PAGE_TEMPLATE = """
       if (!nav || document.body.dataset.section !== "pve") return;
       const links = Array.from(nav.querySelectorAll("[data-pve-tool-target]"));
       const allowed = new Set(links.map((link) => link.dataset.pveToolTarget));
-      const apply = (tool, updateHistory = false) => {
+      const apply = (tool, updateHistory = false, targetHref = "") => {
         const safeTool = allowed.has(tool) ? tool : "events";
         document.body.dataset.pveTool = safeTool;
         links.forEach((link) => {
@@ -16426,7 +16426,7 @@ PAGE_TEMPLATE = """
           panel.setAttribute("aria-hidden", panel.dataset.pvePanel === safeTool ? "false" : "true");
         });
         if (updateHistory) {
-          const url = new URL(window.location.href);
+          const url = new URL(targetHref || window.location.href, window.location.href);
           url.searchParams.set("pve_tool", safeTool);
           url.hash = "pve-workshop";
           window.history.pushState({pveTool: safeTool}, "", url);
@@ -16434,7 +16434,7 @@ PAGE_TEMPLATE = """
       };
       links.forEach((link) => link.addEventListener("click", (event) => {
         event.preventDefault();
-        apply(link.dataset.pveToolTarget, true);
+        apply(link.dataset.pveToolTarget, true, link.href);
       }));
       window.addEventListener("popstate", () => {
         apply(new URLSearchParams(window.location.search).get("pve_tool") || "events", false);
