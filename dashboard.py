@@ -10727,10 +10727,10 @@ PAGE_TEMPLATE = """
             <div class="onboarding-intro">
               <strong>Set up the member journey in this order</strong>
               <p>Start with the rules message, decide what happens after a player links their gamertag, then add optional Cherno/Livonia/Bot choices. You only need to fill the parts you actually use.</p>
-              <ol class="onboarding-flow"><li>1. Rules gate</li><li>2. Link journey</li><li>3. Server choices</li><li>4. Messages</li></ol>
+              <ol class="onboarding-flow"><li>1. Rules &amp; link access</li><li>2. Server choices</li><li>3. Choice roles</li><li>4. Messages</li></ol>
             </div>
             <fieldset class="onboarding-step">
-              <legend><span class="onboarding-step-number">1</span><span>Rules gate <small>Where a new member starts and what completing the rules unlocks.</small></span></legend>
+              <legend><span class="onboarding-step-number">1</span><span>Rules &amp; link access <small>Where a new member starts and what completing the rules and gamertag link unlocks.</small></span></legend>
               <div class="onboarding-step-fields">
             <label>Gate enabled
               <select name="enabled">
