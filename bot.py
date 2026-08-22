@@ -7172,19 +7172,32 @@ def load_wandering_emojis():
     wandering_emojis = configured_wandering_emoji_map()
 
 
-def wandering_application_emoji_name(key):
+def normalize_wandering_emoji_key(key):
     safe_key = re.sub(r"[^a-z0-9_]", "_", str(key or "").strip().lower())
     safe_key = re.sub(r"_+", "_", safe_key).strip("_") or "emoji"
+    for prefix in (WANDERING_APPLICATION_EMOJI_PREFIX, "wandering_"):
+        if safe_key.startswith(prefix):
+            safe_key = safe_key[len(prefix):].strip("_") or "emoji"
+            break
+    return safe_key
+
+
+def wandering_application_emoji_name(key):
+    safe_key = normalize_wandering_emoji_key(key)
     return f"{WANDERING_APPLICATION_EMOJI_PREFIX}{safe_key}"[:32]
 
 
 def wandering_emoji_key_from_application_name(name):
     normalized = str(name or "").strip().lower()
+    application_owned = False
     for prefix in (WANDERING_APPLICATION_EMOJI_PREFIX, "wandering_"):
         if normalized.startswith(prefix):
             normalized = normalized[len(prefix):]
+            application_owned = True
             break
 
+    if application_owned:
+        return normalize_wandering_emoji_key(normalized)
     known_keys = set(DEFAULT_WANDERING_EMOJIS) | set(wandering_emojis)
     return normalized if normalized in known_keys else ""
 
@@ -7346,6 +7359,59 @@ async def sync_wandering_application_emojis(configured=None):
     # Pick up application emojis that already existed but were not present in
     # the legacy JSON configuration.
     await refresh_wandering_application_emojis()
+    return report
+
+
+async def sync_guild_emojis_to_wandering_application(guild):
+    if guild is None:
+        raise ValueError("Run this command inside the Discord server containing the emojis.")
+
+    source_emojis = list(getattr(guild, "emojis", None) or [])
+    if not source_emojis:
+        fetcher = getattr(guild, "fetch_emojis", None)
+        if callable(fetcher):
+            source_emojis = list(await fetcher())
+
+    application_emojis = await fetch_wandering_application_emojis()
+    existing_by_name = {
+        str(getattr(emoji, "name", "")).strip().lower(): emoji
+        for emoji in application_emojis
+        if getattr(emoji, "name", None)
+    }
+    creator = getattr(bot, "create_application_emoji", None)
+    if not callable(creator):
+        raise RuntimeError(
+            "This discord.py version cannot create Discord application emojis."
+        )
+
+    report = {
+        "created": [],
+        "existing": [],
+        "failed": [],
+        "source_count": len(source_emojis),
+    }
+    for source in sorted(
+        source_emojis,
+        key=lambda item: str(getattr(item, "name", "")).lower(),
+    ):
+        source_name = str(getattr(source, "name", "") or "emoji")
+        application_name = wandering_application_emoji_name(source_name)
+        key = normalize_wandering_emoji_key(source_name)
+        existing = existing_by_name.get(application_name.lower())
+        if existing is not None:
+            wandering_emojis[key] = str(existing)
+            report["existing"].append(source_name)
+            continue
+
+        try:
+            image = await download_wandering_emoji_asset(str(source))
+            created = await creator(name=application_name, image=image)
+            existing_by_name[application_name.lower()] = created
+            wandering_emojis[key] = str(created)
+            report["created"].append(source_name)
+        except Exception as error:
+            report["failed"].append(f"{source_name}: {error}")
+
     return report
 
 
@@ -56543,6 +56609,7 @@ extra_tools_group = app_commands.Group(
     key="Which Wandering Bot feature should use this emoji?",
     source_emoji="Optional: paste one old Discord custom emoji here",
     image="Optional: attach the original PNG, GIF, JPEG or WebP instead",
+    import_all_here="Import every custom emoji from this Discord server",
 )
 @app_commands.choices(key=[
     app_commands.Choice(name="AI / brain", value="ai"),
@@ -56562,6 +56629,7 @@ async def syncbotemojis(
     key: str = "",
     source_emoji: str = "",
     image: discord.Attachment = None,
+    import_all_here: bool = False,
 ):
     if not await is_global_bot_owner(interaction.user):
         await interaction.response.send_message(
@@ -56572,6 +56640,12 @@ async def syncbotemojis(
 
     key = str(key or "").strip().lower()
     source_emoji = str(source_emoji or "").strip()
+    if import_all_here and (key or source_emoji or image):
+        await interaction.response.send_message(
+            "For a full-server import, set only `import_all_here` to `True`.",
+            ephemeral=True,
+        )
+        return
     if source_emoji and image:
         await interaction.response.send_message(
             "Use either `source_emoji` or `image`, not both at the same time.",
@@ -56599,6 +56673,34 @@ async def syncbotemojis(
         return
 
     await interaction.response.defer(ephemeral=True, thinking=True)
+
+    if import_all_here:
+        try:
+            report = await sync_guild_emojis_to_wandering_application(
+                interaction.guild
+            )
+        except Exception as error:
+            await interaction.followup.send(
+                f"The server emoji import could not start: `{error}`",
+                ephemeral=True,
+            )
+            return
+
+        def compact(values, empty="None"):
+            rendered = ", ".join(str(value) for value in values) or empty
+            return rendered if len(rendered) <= 900 else rendered[:897] + "..."
+
+        await interaction.followup.send(
+            "**Wandering Bot full emoji import finished.**\n"
+            f"**Found in this server:** {report['source_count']}\n"
+            f"**Created globally:** {compact(report['created'])}\n"
+            f"**Already global:** {compact(report['existing'])}\n"
+            f"**Failed:** {compact(report['failed'])}\n"
+            "The imported emojis are now application-owned and available to "
+            "Wandering Bot in every server where it is installed.",
+            ephemeral=True,
+        )
+        return
 
     if source_emoji or image:
         try:
@@ -56650,8 +56752,9 @@ async def syncbotemojis(
     if configured_count == 0:
         lines.append(
             "No legacy custom emojis are configured. Run this command again, "
-            "select a `key`, then either paste the old emoji into `source_emoji` "
-            "or attach its original file using `image`."
+            "set `import_all_here` to `True` to migrate every custom emoji from "
+            "this server at once. You can also select a `key` and provide one "
+            "`source_emoji` or `image` for a specific bot feature."
         )
     lines.append(
         "Application emojis can now be used by Wandering Bot in every server "

@@ -46,6 +46,14 @@ class ApplicationEmojiTests(unittest.IsolatedAsyncioTestCase):
             "",
             self.module.wandering_emoji_key_from_application_name("customer"),
         )
+        self.assertEqual(
+            "custom_face",
+            self.module.wandering_emoji_key_from_application_name("wb_custom_face"),
+        )
+        self.assertEqual(
+            "wb_alert",
+            self.module.wandering_application_emoji_name("wandering_alert"),
+        )
 
     def test_custom_emoji_mentions_are_parsed(self):
         parsed = self.module.parse_wandering_custom_emoji(
@@ -158,6 +166,47 @@ class ApplicationEmojiTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(created)
         self.assertEqual("<:wb_bot:523456789012345678>", str(emoji))
         self.assertEqual(str(emoji), self.module.wandering_emojis["bot"])
+
+    async def test_full_guild_import_preserves_every_visible_emoji(self):
+        source_emojis = [
+            _Emoji("wandering_alert", 623456789012345678),
+            _Emoji("custom_face", 723456789012345678),
+        ]
+        application_emojis = [_Emoji("wb_alert", 823456789012345678)]
+        png = b"\x89PNG\r\n\x1a\n" + b"safe-image"
+
+        async def fetch_application_emojis():
+            return list(application_emojis)
+
+        async def create_application_emoji(*, name, image):
+            self.assertEqual("wb_custom_face", name)
+            self.assertEqual(png, image)
+            emoji = _Emoji(name, 923456789012345678)
+            application_emojis.append(emoji)
+            return emoji
+
+        async def download_wandering_emoji_asset(_source):
+            return png
+
+        original_download = self.module.download_wandering_emoji_asset
+        self.module.download_wandering_emoji_asset = download_wandering_emoji_asset
+        self.module.bot = types.SimpleNamespace(
+            fetch_application_emojis=fetch_application_emojis,
+            create_application_emoji=create_application_emoji,
+        )
+        guild = types.SimpleNamespace(emojis=source_emojis)
+        try:
+            report = await self.module.sync_guild_emojis_to_wandering_application(
+                guild
+            )
+        finally:
+            self.module.download_wandering_emoji_asset = original_download
+
+        self.assertEqual(2, report["source_count"])
+        self.assertEqual(["custom_face"], report["created"])
+        self.assertEqual(["wandering_alert"], report["existing"])
+        self.assertEqual([], report["failed"])
+        self.assertIn("custom_face", self.module.wandering_emojis)
 
 
 if __name__ == "__main__":
