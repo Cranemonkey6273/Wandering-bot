@@ -10739,7 +10739,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Rules/start channel
-              <select name="rules_channel_key" data-onboarding-saved-value="{{ onboarding.rules_channel_value }}">
+              <select name="rules_channel_key" data-onboarding-saved-value="{{ onboarding.rules_channel_value }}" data-onboarding-saved-label="{{ onboarding.rules_channel_label }}">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.rules_channel_value or channel.id == onboarding.rules_channel_value or channel.key == onboarding.rules_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
@@ -10773,12 +10773,12 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Next channel after rules
-              <select name="next_channel_key" data-onboarding-saved-value="{{ onboarding.next_channel_value }}">
+              <select name="next_channel_key" data-onboarding-saved-value="{{ onboarding.next_channel_value }}" data-onboarding-saved-label="{{ onboarding.next_channel_label }}">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.next_channel_value or channel.id == onboarding.next_channel_value or channel.key == onboarding.next_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
             <label>Rules accepted embed channel
-              <select name="accepted_channel_key" data-onboarding-saved-value="{{ onboarding.accepted_channel_value }}">
+              <select name="accepted_channel_key" data-onboarding-saved-value="{{ onboarding.accepted_channel_value }}" data-onboarding-saved-label="{{ onboarding.accepted_channel_label }}">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.accepted_channel_value or channel.id == onboarding.accepted_channel_value or channel.key == onboarding.accepted_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
               <small class="muted">Where the RULES ACCEPTED confirmation embed is posted. Use this to keep the rules channel clean.</small>
@@ -10801,7 +10801,7 @@ PAGE_TEMPLATE = """
               <small>Use normal member roles here. Discord bot/integration roles cannot be assigned to members and are hidden from these dropdowns.</small>
             </div>
             <label>Choice channel
-              <select name="choice_channel_key" data-onboarding-saved-value="{{ onboarding.choice_channel_value }}">
+              <select name="choice_channel_key" data-onboarding-saved-value="{{ onboarding.choice_channel_value }}" data-onboarding-saved-label="{{ onboarding.choice_channel_label }}">
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_channel_value or channel.id == onboarding.choice_channel_value or channel.key == onboarding.choice_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
             </label>
@@ -10837,7 +10837,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Cherno welcome channel
-              <select name="choice_cherno_welcome_channel_key" data-onboarding-saved-value="{{ onboarding.choice_cherno_welcome_channel_value }}">
+              <select name="choice_cherno_welcome_channel_key" data-onboarding-saved-value="{{ onboarding.choice_cherno_welcome_channel_value }}" data-onboarding-saved-label="{{ onboarding.choice_cherno_welcome_channel_label }}">
                 <option value="" {% if not onboarding.choice_cherno_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_cherno_welcome_channel_value or channel.id == onboarding.choice_cherno_welcome_channel_value or channel.key == onboarding.choice_cherno_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
@@ -10855,7 +10855,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Second server welcome channel
-              <select name="choice_livo_welcome_channel_key" data-onboarding-saved-value="{{ onboarding.choice_livo_welcome_channel_value }}">
+              <select name="choice_livo_welcome_channel_key" data-onboarding-saved-value="{{ onboarding.choice_livo_welcome_channel_value }}" data-onboarding-saved-label="{{ onboarding.choice_livo_welcome_channel_label }}">
                 <option value="" {% if not onboarding.choice_livo_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_livo_welcome_channel_value or channel.id == onboarding.choice_livo_welcome_channel_value or channel.key == onboarding.choice_livo_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
@@ -10873,7 +10873,7 @@ PAGE_TEMPLATE = """
               </select>
             </label>
             <label>Bot welcome channel
-              <select name="choice_bot_welcome_channel_key" data-onboarding-saved-value="{{ onboarding.choice_bot_welcome_channel_value }}">
+              <select name="choice_bot_welcome_channel_key" data-onboarding-saved-value="{{ onboarding.choice_bot_welcome_channel_value }}" data-onboarding-saved-label="{{ onboarding.choice_bot_welcome_channel_label }}">
                 <option value="" {% if not onboarding.choice_bot_welcome_channel_value %}selected{% endif %}>No separate welcome message</option>
                 {% for channel in (server.channels if server else []) %}<option value="{{ channel.value }}" data-channel-id="{{ channel.id }}" {% if channel.value == onboarding.choice_bot_welcome_channel_value or channel.id == onboarding.choice_bot_welcome_channel_value or channel.key == onboarding.choice_bot_welcome_channel_value %}selected{% endif %}>{{ channel.label }}</option>{% endfor %}
               </select>
@@ -16190,7 +16190,12 @@ PAGE_TEMPLATE = """
     function directDashboardValue(value) {
       if (value === "true") return true;
       if (value === "false") return false;
-      if (value !== "" && /^-?\\d+(\\.\\d+)?$/.test(value)) return Number(value);
+      // Discord snowflakes are normally 18-19 digits. JavaScript Numbers
+      // cannot represent them exactly, so numeric coercion silently changes
+      // channel, message, role and guild IDs. Form posts historically send
+      // strings and the API already validates/parses real numeric settings.
+      // Keep every non-boolean form value as text so identifiers round-trip
+      // byte-for-byte.
       return value;
     }
     function directDashboardPayload(form) {
@@ -16208,6 +16213,15 @@ PAGE_TEMPLATE = """
           payload[key] = parsed;
         }
       });
+      if (retainEmptyValues) {
+        form.querySelectorAll('select[data-onboarding-saved-value][name*="channel"]').forEach((select) => {
+          const option = select.options[select.selectedIndex];
+          if (!option || option.dataset.savedUnavailable === "true") return;
+          const labelKey = String(select.name || "").replace(/_(?:key|id)$/, "_label");
+          if (labelKey === select.name) return;
+          payload[labelKey] = String(option.textContent || "").trim();
+        });
+      }
       payload.dashboard_mode = "{{ mode }}";
       return payload;
     }
@@ -16219,7 +16233,10 @@ PAGE_TEMPLATE = """
         if (!saved || Array.from(select.options).some((option) => option.value === saved)) return;
         const option = document.createElement("option");
         option.value = saved;
-        option.textContent = `Saved selection — unavailable right now (${saved})`;
+        const savedLabel = String(select.dataset.onboardingSavedLabel || "").trim();
+        option.textContent = savedLabel && !savedLabel.startsWith("Unknown channel")
+          ? `${savedLabel} — saved`
+          : `Saved selection — unavailable right now (${saved})`;
         option.selected = true;
         option.dataset.savedUnavailable = "true";
         select.insertBefore(option, select.options[0] || null);
@@ -41583,6 +41600,14 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         config = {}
     raw_settings = config.get("member_onboarding")
     settings = raw_settings if isinstance(raw_settings, dict) else {}
+
+    def saved_channel_label(prefix: str, selection: Any, default: str) -> str:
+        resolved = channel_label_from_channels(channels, selection, default)
+        stored = str(settings.get(f"{prefix}_channel_label") or "").strip()
+        if resolved.startswith("Unknown channel") and stored:
+            return stored
+        return resolved
+
     reaction = normalize_dashboard_onboarding_emoji(settings.get("reaction_emoji"))
     rules_channel_value = dashboard_channel_value(
         config,
@@ -41618,13 +41643,13 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         "enabled": dashboard_bool(settings.get("enabled"), False),
         "enabled_value": "true" if dashboard_bool(settings.get("enabled"), False) else "false",
         "rules_channel_value": rules_channel_value,
-        "rules_channel_label": channel_label_from_channels(channels, rules_channel_value, "Rules channel"),
+        "rules_channel_label": saved_channel_label("rules", rules_channel_value, "Rules channel"),
         "next_channel_value": next_channel_value,
-        "next_channel_label": channel_label_from_channels(channels, next_channel_value, "Next channel"),
+        "next_channel_label": saved_channel_label("next", next_channel_value, "Next channel"),
         "accepted_channel_value": accepted_channel_value,
-        "accepted_channel_label": channel_label_from_channels(channels, accepted_channel_value, "Rules accepted embed channel"),
+        "accepted_channel_label": saved_channel_label("accepted", accepted_channel_value, "Rules accepted embed channel"),
         "choice_channel_value": choice_channel_value,
-        "choice_channel_label": channel_label_from_channels(channels, choice_channel_value, "Choice channel"),
+        "choice_channel_label": saved_channel_label("choice", choice_channel_value, "Choice channel"),
         "choice_message_id": str(settings.get("choice_message_id") or ""),
         "choice_require_rules": choice_require_rules,
         "choice_require_rules_value": "true" if choice_require_rules else "false",
@@ -41634,19 +41659,19 @@ def dashboard_member_onboarding_settings(config: Any, channels: list[dict[str, s
         "choice_cherno_role_id": str(settings.get("choice_cherno_role_id") or ""),
         "choice_cherno_role_label": role_label_from_roles(roles, settings.get("choice_cherno_role_id"), "No Cherno role"),
         "choice_cherno_welcome_channel_value": choice_welcome_channels.get("cherno", ""),
-        "choice_cherno_welcome_channel_label": channel_label_from_channels(channels, choice_welcome_channels.get("cherno", ""), "No Cherno welcome channel"),
+        "choice_cherno_welcome_channel_label": saved_channel_label("choice_cherno_welcome", choice_welcome_channels.get("cherno", ""), "No Cherno welcome channel"),
         "choice_cherno_welcome_message": str(settings.get("choice_cherno_welcome_message") or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["cherno"]),
         "choice_livo_emoji": str(settings.get("choice_livo_emoji") or "🟢"),
         "choice_livo_role_id": str(settings.get("choice_livo_role_id") or ""),
         "choice_livo_role_label": role_label_from_roles(roles, settings.get("choice_livo_role_id"), "No Livo role"),
         "choice_livo_welcome_channel_value": choice_welcome_channels.get("livo", ""),
-        "choice_livo_welcome_channel_label": channel_label_from_channels(channels, choice_welcome_channels.get("livo", ""), "No Livo welcome channel"),
+        "choice_livo_welcome_channel_label": saved_channel_label("choice_livo_welcome", choice_welcome_channels.get("livo", ""), "No Livo welcome channel"),
         "choice_livo_welcome_message": str(settings.get("choice_livo_welcome_message") or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["livo"]),
         "choice_bot_emoji": str(settings.get("choice_bot_emoji") or "🤖"),
         "choice_bot_role_id": str(settings.get("choice_bot_role_id") or ""),
         "choice_bot_role_label": role_label_from_roles(roles, settings.get("choice_bot_role_id"), "No bot role"),
         "choice_bot_welcome_channel_value": choice_welcome_channels.get("bot", ""),
-        "choice_bot_welcome_channel_label": channel_label_from_channels(channels, choice_welcome_channels.get("bot", ""), "No bot welcome channel"),
+        "choice_bot_welcome_channel_label": saved_channel_label("choice_bot_welcome", choice_welcome_channels.get("bot", ""), "No bot welcome channel"),
         "choice_bot_welcome_message": str(settings.get("choice_bot_welcome_message") or ONBOARDING_CHOICE_WELCOME_DEFAULT_MESSAGES["bot"]),
         "rules_role_id": str(settings.get("rules_role_id") or ""),
         "rules_role_label": role_label_from_roles(roles, settings.get("rules_role_id"), "No rules role"),
@@ -47647,6 +47672,21 @@ def api_member_onboarding():
     if error:
         return error
     raw_payload = payload or {}
+    unsafe_identifier_fields = []
+    for key, value in raw_payload.items():
+        key_text = str(key or "")
+        is_identifier = key_text == "guild_id" or key_text.endswith("_id") or key_text.endswith("_channel_key")
+        if is_identifier and isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) > 9_007_199_254_740_991:
+            unsafe_identifier_fields.append(key_text)
+    if unsafe_identifier_fields:
+        return jsonify({
+            "ok": False,
+            "error": (
+                "Save stopped because Discord IDs arrived as unsafe rounded numbers: "
+                + ", ".join(sorted(unsafe_identifier_fields))
+                + ". Refresh the dashboard and select or paste them again. Nothing was saved."
+            ),
+        }), 400
     guild_id = normalize_guild_id(raw_payload.get("guild_id"))
     guild_configs = load_store("guild_configs", {})
     if not isinstance(guild_configs, dict):
@@ -47657,6 +47697,7 @@ def api_member_onboarding():
         guild_configs[guild_id] = config
     configured_channels = config.get("channels", {}) if isinstance(config.get("channels"), dict) else {}
     existing_settings = config.get("member_onboarding") if isinstance(config.get("member_onboarding"), dict) else {}
+    channels = public_channels(configured_channels, guild_id)
 
     def payload_or_saved(key: str, default: Any = "") -> Any:
         # A browser can omit a field when Discord could not list its old
@@ -47739,9 +47780,29 @@ def api_member_onboarding():
     })
 
     def set_channel_setting(key_name: str, id_name: str, default: str = "") -> None:
+        selected = selected_channel_value(key_name, id_name, default)
         settings.pop(key_name, None)
         settings.pop(id_name, None)
-        settings.update(channel_setting(selected_channel_value(key_name, id_name, default), key_name, id_name, default))
+        stored_channel = channel_setting(selected, key_name, id_name, default)
+        settings.update(stored_channel)
+
+        label_key = f"{key_name[:-4]}_label" if key_name.endswith("_key") else f"{key_name}_label"
+        if not stored_channel:
+            settings.pop(label_key, None)
+            return
+        submitted_label = str(raw_payload.get(label_key) or "").strip() if label_key in raw_payload else ""
+        if submitted_label.startswith("Saved selection") or submitted_label.startswith("Unknown channel"):
+            submitted_label = ""
+        resolved_label = channel_label_from_channels(channels, selected, "")
+        if resolved_label.startswith("Unknown channel"):
+            resolved_label = ""
+        label = submitted_label or resolved_label
+        if label:
+            settings[label_key] = label[:160]
+        elif key_name in raw_payload or id_name in raw_payload:
+            # The selection changed but no trustworthy label accompanied it;
+            # never leave the previous channel's name attached to a new ID.
+            settings.pop(label_key, None)
 
     set_channel_setting("rules_channel_key", "rules_channel_id", "rules")
     set_channel_setting("next_channel_key", "next_channel_id", "general_chat")
@@ -47754,11 +47815,12 @@ def api_member_onboarding():
     save_store("guild_configs", guild_configs)
     sync_runtime_store("guild_configs", guild_configs)
 
-    channels = public_channels(config.get("channels", {}), guild_id)
     def onboarding_audit_channel(key_name: str, id_name: str) -> str:
         selected = str(settings.get(key_name) or settings.get(id_name) or "").strip()
         label = channel_label_from_channels(channels, selected, "")
-        return label if label and not label.startswith("Unknown channel") else selected
+        label_key = f"{key_name[:-4]}_label" if key_name.endswith("_key") else f"{key_name}_label"
+        stored_label = str(settings.get(label_key) or "").strip()
+        return label if label and not label.startswith("Unknown channel") else (stored_label or selected)
 
     # Audit entries are delivered later by the Discord bot.  Save the display
     # label now, while the dashboard still knows which channel was selected,

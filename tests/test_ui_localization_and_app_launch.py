@@ -247,6 +247,92 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertIn("Member messages", template)
         self.assertIn(".onboarding-choice-grid { display: grid; grid-template-columns: minmax(0, 1fr);", template)
 
+    def test_direct_dashboard_save_never_rounds_discord_snowflakes(self):
+        template = dashboard.PAGE_TEMPLATE
+        function_start = template.index("function directDashboardValue(value)")
+        function_end = template.index("function directDashboardPayload(form)", function_start)
+        value_function = template[function_start:function_end]
+
+        self.assertIn("Discord snowflakes are normally 18-19 digits", value_function)
+        self.assertNotIn("Number(value)", value_function)
+        self.assertIn("return value;", value_function)
+        self.assertIn("data-onboarding-saved-label", template)
+
+    def test_onboarding_saves_exact_large_discord_ids_and_durable_labels(self):
+        guild_id = "1491521072275788040"
+        rules_channel_id = "1524736424849707000"
+        accepted_channel_id = "1524736424849707001"
+        rules_message_id = "1491724674885877800"
+        rules_role_id = "1524736424849707002"
+        state = {guild_id: {"channels": {}, "member_onboarding": {}}}
+        channels = [
+            {"key": "", "value": rules_channel_id, "id": rules_channel_id, "label": "#rules"},
+            {"key": "", "value": accepted_channel_id, "id": accepted_channel_id, "label": "#rules-accepted"},
+        ]
+
+        with (
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "load_store", return_value=state),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(
+                dashboard,
+                "discord_guild_roles",
+                return_value=[{"id": rules_role_id, "label": "@accepted", "assignable": True}],
+            ),
+            patch.object(dashboard, "public_channels", return_value=channels),
+        ):
+            with dashboard.APP.test_request_context(
+                "/api/admin/member-onboarding",
+                method="POST",
+                json={
+                    "guild_id": guild_id,
+                    "enabled": True,
+                    "rules_channel_key": rules_channel_id,
+                    "rules_channel_label": "#rules",
+                    "accepted_channel_key": accepted_channel_id,
+                    "accepted_channel_label": "#rules-accepted",
+                    "rules_message_id": rules_message_id,
+                    "rules_role_id": rules_role_id,
+                },
+            ):
+                response = dashboard.api_member_onboarding()
+                audit_payload = dict(dashboard.g.dashboard_audit_payload)
+
+        self.assertEqual(200, response.status_code)
+        saved = state[guild_id]["member_onboarding"]
+        self.assertEqual(rules_channel_id, saved["rules_channel_id"])
+        self.assertEqual(accepted_channel_id, saved["accepted_channel_id"])
+        self.assertEqual(rules_message_id, saved["rules_message_id"])
+        self.assertEqual(rules_role_id, saved["rules_role_id"])
+        self.assertEqual("#rules", saved["rules_channel_label"])
+        self.assertEqual("#rules-accepted", saved["accepted_channel_label"])
+        self.assertEqual("#rules", audit_payload["rules_channel_key"])
+        self.assertEqual("#rules-accepted", audit_payload["accepted_channel_key"])
+
+    def test_onboarding_refuses_rounded_numeric_discord_ids_before_saving(self):
+        guild_id = "1491521072275788040"
+        with (
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "load_store", return_value={guild_id: {"channels": {}}}),
+        ):
+            with dashboard.APP.test_request_context(
+                "/api/admin/member-onboarding",
+                method="POST",
+                json={
+                    "guild_id": int(guild_id),
+                    "rules_channel_key": 1524736424849707000,
+                    "rules_message_id": 1491724674885877800,
+                },
+            ):
+                response, status_code = dashboard.api_member_onboarding()
+
+        self.assertEqual(400, status_code)
+        body = response.get_json()
+        self.assertFalse(body["ok"])
+        self.assertIn("unsafe rounded numbers", body["error"])
+        self.assertIn("Nothing was saved", body["error"])
+
     def test_onboarding_save_allows_an_intentional_blank_role_selection(self):
         state = {
             "guild-onboarding-clear": {
