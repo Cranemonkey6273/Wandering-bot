@@ -208,6 +208,45 @@ class ApplicationEmojiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], report["failed"])
         self.assertIn("custom_face", self.module.wandering_emojis)
 
+    def test_bundled_pack_contains_111_static_and_12_animated_assets(self):
+        assets = self.module.bundled_wandering_emoji_assets()
+
+        self.assertEqual(123, len(assets))
+        self.assertEqual(123, len({asset["name"] for asset in assets}))
+        self.assertEqual(
+            12,
+            len([asset for asset in assets if asset["name"].endswith("_a")]),
+        )
+        self.assertTrue(all(len(asset["name"]) <= 32 for asset in assets))
+
+    async def test_bundled_pack_sync_is_safe_to_resume(self):
+        assets = self.module.bundled_wandering_emoji_assets()[:2]
+        application_emojis = [_Emoji(assets[0]["name"], 103456789012345678)]
+
+        async def fetch_application_emojis():
+            return list(application_emojis)
+
+        async def create_application_emoji(*, name, image):
+            self.assertEqual(assets[1]["name"], name)
+            self.module.validate_wandering_emoji_asset(image)
+            emoji = _Emoji(name, 113456789012345678)
+            application_emojis.append(emoji)
+            return emoji
+
+        self.module.bot = types.SimpleNamespace(
+            fetch_application_emojis=fetch_application_emojis,
+            create_application_emoji=create_application_emoji,
+        )
+
+        report = await self.module.sync_bundled_wandering_application_emojis(
+            assets
+        )
+
+        self.assertEqual(2, report["total"])
+        self.assertEqual([assets[0]["name"]], report["existing"])
+        self.assertEqual([assets[1]["name"]], report["created"])
+        self.assertEqual([], report["failed"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7107,6 +7107,15 @@ DEFAULT_WANDERING_EMOJIS = {
 
 WANDERING_APPLICATION_EMOJI_PREFIX = "wb_"
 WANDERING_APPLICATION_EMOJI_MAX_BYTES = 256 * 1024
+WANDERING_BUNDLED_EMOJI_ROOT = os.path.join(
+    APP_ROOT,
+    "assets",
+    "wandering_emojis",
+)
+WANDERING_BUNDLED_EMOJI_MANIFEST = os.path.join(
+    WANDERING_BUNDLED_EMOJI_ROOT,
+    "emoji-manifest.json",
+)
 WANDERING_CUSTOM_EMOJI_PATTERN = re.compile(
     r"^<(a?):([A-Za-z0-9_]{2,32}):(\d{15,24})>$"
 )
@@ -7411,6 +7420,114 @@ async def sync_guild_emojis_to_wandering_application(guild):
             report["created"].append(source_name)
         except Exception as error:
             report["failed"].append(f"{source_name}: {error}")
+
+    return report
+
+
+def bundled_wandering_emoji_assets():
+    if not os.path.isfile(WANDERING_BUNDLED_EMOJI_MANIFEST):
+        raise FileNotFoundError("The bundled Wandering Bot emoji manifest is missing.")
+
+    with open(WANDERING_BUNDLED_EMOJI_MANIFEST, "r", encoding="utf-8") as handle:
+        entries = json.load(handle)
+    if not isinstance(entries, list):
+        raise ValueError("The bundled Wandering Bot emoji manifest is invalid.")
+
+    root = os.path.abspath(WANDERING_BUNDLED_EMOJI_ROOT)
+    assets = []
+    names = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        candidates = [
+            (entry.get("static_discord_name"), entry.get("static")),
+            (
+                entry.get("premium_animated_discord_name"),
+                entry.get("premium_animated"),
+            ),
+        ]
+        for configured_name, relative_path in candidates:
+            if not configured_name or not relative_path:
+                continue
+            key = normalize_wandering_emoji_key(configured_name)
+            application_name = wandering_application_emoji_name(key)
+            if application_name in names:
+                raise ValueError(
+                    f"The bundled emoji name `{application_name}` is duplicated."
+                )
+            names.add(application_name)
+
+            asset_path = os.path.abspath(
+                os.path.join(root, str(relative_path).replace("/", os.sep))
+            )
+            if os.path.commonpath((root, asset_path)) != root:
+                raise ValueError("The bundled emoji manifest contains an unsafe path.")
+            if not os.path.isfile(asset_path):
+                raise FileNotFoundError(
+                    f"Bundled emoji file is missing: {relative_path}"
+                )
+            assets.append(
+                {
+                    "key": key,
+                    "name": application_name,
+                    "path": asset_path,
+                }
+            )
+
+    if not assets:
+        raise ValueError("The bundled Wandering Bot emoji pack is empty.")
+    return assets
+
+
+async def sync_bundled_wandering_application_emojis(assets=None):
+    assets = list(
+        bundled_wandering_emoji_assets()
+        if assets is None
+        else assets
+    )
+    application_emojis = await fetch_wandering_application_emojis()
+    existing_by_name = {
+        str(getattr(emoji, "name", "")).strip().lower(): emoji
+        for emoji in application_emojis
+        if getattr(emoji, "name", None)
+    }
+    creator = getattr(bot, "create_application_emoji", None)
+    if not callable(creator):
+        raise RuntimeError(
+            "This discord.py version cannot create Discord application emojis."
+        )
+
+    report = {
+        "total": len(assets),
+        "created": [],
+        "existing": [],
+        "failed": [],
+    }
+    for asset in assets:
+        key = normalize_wandering_emoji_key(asset.get("key"))
+        application_name = str(asset.get("name") or "").strip().lower()
+        existing = existing_by_name.get(application_name)
+        if existing is not None:
+            wandering_emojis[key] = str(existing)
+            report["existing"].append(application_name)
+            continue
+
+        try:
+            asset_path = str(asset.get("path") or "")
+
+            def read_asset():
+                with open(asset_path, "rb") as handle:
+                    return handle.read()
+
+            image = validate_wandering_emoji_asset(
+                await asyncio.to_thread(read_asset)
+            )
+            created = await creator(name=application_name, image=image)
+            existing_by_name[application_name] = created
+            wandering_emojis[key] = str(created)
+            report["created"].append(application_name)
+        except Exception as error:
+            report["failed"].append(f"{application_name}: {error}")
 
     return report
 
@@ -56610,6 +56727,7 @@ extra_tools_group = app_commands.Group(
     source_emoji="Optional: paste one old Discord custom emoji here",
     image="Optional: attach the original PNG, GIF, JPEG or WebP instead",
     import_all_here="Import every custom emoji from this Discord server",
+    bundled_pack="Import Wandering Bot's bundled static and animated mascot pack",
 )
 @app_commands.choices(key=[
     app_commands.Choice(name="AI / brain", value="ai"),
@@ -56630,6 +56748,7 @@ async def syncbotemojis(
     source_emoji: str = "",
     image: discord.Attachment = None,
     import_all_here: bool = False,
+    bundled_pack: bool = False,
 ):
     if not await is_global_bot_owner(interaction.user):
         await interaction.response.send_message(
@@ -56640,6 +56759,12 @@ async def syncbotemojis(
 
     key = str(key or "").strip().lower()
     source_emoji = str(source_emoji or "").strip()
+    if bundled_pack and (import_all_here or key or source_emoji or image):
+        await interaction.response.send_message(
+            "For the bundled mascot pack, set only `bundled_pack` to `True`.",
+            ephemeral=True,
+        )
+        return
     if import_all_here and (key or source_emoji or image):
         await interaction.response.send_message(
             "For a full-server import, set only `import_all_here` to `True`.",
@@ -56673,6 +56798,32 @@ async def syncbotemojis(
         return
 
     await interaction.response.defer(ephemeral=True, thinking=True)
+
+    if bundled_pack:
+        try:
+            report = await sync_bundled_wandering_application_emojis()
+        except Exception as error:
+            await interaction.followup.send(
+                f"The bundled mascot emoji import could not start: `{error}`",
+                ephemeral=True,
+            )
+            return
+
+        failed = ", ".join(report["failed"]) or "None"
+        if len(failed) > 850:
+            failed = failed[:847] + "..."
+        await interaction.followup.send(
+            "**Wandering Bot bundled emoji import finished.**\n"
+            f"**Pack files found:** {report['total']}\n"
+            f"**Created globally:** {len(report['created'])}\n"
+            f"**Already global:** {len(report['existing'])}\n"
+            f"**Failed:** {failed}\n"
+            "The command is safe to run again if Discord temporarily limits "
+            "part of the import. These application emojis are available to "
+            "Wandering Bot in every server where it is installed.",
+            ephemeral=True,
+        )
+        return
 
     if import_all_here:
         try:
@@ -56752,6 +56903,8 @@ async def syncbotemojis(
     if configured_count == 0:
         lines.append(
             "No legacy custom emojis are configured. Run this command again, "
+            "set `bundled_pack` to `True` to install Wandering Bot's packaged "
+            "mascot emojis, or "
             "set `import_all_here` to `True` to migrate every custom emoji from "
             "this server at once. You can also select a `key` and provide one "
             "`source_emoji` or `image` for a specific bot feature."
