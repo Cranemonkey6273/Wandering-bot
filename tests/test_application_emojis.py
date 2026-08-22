@@ -61,6 +61,12 @@ class ApplicationEmojiTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(self.module.parse_wandering_custom_emoji("🚨"))
 
+    def test_uploaded_assets_must_be_real_supported_images(self):
+        png = b"\x89PNG\r\n\x1a\n" + b"safe-image"
+        self.assertEqual(png, self.module.validate_wandering_emoji_asset(png))
+        with self.assertRaisesRegex(ValueError, "valid PNG"):
+            self.module.validate_wandering_emoji_asset(b"not-an-image")
+
     async def test_application_emojis_override_legacy_guild_mentions(self):
         async def fetch_application_emojis():
             return [
@@ -124,6 +130,34 @@ class ApplicationEmojiTests(unittest.IsolatedAsyncioTestCase):
             "<:wb_alert:423456789012345678>",
             self.module.wandering_emojis["alert"],
         )
+
+    async def test_direct_image_import_creates_one_global_emoji(self):
+        application_emojis = []
+        png = b"\x89PNG\r\n\x1a\n" + b"safe-image"
+
+        async def fetch_application_emojis():
+            return list(application_emojis)
+
+        async def create_application_emoji(*, name, image):
+            self.assertEqual("wb_bot", name)
+            self.assertEqual(png, image)
+            emoji = _Emoji(name, 523456789012345678)
+            application_emojis.append(emoji)
+            return emoji
+
+        self.module.bot = types.SimpleNamespace(
+            fetch_application_emojis=fetch_application_emojis,
+            create_application_emoji=create_application_emoji,
+        )
+
+        emoji, created = await self.module.import_wandering_application_emoji(
+            "bot",
+            png,
+        )
+
+        self.assertTrue(created)
+        self.assertEqual("<:wb_bot:523456789012345678>", str(emoji))
+        self.assertEqual(str(emoji), self.module.wandering_emojis["bot"])
 
 
 if __name__ == "__main__":
