@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import dashboard
 from ui_localization import (
@@ -196,6 +197,75 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertIn("DayZ file guide", html)
         self.assertNotIn("App home", html)
         self.assertNotIn('href="/app"', html)
+
+    def test_onboarding_save_keeps_unavailable_saved_roles_and_channels(self):
+        state = {
+            "guild-onboarding-qa": {
+                "channels": {"admin_logs": "100"},
+                "member_onboarding": {
+                    "enabled": True,
+                    "choice_channel_id": "900",
+                    "choice_message_id": "901",
+                    "choice_cherno_role_id": "800",
+                    "rules_role_id": "801",
+                },
+            }
+        }
+
+        with (
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "load_store", return_value=state),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "discord_guild_roles", return_value=[{"id": "different-live-role", "assignable": True}]),
+            patch.object(dashboard, "public_channels", return_value=[]),
+        ):
+            with dashboard.APP.test_request_context(
+                "/api/admin/member-onboarding",
+                method="POST",
+                json={"guild_id": "guild-onboarding-qa", "enabled": True},
+            ):
+                response = dashboard.api_member_onboarding()
+
+        self.assertEqual(200, response.status_code)
+        saved = state["guild-onboarding-qa"]["member_onboarding"]
+        self.assertEqual("900", saved["choice_channel_id"])
+        self.assertEqual("901", saved["choice_message_id"])
+        self.assertEqual("800", saved["choice_cherno_role_id"])
+        self.assertEqual("801", saved["rules_role_id"])
+
+    def test_onboarding_form_marks_unavailable_saved_selections_for_preservation(self):
+        template = dashboard.PAGE_TEMPLATE
+
+        self.assertIn('data-onboarding-saved-value="{{ onboarding.choice_channel_value }}"', template)
+        self.assertIn('data-onboarding-saved-value="{{ onboarding.choice_cherno_role_id }}"', template)
+        self.assertIn("preserveUnavailableOnboardingSelections()", template)
+        self.assertIn("retainEmptyValues", template)
+
+    def test_onboarding_save_allows_an_intentional_blank_role_selection(self):
+        state = {
+            "guild-onboarding-clear": {
+                "member_onboarding": {"choice_cherno_role_id": "800"},
+            }
+        }
+
+        with (
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "load_store", return_value=state),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "discord_guild_roles", return_value=[]),
+            patch.object(dashboard, "public_channels", return_value=[]),
+        ):
+            with dashboard.APP.test_request_context(
+                "/api/admin/member-onboarding",
+                method="POST",
+                json={"guild_id": "guild-onboarding-clear", "choice_cherno_role_id": ""},
+            ):
+                response = dashboard.api_member_onboarding()
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("", state["guild-onboarding-clear"]["member_onboarding"]["choice_cherno_role_id"])
 
     def test_live_feed_and_event_workspace_labels_are_unambiguous(self):
         self.assertEqual("ADM feed inbox", dashboard.COMMAND_SECTION_META["live-feeds"]["title"])
