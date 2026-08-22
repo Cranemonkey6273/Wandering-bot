@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from _bot_loader import import_bot_module  # noqa: E402
-from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_territory_xml_upload_preserves_unmanaged_content, validate_xml_upload_not_effectively_empty, validate_upload_not_dangerously_shrunken  # noqa: E402
+from dayz_file_intelligence import dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_territory_xml_upload_changes_only_managed_content, validate_territory_xml_upload_preserves_unmanaged_content, validate_xml_upload_not_effectively_empty, validate_upload_not_dangerously_shrunken  # noqa: E402
 
 bot = import_bot_module()
 
@@ -395,6 +395,50 @@ class DayZFileIntelligenceTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("unmarked live territory", message)
+
+    def test_territory_delta_guard_blocks_new_unmarked_replacement_zone(self):
+        existing = (
+            '<territory-type><territory color="1291845632">'
+            '<zone name="OwnerCity" x="1" z="2" r="80" dmin="2" dmax="4" smin="0" smax="0" />'
+            '</territory></territory-type>'
+        )
+        upload = existing.replace(
+            "</territory>",
+            '<zone name="UnmarkedGenerated" x="3" z="4" r="50" dmin="1" dmax="2" smin="0" smax="0" /></territory>',
+        )
+
+        ok, message = validate_territory_xml_upload_changes_only_managed_content(
+            "/mission/env/zombie_territories.xml",
+            existing,
+            upload,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("add `1` unmarked", message)
+
+    def test_territory_delta_guard_allows_only_marked_managed_zone_replacement(self):
+        existing = (
+            '<territory-type><territory color="1291845632">'
+            '<zone name="OwnerCity" x="1" z="2" r="80" dmin="2" dmax="4" smin="0" smax="0" />'
+            '<!-- Wandering Bot: managed zombie territory zone Old -->'
+            '<zone name="Old" x="3" z="4" r="50" dmin="1" dmax="2" smin="0" smax="0" />'
+            '</territory></territory-type>'
+        )
+        upload = existing.replace(
+            '<!-- Wandering Bot: managed zombie territory zone Old -->'
+            '<zone name="Old" x="3" z="4" r="50" dmin="1" dmax="2" smin="0" smax="0" />',
+            '<!-- Wandering Bot: managed zombie territory zone New -->'
+            '<zone name="New" x="5" z="6" r="50" dmin="1" dmax="2" smin="0" smax="0" />',
+        )
+
+        ok, message = validate_territory_xml_upload_changes_only_managed_content(
+            "/mission/env/zombie_territories.xml",
+            existing,
+            upload,
+        )
+
+        self.assertTrue(ok, message)
+        self.assertIn("only Wandering Bot-managed", message)
 
     def test_xml_guard_blocks_populated_environment_being_replaced_by_empty_root(self):
         ok, message = validate_xml_upload_not_effectively_empty(

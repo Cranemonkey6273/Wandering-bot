@@ -38,6 +38,7 @@ from dayz_file_intelligence import (
     dayz_object_spawner_ref_is_blocked,
     dayz_xml_root_for_path,
     validate_named_xml_upload_preserves_existing,
+    validate_territory_xml_upload_changes_only_managed_content,
     validate_territory_xml_upload_preserves_unmanaged_content,
     validate_xml_upload_not_effectively_empty,
     validate_upload_not_dangerously_shrunken,
@@ -22204,32 +22205,231 @@ PROTECTED_FTP_VERIFY_ATTEMPTS = 5
 PROTECTED_FTP_VERIFY_RETRY_SECONDS = 1
 
 
-def upload_protected_dayz_xml_to_nitrado_ftp_verified(config, target_path, text_content):
+def verify_protected_ftp_stage(config, label, path, expected_text):
+    last_message = ""
+    attempts = max(1, int(PROTECTED_FTP_VERIFY_ATTEMPTS or 1))
+    for attempt in range(attempts):
+        download_ok, download_message, staged_text = download_text_file_from_nitrado_ftp(
+            config,
+            path,
+            exact_only=True,
+        )
+        if not download_ok:
+            last_message = f"FTP re-download failed: {download_message}"
+        else:
+            verify_ok, verify_message = verify_protected_dayz_xml_content_matches(
+                label,
+                path,
+                expected_text,
+                staged_text,
+            )
+            if verify_ok:
+                retry_note = f" after {attempt + 1} attempt(s)" if attempt else ""
+                return True, f"{verify_message}{retry_note}"
+            last_message = verify_message
+        if attempt < attempts - 1:
+            time.sleep(max(0, float(PROTECTED_FTP_VERIFY_RETRY_SECONDS or 0)))
+    return False, last_message
+
+
+def swap_verified_ftp_stage_into_live(config, target_path, stage_path, *, allow_create=False):
+    """Move a verified stage into place without streaming over the live file.
+
+    For an existing file the old live inode is renamed aside first.  If the
+    second rename fails, it is immediately renamed back.  This is deliberately
+    fail-closed: there is no fallback to ``STOR`` against the live filename.
+    """
+    clean_target = canonical_remote_path(target_path)
+    clean_stage = canonical_remote_path(stage_path)
+    rollback_path = f"{clean_target}.wanderingbot-swap-old-{secrets.token_hex(8)}"
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+    if ftp_error:
+        return False, ftp_error, ""
+
+    variants = [
+        (clean_target, clean_stage, rollback_path),
+        (clean_target.lstrip("/"), clean_stage.lstrip("/"), rollback_path.lstrip("/")),
+    ]
+    errors = []
+    try:
+        for live_name, stage_name, rollback_name in variants:
+            moved_live = False
+            try:
+                ftp.rename(live_name, rollback_name)
+                moved_live = True
+            except Exception as move_error:
+                if not allow_create:
+                    errors.append(f"could not preserve live `{live_name}`: {move_error}")
+                    continue
+            try:
+                ftp.rename(stage_name, live_name)
+                return True, f"Verified stage swapped into `{clean_target}` via {ftp_host}.", (
+                    canonical_remote_path(rollback_name) if moved_live else ""
+                )
+            except Exception as swap_error:
+                restore_error = ""
+                if moved_live:
+                    try:
+                        ftp.rename(rollback_name, live_name)
+                    except Exception as error:
+                        restore_error = f"; immediate rollback rename also failed: {error}"
+                errors.append(f"could not swap `{stage_name}` into `{live_name}`: {swap_error}{restore_error}")
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+    return False, "; ".join(errors[-4:]) or "FTP stage swap failed.", ""
+
+
+def rollback_ftp_stage_swap(config, target_path, rollback_path):
+    clean_target = canonical_remote_path(target_path)
+    clean_rollback = canonical_remote_path(rollback_path)
+    failed_path = f"{clean_target}.wanderingbot-failed-{secrets.token_hex(8)}"
+    ftp, ftp_host, ftp_error = connect_nitrado_ftp(config)
+    if ftp_error:
+        return False, ftp_error
+    errors = []
+    try:
+        for live_name, rollback_name, failed_name in (
+            (clean_target, clean_rollback, failed_path),
+            (clean_target.lstrip("/"), clean_rollback.lstrip("/"), failed_path.lstrip("/")),
+        ):
+            moved_failed = False
+            try:
+                ftp.rename(live_name, failed_name)
+                moved_failed = True
+            except Exception:
+                pass
+            try:
+                ftp.rename(rollback_name, live_name)
+                return True, f"Previous live file restored by FTP rename via {ftp_host}."
+            except Exception as error:
+                errors.append(str(error))
+                if moved_failed:
+                    try:
+                        ftp.rename(failed_name, live_name)
+                    except Exception:
+                        pass
+    finally:
+        try:
+            ftp.quit()
+        except Exception:
+            pass
+    return False, "; ".join(errors[-4:]) or "FTP rollback rename failed."
+
+
+def upload_protected_dayz_xml_to_nitrado_ftp_verified(config, target_path, text_content, previous_text=None):
     valid_upload, validation_message = validate_protected_dayz_xml_upload(target_path, text_content)
     if not valid_upload:
         return False, validation_message
 
     clean_target = canonical_remote_path(target_path)
-    direct_ok, direct_message = upload_text_file_to_nitrado_ftp(config, clean_target, text_content)
-    if not direct_ok:
-        return False, f"Direct FTP live write failed: {direct_message}"
-
     label = os.path.basename(str(target_path or "").replace("\\", "/"))
-    last_message = ""
-    attempts = max(1, int(PROTECTED_FTP_VERIFY_ATTEMPTS or 1))
-    for attempt in range(attempts):
-        download_ok, download_message, live_text = download_text_file_from_nitrado_ftp(config, clean_target, exact_only=True)
-        if not download_ok:
-            last_message = f"FTP re-download failed: {download_message}"
-        else:
-            verify_ok, verify_message = verify_protected_dayz_xml_content_matches(label, clean_target, text_content, live_text)
-            if verify_ok:
-                retry_note = f" after {attempt + 1} attempt(s)" if attempt else ""
-                return True, f"{direct_message} {verify_message}{retry_note}"
-            last_message = verify_message
-        if attempt < attempts - 1:
-            time.sleep(max(0, float(PROTECTED_FTP_VERIFY_RETRY_SECONDS or 0)))
-    return False, f"{direct_message} Live verification failed after direct FTP write: {last_message}"
+    allow_create = False
+    if not str(previous_text or "").strip():
+        previous_ok, previous_message, previous_text = download_text_file_from_nitrado_ftp(
+            config,
+            clean_target,
+            exact_only=True,
+        )
+        if (
+            not previous_ok
+            and protected_dayz_path_is_bot_owned(clean_target)
+            and protected_dayz_download_confirms_missing(previous_message)
+        ):
+            allow_create = True
+            previous_text = None
+        elif not previous_ok or not str(previous_text or "").strip():
+            return False, (
+                f"Atomic FTP write blocked: the complete current live `{label}` could not be read before staging: "
+                f"{previous_message}."
+            )
+    if str(previous_text or "").strip():
+        delta_ok, delta_message = validate_territory_xml_upload_changes_only_managed_content(
+            clean_target,
+            previous_text,
+            text_content,
+        )
+        if not delta_ok:
+            return False, delta_message
+        nonempty_ok, nonempty_message = validate_xml_upload_not_effectively_empty(
+            clean_target,
+            previous_text,
+            text_content,
+        )
+        if not nonempty_ok:
+            return False, nonempty_message
+        shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(
+            clean_target,
+            previous_text,
+            text_content,
+        )
+        if not shrink_ok:
+            return False, shrink_message
+        preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(
+            clean_target,
+            previous_text,
+            text_content,
+            allowed_removed_names=wandering_allowed_removed_names_from_source_text(previous_text),
+        )
+        if not preserve_ok:
+            return False, preserve_message
+
+    stage_path = f"{clean_target}.wanderingbot-stage-{secrets.token_hex(8)}"
+    stage_ok, stage_message = upload_text_file_to_nitrado_ftp(config, stage_path, text_content)
+    if not stage_ok:
+        return False, f"Protected stage upload failed; live `{label}` was untouched: {stage_message}"
+    stage_verify_ok, stage_verify_message = verify_protected_ftp_stage(
+        config,
+        label,
+        stage_path,
+        text_content,
+    )
+    if not stage_verify_ok:
+        delete_remote_file_from_nitrado_ftp(config, stage_path)
+        return False, (
+            f"Protected stage verification failed; live `{label}` was untouched: {stage_verify_message}"
+        )
+
+    swap_ok, swap_message, rollback_path = swap_verified_ftp_stage_into_live(
+        config,
+        clean_target,
+        stage_path,
+        allow_create=allow_create,
+    )
+    if not swap_ok:
+        delete_remote_file_from_nitrado_ftp(config, stage_path)
+        return False, f"Protected stage swap failed; live `{label}` was left unchanged: {swap_message}"
+
+    live_verify_ok, live_verify_message = verify_protected_ftp_stage(
+        config,
+        label,
+        clean_target,
+        text_content,
+    )
+    if live_verify_ok:
+        if rollback_path:
+            delete_remote_file_from_nitrado_ftp(config, rollback_path)
+        return True, f"{stage_message} {stage_verify_message} {swap_message} {live_verify_message}"
+
+    rollback_message = "No previous live file existed."
+    rollback_ok = not rollback_path
+    if rollback_path:
+        rollback_ok, rollback_message = rollback_ftp_stage_swap(config, clean_target, rollback_path)
+        if rollback_ok and str(previous_text or "").strip():
+            restored_ok, restored_message = verify_protected_ftp_stage(
+                config,
+                label,
+                clean_target,
+                previous_text,
+            )
+            rollback_ok = rollback_ok and restored_ok
+            rollback_message = f"{rollback_message} {restored_message}"
+    return False, (
+        f"Protected live verification failed after the staged swap: {live_verify_message}. "
+        f"Rollback {'succeeded' if rollback_ok else 'failed'}: {rollback_message}"
+    )
 
 
 def upload_delivery_xml_to_nitrado(config, xml_path, guild_id=None):
@@ -22260,6 +22460,27 @@ def protected_dayz_path_is_bot_owned(target_path):
     return "wanderingbot" in filename
 
 
+def protected_dayz_download_confirms_missing(message):
+    """Return true only when a remote read explicitly reports no file.
+
+    A timeout, rate limit, empty response, HTML block page or generic API/FTP
+    error is not proof that a protected file is new. Those states must stop a
+    write instead of allowing a create/replace path.
+    """
+    lowered = str(message or "").strip().lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "550 ",
+            "550:",
+            "file not found",
+            "not found",
+            "no such file",
+            "does not exist",
+        )
+    )
+
+
 def validate_live_protected_dayz_replacement(config, target_path, text_content):
     """Last pre-write interlock for every existing protected DayZ file.
 
@@ -22275,7 +22496,11 @@ def validate_live_protected_dayz_replacement(config, target_path, text_content):
 
     live_ok, live_message, live_text = download_text_file_from_nitrado(config, target_path)
     if not live_ok or not str(live_text or "").strip():
-        if protected_dayz_path_is_bot_owned(target_path):
+        if (
+            not live_ok
+            and protected_dayz_path_is_bot_owned(target_path)
+            and protected_dayz_download_confirms_missing(live_message)
+        ):
             return True, "New private Wandering Bot file; no existing live source was found."
         detail = live_message if not live_ok else f"{live_message} (download returned empty content)"
         return False, (
@@ -22287,7 +22512,7 @@ def validate_live_protected_dayz_replacement(config, target_path, text_content):
     if not valid_live:
         return False, f"Refusing to write `{target_path}`: live source validation failed before upload: {valid_message}"
 
-    territory_ok, territory_message = validate_territory_xml_upload_preserves_unmanaged_content(
+    territory_ok, territory_message = validate_territory_xml_upload_changes_only_managed_content(
         target_path,
         live_text,
         text_content,
@@ -22330,26 +22555,25 @@ def upload_text_file_to_nitrado(config, target_path, text_content):
             )
             if not preflight_ok:
                 return False, preflight_message
-            api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
-            if api_success:
-                verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
-                    config,
-                    os.path.basename(str(target_path or "").replace("\\", "/")),
-                    target_path,
-                    text_content,
+            live_ok, live_message, live_text = download_text_file_from_nitrado_ftp(
+                config,
+                target_path,
+                exact_only=True,
+            )
+            if not live_ok and not protected_dayz_path_is_bot_owned(target_path):
+                return False, (
+                    f"Protected write blocked before staging: the exact live FTP source could not be read: {live_message}. "
+                    "The API direct-overwrite route is disabled for protected DayZ files."
                 )
-                if verify_ok:
-                    return True, f"{api_message} {verify_message}"
-                return False, f"{api_message} Post-upload verification failed: {verify_message}"
-
             ftp_success, ftp_message = upload_protected_dayz_xml_to_nitrado_ftp_verified(
                 config,
                 target_path,
                 text_content,
+                previous_text=live_text if live_ok else None,
             )
             if ftp_success:
-                return True, f"{api_message} API upload failed, so verified FTP live write was used. {ftp_message}"
-            return False, f"{api_message} Verified FTP live write also failed: {ftp_message}"
+                return True, f"Protected staged FTP transaction completed. {ftp_message}"
+            return False, ftp_message
 
         api_success, api_message = upload_text_file_to_nitrado_api(config, target_path, text_content)
         if api_success:
@@ -40567,7 +40791,29 @@ def count_non_wandering_named_xml_records(text, expected_root, child_tag):
 
 
 def validate_console_ce_live_source_baseline(label, source_text, map_key):
-    check = CONSOLE_CE_BASELINE_SOURCE_CHECKS.get(str(label or ""))
+    normalized_label = str(label or "").strip()
+    if normalized_label.lower().endswith("_territories.xml"):
+        if normalized_label.lower().startswith("wanderingbot_"):
+            return True, ""
+        reference_text = load_dayz_reference_text(map_key, "env", normalized_label)
+        if not str(reference_text or "").strip():
+            return False, (
+                f"`{normalized_label}` live source baseline check blocked upload: no bundled `{map_key or 'selected map'}` "
+                "territory reference was available, so completeness cannot be proved."
+            )
+        territory_ok, territory_message = validate_territory_xml_upload_preserves_unmanaged_content(
+            normalized_label,
+            reference_text,
+            source_text,
+        )
+        if not territory_ok:
+            return False, (
+                f"`{normalized_label}` live source baseline check blocked upload: the downloaded territory file "
+                f"is missing vanilla/reference records. {territory_message}"
+            )
+        return True, f"`{normalized_label}` contains every unmarked territory record from the bundled map reference."
+
+    check = CONSOLE_CE_BASELINE_SOURCE_CHECKS.get(normalized_label)
     if not check:
         return True, ""
     reference_parts, expected_root, child_tag = check
@@ -40620,15 +40866,11 @@ def validate_console_ce_live_source_against_latest_backup(config, label, source_
     silently used as an upload source: a missing record stops the operation so
     a separate, owner-reviewed recovery can decide what belongs on the server.
     """
-    check = CONSOLE_CE_BASELINE_SOURCE_CHECKS.get(str(label or ""))
+    normalized_label = str(label or "").strip()
+    check = CONSOLE_CE_BASELINE_SOURCE_CHECKS.get(normalized_label)
     safe_path = canonical_remote_path(resolved_path)
-    if not check or not safe_path:
-        return True, ""
-
-    reference_parts, expected_root, child_tag = check
-    live_names = non_wandering_named_xml_record_names(source_text, expected_root, child_tag)
-    if live_names is None:
-        # The primary baseline check gives the clearer error for malformed XML.
+    territory_file = normalized_label.lower().endswith("_territories.xml")
+    if (not check and not territory_file) or not safe_path:
         return True, ""
 
     backup_path = f"{safe_path}.wanderingbot-backup-latest"
@@ -40638,6 +40880,23 @@ def validate_console_ce_live_source_against_latest_backup(config, label, source_
         # coverage guard remains in force in that case.
         return True, ""
 
+    if territory_file:
+        preserve_ok, preserve_message = validate_territory_xml_upload_preserves_unmanaged_content(
+            safe_path,
+            backup_text,
+            source_text,
+        )
+        if preserve_ok:
+            return True, ""
+        return False, (
+            f"`{normalized_label}` upload blocked: the current live territory file lost unmarked records that "
+            f"existed in the last verified backup. {preserve_message} Review and restore it explicitly before retrying."
+        )
+
+    _reference_parts, expected_root, child_tag = check
+    live_names = non_wandering_named_xml_record_names(source_text, expected_root, child_tag)
+    if live_names is None:
+        return True, ""
     backup_names = non_wandering_named_xml_record_names(backup_text, expected_root, child_tag)
     if backup_names is None:
         return True, ""
@@ -40692,6 +40951,7 @@ def validate_console_ce_upload_scope(built):
         ("cfgeventgroups.xml", "eventgroups_source_text", "eventgroups_text"),
         ("mapgroupproto.xml", "mapgroupproto_source_text", "mapgroupproto_text"),
         ("cfgenvironment.xml", "cfgenvironment_source_text", "cfgenvironment_text"),
+        ("zombie_territories.xml", "zombie_territories_source_text", "zombie_territories_text"),
     ]
     messages = []
     scope_map_key = str(built.get("map_key") or "").strip()
@@ -40703,6 +40963,7 @@ def validate_console_ce_upload_scope(built):
         "cfgeventgroups.xml": "eventgroups_path",
         "mapgroupproto.xml": "mapgroupproto_path",
         "cfgenvironment.xml": "cfgenvironment_path",
+        "zombie_territories.xml": "zombie_territories_path",
     }
     for label, source_key, text_key in targets:
         merged_text = built.get(text_key)
@@ -40716,9 +40977,20 @@ def validate_console_ce_upload_scope(built):
             messages.append(baseline_message)
         if not baseline_ok:
             return False, messages
+        target_path = built.get(path_keys.get(label, ""))
+        if label.endswith("_territories.xml"):
+            territory_ok, territory_message = validate_territory_xml_upload_changes_only_managed_content(
+                target_path,
+                source_text,
+                merged_text,
+            )
+            messages.append(territory_message)
+            if not territory_ok:
+                return False, messages
+            continue
         allowed_removed = wandering_allowed_removed_names_from_source_text(source_text)
         preserve_ok, preserve_message = validate_named_xml_upload_preserves_existing(
-            built.get(path_keys.get(label, "")),
+            target_path,
             source_text,
             merged_text,
             allowed_removed_names=allowed_removed,
@@ -40752,7 +41024,12 @@ def validate_console_ce_upload_scope(built):
         if not merged_text or source_text is None:
             continue
         label = os.path.basename(path) or "animal territory file"
-        ok, message = validate_managed_ce_xml_scope(label, source_text, merged_text, map_key=scope_map_key)
+        baseline_ok, baseline_message = validate_console_ce_live_source_baseline(label, source_text, scope_map_key)
+        if baseline_message:
+            messages.append(baseline_message)
+        if not baseline_ok:
+            return False, messages
+        ok, message = validate_territory_xml_upload_changes_only_managed_content(path, source_text, merged_text)
         messages.append(message)
         if not ok:
             return False, messages
@@ -44743,6 +45020,7 @@ def build_console_ce_event_files(
         "zombie_territories_source_text": "",
         "cfgeffectarea_path": "",
         "cfgeffectarea_text": "",
+        "cfgeffectarea_source_text": "",
         "animal_territory_files": [],
         "record_count": len(records),
         "messages": messages,
@@ -44976,6 +45254,7 @@ def build_console_ce_event_files(
                 else:
                     output["cfgeffectarea_path"] = resolved_cfgeffectarea_path
                     output["cfgeffectarea_text"] = json.dumps(cfgeffectarea_payload, indent=4, ensure_ascii=False) + "\n"
+                    output["cfgeffectarea_source_text"] = cfgeffectarea_text
                     output["messages"].append(cfgeffectarea_source)
                     output["messages"].append(
                         f"Updated `cfgEffectArea.json` gas `ParticleName` to `{target_particle}` "
@@ -45256,22 +45535,84 @@ def validate_console_ce_xml_bundle(built, check_scope=True):
         or built.get("mapgroupproto_source_text")
         or "<prototype></prototype>"
     )
-    try:
-        events_root = ET.fromstring(str(built.get("events_text") or "").encode("utf-8"))
-        spawns_root = ET.fromstring(str(built.get("spawns_text") or "").encode("utf-8"))
-        types_root = ET.fromstring(str(built.get("types_text") or "<types></types>").encode("utf-8"))
-        eventgroups_root = ET.fromstring(str(built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>").encode("utf-8"))
-        mapgroupproto_root = ET.fromstring(mapgroupproto_context_text.encode("utf-8"))
-        cfgenvironment_root = ET.fromstring(str(
+
+    def input_validation_failure(label, path, text, error):
+        line_number = 0
+        if isinstance(error, json.JSONDecodeError):
+            line_number = int(error.lineno or 0)
+        else:
+            position = getattr(error, "position", None)
+            if isinstance(position, tuple) and position:
+                line_number = int(position[0] or 0)
+        lines = str(text or "").splitlines()
+        failing_line = lines[line_number - 1].strip() if 0 < line_number <= len(lines) else ""
+        detail = f"{type(error).__name__}: {error}"
+        if line_number:
+            detail += f"; line {line_number}"
+        if failing_line:
+            detail += f"; Failing line: `{failing_line}`"
+        return (
+            f"`{label}` validation failed before upload at "
+            f"`{path or label}`: {detail}"
+        )
+
+    def parse_bundle_xml(label, path, text):
+        try:
+            return ET.fromstring(str(text or "").encode("utf-8")), ""
+        except ET.ParseError as error:
+            return None, input_validation_failure(label, path, text, error)
+
+    xml_inputs = [
+        ("events.xml", built.get("events_path"), built.get("events_text") or ""),
+        ("cfgeventspawns.xml", built.get("spawns_path"), built.get("spawns_text") or ""),
+        ("types.xml", built.get("types_path"), built.get("types_text") or "<types></types>"),
+        ("cfgeventgroups.xml", built.get("eventgroups_path"), built.get("eventgroups_text") or "<eventgroupdef></eventgroupdef>"),
+        (
+            "mapgroupproto.xml",
+            built.get("mapgroupproto_path") or built.get("mapgroupproto_context_path"),
+            mapgroupproto_context_text,
+        ),
+        (
+            "cfgenvironment.xml",
+            built.get("cfgenvironment_path"),
             built.get("cfgenvironment_text")
             or built.get("cfgenvironment_source_text")
-            or "<env><territories /></env>"
-        ).encode("utf-8"))
-        zombie_territories_root = ET.fromstring(str(built.get("zombie_territories_text") or "<territory-type></territory-type>").encode("utf-8"))
-        if built.get("cfgeffectarea_text"):
-            json.loads(str(built.get("cfgeffectarea_text") or ""))
-    except Exception as error:
-        return False, scope_messages + [f"CE file validation failed before upload: {error}"]
+            or "<env><territories /></env>",
+        ),
+        (
+            "zombie_territories.xml",
+            built.get("zombie_territories_path"),
+            built.get("zombie_territories_text") or "<territory-type></territory-type>",
+        ),
+    ]
+    parsed_roots = {}
+    for label, path, text in xml_inputs:
+        parsed_root, parse_message = parse_bundle_xml(label, path, text)
+        if parse_message:
+            return False, scope_messages + [parse_message]
+        parsed_roots[label] = parsed_root
+
+    events_root = parsed_roots["events.xml"]
+    spawns_root = parsed_roots["cfgeventspawns.xml"]
+    types_root = parsed_roots["types.xml"]
+    eventgroups_root = parsed_roots["cfgeventgroups.xml"]
+    mapgroupproto_root = parsed_roots["mapgroupproto.xml"]
+    cfgenvironment_root = parsed_roots["cfgenvironment.xml"]
+    zombie_territories_root = parsed_roots["zombie_territories.xml"]
+
+    if built.get("cfgeffectarea_text"):
+        effect_text = str(built.get("cfgeffectarea_text") or "")
+        try:
+            json.loads(effect_text)
+        except json.JSONDecodeError as error:
+            return False, scope_messages + [
+                input_validation_failure(
+                    "cfgEffectArea.json",
+                    built.get("cfgeffectarea_path"),
+                    effect_text,
+                    error,
+                )
+            ]
 
     map_key = normalize_dayz_reference_map_key(
         built.get("map_key")
@@ -45708,9 +46049,20 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
             detail = message
             if ok and not str(text or "").strip():
                 detail = f"{message} (download returned empty content)"
-            return True, [
-                f"Final remote CE bundle re-download warning: `{label}` could not be re-downloaded "
-                f"after individual upload verification already passed: {detail}"
+            return False, [
+                f"Final remote CE bundle verification failed: `{label}` could not be re-downloaded "
+                f"after upload: {detail}. The transaction cannot be marked complete."
+            ]
+        matches, match_message = verify_protected_dayz_xml_content_matches(
+            label,
+            path,
+            built.get(text_key),
+            text,
+        )
+        if not matches:
+            return False, [
+                f"Final remote CE bundle verification failed: `{label}` no longer matches the complete staged transaction.",
+                match_message,
             ]
         remote_built[text_key] = text
     territory_files = built.get("animal_territory_files") if isinstance(built.get("animal_territory_files"), list) else []
@@ -45727,6 +46079,17 @@ def verify_uploaded_console_ce_xml_bundle(config, built):
             return False, [
                 "Final remote CE bundle verification failed after upload.",
                 f"Animal territory file `{path}` could not be re-downloaded: {detail}",
+            ]
+        matches, match_message = verify_protected_dayz_xml_content_matches(
+            os.path.basename(path) or "animal territory file",
+            path,
+            territory_file.get("text"),
+            text,
+        )
+        if not matches:
+            return False, [
+                "Final remote CE bundle verification failed after upload.",
+                match_message,
             ]
         copied = dict(territory_file)
         copied["text"] = text
@@ -45801,17 +46164,27 @@ def upload_ce_latest_backup_to_nitrado(config, label, backup_path, text_content)
 
     ftp_success, ftp_message = upload_text_file_to_nitrado_ftp(config, backup_path, text_content)
     if ftp_success:
-        verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, backup_path)
+        verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
+            config,
+            label,
+            backup_path,
+            text_content,
+        )
         if verify_ok:
-            return True, f"{ftp_message} {verify_message}"
-        return False, f"{ftp_message} Backup verification failed: {verify_message}"
+            return True, f"{ftp_message} Exact backup verification passed: {verify_message}"
+        return False, f"{ftp_message} Exact backup verification failed: {verify_message}"
 
     api_success, api_message = upload_text_file_to_nitrado_api(config, backup_path, text_content)
     if api_success:
-        verify_ok, verify_message = verify_remote_protected_dayz_xml(config, label, backup_path)
+        verify_ok, verify_message = verify_uploaded_protected_dayz_xml_text(
+            config,
+            label,
+            backup_path,
+            text_content,
+        )
         if verify_ok:
-            return True, f"{api_message} {verify_message}"
-        return False, f"{api_message} Backup verification failed: {verify_message}"
+            return True, f"{api_message} Exact backup verification passed: {verify_message}"
+        return False, f"{api_message} Exact backup verification failed: {verify_message}"
 
     return False, f"FTP backup upload failed: {ftp_message} API backup fallback also failed: {api_message}"
 
@@ -45840,18 +46213,28 @@ def backup_remote_ce_sources_before_upload(config, built):
             built.get("mapgroupproto_path"),
         )
     )
-    required_backups = {"events.xml", "cfgeventspawns.xml", "types.xml", "cfgspawnabletypes.xml", "zombie_territories.xml"}
+    required_backups = {
+        "events.xml",
+        "cfgeventspawns.xml",
+        "types.xml",
+        "cfgspawnabletypes.xml",
+        "cfgeventgroups.xml",
+        "mapgroupproto.xml",
+        "cfgenvironment.xml",
+        "zombie_territories.xml",
+        "cfgEffectArea.json",
+    }
 
     targets = [
-        ("events.xml", built.get("events_path")),
-        ("cfgeventspawns.xml", built.get("spawns_path")),
-        ("types.xml", built.get("types_path") if built.get("types_text") else ""),
-        ("cfgspawnabletypes.xml", built.get("spawnabletypes_path") if built.get("spawnabletypes_text") else ""),
-        ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else ""),
-        ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else ""),
-        ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else ""),
-        ("zombie_territories.xml", built.get("zombie_territories_path") if built.get("zombie_territories_text") else ""),
-        ("cfgEffectArea.json", built.get("cfgeffectarea_path") if built.get("cfgeffectarea_text") else ""),
+        ("events.xml", built.get("events_path"), built.get("events_source_text")),
+        ("cfgeventspawns.xml", built.get("spawns_path"), built.get("spawns_source_text")),
+        ("types.xml", built.get("types_path") if built.get("types_text") else "", built.get("types_source_text")),
+        ("cfgspawnabletypes.xml", built.get("spawnabletypes_path") if built.get("spawnabletypes_text") else "", built.get("spawnabletypes_source_text")),
+        ("cfgeventgroups.xml", built.get("eventgroups_path") if built.get("eventgroups_text") else "", built.get("eventgroups_source_text")),
+        ("mapgroupproto.xml", built.get("mapgroupproto_path") if built.get("mapgroupproto_text") else "", built.get("mapgroupproto_source_text")),
+        ("cfgenvironment.xml", built.get("cfgenvironment_path") if built.get("cfgenvironment_text") else "", built.get("cfgenvironment_source_text")),
+        ("zombie_territories.xml", built.get("zombie_territories_path") if built.get("zombie_territories_text") else "", built.get("zombie_territories_source_text")),
+        ("cfgEffectArea.json", built.get("cfgeffectarea_path") if built.get("cfgeffectarea_text") else "", built.get("cfgeffectarea_source_text")),
     ]
     for territory_file in built.get("animal_territory_files") or []:
         if not isinstance(territory_file, dict):
@@ -45860,10 +46243,15 @@ def backup_remote_ce_sources_before_upload(config, built):
         if path:
             label = os.path.basename(path) or "animal_territory.xml"
             required_backups.add(label)
-            targets.append((label, path))
-    for label, path in targets:
+            targets.append((label, path, territory_file.get("source_text")))
+    for label, path, expected_source in targets:
         if not path:
             continue
+        if label in required_backups and not str(expected_source or "").strip():
+            return False, backup_messages + [
+                f"Transaction blocked: `{label}` has no complete build-source snapshot. "
+                "The bot cannot prove that the generated file was derived from the current live file."
+            ]
         ok, message, content = download_text_file_from_nitrado(config, path)
         if not ok or not str(content or "").strip():
             detail = message
@@ -45898,6 +46286,19 @@ def backup_remote_ce_sources_before_upload(config, built):
                 return False, backup_messages + [f"Backup blocked: live `{label}` at `{path}` is not valid before upload: {source_message}"]
             backup_messages.append(f"`{label}` backup skipped: live source at `{path}` is not valid before upload: {source_message}")
             continue
+        if str(expected_source or "").strip():
+            source_matches, source_match_message = verify_protected_dayz_xml_content_matches(
+                label,
+                path,
+                expected_source,
+                content,
+            )
+            if not source_matches:
+                return False, backup_messages + [
+                    f"Transaction blocked before backup/upload: `{label}` changed after the build source was read. "
+                    f"{source_match_message} Rebuild the requested snippet against the latest complete live file."
+                ]
+            backup_messages.append(f"`{label}` pre-write source lock matched the exact build source.")
         baseline_ok, baseline_message = validate_console_ce_live_source_baseline(label, content, backup_map_key)
         if not baseline_ok:
             if label in required_backups:
@@ -46008,7 +46409,7 @@ def upload_protected_ce_file_to_nitrado(
             f"Refusing to upload `{label}`: no verified in-memory copy of the live file is available. "
             "Wandering Bot will not write a protected DayZ file without an exact pre-write source."
         )
-    territory_ok, territory_message = validate_territory_xml_upload_preserves_unmanaged_content(
+    territory_ok, territory_message = validate_territory_xml_upload_changes_only_managed_content(
         path,
         restore_text,
         text_content,
@@ -46035,13 +46436,28 @@ def upload_protected_ce_file_to_nitrado(
     )
     if not preserve_ok:
         return False, preserve_message
-    if prefer_ftp:
-        ftp_ok, ftp_message = upload_protected_dayz_xml_to_nitrado_ftp_verified(config, path, text_content)
-        if ftp_ok:
-            return True, f"Verified FTP live write was used. {ftp_message}"
-        if "token" not in str(ftp_message).lower() and "missing" not in str(ftp_message).lower():
-            return False, f"Verified FTP live write failed: {ftp_message}"
-
+    if spec and not dayz_is_backup_path(path):
+        current_ok, current_message, current_text = download_text_file_from_nitrado_ftp(
+            config,
+            path,
+            exact_only=True,
+        )
+        if not current_ok or not str(current_text or "").strip():
+            return False, (
+                f"Refusing to upload `{label}`: the exact live source could not be locked immediately before staging: "
+                f"{current_message}."
+            )
+        source_matches, source_match_message = verify_protected_dayz_xml_content_matches(
+            label,
+            path,
+            restore_text,
+            current_text,
+        )
+        if not source_matches:
+            return False, (
+                f"Refusing to upload `{label}`: the live file changed after the transaction backup was created. "
+                f"{source_match_message} The requested change must be rebuilt against the latest complete source."
+            )
     upload_ok, upload_message = upload_text_file_to_nitrado(config, path, text_content)
     if not upload_ok:
         live_ok, live_message = verify_remote_protected_dayz_xml(config, label, path)
@@ -46063,8 +46479,14 @@ def upload_protected_ce_file_to_nitrado(
     return False, f"{verify_message} Restore attempted: {restore_message}"
 
 
-def restore_console_ce_bundle_from_memory(config, built):
+def restore_console_ce_bundle_from_memory(config, built, only_paths=None):
     restore_texts = built.get("restore_texts") if isinstance(built.get("restore_texts"), dict) else {}
+    restrict_paths = only_paths is not None
+    restricted_paths = {
+        canonical_remote_path(path)
+        for path in (only_paths or [])
+        if canonical_remote_path(path)
+    }
     targets = [
         ("events.xml", "events_path"),
         ("cfgeventspawns.xml", "spawns_path"),
@@ -46088,6 +46510,8 @@ def restore_console_ce_bundle_from_memory(config, built):
     for label, path_key in targets:
         path = built.get(path_key) if isinstance(path_key, str) and path_key in built else path_key
         if not path:
+            continue
+        if restrict_paths and canonical_remote_path(path) not in restricted_paths:
             continue
         restore_text = restore_texts.get(path)
         if not str(restore_text or "").strip():
@@ -46207,6 +46631,16 @@ def upload_console_ce_event_files(
         return False, built, messages
 
     restore_texts = built.get("restore_texts") if isinstance(built.get("restore_texts"), dict) else {}
+    written_paths = []
+
+    def rollback_written_files():
+        if not written_paths:
+            return True, ["Native CE transaction stopped before any live file was promoted; no rollback write was needed."]
+        return restore_console_ce_bundle_from_memory(
+            config,
+            built,
+            only_paths=list(written_paths),
+        )
 
     territory_ok = True
     failed_territory_files = []
@@ -46217,7 +46651,11 @@ def upload_console_ce_event_files(
             territory_ok = False
             failed_territory_files.append(territory_file)
             messages.append("Animal territory upload skipped because the target path or content was missing.")
-            continue
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
         one_ok, one_message = upload_protected_ce_file_to_nitrado(
             config,
             os.path.basename(path),
@@ -46227,13 +46665,16 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         territory_ok = territory_ok and one_ok
+        messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
         if not one_ok:
             failed_territory_files.append(territory_file)
-        messages.append(f"`{os.path.basename(path)}` `{path}`: {one_message}")
-
-    if failed_territory_files:
-        messages.append("Native CE upload stopped before events.xml/cfgeventspawns.xml because one or more animal territory files failed to upload.")
-        return False, built, messages
+            messages.append("Native CE transaction stopped at the first animal territory upload failure; no later linked file was attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(path)
 
     cfgenvironment_ok = True
     if built.get("cfgenvironment_text"):
@@ -46301,6 +46742,14 @@ def upload_console_ce_event_files(
                 prefer_ftp=True,
             )
             messages.append(f"`cfgenvironment.xml`: {cfgenvironment_message}")
+        if not cfgenvironment_ok:
+            messages.append("Native CE transaction stopped at `cfgenvironment.xml`; no later linked file was attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["cfgenvironment_path"])
 
     events_ok, events_message = upload_protected_ce_file_to_nitrado(
         config,
@@ -46310,6 +46759,16 @@ def upload_console_ce_event_files(
         restore_text=restore_texts.get(built["events_path"]),
         prefer_ftp=True,
     )
+    messages.append(f"`events.xml`: {events_message}")
+    if not events_ok:
+        messages.append("Native CE transaction stopped at `events.xml`; `cfgeventspawns.xml` and later linked files were not attempted.")
+        rollback_ok, rollback_messages = rollback_written_files()
+        messages.extend(rollback_messages)
+        if not rollback_ok:
+            messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+        return False, built, messages
+    written_paths.append(built["events_path"])
+
     spawns_ok, spawns_message = upload_protected_ce_file_to_nitrado(
         config,
         "cfgeventspawns.xml",
@@ -46318,8 +46777,15 @@ def upload_console_ce_event_files(
         restore_text=restore_texts.get(built["spawns_path"]),
         prefer_ftp=True,
     )
-    messages.append(f"`events.xml`: {events_message}")
     messages.append(f"`cfgeventspawns.xml`: {spawns_message}")
+    if not spawns_ok:
+        messages.append("Native CE transaction stopped at `cfgeventspawns.xml`; later linked files were not attempted.")
+        rollback_ok, rollback_messages = rollback_written_files()
+        messages.extend(rollback_messages)
+        if not rollback_ok:
+            messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+        return False, built, messages
+    written_paths.append(built["spawns_path"])
 
     types_ok = True
     if built.get("types_text"):
@@ -46332,6 +46798,14 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         messages.append(f"`types.xml`: {types_message}")
+        if not types_ok:
+            messages.append("Native CE transaction stopped at `types.xml`; later linked files were not attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["types_path"])
 
     spawnable_ok = True
     if built.get("spawnabletypes_text"):
@@ -46344,6 +46818,14 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         messages.append(f"`cfgspawnabletypes.xml`: {spawnable_message}")
+        if not spawnable_ok:
+            messages.append("Native CE transaction stopped at `cfgspawnabletypes.xml`; later linked files were not attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["spawnabletypes_path"])
 
     eventgroups_ok = True
     if built.get("eventgroups_text"):
@@ -46356,6 +46838,14 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         messages.append(f"`cfgeventgroups.xml`: {eventgroups_message}")
+        if not eventgroups_ok:
+            messages.append("Native CE transaction stopped at `cfgeventgroups.xml`; later linked files were not attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["eventgroups_path"])
 
     mapgroupproto_ok = True
     if built.get("mapgroupproto_text"):
@@ -46368,6 +46858,14 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         messages.append(f"`mapgroupproto.xml`: {mapgroupproto_message}")
+        if not mapgroupproto_ok:
+            messages.append("Native CE transaction stopped at `mapgroupproto.xml`; later linked files were not attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["mapgroupproto_path"])
 
     zombie_territories_ok = True
     if built.get("zombie_territories_text"):
@@ -46380,6 +46878,14 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         messages.append(f"`zombie_territories.xml`: {zombie_territories_message}")
+        if not zombie_territories_ok:
+            messages.append("Native CE transaction stopped at `zombie_territories.xml`; later linked files were not attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
+            messages.extend(rollback_messages)
+            if not rollback_ok:
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["zombie_territories_path"])
 
     cfgeffectarea_ok = True
     if built.get("cfgeffectarea_text"):
@@ -46392,17 +46898,24 @@ def upload_console_ce_event_files(
             prefer_ftp=True,
         )
         messages.append(f"`cfgEffectArea.json`: {cfgeffectarea_message}")
-
-    success = events_ok and spawns_ok and types_ok and spawnable_ok and eventgroups_ok and mapgroupproto_ok and cfgenvironment_ok and zombie_territories_ok and cfgeffectarea_ok and territory_ok
-    if success:
-        final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
-        messages.extend(final_bundle_messages)
-        if not final_bundle_ok:
-            rollback_ok, rollback_messages = restore_console_ce_bundle_from_memory(config, built)
+        if not cfgeffectarea_ok:
+            messages.append("Native CE transaction stopped at `cfgEffectArea.json`; no later linked file was attempted.")
+            rollback_ok, rollback_messages = rollback_written_files()
             messages.extend(rollback_messages)
             if not rollback_ok:
-                messages.append("Native CE rollback could not fully restore every linked XML file. Check Nitrado file manager before restarting.")
-        success = success and final_bundle_ok
+                messages.append("Native CE rollback could not fully restore the files already promoted in this transaction. Do not restart until they are reviewed.")
+            return False, built, messages
+        written_paths.append(built["cfgeffectarea_path"])
+
+    success = True
+    final_bundle_ok, final_bundle_messages = verify_uploaded_console_ce_xml_bundle(config, built)
+    messages.extend(final_bundle_messages)
+    if not final_bundle_ok:
+        rollback_ok, rollback_messages = rollback_written_files()
+        messages.extend(rollback_messages)
+        if not rollback_ok:
+            messages.append("Native CE rollback could not fully restore every linked XML file promoted in this transaction. Check Nitrado file manager before restarting.")
+    success = final_bundle_ok
     if success:
         settings = console_ce_event_config(config)
         settings["enabled"] = True
@@ -46567,7 +47080,7 @@ def _scenario_notice_public_error(messages):
         text = _compact_discord_line(message, 420)
         lowered = text.lower()
         file_match = re.search(
-            r"\b(events\.xml|cfgeventspawns\.xml|eventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|zombie_territories\.xml)\b",
+            r"\b(events\.xml|cfgeventspawns\.xml|cfgeventgroups\.xml|mapgroupproto\.xml|types\.xml|cfgspawnabletypes\.xml|zombie_territories\.xml|cfgeffectarea\.json)\b",
             text,
             re.IGNORECASE,
         )
@@ -46582,6 +47095,8 @@ def _scenario_notice_public_error(messages):
             return f"The bot could not compare the existing {file_name} before upload. Check that file, then retry."
         if "could not download existing" in lowered or "native ce source required" in lowered:
             return f"The bot could not read the live {file_name} through Nitrado/API access. Check the FTP/API details, then retry."
+        if "validation failed before upload" in lowered:
+            return text
         if "upload failed" in lowered or "refusing to upload" in lowered:
             return text
     return "Open the dashboard event details, fix the upload/source warning, then retry the event upload."
@@ -62066,7 +62581,9 @@ try:
             },
             "scenario_xml_uploader": dashboard_upload_console_ce_event_files,
             "messages_xml_uploader": dashboard_upload_messages_xml,
-        }
+        },
+        protected_file_reader=download_text_file_from_nitrado,
+        protected_file_writer=upload_text_file_to_nitrado,
     )
     start_dashboard_server()
 except Exception as error:

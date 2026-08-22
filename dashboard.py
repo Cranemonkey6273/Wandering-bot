@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 import requests
 from flask import Flask, Response, g, jsonify, make_response, redirect, render_template_string, request, send_file, stream_with_context
 
-from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_upload_not_dangerously_shrunken
+from dayz_file_intelligence import DAYZ_FILE_SPECS, dayz_agent_file_knowledge, dayz_agent_general_knowledge, dayz_custom_json_path, dayz_custom_json_path_from_text, dayz_dependency_plan_for_request, dayz_file_spec_for_path, dayz_filename_for_path, dayz_is_backup_path, dayz_is_supported_custom_json_path, dayz_json_schema_name, dayz_xml_root_for_path, validate_dayz_upload_text, validate_named_xml_upload_preserves_existing, validate_territory_xml_upload_changes_only_managed_content, validate_upload_not_dangerously_shrunken, validate_xml_upload_not_effectively_empty
 from dayz_qr_builder import DayZQRBuilderError, build_dayz_qr_scene
 from ui_localization import UI_LOCALIZATION_CSS, ui_localization_javascript
 
@@ -1349,6 +1349,8 @@ PUBLIC_SEO_GUIDES = {
 APP = Flask(__name__)
 APP.secret_key = DASHBOARD_COOKIE_SECRET
 CUSTOM_STATE_PROVIDER = None
+CUSTOM_PROTECTED_FILE_READER = None
+CUSTOM_PROTECTED_FILE_WRITER = None
 
 
 @APP.before_request
@@ -37696,6 +37698,8 @@ def dashboard_validate_protected_dayz_xml_upload(target_path: Any, text_content:
 
 
 def dashboard_download_text_file_from_nitrado(config: dict[str, Any], target_path: Any) -> tuple[bool, str, str | None]:
+    if dayz_file_spec_for_path(target_path) and CUSTOM_PROTECTED_FILE_READER:
+        return CUSTOM_PROTECTED_FILE_READER(config, target_path)
     headers = dashboard_nitrado_api_headers(config)
     url = dashboard_nitrado_api_service_url(config, "download")
     if not headers or not url:
@@ -37752,6 +37756,15 @@ def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: A
     if not valid_upload:
         return False, validation_message
 
+    spec = dayz_file_spec_for_path(target_path)
+    if spec and not dayz_is_backup_path(target_path):
+        if not CUSTOM_PROTECTED_FILE_WRITER:
+            return False, (
+                "Protected live DayZ write blocked: the shared staged transaction writer is unavailable. "
+                "The dashboard will not use its direct API overwrite route."
+            )
+        return CUSTOM_PROTECTED_FILE_WRITER(config, target_path, text_content)
+
     headers = dashboard_nitrado_api_headers(config)
     url = dashboard_nitrado_api_service_url(config, "upload")
     if not headers or not url:
@@ -37784,7 +37797,35 @@ def dashboard_upload_text_file_to_nitrado(config: dict[str, Any], target_path: A
         return False, f"Nitrado API upload failed: {error}"
 
 
-def dashboard_verify_protected_dayz_xml_upload(config: dict[str, Any], label: str, target_path: Any) -> tuple[bool, str]:
+def dashboard_structured_texts_match(target_path: Any, expected_text: Any, actual_text: Any) -> bool:
+    spec = dayz_file_spec_for_path(target_path)
+    if not spec:
+        return str(expected_text or "") == str(actual_text or "")
+    try:
+        if spec.kind == "json":
+            return json.loads(str(expected_text or "")) == json.loads(str(actual_text or ""))
+        expected_root = ET.fromstring(str(expected_text or "").encode("utf-8"))
+        actual_root = ET.fromstring(str(actual_text or "").encode("utf-8"))
+    except Exception:
+        return False
+
+    def signature(node: ET.Element) -> tuple[Any, ...]:
+        return (
+            str(node.tag),
+            tuple(sorted((str(key), str(value)) for key, value in node.attrib.items())),
+            str(node.text or "").strip(),
+            tuple(signature(child) for child in list(node) if child.tag is not ET.Comment),
+        )
+
+    return signature(expected_root) == signature(actual_root)
+
+
+def dashboard_verify_protected_dayz_xml_upload(
+    config: dict[str, Any],
+    label: str,
+    target_path: Any,
+    expected_text: Any = None,
+) -> tuple[bool, str]:
     spec = dayz_file_spec_for_path(target_path)
     if not spec:
         return True, f"{label} has no protected structured-file verifier."
@@ -37794,6 +37835,8 @@ def dashboard_verify_protected_dayz_xml_upload(config: dict[str, Any], label: st
     valid, validation_message = dashboard_validate_protected_dayz_xml_upload(target_path, content)
     if not valid:
         return False, f"{label} verification failed after upload: {validation_message}"
+    if expected_text is not None and not dashboard_structured_texts_match(target_path, expected_text, content):
+        return False, f"{label} verification failed: the re-downloaded file did not exactly match the staged transaction."
     if spec.kind == "json":
         return True, f"{label} verified after upload as valid JSON."
     return True, f"{label} verified after upload with <{spec.xml_root}> root."
@@ -37806,7 +37849,7 @@ def dashboard_restore_text_after_failed_upload(config: dict[str, Any], label: st
     restore_ok, restore_message = dashboard_upload_text_file_to_nitrado(config, target_path, restore_text)
     if not restore_ok:
         return f"restore upload failed: {restore_message}"
-    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, target_path)
+    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, target_path, restore_text)
     if not verify_ok:
         return f"restore verification failed: {verify_message}"
     return f"restored previous live content. {verify_message}"
@@ -37847,6 +37890,12 @@ def guarded_dashboard_file_injection(
     missing_file = any(term in str(download_message).lower() for term in ("404", "not found", "does not exist", "no such file"))
     backup_path = ""
     if exists and existing_text is not None:
+        territory_ok, territory_message = validate_territory_xml_upload_changes_only_managed_content(remote_path, existing_text, safe_text)
+        if not territory_ok:
+            raise ValueError(territory_message)
+        nonempty_ok, nonempty_message = validate_xml_upload_not_effectively_empty(remote_path, existing_text, safe_text)
+        if not nonempty_ok:
+            raise ValueError(nonempty_message)
         shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(remote_path, existing_text, safe_text)
         if not shrink_ok:
             raise ValueError(shrink_message)
@@ -37868,7 +37917,7 @@ def guarded_dashboard_file_injection(
         if not live_ok and exists and existing_text is not None:
             restore_message = dashboard_restore_text_after_failed_upload(config, label, remote_path, existing_text)
         raise ValueError(upload_message + f" Live verification after failure: {live_message}." + (f" Restore attempted: {restore_message}" if restore_message else ""))
-    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path)
+    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path, safe_text)
     if not verify_ok:
         restore_message = ""
         if exists and existing_text is not None:
@@ -37945,6 +37994,12 @@ def guarded_dashboard_xml_merge(
     merged_text, action = merge_named_xml_child(existing_text if exists else None, snippet_text, root_tag=root_tag, child_tag=child_tag, label=label)
     backup_path = ""
     if exists and existing_text is not None:
+        territory_ok, territory_message = validate_territory_xml_upload_changes_only_managed_content(remote_path, existing_text, merged_text)
+        if not territory_ok:
+            raise ValueError(territory_message)
+        nonempty_ok, nonempty_message = validate_xml_upload_not_effectively_empty(remote_path, existing_text, merged_text)
+        if not nonempty_ok:
+            raise ValueError(nonempty_message)
         shrink_ok, shrink_message = validate_upload_not_dangerously_shrunken(remote_path, existing_text, merged_text)
         if not shrink_ok:
             raise ValueError(shrink_message)
@@ -37963,7 +38018,7 @@ def guarded_dashboard_xml_merge(
         if not live_ok and exists and existing_text is not None:
             restore_message = dashboard_restore_text_after_failed_upload(config, label, remote_path, existing_text)
         raise ValueError(upload_message + f" Live verification after failure: {live_message}." + (f" Restore attempted: {restore_message}" if restore_message else ""))
-    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path)
+    verify_ok, verify_message = dashboard_verify_protected_dayz_xml_upload(config, label, remote_path, merged_text)
     if not verify_ok:
         restore_message = ""
         if exists and existing_text is not None:
@@ -53412,10 +53467,12 @@ def api_guild_access():
     )
 
 
-def configure_dashboard_state_provider(provider):
+def configure_dashboard_state_provider(provider, *, protected_file_reader=None, protected_file_writer=None):
     """Let bot.py provide live in-memory state while the dashboard is embedded."""
-    global CUSTOM_STATE_PROVIDER
+    global CUSTOM_STATE_PROVIDER, CUSTOM_PROTECTED_FILE_READER, CUSTOM_PROTECTED_FILE_WRITER
     CUSTOM_STATE_PROVIDER = provider
+    CUSTOM_PROTECTED_FILE_READER = protected_file_reader
+    CUSTOM_PROTECTED_FILE_WRITER = protected_file_writer
 
 
 def run_dashboard_server():

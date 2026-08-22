@@ -878,6 +878,59 @@ def validate_territory_xml_upload_preserves_unmanaged_content(
     )
 
 
+def validate_territory_xml_upload_changes_only_managed_content(
+    target_path: Any,
+    existing_text: Any,
+    upload_text: Any,
+) -> tuple[bool, str]:
+    """Require a territory merge to change only explicitly bot-owned zones.
+
+    The preservation guard above prevents deletions, but a damaged generator
+    could still append an unmarked replacement zone.  A live transaction must
+    therefore prove both directions: no existing unmarked record disappeared
+    and no new unmarked record appeared.  Only a zone immediately preceded by
+    a ``Wandering Bot: managed ... territory`` comment is outside this exact
+    comparison.
+    """
+    filename = dayz_filename_for_path(target_path)
+    if not filename.endswith("_territories.xml") or dayz_is_backup_path(target_path):
+        return True, ""
+
+    existing = str(existing_text or "").strip()
+    upload = str(upload_text or "").strip()
+    if not existing:
+        return False, (
+            f"Refusing to upload `{target_path}`: the verified live territory source is missing. "
+            "Wandering Bot cannot prove a snippet-only change."
+        )
+    if not upload:
+        return False, f"Refusing to upload `{target_path}`: territory upload content is empty."
+
+    try:
+        existing_root = _parse_dayz_xml_with_comments(existing)
+        upload_root = _parse_dayz_xml_with_comments(upload)
+    except Exception as error:
+        return False, f"Refusing to upload `{target_path}`: could not compare territory transaction scope: {error}"
+    if existing_root.tag != "territory-type" or upload_root.tag != "territory-type":
+        return False, f"Refusing to upload `{target_path}`: territory root changed during the transaction."
+
+    existing_records = _unmanaged_territory_records(existing_root)
+    upload_records = _unmanaged_territory_records(upload_root)
+    removed = existing_records - upload_records
+    added = upload_records - existing_records
+    if removed:
+        return False, (
+            f"Refusing to upload `{target_path}`: the transaction would remove `{sum(removed.values())}` "
+            "unmarked live territory record(s)."
+        )
+    if added:
+        return False, (
+            f"Refusing to upload `{target_path}`: the transaction would add `{sum(added.values())}` unmarked "
+            "territory record(s). Generated zones must be explicitly marked as Wandering Bot managed content."
+        )
+    return True, "Territory delta check confirmed that only Wandering Bot-managed zones changed."
+
+
 def validate_xml_upload_not_effectively_empty(
     target_path: Any,
     existing_text: Any,

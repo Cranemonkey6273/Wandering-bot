@@ -44,6 +44,10 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.original_discover_ce_file_paths = bot.discover_console_ce_file_paths
         self.original_backup = bot.upload_ce_latest_backup_to_nitrado
         self.original_cleanup = bot.cleanup_wanderingbot_backups_for_path
+        self.original_swap_stage = bot.swap_verified_ftp_stage_into_live
+        self.original_rollback_swap = bot.rollback_ftp_stage_swap
+        self.original_delete_ftp = bot.delete_remote_file_from_nitrado_ftp
+        self.original_connect_ftp = bot.connect_nitrado_ftp
         self.original_ftp_verify_retry_seconds = bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS
         self.calls = []
 
@@ -53,6 +57,18 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             return True, "downloaded", SPAWNS_XML
 
         bot.download_text_file_from_nitrado = default_live_source
+        bot.download_text_file_from_nitrado_ftp = lambda _config, target_path, exact_only=False: (
+            True,
+            "downloaded exact FTP",
+            TERRITORY_XML if "_territories.xml" in str(target_path or "").replace("\\", "/") else SPAWNS_XML,
+        )
+        bot.swap_verified_ftp_stage_into_live = lambda *_args, **_kwargs: (
+            True,
+            "verified stage swapped",
+            "/rollback.xml",
+        )
+        bot.rollback_ftp_stage_swap = lambda *_args, **_kwargs: (True, "rollback restored")
+        bot.delete_remote_file_from_nitrado_ftp = lambda *_args, **_kwargs: (True, "deleted")
 
     def tearDown(self):
         bot.upload_text_file_to_nitrado_api = self.original_api
@@ -67,6 +83,10 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.discover_console_ce_file_paths = self.original_discover_ce_file_paths
         bot.upload_ce_latest_backup_to_nitrado = self.original_backup
         bot.cleanup_wanderingbot_backups_for_path = self.original_cleanup
+        bot.swap_verified_ftp_stage_into_live = self.original_swap_stage
+        bot.rollback_ftp_stage_swap = self.original_rollback_swap
+        bot.delete_remote_file_from_nitrado_ftp = self.original_delete_ftp
+        bot.connect_nitrado_ftp = self.original_connect_ftp
         bot.PROTECTED_FTP_VERIFY_RETRY_SECONDS = self.original_ftp_verify_retry_seconds
 
     def test_gas_zone_paths_use_only_the_official_effect_area_json(self):
@@ -79,7 +99,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertNotIn("cfgareaeffects_path", settings)
         self.assertIn("cfgeffectarea_path", settings)
 
-    def test_protected_xml_uses_api_before_ftp(self):
+    def test_protected_xml_uses_staged_ftp_and_never_direct_api(self):
         def api_upload(*_args):
             self.calls.append("api")
             return True, "Uploaded successfully via Nitrado API."
@@ -88,19 +108,14 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             self.calls.append("ftp")
             return True, "Uploaded successfully via FTP."
 
-        def verify(*_args):
-            self.calls.append("verify")
-            return True, "verified"
-
         bot.upload_text_file_to_nitrado_api = api_upload
         bot.upload_text_file_to_nitrado_ftp = ftp_upload
-        bot.verify_uploaded_protected_dayz_xml_text = verify
 
         ok, message = bot.upload_text_file_to_nitrado({}, "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", SPAWNS_XML)
 
         self.assertTrue(ok)
-        self.assertIn("Nitrado API", message)
-        self.assertEqual(["api", "verify"], self.calls)
+        self.assertIn("staged FTP transaction", message)
+        self.assertEqual(["ftp"], self.calls)
 
     def test_custom_animal_territory_file_uses_protected_upload_verification(self):
         def api_upload(*_args):
@@ -112,6 +127,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             return True, "verified"
 
         bot.upload_text_file_to_nitrado_api = api_upload
+        bot.upload_text_file_to_nitrado_ftp = lambda *_args: (self.calls.append("ftp") or True, "staged")
         bot.verify_uploaded_protected_dayz_xml_text = verify
 
         ok, message = bot.upload_text_file_to_nitrado(
@@ -121,38 +137,33 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         )
 
         self.assertTrue(ok)
-        self.assertIn("Nitrado API", message)
-        self.assertEqual(["api", "verify"], self.calls)
+        self.assertIn("staged FTP transaction", message)
+        self.assertEqual(["ftp"], self.calls)
 
-    def test_protected_xml_does_not_ftp_after_api_verification_failure(self):
+    def test_protected_xml_never_falls_back_to_direct_api_when_stage_fails(self):
         def api_upload(*_args):
             self.calls.append("api")
             return True, "Uploaded successfully via Nitrado API."
 
         def ftp_upload(*_args):
-            self.calls.append("ftp")
-            return True, "Uploaded successfully via FTP."
-
-        def verify(*_args):
-            self.calls.append("verify")
-            return False, "post-upload XML was malformed"
+            self.calls.append("stage")
+            return False, "stage transfer failed"
 
         bot.upload_text_file_to_nitrado_api = api_upload
         bot.upload_text_file_to_nitrado_ftp = ftp_upload
-        bot.verify_uploaded_protected_dayz_xml_text = verify
 
         ok, message = bot.upload_text_file_to_nitrado({}, "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", SPAWNS_XML)
 
         self.assertFalse(ok)
-        self.assertIn("Post-upload verification failed", message)
-        self.assertEqual(["api", "verify"], self.calls)
+        self.assertIn("live `cfgeventspawns.xml` was untouched", message)
+        self.assertEqual(["stage"], self.calls)
 
-    def test_protected_xml_uses_verified_ftp_when_api_fails_before_write(self):
+    def test_protected_xml_does_not_call_api_even_when_api_is_available(self):
         def api_upload(*_args):
             self.calls.append("api")
             return False, "Nitrado API token or service ID is missing."
 
-        def verified_upload(*_args):
+        def verified_upload(*_args, **_kwargs):
             self.calls.append("verified_ftp")
             return True, "Uploaded successfully via ukln138.gamedata.io. verified"
 
@@ -167,8 +178,8 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         ok, message = bot.upload_text_file_to_nitrado({}, "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", SPAWNS_XML)
 
         self.assertTrue(ok)
-        self.assertIn("verified FTP live write was used", message)
-        self.assertEqual(["api", "verified_ftp"], self.calls)
+        self.assertIn("staged FTP transaction", message)
+        self.assertEqual(["verified_ftp"], self.calls)
 
     def test_ce_latest_backup_can_use_ftp_without_touching_api(self):
         backup_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml.wanderingbot-backup-latest"
@@ -181,19 +192,38 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             self.calls.append("ftp")
             return True, "Uploaded successfully via ukln138.gamedata.io."
 
-        def verify_remote(*_args):
-            self.calls.append("verify_remote")
+        def verify_exact(*_args):
+            self.calls.append("verify_exact")
             return True, "backup verified"
 
         bot.upload_text_file_to_nitrado_api = api_upload
         bot.upload_text_file_to_nitrado_ftp = ftp_upload
-        bot.verify_remote_protected_dayz_xml = verify_remote
+        bot.verify_uploaded_protected_dayz_xml_text = verify_exact
 
         ok, message = bot.upload_ce_latest_backup_to_nitrado({}, "cfgeventspawns.xml", backup_path, SPAWNS_XML)
 
         self.assertTrue(ok)
         self.assertIn("ukln138.gamedata.io", message)
-        self.assertEqual(["ftp", "verify_remote"], self.calls)
+        self.assertEqual(["ftp", "verify_exact"], self.calls)
+
+    def test_ce_backup_is_rejected_when_redownload_differs_from_source(self):
+        backup_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml.wanderingbot-backup-latest"
+        bot.upload_text_file_to_nitrado_ftp = lambda *_args: (True, "backup staged")
+        bot.verify_uploaded_protected_dayz_xml_text = lambda *_args: (
+            False,
+            "re-downloaded backup does not match source",
+        )
+
+        ok, message = bot.upload_ce_latest_backup_to_nitrado(
+            {},
+            "cfgeventspawns.xml",
+            backup_path,
+            SPAWNS_XML,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("Exact backup verification failed", message)
+        self.assertIn("does not match source", message)
 
     def test_xml_compare_accepts_equivalent_structure(self):
         downloaded = """<eventposdef><event name="StaticWanderingBot_test"><pos a="0" z="2" x="1" /></event></eventposdef>"""
@@ -210,7 +240,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
     def test_failed_remote_latest_backup_keeps_in_memory_restore_copy(self):
         spawns_path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
-        built = {"spawns_path": spawns_path}
+        built = {"spawns_path": spawns_path, "spawns_source_text": SPAWNS_XML}
 
         def download(*_args):
             self.calls.append("download")
@@ -307,13 +337,18 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         bot.upload_text_file_to_nitrado = upload
         bot.verify_uploaded_protected_dayz_xml_text = verify
         bot.restore_remote_ce_file_from_latest_backup = restore
+        bot.download_text_file_from_nitrado_ftp = lambda *_args, **_kwargs: (
+            True,
+            "exact",
+            SPAWNS_XML,
+        )
 
         ok, message = bot.upload_protected_ce_file_to_nitrado(
             {},
             "cfgeventspawns.xml",
             "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
             SPAWNS_XML,
-            restore_text="<eventposdef></eventposdef>",
+            restore_text=SPAWNS_XML,
         )
 
         self.assertFalse(ok)
@@ -346,6 +381,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
         bot.upload_text_file_to_nitrado = upload
         bot.verify_uploaded_protected_dayz_xml_text = verify
+        bot.download_text_file_from_nitrado_ftp = lambda *_args, **_kwargs: (True, "exact", existing)
 
         ok, message = bot.upload_protected_ce_file_to_nitrado(
             {},
@@ -407,6 +443,153 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertIn("unmarked live territory", message)
         self.assertEqual(["download"], self.calls)
 
+    def test_valid_but_half_truncated_zombie_territory_source_fails_map_baseline(self):
+        reference = bot.load_dayz_reference_text("chernarus", "env", "zombie_territories.xml")
+        root = ET.fromstring(reference)
+        zones = root.findall(".//zone")
+        self.assertGreater(len(zones), 20)
+        for zone in zones[len(zones) // 2:]:
+            for parent in root.findall("territory"):
+                if zone in list(parent):
+                    parent.remove(zone)
+                    break
+        truncated_but_valid = ET.tostring(root, encoding="unicode")
+
+        ok, message = bot.validate_console_ce_live_source_baseline(
+            "zombie_territories.xml",
+            truncated_but_valid,
+            "chernarus",
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("missing vanilla/reference records", message)
+
+    def test_backup_blocks_when_live_source_changed_after_snippet_build(self):
+        path = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
+        built = {
+            "map_key": "livonia",
+            "spawns_path": path,
+            "spawns_source_text": SPAWNS_XML,
+        }
+        changed = SPAWNS_XML.replace('a="0"', 'a="90"')
+        bot.download_text_file_from_nitrado = lambda *_args: (True, "downloaded", changed)
+
+        ok, messages = bot.backup_remote_ce_sources_before_upload({}, built)
+
+        self.assertFalse(ok)
+        self.assertTrue(any("changed after the build source was read" in message for message in messages))
+
+    def test_failed_stage_swap_never_streams_to_live_filename(self):
+        target = "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"
+        uploaded_paths = []
+
+        def upload_stage(_config, path, _text):
+            uploaded_paths.append(path)
+            return True, "stage uploaded"
+
+        bot.upload_text_file_to_nitrado_ftp = upload_stage
+        bot.download_text_file_from_nitrado_ftp = lambda *_args, **_kwargs: (True, "exact", SPAWNS_XML)
+        bot.swap_verified_ftp_stage_into_live = lambda *_args, **_kwargs: (False, "rename refused", "")
+
+        ok, message = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified(
+            {},
+            target,
+            SPAWNS_XML,
+            previous_text=SPAWNS_XML,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("left unchanged", message)
+        self.assertEqual(1, len(uploaded_paths))
+        self.assertNotEqual(target, uploaded_paths[0])
+        self.assertIn(".wanderingbot-stage-", uploaded_paths[0])
+
+    def test_stage_swap_renames_live_aside_before_promoting_verified_stage(self):
+        target = "/mission/env/zombie_territories.xml"
+        stage = f"{target}.wanderingbot-stage-test"
+
+        class FakeFtp:
+            def __init__(self):
+                self.renames = []
+
+            def rename(self, source, destination):
+                self.renames.append((source, destination))
+
+            def quit(self):
+                return None
+
+        fake = FakeFtp()
+        bot.connect_nitrado_ftp = lambda _config: (fake, "test.ftp", "")
+
+        ok, _message, rollback_path = self.original_swap_stage({}, target, stage)
+
+        self.assertTrue(ok)
+        self.assertEqual(target, fake.renames[0][0])
+        self.assertIn(".wanderingbot-swap-old-", fake.renames[0][1])
+        self.assertEqual((stage, target), fake.renames[1])
+        self.assertEqual(fake.renames[0][1], rollback_path)
+
+    def test_stage_swap_failure_renames_previous_live_file_back_immediately(self):
+        target = "/mission/db/events.xml"
+        stage = f"{target}.wanderingbot-stage-test"
+
+        class FakeFtp:
+            def __init__(self):
+                self.renames = []
+
+            def rename(self, source, destination):
+                self.renames.append((source, destination))
+                if source.endswith(".wanderingbot-stage-test"):
+                    raise RuntimeError("stage promotion refused")
+
+            def quit(self):
+                return None
+
+        fake = FakeFtp()
+        bot.connect_nitrado_ftp = lambda _config: (fake, "test.ftp", "")
+
+        ok, message, rollback_path = self.original_swap_stage({}, target, stage)
+
+        self.assertFalse(ok)
+        self.assertEqual("", rollback_path)
+        self.assertIn("stage promotion refused", message)
+        rollback_name = fake.renames[0][1]
+        self.assertIn((rollback_name, target), fake.renames)
+
+    def test_bot_owned_file_is_not_treated_as_new_during_rate_limit(self):
+        target = "/mission/env/wanderingbot_animals_territories.xml"
+        bot.download_text_file_from_nitrado_ftp = lambda *_args, **_kwargs: (
+            False,
+            "429 Nitrado/Cloudflare returned an HTML rate-limit page",
+            None,
+        )
+
+        ok, message = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified({}, target, TERRITORY_XML)
+
+        self.assertFalse(ok)
+        self.assertIn("complete current live", message)
+
+    def test_bot_owned_file_creation_requires_explicit_file_not_found(self):
+        target = "/mission/env/wanderingbot_animals_territories.xml"
+        uploaded_paths = []
+        reads = iter([
+            (False, "550 file not found", None),
+            (True, "stage downloaded", TERRITORY_XML),
+            (True, "live downloaded", TERRITORY_XML),
+        ])
+        bot.download_text_file_from_nitrado_ftp = lambda *_args, **_kwargs: next(reads)
+        bot.upload_text_file_to_nitrado_ftp = lambda _config, path, _text: (
+            uploaded_paths.append(path) or True,
+            "stage uploaded",
+        )
+        bot.swap_verified_ftp_stage_into_live = lambda *_args, **_kwargs: (True, "stage promoted", "")
+
+        ok, message = bot.upload_protected_dayz_xml_to_nitrado_ftp_verified({}, target, TERRITORY_XML)
+
+        self.assertTrue(ok, message)
+        self.assertEqual(1, len(uploaded_paths))
+        self.assertIn(".wanderingbot-stage-", uploaded_paths[0])
+
     def test_native_ce_upload_rolls_back_when_final_bundle_mismatches(self):
         original_build = bot.build_console_ce_event_files
         original_validate = bot.validate_console_ce_xml_bundle
@@ -447,8 +630,8 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 self.calls.append("final")
                 return False, ["Final remote CE bundle verification failed after upload.", "mixed names"]
 
-            def rollback(_config, _built):
-                self.calls.append("rollback")
+            def rollback(_config, _built, **kwargs):
+                self.calls.append(("rollback", tuple(kwargs.get("only_paths") or [])))
                 return True, ["rollback restored"]
 
             bot.build_console_ce_event_files = build
@@ -469,8 +652,80 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 ("upload", "events.xml", True, True),
                 ("upload", "cfgeventspawns.xml", True, True),
                 "final",
-                "rollback",
+                (
+                    "rollback",
+                    (
+                        "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                        "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+                    ),
+                ),
             ], self.calls)
+        finally:
+            bot.build_console_ce_event_files = original_build
+            bot.validate_console_ce_xml_bundle = original_validate
+            bot.backup_remote_ce_sources_before_upload = original_backup
+            bot.upload_protected_ce_file_to_nitrado = original_upload
+            bot.verify_uploaded_console_ce_xml_bundle = original_final
+            bot.restore_console_ce_bundle_from_memory = original_rollback
+
+    def test_native_ce_upload_stops_at_first_failed_file_and_only_rolls_back_prior_writes(self):
+        original_build = bot.build_console_ce_event_files
+        original_validate = bot.validate_console_ce_xml_bundle
+        original_backup = bot.backup_remote_ce_sources_before_upload
+        original_upload = bot.upload_protected_ce_file_to_nitrado
+        original_final = bot.verify_uploaded_console_ce_xml_bundle
+        original_rollback = bot.restore_console_ce_bundle_from_memory
+        try:
+            events_path = "/mission/db/events.xml"
+            spawns_path = "/mission/cfgeventspawns.xml"
+            built = {
+                "messages": ["built"],
+                "events_path": events_path,
+                "events_text": "<events></events>",
+                "spawns_path": spawns_path,
+                "spawns_text": "<eventposdef></eventposdef>",
+                "types_path": "/mission/db/types.xml",
+                "types_text": "<types></types>",
+                "restore_texts": {
+                    events_path: '<events><event name="old" /></events>',
+                    spawns_path: '<eventposdef><event name="old" /></eventposdef>',
+                    "/mission/db/types.xml": '<types><type name="old" /></types>',
+                },
+            }
+
+            bot.build_console_ce_event_files = lambda *_args, **_kwargs: built
+            bot.validate_console_ce_xml_bundle = lambda _built: (True, ["validated"])
+            bot.backup_remote_ce_sources_before_upload = lambda *_args: (True, ["backed up"])
+
+            def upload(_config, label, _path, _text, **_kwargs):
+                self.calls.append(("upload", label))
+                if label == "cfgeventspawns.xml":
+                    return False, "stage verification failed"
+                return True, "promoted"
+
+            def rollback(_config, _built, **kwargs):
+                self.calls.append(("rollback", tuple(kwargs.get("only_paths") or [])))
+                return True, ["rolled back prior writes"]
+
+            def final_verify(*_args):
+                self.calls.append("final")
+                return True, ["should not run"]
+
+            bot.upload_protected_ce_file_to_nitrado = upload
+            bot.restore_console_ce_bundle_from_memory = rollback
+            bot.verify_uploaded_console_ce_xml_bundle = final_verify
+
+            ok, _built, messages = bot.upload_console_ce_event_files(123, {})
+
+            self.assertFalse(ok)
+            self.assertEqual([
+                ("upload", "events.xml"),
+                ("upload", "cfgeventspawns.xml"),
+                ("rollback", (events_path,)),
+            ], self.calls)
+            self.assertNotIn(("upload", "types.xml"), self.calls)
+            self.assertNotIn("final", self.calls)
+            self.assertTrue(any("stopped at `cfgeventspawns.xml`" in message for message in messages))
         finally:
             bot.build_console_ce_event_files = original_build
             bot.validate_console_ce_xml_bundle = original_validate
@@ -541,8 +796,8 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 self.calls.append("final")
                 return False, ["Final remote CE bundle verification failed after upload."]
 
-            def rollback(_config, _built):
-                self.calls.append("rollback")
+            def rollback(_config, _built, **kwargs):
+                self.calls.append(("rollback", tuple(kwargs.get("only_paths") or [])))
                 return True, ["rollback restored"]
 
             bot.build_console_ce_event_files = build
@@ -566,7 +821,15 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
                 ("upload", "events.xml", True, True),
                 ("upload", "cfgeventspawns.xml", True, True),
                 "final",
-                "rollback",
+                (
+                    "rollback",
+                    (
+                        territory_path,
+                        "/dayzxb_missions/dayzOffline.enoch/cfgenvironment.xml",
+                        "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
+                        "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
+                    ),
+                ),
             ], self.calls)
         finally:
             bot.build_console_ce_event_files = original_build
@@ -656,14 +919,15 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             {},
             "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
             SPAWNS_XML,
+            previous_text=SPAWNS_XML,
         )
 
         self.assertTrue(ok, message)
         self.assertIn("post-upload re-download matched", message)
-        self.assertEqual([
-            ("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"),
-            ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
-        ], self.calls)
+        self.assertEqual("upload_ftp", self.calls[0][0])
+        self.assertIn(".wanderingbot-stage-", self.calls[0][1])
+        self.assertEqual(2, len([call for call in self.calls if call[0] == "download_ftp"]))
+        self.assertEqual("/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", self.calls[-1][1])
 
     def test_verified_ftp_write_reports_stale_ftp_copy(self):
         stale_spawns = SPAWNS_XML.replace("StaticWanderingBot_test", "StaticWanderingBot_old")
@@ -683,11 +947,13 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             {},
             "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
             SPAWNS_XML,
+            previous_text=SPAWNS_XML,
         )
 
         self.assertFalse(ok)
         self.assertIn("did not match the uploaded content", message)
-        self.assertEqual(("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"), self.calls[0])
+        self.assertEqual("upload_ftp", self.calls[0][0])
+        self.assertIn(".wanderingbot-stage-", self.calls[0][1])
         self.assertEqual(5, len([call for call in self.calls if call[0] == "download_ftp"]))
 
     def test_verified_ftp_write_retries_empty_exact_read_before_failing(self):
@@ -709,15 +975,14 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             {},
             "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
             SPAWNS_XML,
+            previous_text=SPAWNS_XML,
         )
 
         self.assertTrue(ok, message)
         self.assertIn("after 2 attempt(s)", message)
-        self.assertEqual([
-            ("upload_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml"),
-            ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
-            ("download_ftp", "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml", True),
-        ], self.calls)
+        self.assertEqual("upload_ftp", self.calls[0][0])
+        self.assertIn(".wanderingbot-stage-", self.calls[0][1])
+        self.assertEqual(3, len([call for call in self.calls if call[0] == "download_ftp"]))
 
     def test_scope_guard_allows_only_wanderingbot_event_changes(self):
         original = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -929,7 +1194,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(any("Validated" in message for message in messages))
 
-    def test_final_bundle_redownload_failure_is_warning_after_individual_verification(self):
+    def test_final_bundle_redownload_failure_is_hard_failure(self):
         original_download = bot.download_text_file_from_nitrado
         original_download_ftp = bot.download_text_file_from_nitrado_ftp
         try:
@@ -950,8 +1215,8 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
             ok, messages = bot.verify_uploaded_console_ce_xml_bundle({}, built)
 
-            self.assertTrue(ok)
-            self.assertTrue(any("re-download warning" in message for message in messages))
+            self.assertFalse(ok)
+            self.assertTrue(any("verification failed" in message for message in messages))
             self.assertEqual(["ftp", "download"], self.calls)
         finally:
             bot.download_text_file_from_nitrado_ftp = original_download_ftp
@@ -990,7 +1255,7 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
             bot.download_text_file_from_nitrado_ftp = original_download_ftp
             bot.download_text_file_from_nitrado = original_download
 
-    def test_final_bundle_check_skips_scope_guard_on_redownloaded_copy(self):
+    def test_final_bundle_requires_exact_staged_content_on_redownload(self):
         original_download = bot.download_text_file_from_nitrado
         original_download_ftp = bot.download_text_file_from_nitrado_ftp
         try:
@@ -1035,12 +1300,9 @@ class ProtectedXmlUploadOrderTests(unittest.TestCase):
 
             ok, messages = bot.verify_uploaded_console_ce_xml_bundle({}, built)
 
-            self.assertTrue(ok, messages)
-            self.assertTrue(any("Final remote CE bundle verified" in message for message in messages))
-            self.assertEqual([
-                "/dayzxb_missions/dayzOffline.enoch/db/events.xml",
-                "/dayzxb_missions/dayzOffline.enoch/cfgeventspawns.xml",
-            ], self.calls)
+            self.assertFalse(ok)
+            self.assertTrue(any("no longer matches" in message for message in messages))
+            self.assertEqual(["/dayzxb_missions/dayzOffline.enoch/db/events.xml"], self.calls)
         finally:
             bot.download_text_file_from_nitrado_ftp = original_download_ftp
             bot.download_text_file_from_nitrado = original_download
