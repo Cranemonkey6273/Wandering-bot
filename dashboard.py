@@ -1719,7 +1719,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Basic",
         "price_text": "€5.99 / month",
         "description": "Full server dashboard with economy, shop, maps, XML tools, events and server controls.",
-        "server_limit": 2,
+        "server_limit": 3,
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1748,7 +1748,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Pro",
         "price_text": "€11.99 / month",
         "description": "Expanded dashboard access for active communities, including automatic multi-language Discord translation.",
-        "server_limit": 3,
+        "server_limit": 4,
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -1780,7 +1780,7 @@ DEFAULT_BILLING_PLANS = [
         "name": "Wandering Bot Ultimate",
         "price_text": "Set monthly price",
         "description": "Top tier dashboard access with every server tool plus private AI sandbox access.",
-        "server_limit": 4,
+        "server_limit": 5,
         "enabled": True,
         "features": {
             "leaderboards": True,
@@ -25018,6 +25018,15 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
     if not isinstance(saved, dict):
         saved = {}
     plans = default_billing_plan_map()
+    # These allowances were increased after plan records had already been
+    # saved in production. Treat former default values as legacy values so
+    # pricing, entitlements and server-slot enforcement update together.
+    # Deliberately customised allowances remain unchanged.
+    legacy_server_limits = {
+        "dashboard": 2,
+        "dashboard_ai": 3,
+        "dashboard_ultimate": 4,
+    }
     for plan_id, plan in saved.items():
         if not isinstance(plan, dict):
             continue
@@ -25041,12 +25050,16 @@ def dashboard_billing_plans() -> list[dict[str, Any]]:
             name = str(base.get("name") or name).strip()[:80]
         if clean_id == "dashboard_ai" and description == "Everything in Dashboard Pro plus the private AI development agent features.":
             description = str(base.get("description") or description).strip()[:400]
+        saved_server_limit = safe_int(plan.get("server_limit"), 0)
+        default_server_limit = safe_int(base.get("server_limit"), 1)
+        if saved_server_limit == legacy_server_limits.get(clean_id):
+            saved_server_limit = default_server_limit
         base.update({
             "id": clean_id,
             "name": name,
             "price_text": str(plan.get("price_text") or base.get("price_text") or "").strip()[:80],
             "description": description,
-            "server_limit": max(1, min(50, safe_int(plan.get("server_limit"), safe_int(base.get("server_limit"), 1)))),
+            "server_limit": max(1, min(50, saved_server_limit or default_server_limit)),
             "payment_url": payment_url,
             "stripe_payment_link_id": stripe_payment_link_id_from_text(stripe_payment_link_id),
             "stripe_buy_button_id": stripe_buy_button_id_from_text(stripe_buy_button_id),
