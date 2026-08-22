@@ -247,6 +247,84 @@ class ApplicationEmojiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([assets[1]["name"]], report["created"])
         self.assertEqual([], report["failed"])
 
+    def test_context_router_uses_specific_feed_emojis(self):
+        self.assertEqual(
+            "car",
+            self.module.wandering_emoji_key_for_context(
+                channel_key="killfeed",
+                context="vehicle kill",
+            ),
+        )
+        self.assertEqual(
+            "safe_zone",
+            self.module.wandering_emoji_key_for_context(
+                context="safe-zone enforcement",
+            ),
+        )
+        self.assertEqual(
+            "sleeping",
+            self.module.wandering_emoji_key_for_context(
+                channel_key="disconnects",
+            ),
+        )
+
+    def test_embed_decoration_is_contextual_and_idempotent(self):
+        self.module.wandering_emojis["ban_hammer"] = (
+            "<:wb_ban_hammer:123456789012345678>"
+        )
+        embed = self.module.discord.Embed(title="🔨 PLAYER BANNED")
+
+        self.module.decorate_embed_with_wandering_emoji(
+            embed,
+            context="automatic ban enforcement",
+        )
+        first_title = embed.title
+        self.module.decorate_embed_with_wandering_emoji(
+            embed,
+            context="automatic ban enforcement",
+        )
+
+        self.assertEqual(
+            "<:wb_ban_hammer:123456789012345678> PLAYER BANNED",
+            first_title,
+        )
+        self.assertEqual(first_title, embed.title)
+
+    def test_adult_emojis_are_never_selected_automatically(self):
+        selected = {
+            self.module.wandering_emoji_key_for_context(
+                channel_key=channel_key,
+                context=context,
+            )
+            for channel_key, context in (
+                ("killfeed", "player killed"),
+                ("raids", "raid warning"),
+                ("connections", "new survivor connected"),
+                ("", "wanker gesture"),
+            )
+        }
+        self.assertFalse(selected & self.module.WANDERING_ADULT_EMOJI_KEYS)
+
+        self.module.wandering_emojis.clear()
+        self.module.wandering_emojis.update({
+            "wanker_gesture": "<:wb_wanker_gesture:123456789012345678>",
+            "wave": "<:wb_wave:223456789012345678>",
+        })
+        for _ in range(20):
+            self.assertNotEqual(
+                "<:wb_wanker_gesture:123456789012345678>",
+                self.module.random_wandering_emoji(),
+            )
+
+    def test_food_deliveries_can_use_animated_mascot_emojis(self):
+        self.assertEqual(
+            "tactical_bacon_a",
+            self.module.wandering_emoji_key_for_context(
+                context="shop delivery queued",
+                description="Two Tactical Bacon tins",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

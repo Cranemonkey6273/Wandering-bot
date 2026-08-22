@@ -891,6 +891,10 @@ LEGACY_BOT_FOOTER_TEXT = "Wandering Bot Alpha"
 
 
 def normalize_embed_footer(embed):
+    decorator = globals().get("decorate_embed_with_wandering_emoji")
+    if callable(decorator):
+        decorator(embed)
+
     try:
         footer_text = str(getattr(getattr(embed, "footer", None), "text", "") or "")
     except Exception:
@@ -7544,9 +7548,143 @@ def wb_text(key, text, fallback=None):
     return f"{icon} {text}" if icon else text
 
 
-def random_wandering_emoji():
+WANDERING_AUTOMATIC_EMOJI_CONTEXT_RULES = (
+    ("tactical_bacon_a", ("tactical bacon",)),
+    ("baked_beans_a", ("baked beans",)),
+    ("canned_peaches_a", ("canned peaches",)),
+    ("sardines_a", ("sardines",)),
+    ("water_bottle_a", ("water bottle",)),
+    ("cooked_steak_a", ("cooked steak",)),
+    ("car", ("vehicle kill", "vehicle reset", "vehicle delivery", "car delivery")),
+    ("zombie", ("zombie", "infected")),
+    ("ban_hammer", ("banned", " ban ", "blacklist", "blocked player")),
+    ("safe_zone", ("safe zone", "safe-zone", "safezone")),
+    ("leaderboard", ("leaderboard", "rankings", "top players")),
+    ("airdrop", ("airdrop", "air drop")),
+    ("radar", ("radar", "pvp intel", "pvp-intel")),
+    ("rifle", ("longshot", "long shot", "sniper")),
+    ("skull", ("killfeed", " kill ", "killed", "death", "suicide", "first blood")),
+    ("medic", ("unconscious", "medical", "healed", "revived")),
+    ("bandage", ("bleed", "cut feed", "survivor damage", "bandage")),
+    ("building", ("building", "build feed", "base building")),
+    ("loot_crate", ("item placed", "item packed", "delivery queued", "loot crate")),
+    ("warning", ("raid", "warning", "alert", "failed", "error", "blocked")),
+    ("flag", ("flag raised", "flag lowered", "territory flag")),
+    ("money", ("wallet", "currency", "rubles", "money feed", "payout", "paid")),
+    ("shop", ("shop", "black market", "purchase", "order registered")),
+    ("trophy", ("achievement", "challenge complete", "milestone", "killstreak", "multi-kill")),
+    ("crown", ("winner", "champion", "first place")),
+    ("teamwork", ("faction", "squad inbound", "support ticket")),
+    ("wave", ("welcome", "connected", "new survivor", "joined")),
+    ("sleeping", ("disconnected", "left the server", "server quiet")),
+    ("radio", ("restart", "server status", "adm feed", "transmission")),
+    ("binoculars", ("online survivors", "player audit", "tracked players")),
+    ("map", ("heatmap", "map updated", "location")),
+    ("fish", ("fishing", "fish caught")),
+    ("sakhal_snow", ("sakhal snow", "snowfall")),
+    ("rain", ("rainfall", "rain started")),
+    ("check", ("confirmed", "saved", "updated", "enabled", "complete", "success")),
+    ("celebrate", ("celebration", "congratulations", "level up", "birthday")),
+)
+
+WANDERING_AUTOMATIC_EMOJI_CHANNEL_KEYS = {
+    "connections": "wave",
+    "disconnects": "sleeping",
+    "killfeed": "skull",
+    "longshots": "rifle",
+    "building": "building",
+    "raids": "warning",
+    "zombie_feed": "zombie",
+    "unconscious_feed": "medic",
+    "cuts_feed": "bandage",
+    "suicide_feed": "skull",
+    "flag_feed": "flag",
+    "placed_feed": "loot_crate",
+    "pvp_intel": "binoculars",
+    "radar": "radar",
+    "online": "binoculars",
+    "leaderboards": "leaderboard",
+    "mega_leaderboard": "leaderboard",
+    "money_feed": "money",
+    "pve_hunting": "rifle",
+    "pve_fishing": "fish",
+    "pve_rewards": "trophy",
+}
+
+WANDERING_ADULT_EMOJI_KEYS = frozenset({
+    "single_middle_finger",
+    "double_middle_finger",
+    "british_v_sign",
+    "wanker_gesture",
+    "angry_one_finger_salute",
+    "smug_up_yours",
+    "single_middle_finger_a",
+    "double_middle_finger_a",
+    "british_v_sign_a",
+    "wanker_gesture_a",
+    "angry_one_finger_salute_a",
+    "smug_up_yours_a",
+})
+
+WANDERING_CUSTOM_EMOJI_TITLE_PATTERN = re.compile(
+    r"^<a?:[A-Za-z0-9_]{2,32}:\d{15,24}>\s*"
+)
+WANDERING_LEGACY_TITLE_ICON_PATTERN = re.compile(
+    r"^(?:[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200D]+\s*)+"
+)
+
+
+def wandering_emoji_key_for_context(channel_key="", context="", title="", description=""):
+    channel_key = str(channel_key or "").strip().lower()
+    search_text = " ".join(
+        str(value or "").strip().lower()
+        for value in (context, title, description)
+        if value
+    )
+    padded_search_text = f" {search_text} "
+
+    for emoji_key, phrases in WANDERING_AUTOMATIC_EMOJI_CONTEXT_RULES:
+        if any(phrase in padded_search_text for phrase in phrases):
+            return emoji_key
+
+    return WANDERING_AUTOMATIC_EMOJI_CHANNEL_KEYS.get(channel_key, "")
+
+
+def decorate_embed_with_wandering_emoji(embed, *, channel_key="", context=""):
+    """Add one relevant application emoji without generating extra messages."""
+    title = str(getattr(embed, "title", "") or "").strip()
+    if not title or WANDERING_CUSTOM_EMOJI_TITLE_PATTERN.match(title):
+        return embed
+
+    description = str(getattr(embed, "description", "") or "")
+    emoji_key = wandering_emoji_key_for_context(
+        channel_key=channel_key,
+        context=context,
+        title=title,
+        description=description,
+    )
+    if not emoji_key or emoji_key in WANDERING_ADULT_EMOJI_KEYS:
+        return embed
+
+    icon = wb_emoji(emoji_key, "")
+    if not icon:
+        return embed
+
+    clean_title = WANDERING_LEGACY_TITLE_ICON_PATTERN.sub("", title).strip() or title
+    available = max(0, 256 - len(icon) - 1)
+    embed.title = f"{icon} {clean_title[:available]}"
+    return embed
+
+
+def random_wandering_emoji(*, include_adult=False):
     if wandering_emojis:
-        return random.choice(list(wandering_emojis.values()))
+        choices = [
+            value
+            for key, value in wandering_emojis.items()
+            if include_adult or key not in WANDERING_ADULT_EMOJI_KEYS
+        ]
+        if choices:
+            return random.choice(choices)
     return random.choice(list(DEFAULT_WANDERING_EMOJIS.values()))
 
 
@@ -9638,6 +9776,11 @@ async def send_feed_embed(guild_id, channel_key, channel, embed, *, style=False,
     if not channel:
         return None
     payload = style_embed(embed) if style else embed
+    decorate_embed_with_wandering_emoji(
+        payload,
+        channel_key=channel_key,
+        context=context,
+    )
     normalize_embed_footer(payload)
     retry_delays = (1.0, 3.0)
     total_attempts = len(retry_delays) + 1
