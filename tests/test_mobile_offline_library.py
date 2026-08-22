@@ -1,4 +1,5 @@
 import hashlib
+import html as html_lib
 import json
 import pathlib
 import re
@@ -89,12 +90,13 @@ class MobileOfflineLibraryTests(unittest.TestCase):
         html = (WEB / "index.html").read_text(encoding="utf-8")
         script = (WEB / "app.js").read_text(encoding="utf-8")
         translations = (WEB / "translations.js").read_text(encoding="utf-8")
-        phrases = set(
-            re.findall(
+        phrases = {
+            html_lib.unescape(phrase)
+            for phrase in re.findall(
                 r'data-i18n(?:-placeholder|-aria-label|-alt)?="([^"]+)"',
                 html,
             )
-        )
+        }
         phrases.update(re.findall(r'\bt\("([^"]+)"', script))
         self.assertGreaterEqual(len(phrases), 45)
         for phrase in phrases:
