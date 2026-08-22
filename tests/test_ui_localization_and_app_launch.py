@@ -245,6 +245,7 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
         self.assertIn("Rules &amp; link access", template)
         self.assertIn("Choice roles and welcomes", template)
         self.assertIn("Member messages", template)
+        self.assertIn(".onboarding-choice-grid { display: grid; grid-template-columns: minmax(0, 1fr);", template)
 
     def test_onboarding_save_allows_an_intentional_blank_role_selection(self):
         state = {
@@ -270,6 +271,37 @@ class UiLocalizationAndAppLaunchTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertEqual("", state["guild-onboarding-clear"]["member_onboarding"]["choice_cherno_role_id"])
+
+    def test_onboarding_audit_uses_the_selected_channel_label(self):
+        state = {
+            "guild-onboarding-audit": {
+                "member_onboarding": {"rules_channel_id": "900", "accepted_channel_id": "901"},
+            }
+        }
+        channels = [
+            {"key": "", "value": "900", "id": "900", "label": "#rules"},
+            {"key": "", "value": "901", "id": "901", "label": "#rules-accepted"},
+        ]
+
+        with (
+            patch.object(dashboard, "current_auth", return_value={"kind": "owner"}),
+            patch.object(dashboard, "load_store", return_value=state),
+            patch.object(dashboard, "save_store"),
+            patch.object(dashboard, "sync_runtime_store"),
+            patch.object(dashboard, "discord_guild_roles", return_value=[]),
+            patch.object(dashboard, "public_channels", return_value=channels),
+        ):
+            with dashboard.APP.test_request_context(
+                "/api/admin/member-onboarding",
+                method="POST",
+                json={"guild_id": "guild-onboarding-audit"},
+            ):
+                response = dashboard.api_member_onboarding()
+                audit_payload = dict(dashboard.g.dashboard_audit_payload)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("#rules", audit_payload["rules_channel_key"])
+        self.assertEqual("#rules-accepted", audit_payload["accepted_channel_key"])
 
     def test_live_feed_and_event_workspace_labels_are_unambiguous(self):
         self.assertEqual("ADM feed inbox", dashboard.COMMAND_SECTION_META["live-feeds"]["title"])

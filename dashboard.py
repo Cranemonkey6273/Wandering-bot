@@ -6577,8 +6577,8 @@ PAGE_TEMPLATE = """
     .onboarding-step legend { display: flex; align-items: center; gap: .55rem; max-width: 100%; padding: 0 .35rem; color: var(--text); font-weight: 900; }
     .onboarding-step-number { display: grid; place-items: center; flex: 0 0 auto; width: 1.8rem; height: 1.8rem; border: 1px solid var(--gold); border-radius: 50%; color: var(--gold); background: rgba(2,9,10,.9); }
     .onboarding-step legend small { color: var(--muted); font-size: .78rem; font-weight: 700; line-height: 1.25; }
-    .onboarding-step-fields, .onboarding-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin-top: .55rem; }
-    .onboarding-choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .onboarding-step-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; margin-top: .55rem; }
+    .onboarding-choice-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: .7rem; margin-top: .55rem; }
     .onboarding-choice-card { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; min-width: 0; padding: .7rem; border: 1px solid var(--line); border-radius: .5rem; background: rgba(1,8,10,.5); }
     .onboarding-choice-card h5 { grid-column: 1 / -1; margin: 0; color: var(--gold); font-size: .9rem; }
     .onboarding-choice-card .full { grid-column: 1 / -1; }
@@ -47755,6 +47755,26 @@ def api_member_onboarding():
     sync_runtime_store("guild_configs", guild_configs)
 
     channels = public_channels(config.get("channels", {}), guild_id)
+    def onboarding_audit_channel(key_name: str, id_name: str) -> str:
+        selected = str(settings.get(key_name) or settings.get(id_name) or "").strip()
+        label = channel_label_from_channels(channels, selected, "")
+        return label if label and not label.startswith("Unknown channel") else selected
+
+    # Audit entries are delivered later by the Discord bot.  Save the display
+    # label now, while the dashboard still knows which channel was selected,
+    # so an audit embed never replaces a real selection with "Unknown channel".
+    g.dashboard_audit_payload = {
+        "guild_id": guild_id,
+        "enabled": settings.get("enabled", False),
+        "rules_channel_key": onboarding_audit_channel("rules_channel_key", "rules_channel_id"),
+        "rules_message_id": settings.get("rules_message_id", ""),
+        "rules_role_id": settings.get("rules_role_id", ""),
+        "linked_role_id": settings.get("linked_role_id", ""),
+        "next_channel_key": onboarding_audit_channel("next_channel_key", "next_channel_id"),
+        "accepted_channel_key": onboarding_audit_channel("accepted_channel_key", "accepted_channel_id"),
+        "choice_channel_key": onboarding_audit_channel("choice_channel_key", "choice_channel_id"),
+        "choice_message_id": settings.get("choice_message_id", ""),
+    }
     display_settings = dashboard_member_onboarding_settings(config, channels, role_options)
     return dashboard_api_response(
         raw_payload,
