@@ -5895,8 +5895,21 @@ def resolve_onboarding_choice_welcome_channel(guild, config, settings, choice):
     choice_key = str((choice or {}).get("key") or "").strip().lower()
     if not choice_key:
         return None
-    channel = resolve_onboarding_channel(guild, config, settings, f"choice_{choice_key}_welcome", "")
-    if channel and is_matching_onboarding_choice_welcome_channel(channel, choice_key):
+    prefix = f"choice_{choice_key}_welcome"
+    configured_id = str(settings.get(f"{prefix}_channel_id") or "").strip()
+    configured_key = str(settings.get(f"{prefix}_channel_key") or "").strip()
+    if configured_id or configured_key:
+        # A dashboard selection is explicit and authoritative.  The old name
+        # filter could reject a perfectly valid selected channel merely
+        # because its name did not contain "welcome", "help" or the map name,
+        # then silently route elsewhere or send nothing. Keep only the narrow
+        # protection against obviously unsafe feed/admin/log destinations.
+        channel = resolve_onboarding_channel(guild, config, settings, prefix, "")
+        if not channel:
+            return None
+        name_key = normalize_discord_name(getattr(channel, "name", ""))
+        if any(token in name_key for token in ONBOARDING_CHOICE_WELCOME_UNSAFE_TOKENS):
+            return None
         return channel
     return find_onboarding_choice_welcome_channel(guild, choice_key)
 
@@ -6093,14 +6106,22 @@ async def apply_member_onboarding_member_update(before, after):
         handled = True
 
     choices_to_welcome = []
+    gate_role_ids = {
+        str(settings.get("rules_role_id") or "").strip(),
+        str(settings.get("linked_role_id") or "").strip(),
+        str(settings.get("pending_role_id") or "").strip(),
+    }
+    gate_role_ids.discard("")
     for added_role_id in added_role_ids:
+        # Rules/link/pending role changes are onboarding gate steps, not a
+        # member choosing Cherno, Sakhal/Livonia or Bot access.  Even if an
+        # administrator accidentally reuses the same role in both dropdowns,
+        # never fire a choice welcome from a gate-role update.
+        if added_role_id in gate_role_ids:
+            continue
         choice = onboarding_choice_for_role_id(settings, added_role_id)
         if choice:
             choices_to_welcome.append(choice)
-    if rules_role_id and rules_role_id in added_role_ids:
-        for choice in onboarding_server_choice_entries(settings):
-            if str(choice.get("role_id") or "").strip() in after_role_ids:
-                choices_to_welcome.append(choice)
 
     seen_choice_keys = set()
     for choice in choices_to_welcome:

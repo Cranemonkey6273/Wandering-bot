@@ -524,7 +524,9 @@ class ChannelMatchingTests(unittest.TestCase):
         choice_message.reactions = [FakeReaction("\U0001F535", [member])]
         rules_channel = FakeFetchChannel("rules", 10, [rules_message])
         choice_channel = FakeFetchChannel("pick-server", 20, [choice_message])
-        welcome_channel = FakeFetchChannel("LiVo-welcome", 31, [])
+        # An explicitly selected dashboard channel must be used even when its
+        # name does not contain map/welcome/help keywords.
+        welcome_channel = FakeFetchChannel("private-arrivals", 31, [])
         guild = FakeOnboardingGuild(
             [rules_channel, choice_channel, welcome_channel],
             roles=[rules_role, livo_role],
@@ -963,7 +965,7 @@ class ChannelMatchingTests(unittest.TestCase):
         self.assertTrue(handled)
         self.assertEqual(1, len(welcome_channel.sent))
 
-    def test_manual_rules_role_update_posts_existing_choice_welcome(self):
+    def test_rules_role_update_does_not_post_existing_choice_welcome(self):
         rules_role = FakeRole("Rule Abider", 101)
         livo_role = FakeRole("Wandering Around Livo", 102)
         before = FakeMember([livo_role], member_id=555)
@@ -990,8 +992,35 @@ class ChannelMatchingTests(unittest.TestCase):
         with mock.patch.dict(bot.guild_configs, {str(guild.id): config}, clear=False):
             handled = asyncio.run(bot.apply_member_onboarding_member_update(before, after))
 
-        self.assertTrue(handled)
-        self.assertEqual(1, len(welcome_channel.sent))
+        self.assertFalse(handled)
+        self.assertEqual(0, len(welcome_channel.sent))
+
+    def test_gate_role_reused_as_choice_never_posts_choice_welcome(self):
+        shared_role = FakeRole("Rule Abider", 101)
+        before = FakeMember([], member_id=556)
+        after = FakeMember([shared_role], member_id=556)
+        welcome_channel = FakeFetchChannel("cherno-welcome", 31, [])
+        guild = FakeOnboardingGuild(
+            [welcome_channel],
+            roles=[shared_role],
+            member=after,
+        )
+        after.guild = guild
+        config = {
+            "member_onboarding": {
+                "enabled": True,
+                "rules_role_id": "101",
+                "choice_cherno_emoji": "🔴",
+                "choice_cherno_role_id": "101",
+                "choice_cherno_welcome_channel_id": "31",
+            }
+        }
+
+        with mock.patch.dict(bot.guild_configs, {str(guild.id): config}, clear=False):
+            handled = asyncio.run(bot.apply_member_onboarding_member_update(before, after))
+
+        self.assertFalse(handled)
+        self.assertEqual(0, len(welcome_channel.sent))
 
     def test_requested_restart_history_does_not_suppress_online_presence(self):
         guild_id = "guild-requested-restart-only"
